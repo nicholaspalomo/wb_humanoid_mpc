@@ -210,6 +210,7 @@ RENAME = {
 
 class ApplyTest(unittest.TestCase):
     def setUp(self):
+        # pylint: disable-next=consider-using-with  # tearDown() deletes it.
         self.directory = tempfile.TemporaryDirectory()
         self.root = self.directory.name
         _write(self.root, "tools/x/Limits.h", "MAX_SIZE;\n")

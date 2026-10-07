@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,7 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_core/reference/ModeSchedule.h>
+#include "ocs2_core/reference/ModeSchedule.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
@@ -40,12 +44,12 @@ namespace ocs2::humanoid {
  */
 struct TargetContactPose {
   enum class Kind {
-    STANCE,           // no upcoming swing with a touch-down in the schedule: the foot's current placement
-    SWING_IN_FLIGHT,  // landing pose of the swing in flight
-    NEXT_SWING        // landing pose of the foot's next swing (the foot is still in contact)
+    kStance,         // no upcoming swing with a touch-down in the schedule: the foot's current placement
+    kSwingInFlight,  // landing pose of the swing in flight
+    kNextSwing       // landing pose of the foot's next swing (the foot is still in contact)
   };
   bool valid = false;
-  Kind kind = Kind::STANCE;
+  Kind kind = Kind::kStance;
   vector2_t position = vector2_t::Zero();  // [m] contact frame origin, xy
   scalar_t height = 0.0;                   // [m] contact surface height
   scalar_t yaw = 0.0;                      // [rad] contact frame yaw about the world z axis

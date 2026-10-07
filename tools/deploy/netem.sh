@@ -16,6 +16,7 @@
 set -eu
 
 # LINT.IfChange(bus_ports)
+# 5600-5631: robot 5600, mpc 5610, operator 5620, teleop 5621, config_push 5622.
 BUS_PORT=5600
 BUS_PORT_MASK=0xffe0
 # LINT.ThenChange(//config/ipc/network.textproto:localhost_nodes, //config/ipc/two_machine.example.textproto:two_machine_nodes)

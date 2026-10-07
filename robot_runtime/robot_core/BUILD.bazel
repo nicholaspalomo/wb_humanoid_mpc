@@ -1,5 +1,7 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+
 # robot_core - Header-only core types and lock-free buffers, and the resource path lookup of tests and tools
 
 package(default_visibility = ["//visibility:public"])
@@ -11,10 +13,12 @@ cc_library(
         exclude = ["include/robot_core/ResourcePaths.h"],
         allow_empty = True,
     ),
+    copts = FIRST_PARTY_COPTS,
     includes = ["include"],
     deps = [
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:absl_check",
         "@eigen",
-        "@abseil-cpp//absl/log:log",
     ],
 )
 
@@ -25,14 +29,9 @@ cc_library(
     srcs = ["src/ResourcePaths.cpp"],
     hdrs = ["include/robot_core/ResourcePaths.h"],
     includes = ["include"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     deps = [
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
@@ -44,9 +43,10 @@ cc_library(
 cc_test(
     name = "triple_buffer_test",
     srcs = ["test/TripleBufferTest.cpp"],
-    copts = ["-std=c++20"],
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":robot_core",
+        "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
     ],
 )
@@ -55,18 +55,13 @@ cc_test(
     name = "resource_paths_test",
     size = "small",
     srcs = ["test/ResourcePathsTest.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     # LINT.IfChange(resource_paths_test_data)
     data = ["test/testdata/resource_paths_probe.txt"],
     # LINT.ThenChange(//robot_runtime/robot_core/test/ResourcePathsTest.cpp:probe_file)
     deps = [
         ":resource_paths",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",

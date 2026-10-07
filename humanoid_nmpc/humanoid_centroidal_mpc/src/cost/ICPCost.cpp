@@ -28,29 +28,26 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include "humanoid_centroidal_mpc/cost/ICPCost.h"
 
-#include <humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h>
-
-#include <ocs2_centroidal_model/ModelHelperFunctions.h>
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
-
 #include <cmath>
-#include <pinocchio/algorithm/center-of-mass.hpp>
-#include <pinocchio/algorithm/frames.hpp>
-#include <pinocchio/algorithm/kinematics.hpp>
-#include <pinocchio/multibody/data.hpp>
-#include <pinocchio/multibody/model.hpp>
-
-#include <ocs2_core/misc/LoadData.h>
-#include <ocs2_core/misc/PropertyTree.h>
-#include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
+#include <string>
+#include <vector>
 
 #include "absl/log/log.h"
+#include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "ocs2_pinocchio_interface/PinocchioStateInputMapping.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/multibody/data.hpp"
+#include "pinocchio/multibody/model.hpp"
+
+#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 namespace ocs2::humanoid {
 
@@ -62,7 +59,7 @@ ICPCost::ICPCost(const SwitchedModelReferenceManager& referenceManager,
                  vector2_t weights,
                  const PinocchioInterface& pinocchioInterface,
                  const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
-                 std::string costName,
+                 const std::string& costName,
                  const ModelSettings& modelSettings)
     : StateInputCostGaussNewtonAd(),
       referenceManagerPtr_(&referenceManager),
@@ -92,16 +89,14 @@ ICPCost::ICPCost(const ICPCost& other)
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-ad_vector_t ICPCost::costVectorFunction(ad_scalar_t time,
+ad_vector_t ICPCost::costVectorFunction(ad_scalar_t /*time*/,
                                         const ad_vector_t& state,
-                                        const ad_vector_t& input,
+                                        const ad_vector_t& /*input*/,
                                         const ad_vector_t& parameters) {
-  const pinocchio::ReferenceFrame rf = pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
   const ad_vector_t sqrtWeightParams = parameters.head(2);  // EndEffectorKinematicsWeights vector element
 
   const PinocchioInterfaceCppAd::Model& model = pinocchioInterfaceCppAd_.getModel();
   PinocchioInterfaceCppAd::Data& data = pinocchioInterfaceCppAd_.getData();
-  scalar_t omega = std::sqrt(9.81 / 0.7);  // sqrt(g / z_0) This default com height should be added from the config.
 
   const ad_vector_t q = mpcRobotModelAdPtr_->getGeneralizedCoordinates(state);
 
@@ -117,7 +112,7 @@ ad_vector_t ICPCost::costVectorFunction(ad_scalar_t time,
   com_vel[1] = state[1];
 
   ad_vector_t capturePoint = com;
-  // ad_vector_t capturePoint = com + com_vel / ad_scalar_t(omega);
+  // The capture point would be com + com_vel / omega, omega = sqrt(g / z_0); the velocity term is not included.
   ad_vector_t errors = desiredCOMPosition - capturePoint;
 
   return errors.cwiseProduct(sqrtWeightParams);
@@ -127,37 +122,13 @@ ad_vector_t ICPCost::costVectorFunction(ad_scalar_t time,
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-vector_t ICPCost::getParameters(scalar_t time, const TargetTrajectories& targetTrajectories, const PreComputation& preComputation) const {
-  // TODO Update this reference for non flat ground in the future
+vector_t ICPCost::getParameters(scalar_t /*time*/,
+                                const TargetTrajectories& /*targetTrajectories*/,
+                                const PreComputation& /*preComputation*/) const {
+  // TODO(npalomo): update this reference for non-flat ground.
   vector_t parameters = sqrtWeights_;  // EndEffectorKinematicsWeights vector element
 
   return parameters;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
-vector2_t ICPCost::getWeights(const std::string& taskFile, const std::string prefix, bool verbose) {
-  PropertyTree pt;
-  loadData::readPropertyTree(taskFile, pt);
-
-  // Load all weights
-  scalar_t icpErrorWeight = 0;
-
-  if (verbose) {
-    LOG(INFO) << "\n #### ICP Cost Weights: ";
-    LOG(INFO) << "\n #### =============================================================================\n";
-  }
-  loadData::loadPtreeValue(pt, icpErrorWeight, prefix + "icpErrorWeight", verbose);
-
-  if (verbose) {
-    LOG(INFO) << " #### =============================================================================\n";
-  }
-
-  vector2_t weights;
-  weights << icpErrorWeight, icpErrorWeight;
-
-  return weights;
-}
 }  // namespace ocs2::humanoid

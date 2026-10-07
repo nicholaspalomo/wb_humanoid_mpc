@@ -1,9 +1,11 @@
 load("@operator_deps//:requirements.bzl", "requirement")
+load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
 load("@protobuf//bazel:proto_library.bzl", "proto_library")
 load("@protobuf//bazel:py_proto_library.bzl", "py_proto_library")
 load("@protobuf//bazel/toolchains:proto_lang_toolchain.bzl", "proto_lang_toolchain")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 
 # nproto: plain C++ structs generated from the repository's protos, their conversions to and from the protobuf
 # messages, and strict textproto parsing for the configuration files (README.md). nproto_cc_library (nproto.bzl)
@@ -11,17 +13,30 @@ load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 
 package(default_visibility = ["//visibility:public"])
 
-# The import path drops tools/, so a proto imports "nproto/options.proto".
+# The import path drops tools/, so a proto imports "nproto/options.proto". The options that name the structs and ask for
+# presence (options.proto), and the retired fields of a message (retired_field_options.proto with its RetiredField
+# message, retired_field.proto): one library, so that Python finds every module under one `nproto` package.
 proto_library(
     name = "options_proto",
-    srcs = ["options.proto"],
+    srcs = [
+        "options.proto",
+        "retired_field.proto",
+        "retired_field_options.proto",
+    ],
     strip_import_prefix = "/tools",
     deps = ["@protobuf//:descriptor_proto"],
 )
 
-# `from nproto import options_pb2`, for the generator to read the option.
+# `from nproto import options_pb2, retired_field_options_pb2`, for the generator and the Python parser to read the
+# options.
 py_proto_library(
     name = "options_py_proto",
+    deps = [":options_proto"],
+)
+
+# The retired-field options as C++ extensions, which the textproto parser of :nproto_runtime reads.
+cc_proto_library(
+    name = "options_cc_proto",
     deps = [":options_proto"],
 )
 
@@ -51,8 +66,8 @@ py_binary(
     ],
 )
 
-# How nproto_cc_library runs the plugin. The protos of protobuf itself and options.proto get no structs: they set no
-# option, and nproto has no use for them.
+# How nproto_cc_library runs the plugin. The protos of protobuf itself and the options library get no structs: they set
+# no option or are only read as options, and nproto has no use for them.
 proto_lang_toolchain(
     name = "nproto_toolchain",
     command_line = "--nproto_out=$(OUT)",
@@ -85,34 +100,59 @@ proto_lang_toolchain(
 # The runtime
 # ==============================================================================
 
-# No -Wpedantic: Abseil's int128.h, which absl/status pulls in, warns under it.
-_COPTS = [
-    "-std=c++20",
-    "-Wall",
-    "-Wextra",
-    "-Werror=return-type",
-]
-
 # What the generated code calls (nproto/Conversions.h) and the textproto helpers (nproto/Textproto.h). The generated
-# code depends on it through :nproto_toolchain, and with it on protobuf, Eigen and Abseil.
+# code depends on it through :nproto_toolchain, and with it on protobuf, Eigen and Abseil, absl/base:nullability for
+# the annotated output parameters of its signatures included. The parser reads the retired-field options of the message
+# it parses into (:options_cc_proto).
 cc_library(
     name = "nproto_runtime",
     srcs = [
         "src/Conversions.cpp",
+        "src/Schema.cpp",
         "src/Textproto.cpp",
     ],
     hdrs = [
         "include/nproto/Conversions.h",
+        "include/nproto/Schema.h",
         "include/nproto/Textproto.h",
     ],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     includes = ["include"],
     deps = [
+        ":options_cc_proto",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
         "@abseil-cpp//absl/strings:string_view",
         "@eigen",
         "@protobuf",
     ],
+)
+
+# ==============================================================================
+# The Python twin of the textproto parser
+# ==============================================================================
+
+# `import nproto_textproto`: the strict textproto parsing of nproto/Textproto.h for Python (the tuning GUI, the
+# configuration tools), with the same errors, retired-field answers and header check. Beside the generator, which also
+# imports by this directory (`imports = ["."]`); its test is //tools/nproto/test:test_nproto_textproto.
+py_library(
+    name = "nproto_textproto",
+    srcs = ["nproto_textproto.py"],
+    imports = ["."],
+    deps = [
+        ":options_py_proto",
+        requirement("protobuf"),
+    ],
+)
+
+# `import nproto_schema`: the schema fingerprint of nproto/Schema.h for Python, which the tuning GUI puts in the payloads
+# it publishes; its test is //tools/nproto/test:test_nproto_schema.
+py_library(
+    name = "nproto_schema",
+    srcs = ["nproto_schema.py"],
+    imports = ["."],
+    deps = [requirement("protobuf")],
 )

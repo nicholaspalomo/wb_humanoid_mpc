@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/constraint/StateConstraint.h>
 #include <ocs2_core/constraint/StateInputConstraint.h>
 #include <ocs2_core/cost/StateCost.h>
@@ -85,7 +87,7 @@ class TapedStateInputCost final : public StateInputCost {
               return y;
             },
             /*inputDim=*/16)) {}
-  TapedStateInputCost* clone() const override { return new TapedStateInputCost(*this); }
+  TapedStateInputCost* absl_nonnull clone() const override { return new TapedStateInputCost(*this); }
 
   scalar_t getValue(scalar_t /*time*/,
                     const vector_t& x,
@@ -133,7 +135,7 @@ class TapedStateCost final : public StateCost {
               return y;
             },
             /*inputDim=*/10)) {}
-  TapedStateCost* clone() const override { return new TapedStateCost(*this); }
+  TapedStateCost* absl_nonnull clone() const override { return new TapedStateCost(*this); }
 
   scalar_t getValue(scalar_t /*time*/,
                     const vector_t& x,
@@ -171,7 +173,7 @@ class TapedStateInputConstraint final : public StateInputConstraint {
               return g;
             },
             /*inputDim=*/16)) {}
-  TapedStateInputConstraint* clone() const override { return new TapedStateInputConstraint(*this); }
+  TapedStateInputConstraint* absl_nonnull clone() const override { return new TapedStateInputConstraint(*this); }
 
   size_t getNumConstraints(scalar_t /*time*/) const override { return 2; }
 
@@ -209,7 +211,7 @@ class TapedStateConstraint final : public StateConstraint {
               return h;
             },
             /*inputDim=*/10)) {}
-  TapedStateConstraint* clone() const override { return new TapedStateConstraint(*this); }
+  TapedStateConstraint* absl_nonnull clone() const override { return new TapedStateConstraint(*this); }
 
   size_t getNumConstraints(scalar_t /*time*/) const override { return 2; }
 

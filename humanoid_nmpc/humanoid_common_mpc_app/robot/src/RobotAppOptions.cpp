@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/RobotAppOptions.h"
 
 #include <cstdlib>
+#include <vector>
 
 #include "absl/status/status.h"
 #include "absl/strings/numbers.h"

@@ -37,8 +37,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdexcept>
 #include <utility>
 
-#include <ocs2_core/control/FeedforwardController.h>
-#include <ocs2_core/control/LinearController.h>
+#include "ocs2_core/control/FeedforwardController.h"
+#include "ocs2_core/control/LinearController.h"
 
 namespace ocs2::humanoid::ipc::test_data {
 namespace {
@@ -112,7 +112,7 @@ TargetTrajectories randomTargetTrajectories(std::mt19937& generator, size_t node
 }
 
 PerformanceIndex randomPerformanceIndex(std::mt19937& generator) {
-  std::uniform_real_distribution<scalar_t> value(/*a=*/-1e3, /*b=*/1e3);
+  std::uniform_real_distribution<scalar_t> value(/*a=*/-1.0e3, /*b=*/1.0e3);
   PerformanceIndex performanceIndex;
   performanceIndex.merit = value(generator);
   performanceIndex.cost = value(generator);

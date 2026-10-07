@@ -27,39 +27,35 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include "humanoid_common_mpc/orientation/EulerBoundary.h"
-
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <cmath>
 #include <random>
 #include <string>
 #include <vector>
 
-#include <Eigen/Geometry>
-
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
-
+#include "Eigen/Geometry"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "gtest/gtest.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
+#include "humanoid_common_mpc/orientation/EulerBoundary.h"
 
 /*
  * Step 5 of humanoid_nmpc/docs/quaternion_base_orientation/README.md: the Euler boundary. Round trips in both
  * directions (the rotation at every attitude, gimbal lock included), the clamped asin at +-90 degrees, parity with the
  * conversion of before the switch, T_B against the rate of the rotation matrix, and the tuning layout: its conversion of
- * task.yaml-shaped vectors and the errors that name the expected layout.
+ * task-file-shaped vectors and the errors that name the expected layout.
  */
 
 namespace ocs2::humanoid {
 namespace {
 
-constexpr scalar_t kRoundOffTolerance = 1e-14;
-constexpr scalar_t kFiniteDifferenceStep = 1e-6;
-constexpr scalar_t kFiniteDifferenceTolerance = 1e-8;
+constexpr scalar_t kRoundOffTolerance = 1.0e-14;
+constexpr scalar_t kFiniteDifferenceStep = 1.0e-6;
+constexpr scalar_t kFiniteDifferenceTolerance = 1.0e-8;
 constexpr scalar_t kDegree = M_PI / 180.0;
 /** The G1's joint count, for layouts of the shipped sizes (centroidal 35 -> 36, whole body 58 -> 59). */
 constexpr size_t kNumJoints = 23;
@@ -104,7 +100,7 @@ vector3_t randomEulerAngles(std::mt19937& generator, scalar_t maximumPitch) {
 /** The Euler angles near and at gimbal lock that the round trips are checked at. */
 std::vector<vector3_t> gimbalLockAngles() {
   std::vector<vector3_t> angles;
-  for (const scalar_t pitchOffset : {0.0, 1e-12, 1e-9, 1e-7, 1e-5, 1e-4, 1e-3, 2e-3}) {
+  for (const scalar_t pitchOffset : {0.0, 1.0e-12, 1.0e-9, 1.0e-7, 1.0e-5, 1.0e-4, 1.0e-3, 2.0e-3}) {
     for (const scalar_t sign : {1.0, -1.0}) {
       for (const vector2_t& yawRoll : {vector2_t(0.0, 0.0), vector2_t(0.3, 0.7), vector2_t(-2.0, 1.1), vector2_t(2.9, -3.0)}) {
         angles.emplace_back(yawRoll(0), sign * (M_PI_2 - pitchOffset), yawRoll(1));
@@ -172,14 +168,14 @@ TEST(EulerBoundary, QuaternionFromEulerZyxIsTheZyxProduct) {
 TEST(EulerBoundary, EulerRoundTripIsExactBelowNinetyDegrees) {
   std::mt19937 generator(12);
   for (int i = 0; i < 64; ++i) {
-    const vector3_t euler = randomEulerAngles(generator, /*maximumPitch=*/M_PI_2 - 1e-3);
-    EXPECT_LT((eulerZyxFromQuaternion(quaternionFromEulerZyx(euler)) - euler).cwiseAbs().maxCoeff(), 1e-12) << euler.transpose();
+    const vector3_t euler = randomEulerAngles(generator, /*maximumPitch=*/M_PI_2 - 1.0e-3);
+    EXPECT_LT((eulerZyxFromQuaternion(quaternionFromEulerZyx(euler)) - euler).cwiseAbs().maxCoeff(), 1.0e-12) << euler.transpose();
   }
   // Yaw and roll come back in (-pi, pi].
   const vector3_t wrapped = eulerZyxFromQuaternion(quaternionFromEulerZyx(vector3_t(4.0, 0.2, -3.5)));
-  EXPECT_NEAR(wrapped(0), 4.0 - 2.0 * M_PI, 1e-12);
-  EXPECT_NEAR(wrapped(1), 0.2, 1e-12);
-  EXPECT_NEAR(wrapped(2), -3.5 + 2.0 * M_PI, 1e-12);
+  EXPECT_NEAR(wrapped(0), 4.0 - 2.0 * M_PI, 1.0e-12);
+  EXPECT_NEAR(wrapped(1), 0.2, 1.0e-12);
+  EXPECT_NEAR(wrapped(2), -3.5 + 2.0 * M_PI, 1.0e-12);
 }
 
 TEST(EulerBoundary, QuaternionRoundTripReproducesTheRotationAtEveryAttitude) {
@@ -190,7 +186,7 @@ TEST(EulerBoundary, QuaternionRoundTripReproducesTheRotationAtEveryAttitude) {
     for (Eigen::Index j = 0; j < 4; ++j) xi(j) = normal(generator);
     xi /= xi.norm();
     const vector3_t euler = eulerZyxFromQuaternion(xi);
-    EXPECT_LT(rotationDistance(quaternionFromEulerZyx(euler), xi), 1e-12) << xi.transpose();
+    EXPECT_LT(rotationDistance(quaternionFromEulerZyx(euler), xi), 1.0e-12) << xi.transpose();
     EXPECT_LE(std::abs(euler(1)), M_PI_2);
   }
   // At and near gimbal lock, where the yaw and roll formulas alone lose the rotation.
@@ -199,7 +195,7 @@ TEST(EulerBoundary, QuaternionRoundTripReproducesTheRotationAtEveryAttitude) {
     const vector3_t euler = eulerZyxFromQuaternion(xi);
     ASSERT_TRUE(euler.allFinite()) << angles.transpose();
     EXPECT_LE(std::abs(euler(1)), M_PI_2);
-    EXPECT_LT(rotationDistance(quaternionFromEulerZyx(euler), xi), 1e-12)
+    EXPECT_LT(rotationDistance(quaternionFromEulerZyx(euler), xi), 1.0e-12)
         << "angles " << angles.transpose() << ", read back as " << euler.transpose();
   }
 }
@@ -213,8 +209,8 @@ TEST(EulerBoundary, AsinIsClampedAtNinetyDegrees) {
     ASSERT_TRUE(std::isnan(std::asin(2.0 * (xi(3) * xi(1) - xi(2) * xi(0)))));
     const vector3_t euler = eulerZyxFromQuaternion(xi);
     ASSERT_TRUE(euler.allFinite());
-    EXPECT_NEAR(euler(1), sign * M_PI_2, 1e-15);
-    EXPECT_LT(rotationDistance(quaternionFromEulerZyx(euler), xi), 1e-12);
+    EXPECT_NEAR(euler(1), sign * M_PI_2, 1.0e-15);
+    EXPECT_LT(rotationDistance(quaternionFromEulerZyx(euler), xi), 1.0e-12);
   }
   // Every unit quaternion at exactly +-90 degrees, whichever way its round-off falls.
   for (const scalar_t sign : {1.0, -1.0}) {
@@ -224,8 +220,8 @@ TEST(EulerBoundary, AsinIsClampedAtNinetyDegrees) {
         const vector4_t xi = quaternionFromEulerZyx(angles);
         const vector3_t euler = eulerZyxFromQuaternion(xi);
         ASSERT_TRUE(euler.allFinite()) << angles.transpose();
-        EXPECT_NEAR(euler(1), sign * M_PI_2, 1e-15) << angles.transpose();
-        EXPECT_LT(rotationDistance(quaternionFromEulerZyx(euler), xi), 1e-12) << angles.transpose();
+        EXPECT_NEAR(euler(1), sign * M_PI_2, 1.0e-15) << angles.transpose();
+        EXPECT_LT(rotationDistance(quaternionFromEulerZyx(euler), xi), 1.0e-12) << angles.transpose();
       }
     }
   }
@@ -233,7 +229,7 @@ TEST(EulerBoundary, AsinIsClampedAtNinetyDegrees) {
   // A measured quaternion slightly off the unit sphere near 90 degrees takes the asin formula, and its argument exceeds
   // one by more than round-off: the clamp gives exactly +-pi/2.
   for (const scalar_t sign : {1.0, -1.0}) {
-    const vector4_t xi = (1.0 + 5e-4) * quaternionFromEulerZyx(vector3_t(0.4, sign * 89.0 * kDegree, -0.2));
+    const vector4_t xi = (1.0 + 5.0e-4) * quaternionFromEulerZyx(vector3_t(0.4, sign * 89.0 * kDegree, -0.2));
     ASSERT_GT(std::abs(2.0 * (xi(3) * xi(1) - xi(2) * xi(0))), 1.0);
     const vector3_t euler = eulerZyxFromQuaternion(xi);
     ASSERT_TRUE(euler.allFinite());
@@ -318,7 +314,7 @@ TEST(EulerBoundaryTuningLayout, CentroidalLayoutConvertsTheEulerRowsOnly) {
   const absl::StatusOr<vector_t> roundTrip = tuningLayoutFromState(*state, layout);
   ASSERT_TRUE(roundTrip.ok()) << roundTrip.status();
   EXPECT_EQ(roundTrip->head<9>(), tuning.head<9>());
-  EXPECT_LT((roundTrip->segment<3>(9) - euler).cwiseAbs().maxCoeff(), 1e-14);
+  EXPECT_LT((roundTrip->segment<3>(9) - euler).cwiseAbs().maxCoeff(), 1.0e-14);
   EXPECT_EQ(roundTrip->tail(kNumJoints), tuning.tail(kNumJoints));
 
   // The state is read through the safe normalization: a quaternion off the unit sphere reads the same angles.
@@ -326,7 +322,7 @@ TEST(EulerBoundaryTuningLayout, CentroidalLayoutConvertsTheEulerRowsOnly) {
   scaledState.segment<4>(9) *= 1.5;
   const absl::StatusOr<vector_t> scaledRoundTrip = tuningLayoutFromState(scaledState, layout);
   ASSERT_TRUE(scaledRoundTrip.ok()) << scaledRoundTrip.status();
-  EXPECT_LT((scaledRoundTrip->segment<3>(9) - euler).cwiseAbs().maxCoeff(), 1e-14);
+  EXPECT_LT((scaledRoundTrip->segment<3>(9) - euler).cwiseAbs().maxCoeff(), 1.0e-14);
 }
 
 TEST(EulerBoundaryTuningLayout, WholeBodyLayoutReordersTheAngularVelocityRows) {
@@ -348,7 +344,7 @@ TEST(EulerBoundaryTuningLayout, WholeBodyLayoutReordersTheAngularVelocityRows) {
 
   const absl::StatusOr<vector_t> roundTrip = tuningLayoutFromState(*state, layout);
   ASSERT_TRUE(roundTrip.ok()) << roundTrip.status();
-  EXPECT_LT((*roundTrip - tuning).cwiseAbs().maxCoeff(), 1e-14);
+  EXPECT_LT((*roundTrip - tuning).cwiseAbs().maxCoeff(), 1.0e-14);
   EXPECT_EQ(roundTrip->segment(9 + nj, 3), tuning.segment(9 + nj, 3));
 }
 
@@ -373,14 +369,14 @@ TEST(EulerBoundaryTuningLayout, EuclideanLayoutIsTheIdentity) {
 
 TEST(EulerBoundaryTuningLayout, WrongSizesAreRejectedNamingTheExpectedLayout) {
   const TuningLayout layout = centroidalLayout();
-  // A quaternion-sized Q or initialState (36 rows) in the 35-row tuning layout, and the reverse.
+  // A quaternion-sized state_weights or initial_state (36 rows) in the 35-row tuning layout, and the reverse.
   const absl::StatusOr<vector_t> tooLong = stateFromTuningLayout(vector_t::Zero(13 + kNumJoints), layout);
   ASSERT_FALSE(tooLong.ok());
   EXPECT_EQ(tooLong.status().code(), absl::StatusCode::kInvalidArgument);
   const std::string tooLongMessage(tooLong.status().message());
   for (const std::string& expected :
        {std::string("36 entries"), std::string("centroidal tuning layout (35 rows"), std::string("h 6"), std::string("p_W 3"),
-        std::string("base_orientation 3 (yaw, pitch, roll)"), std::string("q_j 23"), std::string("initialState")}) {
+        std::string("base_orientation 3 (yaw, pitch, roll)"), std::string("q_j 23"), std::string("initial_state")}) {
     EXPECT_TRUE(absl::StrContains(tooLongMessage, expected)) << "'" << expected << "' missing from: " << tooLongMessage;
   }
   const absl::StatusOr<vector_t> tooShort = stateFromTuningLayout(vector_t::Zero(11 + kNumJoints), layout);

@@ -27,31 +27,35 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <limits>
-#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
 
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
+#include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
 #include "humanoid_common_mpc/reference_manager/BreakFrequencyAlphaFilter.h"
-#include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
+#include "humanoid_mpc_config/reference_file.nproto.h"
+#include "humanoid_mpc_config/reference_file.pb.h"
+#include "nproto/Textproto.h"
 
 /*
  * The command filter of the procedural motion manager: a first-order low-pass filter on the solver time, configured by
- * reference.yaml's velocityCommandFilterBreakFrequency and shipped off. It used to blend its input with its initial
+ * reference.textproto's velocity_command_filter_break_frequency and shipped off. It used to blend its input with its initial
  * output by the wall-clock time since construction and never update either, so the "5 Hz" filter was a scale factor
  * t / (t + 0.032 s) that became the identity after start-up.
  */
@@ -97,7 +101,7 @@ TEST(BreakFrequencyAlphaFilter, theStepResponseIsTheContinuousFilterAtEverySampl
       time += steps[k % steps.size()];
       // The time the filter sees since the step, (kStart + t) - kStart, rather than t: the two differ in the last digit.
       const scalar_t elapsed = time - kStart;
-      EXPECT_NEAR(filter.update(time, constant(1.0))(0), 1.0 - std::exp(-elapsed / tau), 1e-12) << "t = " << elapsed;
+      EXPECT_NEAR(filter.update(time, constant(1.0))(0), 1.0 - std::exp(-elapsed / tau), 1.0e-12) << "t = " << elapsed;
     }
     EXPECT_GT(filter.getOutput()(0), 0.99);
   }
@@ -109,15 +113,15 @@ TEST(BreakFrequencyAlphaFilter, theOutputCoversOneMinusOneOverEOfAStepInOneTimeC
     // A clock at 1 s, where one time constant is represented to the last digit that the checks below resolve.
     const scalar_t start = 1.0;
     const scalar_t expected = 0.4 + 2.0 * (1.0 - std::exp(-((start + tau) - start) / tau));
-    EXPECT_NEAR(expected, 0.4 + 2.0 * (1.0 - std::exp(-1.0)), 1e-12);
+    EXPECT_NEAR(expected, 0.4 + 2.0 * (1.0 - std::exp(-1.0)), 1.0e-12);
     BreakFrequencyAlphaFilter oneSample = filterAt(breakFrequency, /*initialOutput=*/0.4);
     oneSample.update(start, constant(2.4));
-    EXPECT_NEAR(oneSample.update(start + tau, constant(2.4))(0), expected, 1e-12);
+    EXPECT_NEAR(oneSample.update(start + tau, constant(2.4))(0), expected, 1.0e-12);
 
     BreakFrequencyAlphaFilter manySamples = filterAt(breakFrequency, /*initialOutput=*/0.4);
     manySamples.update(start, constant(2.4));
     for (int k = 1; k < 100; ++k) manySamples.update(start + tau * k / 100.0, constant(2.4));
-    EXPECT_NEAR(manySamples.update(start + tau, constant(2.4))(0), expected, 1e-12);
+    EXPECT_NEAR(manySamples.update(start + tau, constant(2.4))(0), expected, 1.0e-12);
   }
 }
 
@@ -132,9 +136,9 @@ TEST(BreakFrequencyAlphaFilter, itRunsOnTheTimeItIsGivenAndKeepsItsState) {
 
   // The state carries over: after ten time constants at 1, a step back to 0 decays from there, not from the seed.
   const scalar_t settled = filter.update(kStart + 10.0 * tau, constant(1.0))(0);
-  EXPECT_NEAR(settled, 1.0 - std::exp(-10.0), 1e-9);
+  EXPECT_NEAR(settled, 1.0 - std::exp(-10.0), 1.0e-9);
   const scalar_t oneMore = (kStart + 11.0 * tau) - (kStart + 10.0 * tau);
-  EXPECT_NEAR(filter.update(kStart + 11.0 * tau, constant(0.0))(0), settled * std::exp(-oneMore / tau), 1e-12);
+  EXPECT_NEAR(filter.update(kStart + 11.0 * tau, constant(0.0))(0), settled * std::exp(-oneMore / tau), 1.0e-12);
 }
 
 TEST(BreakFrequencyAlphaFilter, aResetReturnsToTheStateAfterConstructionAndKeepsTheBreakFrequency) {
@@ -161,7 +165,7 @@ TEST(BreakFrequencyAlphaFilter, aClockThatRunsBackwardsRestartsTheClockAndHoldsT
   ASSERT_GT(before, 0.0);
   EXPECT_EQ(filter.update(/*time=*/2.0, constant(1.0))(0), before);
   const scalar_t elapsed = (2.0 + tau) - 2.0;
-  EXPECT_NEAR(filter.update(2.0 + tau, constant(1.0))(0), before + (1.0 - before) * (1.0 - std::exp(-elapsed / tau)), 1e-12);
+  EXPECT_NEAR(filter.update(2.0 + tau, constant(1.0))(0), before + (1.0 - before) * (1.0 - std::exp(-elapsed / tau)), 1.0e-12);
 }
 
 TEST(BreakFrequencyAlphaFilter, switchingTheFilterOnContinuesFromTheLastInput) {
@@ -187,12 +191,12 @@ TEST(BreakFrequencyAlphaFilter, anInvalidBreakFrequencyIsRejectedAndChangesNothi
 }
 
 /******************************************************************************************************/
-/*                         The reference.yaml key ProceduralMpcMotionManager reads                          */
+/*                 The reference file's field ProceduralMpcMotionManager is configured from                 */
 /******************************************************************************************************/
 
 std::string runfilePath(absl::string_view relativePath) {
   std::vector<std::filesystem::path> roots;
-  if (const char* srcDir = std::getenv("TEST_SRCDIR")) roots.emplace_back(std::filesystem::path(srcDir) / "_main");
+  if (const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR")) roots.emplace_back(std::filesystem::path(srcDir) / "_main");
   roots.emplace_back(std::filesystem::current_path());
   for (const std::filesystem::path& root : roots) {
     const std::filesystem::path candidate = root / std::string(relativePath);
@@ -201,45 +205,55 @@ std::string runfilePath(absl::string_view relativePath) {
   return std::string();
 }
 
-std::string readFile(const std::string& path) {
-  std::ifstream in(path);
-  std::stringstream buffer;
-  buffer << in.rdbuf();
-  return buffer.str();
+/** The reference settings of the reference file at `path`, as the MPC reads them. */
+absl::StatusOr<ReferenceSettings> referenceSettingsOfFile(const std::string& path) {
+  absl::StatusOr<mpc_config::ReferenceFile> file = loadReferenceFile(path);
+  if (!file.ok()) return file.status();
+  return referenceSettingsFromConfig(*file);
 }
 
-TEST(VelocityCommandFilterKey, everyShippedRobotConfiguresTheFilterAndShipsItOff) {
+TEST(VelocityCommandFilterField, everyShippedRobotConfiguresTheFilterAndShipsItOff) {
   // LINT.IfChange(shipped_reference_files)
   const std::vector<std::string> referenceFiles = {
-      "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml",
-      "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/command/reference.yaml",
-      "robot_models/unitree_g1/g1_centroidal_mpc/config/command/reference.yaml",
-      "robot_models/unitree_g1/g1_wb_mpc/config/command/reference.yaml",
-      "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/command/reference.yaml",
+      "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.textproto",
+      "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/command/reference.textproto",
+      "robot_models/unitree_g1/g1_centroidal_mpc/config/command/reference.textproto",
+      "robot_models/unitree_g1/g1_wb_mpc/config/command/reference.textproto",
+      "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/command/reference.textproto",
   };
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/BUILD.bazel:filter_test_data)
   for (const std::string& relativePath : referenceFiles) {
     SCOPED_TRACE(relativePath);
     const std::string file = runfilePath(relativePath);
     ASSERT_FALSE(file.empty()) << "not in the runfiles";
-    EXPECT_TRUE(
-        absl::StrContains(readFile(file), absl::StrCat("\n", ProceduralMpcMotionManager::kVelocityCommandFilterBreakFrequencyKey, ":")))
-        << "the key is set explicitly, next to its documentation";
-    const absl::StatusOr<scalar_t> breakFrequency = ProceduralMpcMotionManager::loadVelocityCommandFilterBreakFrequency(file);
-    ASSERT_TRUE(breakFrequency.ok()) << breakFrequency.status();
-    EXPECT_EQ(*breakFrequency, 0.0) << "a robot ships the command filter off until it has been tried in simulation";
+    const absl::StatusOr<humanoid_mpc_config::ReferenceFile> parsed = nproto::ParseTextprotoFile<humanoid_mpc_config::ReferenceFile>(file);
+    ASSERT_TRUE(parsed.ok()) << parsed.status();
+    EXPECT_TRUE(parsed->has_velocity_command_filter_break_frequency()) << "the field is set explicitly, next to its documentation";
+    const absl::StatusOr<ReferenceSettings> settings = referenceSettingsOfFile(file);
+    ASSERT_TRUE(settings.ok()) << settings.status();
+    EXPECT_EQ(settings->velocityCommandFilterBreakFrequency, 0.0)
+        << "a robot ships the command filter off until it has been tried in simulation";
   }
 }
 
-class VelocityCommandFilterKeyFileTest : public ::testing::Test {
+class VelocityCommandFilterFieldFileTest : public ::testing::Test {
  protected:
   void TearDown() override {
     for (const std::string& file : files_) std::filesystem::remove(file);
   }
 
+  /** A reference file with the limits the MPC requires and `line`. */
   std::string referenceFileWith(absl::string_view line) {
-    const std::string file = (std::filesystem::path(::testing::TempDir()) / absl::StrCat("reference_", files_.size(), ".yaml")).string();
-    std::ofstream(file) << "maxDisplacementVelocityX: 1.0\n" << line << "\n";
+    const std::string file =
+        (std::filesystem::path(::testing::TempDir()) / absl::StrCat("reference_", files_.size(), ".textproto")).string();
+    std::ofstream(file) << "target_displacement_velocity: 0.5\n"
+                        << "target_rotation_velocity: 0.5\n"
+                        << "max_displacement_velocity_x: 1.0\n"
+                        << "max_displacement_velocity_y: 0.5\n"
+                        << "max_delta_pelvis_height: 0.1\n"
+                        << "max_rotation_velocity: 1.0\n"
+                        << "default_base_height: 0.9\n"
+                        << line << "\n";
     files_.push_back(file);
     return file;
   }
@@ -247,25 +261,29 @@ class VelocityCommandFilterKeyFileTest : public ::testing::Test {
   std::vector<std::string> files_;
 };
 
-TEST_F(VelocityCommandFilterKeyFileTest, anAbsentKeyIsOffAndAValidOneIsRead) {
-  const absl::StatusOr<scalar_t> absent = ProceduralMpcMotionManager::loadVelocityCommandFilterBreakFrequency(referenceFileWith(""));
+TEST_F(VelocityCommandFilterFieldFileTest, anAbsentFieldIsOffAndAValidOneIsRead) {
+  const absl::StatusOr<ReferenceSettings> absent = referenceSettingsOfFile(referenceFileWith(""));
   ASSERT_TRUE(absent.ok()) << absent.status();
-  EXPECT_EQ(*absent, 0.0);
-  const absl::StatusOr<scalar_t> set =
-      ProceduralMpcMotionManager::loadVelocityCommandFilterBreakFrequency(referenceFileWith("velocityCommandFilterBreakFrequency: 2.5"));
+  EXPECT_EQ(absent->velocityCommandFilterBreakFrequency, 0.0);
+  const absl::StatusOr<ReferenceSettings> set = referenceSettingsOfFile(referenceFileWith("velocity_command_filter_break_frequency: 2.5"));
   ASSERT_TRUE(set.ok()) << set.status();
-  EXPECT_EQ(*set, 2.5);
+  EXPECT_EQ(set->velocityCommandFilterBreakFrequency, 2.5);
 }
 
-TEST_F(VelocityCommandFilterKeyFileTest, anInvalidValueIsRejectedWithAMessageThatNamesTheKey) {
-  for (const absl::string_view value : {"-1.0", "fast", ".inf"}) {
+TEST_F(VelocityCommandFilterFieldFileTest, anInvalidValueIsRejectedWithAMessageThatNamesTheField) {
+  for (const absl::string_view value : {"-1.0", "inf"}) {
     SCOPED_TRACE(value);
-    const absl::StatusOr<scalar_t> loaded = ProceduralMpcMotionManager::loadVelocityCommandFilterBreakFrequency(
-        referenceFileWith(absl::StrCat("velocityCommandFilterBreakFrequency: ", value)));
+    const absl::StatusOr<ReferenceSettings> loaded =
+        referenceSettingsOfFile(referenceFileWith(absl::StrCat("velocity_command_filter_break_frequency: ", value)));
     ASSERT_FALSE(loaded.ok());
     EXPECT_EQ(loaded.status().code(), absl::StatusCode::kInvalidArgument);
-    EXPECT_TRUE(absl::StrContains(loaded.status().message(), "velocityCommandFilterBreakFrequency")) << loaded.status();
+    EXPECT_TRUE(absl::StrContains(loaded.status().message(), "velocity_command_filter_break_frequency")) << loaded.status();
   }
+  // A value that is not a number is the parser's to refuse, naming the file and the line.
+  const std::string notANumber = referenceFileWith("velocity_command_filter_break_frequency: fast");
+  const absl::StatusOr<ReferenceSettings> loaded = referenceSettingsOfFile(notANumber);
+  EXPECT_EQ(loaded.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(loaded.status().message(), absl::StrCat(notANumber, ":8:"))) << loaded.status();
 }
 
 }  // namespace

@@ -1,0 +1,45 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "nproto/options.proto";
+
+// The swing-foot trajectory planner (the task file's swing_trajectory_config block, SwingTrajectoryPlanner::Config):
+// the height spline of every swing, the impact-proximity factor that shapes the foot costs around a contact switch,
+// and the toe-up pitch of the swing foot. Every field's default is the planner's own, so an absent field, or an absent
+// block, plans exactly as SwingTrajectoryPlanner::Config{} does. Every value must be finite.
+// Next ID: 12
+message SwingTrajectoryConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::SwingTrajectoryConfig";
+
+  reserved 12 to max;
+
+  // [m/s] Vertical foot velocity at lift-off, positive upward.
+  double lift_off_velocity = 1 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
+  // [m/s] Vertical foot velocity at touch-down, negative downward. Zero lands with a flat height spline, so the sole
+  // hovers just above the ground at the end of the swing.
+  double touch_down_velocity = 2 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
+  // [m] Apex of the swing above the lift-off height.
+  double swing_height = 3 [default = 0.1, (humanoid_mpc_config.tuning) = { unit: "m" }];
+  // [s] A swing shorter than this is scaled down in height and velocity by its duration / swing_time_scale, so it must
+  // not exceed the shortest swing the gait schedule or the contact planner produces.
+  double swing_time_scale = 4 [default = 0.15, (humanoid_mpc_config.tuning) = { unit: "s" }];
+  // [m] Touch-down height relative to the terrain.
+  double touch_down_height_offset = 5 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "m" }];
+
+  // Slope of the impact-proximity factor at lift-off; zero or negative.
+  double impact_proximity_factor_lift_off_velocity = 6 [default = 0.0];
+  // Slope of the impact-proximity factor at touch-down; zero or positive.
+  double impact_proximity_factor_touch_down_velocity = 7 [default = 0.0];
+  // Impact-proximity factor at mid-swing, between 0 and 1.
+  double impact_proximity_factor_mid_point_value = 8 [default = 0.1];
+
+  // [rad] Peak toe-up pitch of the swing foot reference; 0 keeps the foot flat through the swing. The pitch is 0 at
+  // lift-off and at touch-down, so contact is made with the whole sole.
+  double swing_pitch_angle = 9 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "rad" }];
+  // Fraction of the swing spent ramping the pitch up from flat to swing_pitch_angle.
+  double swing_pitch_rise_fraction = 10 [default = 0.25];
+  // Fraction of the swing spent ramping the pitch back down to flat before touch-down.
+  double swing_pitch_fall_fraction = 11 [default = 0.15];
+}

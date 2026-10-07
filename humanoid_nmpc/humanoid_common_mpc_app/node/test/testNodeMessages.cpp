@@ -27,14 +27,13 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <cmath>
 #include <limits>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
 #include "humanoid_common_mpc/contact_planning/TargetContactPose.h"
@@ -138,13 +137,13 @@ TargetContactPose pose(TargetContactPose::Kind kind, scalar_t x) {
 }
 
 TEST(FillViewerAnnotations, SendsOnePatchPerFootAndTheScaledCommand) {
-  const feet_array_t<TargetContactPose> poses = {pose(TargetContactPose::Kind::SWING_IN_FLIGHT, /*x=*/0.4),
-                                                 pose(TargetContactPose::Kind::NEXT_SWING, /*x=*/0.1)};
+  const feet_array_t<TargetContactPose> poses = {pose(TargetContactPose::Kind::kSwingInFlight, /*x=*/0.4),
+                                                 pose(TargetContactPose::Kind::kNextSwing, /*x=*/0.1)};
   const WalkingVelocityCommand scaled(/*v_x=*/0.3, /*v_y=*/-0.1, /*desired_pelvis_h=*/0.8, /*v_yaw=*/0.2);
   humanoid_mpc_msgs::ViewerAnnotations annotations;
   fillViewerAnnotations(&poses, scaled, &annotations);
 
-  ASSERT_EQ(annotations.target_contact_patches_size(), static_cast<int>(N_CONTACTS));
+  ASSERT_EQ(annotations.target_contact_patches_size(), static_cast<int>(kNumContacts));
   const humanoid_mpc_msgs::TargetContactPatch& left = annotations.target_contact_patches(0);
   EXPECT_TRUE(left.valid());
   EXPECT_EQ(left.kind(), humanoid_mpc_msgs::TargetContactPatch::KIND_SWING_IN_FLIGHT);
@@ -168,14 +167,14 @@ TEST(FillViewerAnnotations, SendsNoPatchWithoutAContactPlannerAndReplacesWhatThe
 }
 
 TEST(TargetContactPatchToProto, MarksAPoseWithAValueThatIsNotFiniteInvalid) {
-  TargetContactPose broken = pose(TargetContactPose::Kind::STANCE, /*x=*/0.0);
+  TargetContactPose broken = pose(TargetContactPose::Kind::kStance, /*x=*/0.0);
   broken.yaw = std::numeric_limits<scalar_t>::quiet_NaN();
   humanoid_mpc_msgs::TargetContactPatch patch;
   targetContactPatchToProto(broken, &patch);
   EXPECT_FALSE(patch.valid());
   EXPECT_EQ(patch.kind(), humanoid_mpc_msgs::TargetContactPatch::KIND_STANCE);
 
-  TargetContactPose invalid = pose(TargetContactPose::Kind::STANCE, /*x=*/0.0);
+  TargetContactPose invalid = pose(TargetContactPose::Kind::kStance, /*x=*/0.0);
   invalid.valid = false;
   targetContactPatchToProto(invalid, &patch);
   EXPECT_FALSE(patch.valid());

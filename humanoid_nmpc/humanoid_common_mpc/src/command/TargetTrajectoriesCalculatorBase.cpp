@@ -31,50 +31,39 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
 
 #include <algorithm>  // For std::clamp
+#include <cmath>
 #include <functional>
 #include <mutex>
+#include <string>
 #include <utility>
 
-#include <ocs2_core/misc/LoadData.h>
+#include "absl/log/absl_check.h"
 
-#include <cmath>
+#include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
-
-#include "absl/log/log.h"
 
 namespace ocs2::humanoid {
 
-TargetTrajectoriesCalculatorBase::TargetTrajectoriesCalculatorBase(const std::string& referenceFile,
+TargetTrajectoriesCalculatorBase::TargetTrajectoriesCalculatorBase(const ReferenceSettings& referenceSettings,
+                                                                   const vector_t& defaultJointState,
                                                                    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                                                    scalar_t mpcHorizon)
-    : mpcRobotModelPtr_(mpcRobotModel.clone()), mpcHorizon_(mpcHorizon) {
-  LOG(INFO) << "Loading reference file: " << referenceFile;
-  targetJointState_.resize(mpcRobotModel.getJointDim());
-  loadData::loadEigenMatrix(referenceFile, "defaultJointState", targetJointState_);
-  reloadCommandLimits(referenceFile);
+    : mpcRobotModelPtr_(mpcRobotModel.clone()), targetJointState_(defaultJointState), mpcHorizon_(mpcHorizon) {
+  ABSL_CHECK_EQ(static_cast<size_t>(targetJointState_.size()), mpcRobotModel.getJointDim())
+      << "TargetTrajectoriesCalculatorBase: the default joint state has one entry per MPC joint (defaultJointStateFromConfig())";
+  applyCommandLimits(referenceSettings);
 }
 
-void TargetTrajectoriesCalculatorBase::reloadCommandLimits(const std::string& referenceFile) {
-  // loadData takes a reference to the value it writes, which an atomic cannot provide, so each is loaded into a local
-  // seeded with the current value: a key that is absent from the file then leaves its limit where it was, exactly as
-  // it does at construction.
-  const std::function<void(const std::string&, std::atomic<scalar_t>&)> load = [&referenceFile](const std::string& key,
-                                                                                                std::atomic<scalar_t>& target) {
-    scalar_t value = target.load();
-    loadData::loadCppDataType(referenceFile, key, value);
-    target.store(value);
-  };
-  // LINT.IfChange(command_limits)
-  load("defaultBaseHeight", defaultBaseHeight_);
-  load("targetRotationVelocity", targetRotationVelocity_);
-  load("targetDisplacementVelocity", targetDisplacementVelocity_);
-  load("maxDisplacementVelocityX", maxDisplacementVelocityX_);
-  load("maxDisplacementVelocityY", maxDisplacementVelocityY_);
-  load("maxDeltaPelvisHeight", maxDeltaPelvisHeight_);
-  load("maxRotationVelocity", maxRotationVelocity_);
-  // clang-format off
-  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/teleop/src/KeyboardVelocityCommand.cpp:keyboard_command_limits)
-  // clang-format on
+void TargetTrajectoriesCalculatorBase::applyCommandLimits(const ReferenceSettings& referenceSettings) {
+  // LINT.IfChange(apply_command_limits)
+  defaultBaseHeight_.store(referenceSettings.defaultBaseHeight);
+  targetRotationVelocity_.store(referenceSettings.targetRotationVelocity);
+  targetDisplacementVelocity_.store(referenceSettings.targetDisplacementVelocity);
+  maxDisplacementVelocityX_.store(referenceSettings.maxDisplacementVelocityX);
+  maxDisplacementVelocityY_.store(referenceSettings.maxDisplacementVelocityY);
+  maxDeltaPelvisHeight_.store(referenceSettings.maxDeltaPelvisHeight);
+  maxRotationVelocity_.store(referenceSettings.maxRotationVelocity);
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/reference/ReferenceFromConfig.cpp:hot_reference_file_fields)
 }
 
 /******************************************************************************************************/
@@ -100,18 +89,8 @@ scalar_t TargetTrajectoriesCalculatorBase::getTerrainHeight() const {
 }
 
 scalar_t TargetTrajectoriesCalculatorBase::commandedBaseHeight(scalar_t commandedPelvisHeight) const {
-  const scalar_t heightAboveGround =
-      commandedPelvisHeight > kMinCommandedPelvisHeight ? commandedPelvisHeight : scalar_t(defaultBaseHeight_);
+  const scalar_t heightAboveGround = commandedPelvisHeight > kMinCommandedPelvisHeight ? commandedPelvisHeight : defaultBaseHeight_.load();
   return getTerrainHeight() + heightAboveGround;
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
-void TargetTrajectoriesCalculatorBase::setTargetJointState(const vector_t targetJointState) {
-  assert(targetJointState.size() == mpcRobotModelPtr_->getJointDim());
-  targetJointState_ = targetJointState;
 }
 
 /******************************************************************************************************/
@@ -163,7 +142,7 @@ vector6_t TargetTrajectoriesCalculatorBase::getCurrentBasePoseTarget(const vecto
 /******************************************************************************************************/
 
 vector4_t TargetTrajectoriesCalculatorBase::filterAndTransformVelCommandToLocal(const vector4_t& commandedVelLocal,
-                                                                                const scalar_t& currentEulerZ,
+                                                                                scalar_t currentEulerZ,
                                                                                 scalar_t filterAlpha) {
   filteredVelocityCommand_ = filteredVelocityCommand_ * filterAlpha + commandedVelLocal * (1 - filterAlpha);
 

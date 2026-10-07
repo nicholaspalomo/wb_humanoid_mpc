@@ -27,8 +27,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
@@ -38,8 +36,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <thread>
 #include <vector>
 
+#include "absl/base/no_destructor.h"
 #include "absl/status/status.h"
 #include "absl/synchronization/mutex.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/mrt/JointPdGains.h"
 #include "humanoid_common_mpc/mrt/JointPdGainsMailbox.h"
@@ -64,15 +64,15 @@ namespace {
 
 using ::ocs2::humanoid::estimation::heapAllocationCount;
 
-const std::vector<std::string> kMpcJoints{"a", "b", "c"};
-const std::vector<std::string> kOtherJoints{"d", "e"};
+const absl::NoDestructor<std::vector<std::string>> kMpcJoints(std::vector<std::string>{"a", "b", "c"});
+const absl::NoDestructor<std::vector<std::string>> kOtherJoints(std::vector<std::string>{"d", "e"});
 
 JointPdGains gainsWithKp(scalar_t kp) {
   JointPdGainsDefaults defaults;
   defaults.kp = kp;
   defaults.kd = kp / 10.0;
   defaults.torqueLimit = 100.0;
-  return defaultJointPdGains(defaults, kMpcJoints, kOtherJoints);
+  return defaultJointPdGains(defaults, *kMpcJoints, *kOtherJoints);
 }
 
 TEST(JointPdGainsMailbox, GainsPostedOnAnotherThreadAreReceivedOnce) {
@@ -170,17 +170,17 @@ TEST(JointPdGainsMailbox, ReceivingMakesNoHeapAllocation) {
   producer.join();
 
   // Nothing else runs in this process now: every allocation counted is the control thread's.
-  const std::size_t before = heapAllocationCount();
+  const size_t before = heapAllocationCount();
   const bool received = mailbox.receive(active);
   const bool receivedAgain = mailbox.receive(active);
-  const std::size_t after = heapAllocationCount();
+  const size_t after = heapAllocationCount();
   EXPECT_TRUE(received);
   EXPECT_FALSE(receivedAgain);
   EXPECT_EQ(after - before, 0u) << "receive() allocated on the control thread";
   EXPECT_EQ(active.mpcJointKp[0], 3.0);
 
   // Positive control: the counter sees an allocation of this thread.
-  const std::size_t beforeCopy = heapAllocationCount();
+  const size_t beforeCopy = heapAllocationCount();
   const JointPdGains copy = active;
   EXPECT_GT(heapAllocationCount(), beforeCopy) << "the allocation counter is not linked into this binary";
   EXPECT_EQ(copy.mpcJointKp[0], 3.0);

@@ -74,12 +74,12 @@ struct Rgba {
 
 // OCS2's MATLAB-like palette (ocs2::Color), which the bridge draws its defaults in.
 // LINT.IfChange(marker_palette)
-inline constexpr Rgba kBlue{0.0f, 0.4470f, 0.7410f, 1.0f};
-inline constexpr Rgba kOrange{0.8500f, 0.3250f, 0.0980f, 1.0f};
-inline constexpr Rgba kYellow{0.9290f, 0.6940f, 0.1250f, 1.0f};
-inline constexpr Rgba kPurple{0.4940f, 0.1840f, 0.5560f, 1.0f};
-inline constexpr Rgba kGreen{0.4660f, 0.6740f, 0.1880f, 1.0f};
-inline constexpr Rgba kRed{0.6350f, 0.0780f, 0.1840f, 1.0f};
+inline constexpr Rgba kBlue{.r = 0.0f, .g = 0.4470f, .b = 0.7410f, .a = 1.0f};
+inline constexpr Rgba kOrange{.r = 0.8500f, .g = 0.3250f, .b = 0.0980f, .a = 1.0f};
+inline constexpr Rgba kYellow{.r = 0.9290f, .g = 0.6940f, .b = 0.1250f, .a = 1.0f};
+inline constexpr Rgba kPurple{.r = 0.4940f, .g = 0.1840f, .b = 0.5560f, .a = 1.0f};
+inline constexpr Rgba kGreen{.r = 0.4660f, .g = 0.6740f, .b = 0.1880f, .a = 1.0f};
+inline constexpr Rgba kRed{.r = 0.6350f, .g = 0.0780f, .b = 0.1840f, .a = 1.0f};
 /** Contact i (and plan frame i) is drawn in kContactColors[i % 5]: left foot purple, right foot orange. */
 inline constexpr std::array<Rgba, 5> kContactColors = {kPurple, kOrange, kBlue, kGreen, kYellow};
 // clang-format off

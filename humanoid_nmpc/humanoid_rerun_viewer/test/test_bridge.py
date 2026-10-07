@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """The bridge's handlers, driven directly with synthetic messages; the recording is read back from an .rrd file."""
 
 import math
@@ -5,7 +32,6 @@ import os
 import shutil
 import tempfile
 import unittest
-from typing import Optional
 
 from humanoid_mpc_msgs import arrows_pb2
 from humanoid_mpc_msgs import fsm_state_pb2
@@ -16,8 +42,6 @@ from humanoid_mpc_msgs import spheres_pb2
 from humanoid_mpc_msgs import telemetry_series_pb2
 from humanoid_mpc_msgs import visualization_scene_pb2
 
-import rrd_contents
-import synthetic_messages
 from humanoid_mpc_ipc import topics
 from humanoid_rerun_viewer import bridge
 from humanoid_rerun_viewer import palette
@@ -25,6 +49,8 @@ from humanoid_rerun_viewer import scene_contract
 from humanoid_rerun_viewer import status_contract
 from humanoid_rerun_viewer import telemetry_contract
 from humanoid_rerun_viewer import urdf_model
+import rrd_contents
+import synthetic_messages
 
 ROBOT_TIMELINE = scene_contract.ROBOT_TIMELINE
 WALL_TIMELINE = scene_contract.WALL_TIMELINE
@@ -48,6 +74,8 @@ class FakeClock:
 
 
 class BridgeTestCase(unittest.TestCase):
+    """A bridge that records into an .rrd file, which contents() reads back; with the sample URDF if `with_model`."""
+
     with_model = True
 
     def setUp(self) -> None:
@@ -56,13 +84,13 @@ class BridgeTestCase(unittest.TestCase):
         self.rrd_path = os.path.join(self.directory, "bridge.rrd")
         self.recording = bridge.new_recording("test_bridge")
         self.recording.save(self.rrd_path)
-        self.model: Optional[urdf_model.RobotModel] = None
+        self.model: urdf_model.RobotModel | None = None
         if self.with_model:
             self.model = urdf_model.load_urdf(
                 synthetic_messages.write_sample_package(self.directory)
             )
         self.bridge = bridge.RerunBridge(self.recording, self.model, clock=FakeClock())
-        self._contents: Optional[rrd_contents.RrdContents] = None
+        self._contents: rrd_contents.RrdContents | None = None
 
     def contents(self) -> rrd_contents.RrdContents:
         if self._contents is None:
@@ -83,6 +111,7 @@ class StaticDataTest(BridgeTestCase):
         self.assertIn(
             "ViewCoordinates:xyz", contents.entities["world"].static_components
         )
+        assert self.model is not None  # with_model
         for style in scene_contract.ROBOT_INSTANCES:
             for visual in self.model.visuals:
                 self.assertIn(
@@ -275,8 +304,8 @@ class SceneTest(BridgeTestCase):
         self.assertEqual(self.malformed(topics.VIZ_SCENE), 3)
 
     def test_a_handler_never_raises(self) -> None:
-        self.bridge.handle_scene(None)  # type: ignore[arg-type]
-        self.bridge.handle_telemetry(object())  # type: ignore[arg-type]
+        self.bridge.handle_scene(None)
+        self.bridge.handle_telemetry(object())
         self.assertEqual(self.bridge.statistics.handler_errors[topics.VIZ_SCENE], 1)
         self.assertEqual(self.bridge.statistics.handler_errors[topics.VIZ_TELEMETRY], 1)
 
@@ -524,6 +553,7 @@ class StatusTest(BridgeTestCase):
             )
         )
         text = self.bridge.report(bus_rejected=2)
+        assert text is not None
         self.assertIn("1 malformed", text)
         self.assertIn("2 rejected by the bus", text)
         self.assertIsNone(self.bridge.report(bus_rejected=2))
@@ -533,7 +563,7 @@ class StatusTest(BridgeTestCase):
 
 class MarkerHelpersTest(unittest.TestCase):
     def test_default_colors_cycle_over_the_elements(self) -> None:
-        colors = bridge._defaults_rgba8(  # pylint: disable=protected-access
+        colors = bridge._defaults_rgba8(
             [
                 palette.with_alpha(palette.RED, 1.0),
                 palette.with_alpha(palette.BLUE, 1.0),
@@ -546,7 +576,7 @@ class MarkerHelpersTest(unittest.TestCase):
     def test_message_colors_are_clamped(self) -> None:
         arrows = arrows_pb2.Arrows()
         arrows.colors.add(r=2.0, g=-1.0, b=0.5, a=1.0)
-        rgba = bridge._colors_rgba8(arrows.colors)  # pylint: disable=protected-access
+        rgba = bridge._colors_rgba8(arrows.colors)
         self.assertEqual(list(rgba[0]), [255, 0, 128, 255])
 
     def test_spheres_take_one_radius_or_one_each(self) -> None:

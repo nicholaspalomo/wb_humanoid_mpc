@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/initialization/WeightCompInitializer.h"
 
+#include "absl/base/nullability.h"
+
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 namespace ocs2::humanoid {
@@ -40,22 +42,22 @@ namespace ocs2::humanoid {
 WeightCompInitializer::WeightCompInitializer(const PinocchioInterface& pinocchioInterface,
                                              const SwitchedModelReferenceManager& referenceManager,
                                              const MpcRobotModelBase<scalar_t>& mpcRobotModel)
-    : pinocchioInterface_(pinocchioInterface), referenceManagerPtr_(&referenceManager), mpcRobotModelPtr_(&mpcRobotModel) {}
+    : mpcRobotModelPtr_(&mpcRobotModel), pinocchioInterface_(pinocchioInterface), referenceManagerPtr_(&referenceManager) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
 WeightCompInitializer::WeightCompInitializer(const WeightCompInitializer& rhs)
-    : pinocchioInterface_(rhs.pinocchioInterface_),
-      referenceManagerPtr_(rhs.referenceManagerPtr_),
-      mpcRobotModelPtr_(rhs.mpcRobotModelPtr_) {}
+    : mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
+      pinocchioInterface_(rhs.pinocchioInterface_),
+      referenceManagerPtr_(rhs.referenceManagerPtr_) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-WeightCompInitializer* WeightCompInitializer::clone() const {
+WeightCompInitializer* absl_nonnull WeightCompInitializer::clone() const {
   return new WeightCompInitializer(*this);
 }
 
@@ -63,8 +65,8 @@ WeightCompInitializer* WeightCompInitializer::clone() const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void WeightCompInitializer::compute(scalar_t time, const vector_t& state, scalar_t nextTime, vector_t& input, vector_t& nextState) {
-  const auto contactFlags = referenceManagerPtr_->getContactFlags(time);
+void WeightCompInitializer::compute(scalar_t time, const vector_t& state, scalar_t /*nextTime*/, vector_t& input, vector_t& nextState) {
+  const contact_flag_t contactFlags = referenceManagerPtr_->getContactFlags(time);
   input = weightCompensatingInput(pinocchioInterface_, contactFlags, *mpcRobotModelPtr_);
   nextState = state;
 }

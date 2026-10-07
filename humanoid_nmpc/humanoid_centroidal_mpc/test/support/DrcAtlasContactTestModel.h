@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,17 +29,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <memory>
 #include <string>
 #include <vector>
 
-#include <ocs2_centroidal_model/CentroidalModelInfo.h>
-#include <ocs2_centroidal_model/CentroidalModelPinocchioMapping.h>
-#include <ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
+#include "ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -95,7 +100,7 @@ class DrcAtlasContactTestModel {
   const CentroidalMpcRobotModel<scalar_t>& wrenchModel() const { return *wrenchModel_; }
 
   /**
-   * The basis-vector model the shipped Atlas runs (`contactInputParameterization: basis_vectors`): its input vector stores
+   * The basis-vector model the shipped Atlas runs (`contact_input_parameterization: "basis_vectors"`): its input vector stores
    * non-negative scalings of a LOCAL contact-frame wrench-cone basis, so getContactWrench() returns a local-frame
    * wrench where the wrench model returns a world-frame one. That difference is the whole of audit finding A3.
    */
@@ -135,7 +140,7 @@ class DrcAtlasContactTestModel {
    * which joints the task file fixes. A test that pitches the wrong joint would still pass its own assertions while
    * proving nothing about the foot.
    */
-  long anklePitchStateIndex(size_t contactIndex) const;
+  Eigen::Index anklePitchStateIndex(size_t contactIndex) const;
 
   /**
    * A plausible working point for the given model: the named foot carries `normalForce` newtons, the other carries
@@ -144,13 +149,17 @@ class DrcAtlasContactTestModel {
    */
   vector_t makeInput(const MpcRobotModelBase<scalar_t>& model, size_t loadedFoot, scalar_t normalForce) const;
 
+  /** The paths of the DRC Atlas task and reference textprotos in the runfiles. */
   const std::string& taskFile() const { return taskFile_; }
   const std::string& referenceFile() const { return referenceFile_; }
+  /** The typed DRC Atlas files the model is built from. */
+  const CentroidalMpcConfig& config() const { return config_; }
 
  private:
   std::string taskFile_;
   std::string referenceFile_;
   std::string urdfFile_;
+  CentroidalMpcConfig config_;
   std::string modelNamePrefix_;
 
   std::unique_ptr<ModelSettings> modelSettings_;

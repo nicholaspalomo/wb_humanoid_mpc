@@ -27,23 +27,26 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include "humanoid_mpc_validation/closed_loop/CentroidalClosedLoopDriver.h"
 
-#include <exception>
 #include <memory>
 #include <string>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/log/log.h"
+#include "absl/memory/memory.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 
 #include "humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcParameterUpdater.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
+#include "humanoid_common_mpc/parameter_update/CommandLimitsReloaders.h"
 
 namespace ocs2::humanoid::validation {
 
@@ -53,7 +56,8 @@ absl::StatusOr<std::unique_ptr<CentroidalClosedLoopDriver>> CentroidalClosedLoop
     return absl::InvalidArgumentError(
         absl::StrCat("[CentroidalClosedLoopDriver] ", configuration.name, " is not a centroidal configuration"));
   }
-  std::unique_ptr<CentroidalClosedLoopDriver> driver(new CentroidalClosedLoopDriver());
+  // The constructor is private.
+  std::unique_ptr<CentroidalClosedLoopDriver> driver = absl::WrapUnique(new CentroidalClosedLoopDriver());
   RETURN_IF_ERROR(driver->initialize(configuration, options));
   return driver;
 }
@@ -75,9 +79,10 @@ absl::Status CentroidalClosedLoopDriver::initialize(const RobotConfiguration& co
   // LINT.IfChange(centroidal_mpc_node_wiring)
   // Everything that produces or consumes OCP inputs uses the effective model (the basis-vector input layout).
   const MpcRobotModelBase<scalar_t>& effectiveModel = interface.getEffectiveMpcRobotModel();
-  std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator> calculator = std::make_unique<CentroidalMpcTargetTrajectoriesCalculator>(
-      configuration.referenceFile, effectiveModel, interface.getPinocchioInterface(), interface.getCentroidalModelInfo(),
-      interface.mpcSettings().timeHorizon_);
+  ASSIGN_OR_RETURN(
+      std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator> calculator,
+      CentroidalMpcTargetTrajectoriesCalculator::Create(configuration.referenceFile, effectiveModel, interface.getPinocchioInterface(),
+                                                        interface.getCentroidalModelInfo(), interface.mpcSettings().timeHorizon_));
   calculator->setTerrainHeightSource(
       [referenceManager = interface.getSwitchedModelReferenceManagerPtr()]() { return referenceManager->getAppliedTerrainHeight(); });
   RETURN_IF_ERROR(initializeCommandPath(std::move(calculator), interface.getSwitchedModelReferenceManagerPtr(), effectiveModel));
@@ -86,13 +91,10 @@ absl::Status CentroidalClosedLoopDriver::initialize(const RobotConfiguration& co
     mpc_->getSolverPtr()->addSynchronizedModule(contactPlannerModule);
   }
 
-  TargetTrajectoriesCalculatorBase* calculatorPtr = calculator_.get();
-  const std::shared_ptr<ProceduralMpcMotionManager> motionManager = motionManager_;
-  ASSIGN_OR_RETURN(
-      parameterUpdater_,
-      makeCentroidalMpcParameterUpdater(mpc_.get(), interface, configuration.taskFile, configuration.urdfFile, configuration.referenceFile,
-                                        {[calculatorPtr](const std::string& file) { calculatorPtr->reloadCommandLimits(file); },
-                                         [motionManager](const std::string& file) { motionManager->reloadCommandLimits(file); }}));
+  TargetTrajectoriesCalculatorBase* absl_nonnull calculatorPtr = calculator_.get();
+  ASSIGN_OR_RETURN(parameterUpdater_,
+                   makeCentroidalMpcParameterUpdater(mpc_.get(), interface, configuration.taskFile, configuration.referenceFile,
+                                                     makeCommandLimitsReloaders(calculatorPtr, motionManager_)));
   mpc_->getSolverPtr()->addSynchronizedModule(parameterUpdater_);
   // clang-format off
   // LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc_app/src/CentroidalMpcNode.cpp:mpc_wiring)
@@ -100,15 +102,15 @@ absl::Status CentroidalClosedLoopDriver::initialize(const RobotConfiguration& co
 
   // The robot binary's side (CentroidalMpcRobotMain.cpp), with the lockstep link in place of the remote one.
   // LINT.IfChange(centroidal_robot_controller)
-  std::unique_ptr<CentroidalMpcMrtJointController> jointController;
-  try {
-    jointController =
-        std::make_unique<CentroidalMpcMrtJointController>(*robotDescription_, interface.modelSettings(), interface.getMpcRobotModel(),
-                                                          lockstepMpcLinkFactory(/*solverName=*/"Centroidal MPC Solver Thread"),
-                                                          interface.getPinocchioInterface(), configuration.pdGainsFile, &effectiveModel);
-  } catch (const std::exception& error) {
-    return absl::InvalidArgumentError(absl::StrCat("the centroidal MRT joint controller did not start: ", error.what()));
+  absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> createdController =
+      CentroidalMpcMrtJointController::Create(*robotDescription_, interface.modelSettings(), interface.getMpcRobotModel(),
+                                              lockstepMpcLinkFactory(/*solverName=*/"Centroidal MPC Solver Thread"),
+                                              interface.getPinocchioInterface(), configuration.pdGainsFile, &effectiveModel);
+  if (!createdController.ok()) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("the centroidal MRT joint controller did not start: ", createdController.status().message()));
   }
+  std::unique_ptr<CentroidalMpcMrtJointController> jointController = *std::move(createdController);
   if (settings_.wbMpcFeedforward == WbMpcFeedforward::kGravityCompensation) jointController->setUseGravityCompFeedforward(/*enable=*/true);
   if (settings_.mpcEntryBlendTime.has_value()) jointController->setMpcEntryBlendTime(*settings_.mpcEntryBlendTime);
   if (settings_.safetyDecayTimeConstant.has_value()) jointController->setSafetyDecayTimeConstant(*settings_.safetyDecayTimeConstant);

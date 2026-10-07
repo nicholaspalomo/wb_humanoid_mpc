@@ -31,21 +31,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <array>
-#include <cassert>
 #include <string>
 #include <vector>
 
-#include <Eigen/Eigenvalues>
-#include <Eigen/SVD>
-
-#include <ocs2_core/Types.h>
-
+#include "Eigen/Eigenvalues"
+#include "Eigen/SVD"
+#include "absl/base/nullability.h"
 #include "absl/log/absl_check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
 
 namespace ocs2::humanoid {
 
@@ -78,22 +76,22 @@ inline constexpr absl::string_view kFullDiagonalBasisRegularization = "full_diag
 /** reg · (I - B⁺B) per foot: penalizes only the λ that produce no wrench, so R acts unchanged on every wrench. */
 inline constexpr absl::string_view kNullSpaceBasisRegularization = "null_space";
 // clang-format off
-// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/BasisInputsCostTransform.h:basis_regularization_registry, //humanoid_nmpc/docs/contact_basis_vectors/README.md:regularization_names, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:basis_regularization_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:basis_regularization_config)
+// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/BasisInputsCostTransform.h:basis_regularization_registry, //humanoid_nmpc/docs/contact_basis_vectors/README.md:regularization_names, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:basis_regularization_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto:basis_regularization_config, //humanoid_nmpc/humanoid_mpc_config/contacts_config.proto:basis_regularization)
 // clang-format on
 
 /** The regularization used when nothing names one; it stays the shipped one until null_space has been validated. */
 inline constexpr absl::string_view kDefaultBasisRegularization = kFullDiagonalBasisRegularization;
 
-/** The task-file key naming the regularization; the registry's error messages name it. */
-inline constexpr absl::string_view kBasisRegularizationKey = "contacts.basisRegularization";
-/** The task-file key of the regularization weight `reg`. */
-inline constexpr absl::string_view kBasisScalingRegularizationKey = "contacts.basisScalingRegularization";
+/** The task-file field naming the regularization; the registry's error messages name it. */
+inline constexpr absl::string_view kBasisRegularizationField = "contacts.basis_regularization";
+/** The task-file field of the regularization weight `reg`. */
+inline constexpr absl::string_view kBasisScalingRegularizationField = "contacts.basis_scaling_regularization";
 
 /**
  * Builds the shape S (numBasisInputs x numBasisInputs) of the λ-block regularization from the local basis-to-wrench
  * map M (wrenchInputDim x basisInputDim), whose first numBasisInputs columns are the λ.
  */
-using BasisRegularizationBuilder = matrix_t (*)(const matrix_t& basisToWrenchMap, size_t numBasisInputs);
+using BasisRegularizationBuilder = matrix_t (*absl_nonnull)(const matrix_t& basisToWrenchMap, size_t numBasisInputs);
 
 /** S = I. */
 inline matrix_t fullDiagonalRegularizationShape(const matrix_t& /*basisToWrenchMap*/, size_t numBasisInputs) {
@@ -110,7 +108,7 @@ inline matrix_t nullSpaceRegularizationShape(const matrix_t& basisToWrenchMap, s
   const matrix_t lambdaColumns = basisToWrenchMap.leftCols(n);
   const Eigen::JacobiSVD<matrix_t> svd(lambdaColumns, Eigen::ComputeFullV);
   const vector_t& singularValues = svd.singularValues();
-  constexpr scalar_t kRankRelativeTolerance = 1e-9;
+  constexpr scalar_t kRankRelativeTolerance = 1.0e-9;
   const scalar_t tolerance = singularValues.size() > 0 ? kRankRelativeTolerance * singularValues(0) : 0.0;
   Eigen::Index rank = 0;
   while (rank < singularValues.size() && singularValues(rank) > tolerance) {
@@ -121,14 +119,16 @@ inline matrix_t nullSpaceRegularizationShape(const matrix_t& basisToWrenchMap, s
 }
 
 namespace basis_inputs_cost_internal {
+/** One registered regularization shape: the name the task file selects it by and the function that builds it. */
 struct RegularizationEntry {
+  // NOLINTNEXTLINE(totw-view-member): every entry is a string literal of a constexpr registry, alive for the whole program.
   absl::string_view name;
   BasisRegularizationBuilder builder;
 };
 // LINT.IfChange(basis_regularization_registry)
 inline constexpr std::array<RegularizationEntry, 2> kRegularizationRegistry = {{
-    {kFullDiagonalBasisRegularization, &fullDiagonalRegularizationShape},
-    {kNullSpaceBasisRegularization, &nullSpaceRegularizationShape},
+    {.name = kFullDiagonalBasisRegularization, .builder = &fullDiagonalRegularizationShape},
+    {.name = kNullSpaceBasisRegularization, .builder = &nullSpaceRegularizationShape},
 }};
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/BasisInputsCostTransform.h:basis_regularization_names)
@@ -146,7 +146,7 @@ inline std::vector<std::string> basisRegularizationNames() {
 
 /**
  * Resolves a regularization name to its builder. An unknown name is an InvalidArgumentError naming
- * kBasisRegularizationKey and listing every valid name.
+ * kBasisRegularizationField and listing every valid name.
  */
 inline absl::StatusOr<BasisRegularizationBuilder> getBasisRegularizationBuilder(absl::string_view name) {
   for (const basis_inputs_cost_internal::RegularizationEntry& entry : basis_inputs_cost_internal::kRegularizationRegistry) {
@@ -154,7 +154,7 @@ inline absl::StatusOr<BasisRegularizationBuilder> getBasisRegularizationBuilder(
       return entry.builder;
     }
   }
-  return absl::InvalidArgumentError(absl::StrCat("[BasisInputsCostTransform] unknown ", kBasisRegularizationKey, " '", name,
+  return absl::InvalidArgumentError(absl::StrCat("[BasisInputsCostTransform] unknown ", kBasisRegularizationField, " '", name,
                                                  "'; valid names are: ", absl::StrJoin(basisRegularizationNames(), ", "), "."));
 }
 
@@ -163,15 +163,16 @@ inline absl::StatusOr<BasisRegularizationBuilder> getBasisRegularizationBuilder(
  *
  * @param R_wrench             Wrench-space weight matrix (wrenchInputDim × wrenchInputDim).
  * @param M                    Local basis-to-wrench map (wrenchInputDim × basisInputDim).
- * @param numBasisInputs       Number of leading λ entries in the basis-vector input (numBasisPerFoot · N_CONTACTS).
+ * @param numBasisInputs       Number of leading λ entries in the basis-vector input (numBasisPerFoot · kNumContacts).
  * @param lambdaRegularization Non-negative weight of the regularization.
  */
 inline matrix_t transformWrenchInputCostToBasisSpace(
     const matrix_t& R_wrench, const matrix_t& M, size_t numBasisInputs, scalar_t lambdaRegularization, BasisRegularizationBuilder builder) {
-  assert(R_wrench.rows() == M.rows());
-  assert(R_wrench.cols() == M.rows());
-  assert(static_cast<Eigen::Index>(numBasisInputs) <= M.cols());
-  assert(lambdaRegularization >= 0.0);
+  ABSL_CHECK(R_wrench.rows() == M.rows() && R_wrench.cols() == M.rows())
+      << "transformWrenchInputCostToBasisSpace: R_wrench is not square of M's rows";
+  ABSL_CHECK_LE(static_cast<Eigen::Index>(numBasisInputs), M.cols())
+      << "transformWrenchInputCostToBasisSpace: more basis inputs than M has columns";
+  ABSL_CHECK_GE(lambdaRegularization, 0.0) << "transformWrenchInputCostToBasisSpace: lambdaRegularization must be non-negative";
   const Eigen::Index n = static_cast<Eigen::Index>(numBasisInputs);
   matrix_t R_basis = M.transpose() * R_wrench * M;
   if (lambdaRegularization != 0.0) {
@@ -198,8 +199,8 @@ struct BasisInputsCostTransformConfig {
   matrix_t basisToWrenchMap;            ///< M (wrenchInputDim × basisInputDim), see BasisInputsModelDecorator::getLocalBasisToWrenchMap
   size_t wrenchInputDim = 0;            ///< Dimension of the wrench-space input (rows of M).
   size_t numBasisInputs = 0;            ///< Number of leading λ entries in the basis-vector input.
-  scalar_t lambdaRegularization = 0.0;  ///< Weight `reg` of the λ regularization (kBasisScalingRegularizationKey).
-  /// Name of the λ regularization (kBasisRegularizationKey); one of basisRegularizationNames().
+  scalar_t lambdaRegularization = 0.0;  ///< Weight `reg` of the λ regularization (kBasisScalingRegularizationField).
+  /// Name of the λ regularization (kBasisRegularizationField); one of basisRegularizationNames().
   std::string regularization = std::string(kDefaultBasisRegularization);
 
   size_t basisInputDim() const { return static_cast<size_t>(basisToWrenchMap.cols()); }
@@ -212,7 +213,7 @@ inline absl::Status validateBasisInputsCostTransformConfig(const BasisInputsCost
     return builder.status();
   }
   if (!(config.lambdaRegularization >= 0.0)) {
-    return absl::InvalidArgumentError(absl::StrCat("[BasisInputsCostTransform] ", kBasisScalingRegularizationKey,
+    return absl::InvalidArgumentError(absl::StrCat("[BasisInputsCostTransform] ", kBasisScalingRegularizationField,
                                                    " must be non-negative, got ", config.lambdaRegularization, "."));
   }
   return absl::OkStatus();
@@ -241,13 +242,13 @@ inline absl::Status checkLambdaBlockPositiveDefinite(const matrix_t& R_basis, si
     return absl::InternalError("[BasisInputsCostTransform] the eigenvalue decomposition of the λ block of R did not converge.");
   }
   const scalar_t smallest = eigenSolver.eigenvalues().minCoeff();
-  constexpr scalar_t kRelativeTolerance = 1e-12;
+  constexpr scalar_t kRelativeTolerance = 1.0e-12;
   const scalar_t tolerance = kRelativeTolerance * std::max<scalar_t>(1.0, eigenSolver.eigenvalues().cwiseAbs().maxCoeff());
   if (smallest <= tolerance) {
     return absl::InvalidArgumentError(
         absl::StrCat("[BasisInputsCostTransform] the λ block of the basis-space input cost is not positive definite (smallest eigenvalue ",
-                     smallest, "). Give ", kBasisScalingRegularizationKey, " a positive value, and with ", kBasisRegularizationKey, ": ",
-                     kNullSpaceBasisRegularization, " give every contact force and moment a positive weight in R."));
+                     smallest, "). Give ", kBasisScalingRegularizationField, " a positive value, and with ", kBasisRegularizationField,
+                     ": ", kNullSpaceBasisRegularization, " give every contact force and moment a positive weight in R."));
   }
   return absl::OkStatus();
 }

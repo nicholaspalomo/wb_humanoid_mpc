@@ -29,8 +29,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
 
+#include <memory>
+#include <string>
 #include <utility>
+#include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 
@@ -39,16 +43,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 RobotBackendRegistry::RobotBackendRegistry() {
-  add(std::string(kMujocoBackendName), "the MuJoCo simulator",
+  add(
+      std::string(kMujocoBackendName), "the MuJoCo simulator",
       [](const RobotBackendOptions& options) -> absl::StatusOr<std::unique_ptr<RobotBackend>> {
         absl::StatusOr<std::unique_ptr<MujocoRobotBackend>> backend = MujocoRobotBackend::Create(options);
         if (!backend.ok()) return backend.status();
         return std::unique_ptr<RobotBackend>(*std::move(backend));
-      });
+      },
+      [](const RobotBackendOptions& options) { return MujocoRobotBackend::checkOptions(options); });
 }
 
-void RobotBackendRegistry::add(const std::string& name, const std::string& description, Factory factory) {
-  entries_.push_back(Entry{.name = name, .description = description, .factory = std::move(factory)});
+void RobotBackendRegistry::add(const std::string& name, const std::string& description, Factory factory, OptionsCheck checkOptions) {
+  entries_.push_back(
+      Entry{.name = name, .description = description, .factory = std::move(factory), .checkOptions = std::move(checkOptions)});
+}
+
+const RobotBackendRegistry::Entry* absl_nullable RobotBackendRegistry::find(absl::string_view name) const {
+  for (const Entry& entry : entries_) {
+    if (entry.name == name) return &entry;
+  }
+  return nullptr;
+}
+
+absl::Status RobotBackendRegistry::unknownBackend(absl::string_view name) const {
+  return absl::InvalidArgumentError(absl::StrCat("There is no robot backend '", name, "' (--backend). Available: ", availableNames(), "."));
 }
 
 bool RobotBackendRegistry::has(absl::string_view name) const {
@@ -75,10 +93,16 @@ std::string RobotBackendRegistry::availableNames() const {
 
 absl::StatusOr<std::unique_ptr<RobotBackend>> RobotBackendRegistry::create(absl::string_view name,
                                                                            const RobotBackendOptions& options) const {
-  for (const Entry& entry : entries_) {
-    if (entry.name == name) return entry.factory(options);
-  }
-  return absl::InvalidArgumentError(absl::StrCat("There is no robot backend '", name, "' (--backend). Available: ", availableNames(), "."));
+  const Entry* absl_nullable const entry = find(name);
+  if (entry == nullptr) return unknownBackend(name);
+  return entry->factory(options);
+}
+
+absl::Status RobotBackendRegistry::checkOptions(absl::string_view name, const RobotBackendOptions& options) const {
+  const Entry* absl_nullable const entry = find(name);
+  if (entry == nullptr) return unknownBackend(name);
+  if (!entry->checkOptions) return absl::OkStatus();
+  return entry->checkOptions(options);
 }
 
 }  // namespace ocs2::humanoid

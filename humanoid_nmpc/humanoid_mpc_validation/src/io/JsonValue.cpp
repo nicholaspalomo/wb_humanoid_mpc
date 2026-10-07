@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -39,9 +38,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
 #include "absl/strings/str_split.h"
 
 namespace ocs2::humanoid::validation {
@@ -49,12 +50,12 @@ namespace {
 
 /** The fewest significant digits (15 to 17) that read back to exactly `value`. */
 std::string formatNumber(double value) {
-  char buffer[32];
+  std::string text;
   for (int precision = 15; precision <= 17; ++precision) {
-    std::snprintf(buffer, sizeof(buffer), "%.*g", precision, value);
-    if (std::strtod(buffer, /*endptr=*/nullptr) == value) break;
+    text = absl::StrFormat("%.*g", precision, value);
+    if (std::strtod(text.c_str(), /*endptr=*/nullptr) == value) break;
   }
-  return buffer;
+  return text;
 }
 
 void appendEscaped(std::string& out, const std::string& text) {
@@ -84,9 +85,7 @@ void appendEscaped(std::string& out, const std::string& text) {
         break;
       default:
         if (static_cast<unsigned char>(c) < 0x20) {
-          char buffer[8];
-          std::snprintf(buffer, sizeof(buffer), "\\u%04x", static_cast<unsigned int>(static_cast<unsigned char>(c)));
-          out += buffer;
+          absl::StrAppendFormat(&out, "\\u%04x", static_cast<unsigned int>(static_cast<unsigned char>(c)));
         } else {
           out.push_back(c);
         }
@@ -158,8 +157,8 @@ class Parser {
       if (!text.ok()) return text.status();
       return JsonValue::string(*std::move(text));
     }
-    if (consumeLiteral("true")) return JsonValue::boolean(true);
-    if (consumeLiteral("false")) return JsonValue::boolean(false);
+    if (consumeLiteral("true")) return JsonValue::boolean(/*value=*/true);
+    if (consumeLiteral("false")) return JsonValue::boolean(/*value=*/false);
     if (consumeLiteral("null")) return JsonValue();
     if (c == '-' || (c >= '0' && c <= '9')) return parseNumber();
     return error(absl::StrCat("unexpected character '", std::string(1, c), "'"));
@@ -322,6 +321,7 @@ class Parser {
     }
   }
 
+  // NOLINTNEXTLINE(totw-view-member): a Parser lives only inside JsonValue::parse(), whose argument outlives it.
   absl::string_view text_;
   size_t position_ = 0;
 };
@@ -342,7 +342,7 @@ JsonValue JsonValue::number(double value) {
   return json;
 }
 
-JsonValue JsonValue::optionalNumber(const std::optional<double>& value) {
+JsonValue JsonValue::optionalNumber(std::optional<double> value) {
   return value.has_value() ? number(*value) : JsonValue();
 }
 
@@ -421,7 +421,7 @@ JsonValue& JsonValue::append(JsonValue value) {
   return elements_.back();
 }
 
-const JsonValue* JsonValue::find(absl::string_view key) const {
+const JsonValue* absl_nullable JsonValue::find(absl::string_view key) const {
   if (type_ != Type::kObject) return nullptr;
   for (size_t i = 0; i < keys_.size(); ++i) {
     if (keys_[i] == key) return &elements_[i];
@@ -429,8 +429,8 @@ const JsonValue* JsonValue::find(absl::string_view key) const {
   return nullptr;
 }
 
-const JsonValue* JsonValue::findPath(absl::string_view dottedPath) const {
-  const JsonValue* value = this;
+const JsonValue* absl_nullable JsonValue::findPath(absl::string_view dottedPath) const {
+  const JsonValue* absl_nullable value = this;
   for (const absl::string_view key : absl::StrSplit(dottedPath, '.')) {
     value = value->find(key);
     if (value == nullptr) return nullptr;

@@ -34,14 +34,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-
-#include <ocs2_core/reference/TargetTrajectories.h>
-#include <ocs2_mpc/SystemObservation.h>
-#include <ocs2_sqp/SqpMpc.h>
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_sqp/SqpMpc.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h"
-#include "humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h"
+#include "humanoid_common_mpc/parameter_update/MpcParameterUpdaterModule.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc_app/node/MpcFiles.h"
 #include "humanoid_common_mpc_app/node/MpcNodeRuntime.h"
@@ -61,9 +60,10 @@ namespace ocs2::humanoid {
  *   - the procedural motion manager (gait changes and the velocity targets of CentroidalMpcTargetTrajectoriesCalculator),
  *     fed from operator/walking_velocity_command; a reset of the MPC resets it and, through its reset hook, the target
  *     calculator, whose filters are state of the same command path;
- *   - under contactScheduleSource: contact_planner, the contact planner module;
- *   - the MPC parameter updater (makeCentroidalMpcParameterUpdater(), with the reference.yaml reloaders of the target
- *     calculator and the motion manager), fed from operator/mpc_parameters;
+ *   - under contact_schedule_source: "contact_planner", the contact planner module;
+ *   - the MPC parameter updater (makeCentroidalMpcParameterUpdater(), the live-tuning machinery both formulations share
+ *     with the centroidal appliers; makeCommandLimitsReloaders() hands the command limits of a reloaded reference file
+ *     to the target calculator and the motion manager), fed from operator/mpc_parameters;
  *   - resets to centroidalMpcResetTargetTrajectories(), the reset target the MRT joint controller hands its in-process
  *     link, so that both paths restart the MPC from the same target;
  *   - every policy carries the planner's target contact poses and the scaled velocity command (ViewerAnnotations);
@@ -112,6 +112,8 @@ class CentroidalMpcNode {
   CentroidalMpcInterface& interface() { return *interface_; }
   ProceduralMpcMotionManager& motionManager() { return *motionManager_; }
   MpcParameterUpdaterModule& parameterUpdater() { return *parameterUpdater_; }
+  /** The MPC, whose solver the parameter updater writes; touch it from the solver thread only, or while it is stopped. */
+  SqpMpc& mpc() { return *mpc_; }
   node::MpcNodeRuntime& runtime() { return *runtime_; }
   visualization::VisualizationPublisher& visualization() { return *visualization_; }
 

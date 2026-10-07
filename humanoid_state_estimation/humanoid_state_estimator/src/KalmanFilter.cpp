@@ -39,6 +39,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "Eigen/Cholesky"
+#include "Eigen/Eigenvalues"
+#include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
@@ -47,9 +50,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
-
-#include <Eigen/Cholesky>
-#include <Eigen/Eigenvalues>
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 
@@ -62,7 +62,7 @@ using Describe = absl::FunctionRef<std::string()>;
 
 /// Relative tolerance of the covariance checks, scaled by the largest entry so that it applies alike to variances in
 /// square millimeters and in square radians.
-constexpr scalar_t kCovarianceTolerance = 1e-9;
+constexpr scalar_t kCovarianceTolerance = 1.0e-9;
 
 void symmetrizeInPlace(matrix_t& matrix) {
   for (Eigen::Index col = 1; col < matrix.cols(); ++col) {
@@ -82,12 +82,14 @@ std::string joinedInputNamesOrNone(absl::Span<const KalmanFilterInput> inputs) {
   if (inputs.empty()) {
     return "none";
   }
-  return absl::StrJoin(inputs, ", ", [](std::string* out, const KalmanFilterInput& input) { absl::StrAppend(out, input.name); });
+  return absl::StrJoin(inputs, ", ",
+                       [](std::string* absl_nonnull out, const KalmanFilterInput& input) { absl::StrAppend(out, input.name); });
 }
 
 std::string joinedMeasurementNames(absl::Span<const KalmanFilterMeasurement> measurements) {
-  return absl::StrJoin(measurements, ", ",
-                       [](std::string* out, const KalmanFilterMeasurement& measurement) { absl::StrAppend(out, measurement.name); });
+  return absl::StrJoin(measurements, ", ", [](std::string* absl_nonnull out, const KalmanFilterMeasurement& measurement) {
+    absl::StrAppend(out, measurement.name);
+  });
 }
 
 /// The position of the input called `name`; a linear scan, since a step has few inputs and a hash map would allocate.
@@ -183,7 +185,9 @@ absl::Status KalmanFilter::reset(absl::Span<const KalmanFilterState> initial_sta
     RETURN_IF_ERROR(checkFinite(channel.state, [&] { return absl::StrCat("the state of state channel '", channel.name, "'"); }));
     RETURN_IF_ERROR(checkCovariance(channel.P_state_estimate, channel.state.size(),
                                     [&] { return absl::StrCat("P_state_estimate of state channel '", channel.name, "'"); }));
-    if (!state_channels.try_emplace(channel.name, ChannelBlock{state_dim, channel.state.size(), state_names.size()}).second) {
+    if (!state_channels
+             .try_emplace(channel.name, ChannelBlock{.offset = state_dim, .size = channel.state.size(), .index = state_names.size()})
+             .second) {
       return absl::InvalidArgumentError(absl::StrCat("[KalmanFilter] state channel '", channel.name, "' is declared twice"));
     }
     state_names.push_back(channel.name);
@@ -192,11 +196,13 @@ absl::Status KalmanFilter::reset(absl::Span<const KalmanFilterState> initial_sta
 
   vector_t x_hat_state_estimate(state_dim);
   matrix_t P_state_estimate = matrix_t::Zero(state_dim, state_dim);
+  // The channels stacked in their order, at the offsets the loop above gave them.
+  Eigen::Index offset = 0;
   for (const KalmanFilterState& channel : initial_states) {
-    const ChannelBlock& block = state_channels.at(channel.name);
-    x_hat_state_estimate.segment(block.offset, block.size) = channel.state;
-    P_state_estimate.block(block.offset, block.offset, block.size, block.size) =
-        0.5 * (channel.P_state_estimate + channel.P_state_estimate.transpose());
+    const Eigen::Index size = channel.state.size();
+    x_hat_state_estimate.segment(offset, size) = channel.state;
+    P_state_estimate.block(offset, offset, size, size) = 0.5 * (channel.P_state_estimate + channel.P_state_estimate.transpose());
+    offset += size;
   }
 
   state_names_ = std::move(state_names);
@@ -451,8 +457,9 @@ absl::Status KalmanFilter::getState(absl::string_view name, KalmanFilterState& s
 
 std::vector<KalmanFilterState> KalmanFilter::getStates() const {
   std::vector<KalmanFilterState> states(state_names_.size());
-  for (size_t index = 0; index < state_names_.size(); ++index) {
-    fillState(state_names_[index], state_channels_.at(state_names_[index]), states[index]);
+  // Each channel into its place in state_names_, so that the hash map's order does not matter.
+  for (const std::pair<const std::string, ChannelBlock>& channel : state_channels_) {
+    fillState(channel.first, channel.second, states[channel.second.index]);
   }
   return states;
 }

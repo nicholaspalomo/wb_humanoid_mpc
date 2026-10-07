@@ -38,7 +38,7 @@ namespace ocs2::humanoid::node {
 
 /**
  * The ranges of operator/walking_velocity_command (humanoid_mpc_msgs/walking_velocity_command.proto): the velocities are
- * normalized, and ProceduralMpcMotionManager scales them by the command limits of reference.yaml.
+ * normalized, and ProceduralMpcMotionManager scales them by the command limits of reference.textproto.
  */
 inline constexpr scalar_t kMaxNormalizedVelocity = 1.0;
 /** [m] The pelvis height of the command is absolute, above the ground. */

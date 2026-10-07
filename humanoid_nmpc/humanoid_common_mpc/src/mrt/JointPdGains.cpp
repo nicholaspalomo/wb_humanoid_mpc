@@ -29,87 +29,35 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/mrt/JointPdGains.h"
 
-#include <yaml-cpp/yaml.h>
-
 #include <cmath>
-#include <exception>
 #include <filesystem>
-#include <fstream>
 #include <limits>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
-#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/config/robot/JointPdGainsFromConfig.h"
+#include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
 
 namespace ocs2::humanoid {
 
 namespace {
-
-/** A section or an entry of the document that may be absent or empty, or a map, and nothing else. */
-absl::Status checkMapOrEmpty(const YAML::Node& node, absl::string_view path) {
-  if (!node || node.IsNull() || node.IsMap()) {
-    return absl::OkStatus();
-  }
-  return absl::InvalidArgumentError(absl::StrCat("[JointPdGains] ", path, " is not a map."));
-}
-
-/**
- * `gains[key]` as a finite non-negative number, or `fallback` when `gains` (a map, or absent or empty) does not carry
- * the key.
- */
-absl::StatusOr<scalar_t> loadGain(const YAML::Node& gains, absl::string_view key, absl::string_view path, scalar_t fallback) {
-  if (!gains || !gains.IsMap()) {
-    return fallback;
-  }
-  const YAML::Node value = gains[std::string(key)];
-  if (!value) {
-    return fallback;
-  }
-  scalar_t parsed = fallback;
-  try {
-    parsed = value.as<scalar_t>();
-  } catch (const YAML::Exception& e) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("[JointPdGains] ", path, ".", key, " is '", value.IsScalar() ? value.Scalar() : "", "', which is not a number."));
-  }
-  if (!std::isfinite(parsed) || parsed < 0.0) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("[JointPdGains] ", path, ".", key, " is ", parsed, "; a gain must be a finite non-negative number."));
-  }
-  return parsed;
-}
-
-/**
- * The gains of one map over `fallback`. The torque limit is read only when `fallback` has one: a controller that
- * commands no torque limit never reads the key, so a value it would not use cannot make it refuse a document.
- */
-absl::StatusOr<JointPdGainsDefaults> loadGainSet(const YAML::Node& gains, absl::string_view path, const JointPdGainsDefaults& fallback) {
-  RETURN_IF_ERROR(checkMapOrEmpty(gains, path));
-  JointPdGainsDefaults loaded;
-  ASSIGN_OR_RETURN(loaded.kp, loadGain(gains, "kp", path, fallback.kp));
-  ASSIGN_OR_RETURN(loaded.kd, loadGain(gains, "kd", path, fallback.kd));
-  loaded.torqueLimit = std::nullopt;
-  if (fallback.torqueLimit.has_value()) {
-    ASSIGN_OR_RETURN(loaded.torqueLimit, loadGain(gains, "torque_limit", path, *fallback.torqueLimit));
-  }
-  return loaded;
-}
 
 /** The torque limit of `gains` [N*m]: +infinity for a controller that commands none. */
 scalar_t torqueLimitOf(const JointPdGainsDefaults& gains) {
   return gains.torqueLimit.value_or(std::numeric_limits<scalar_t>::infinity());
 }
 
-/** The gains of every joint for the named gains `named` over `defaults` (see parseJointPdGainsYaml()). */
+/** The gains of every joint for the named gains `named` over `defaults` (see jointPdGainsFromConfig()). */
 JointPdGains resolveJointPdGains(const JointPdGainsDefaults& defaults,
                                  const absl::flat_hash_map<std::string, JointPdGainsDefaults>& named,
                                  const std::vector<std::string>& mpcJointNames,
@@ -160,59 +108,29 @@ JointPdGains defaultJointPdGains(const JointPdGainsDefaults& defaults,
   return resolveJointPdGains(defaults, /*named=*/{}, mpcJointNames, otherJointNames);
 }
 
-absl::StatusOr<JointPdGains> parseJointPdGainsYaml(absl::string_view yamlText,
-                                                   const JointPdGainsDefaults& defaults,
-                                                   const std::vector<std::string>& mpcJointNames,
-                                                   const std::vector<std::string>& otherJointNames) {
-  YAML::Node root;
-  try {
-    root = YAML::Load(std::string(yamlText));
-  } catch (const YAML::Exception& e) {
-    return absl::InvalidArgumentError(absl::StrCat("[JointPdGains] the document is not YAML: ", e.what()));
+absl::StatusOr<std::optional<JointPdGains>> loadJointPdGains(const std::string& file,
+                                                             const JointPdGainsDefaults& defaults,
+                                                             const std::vector<std::string>& mpcJointNames,
+                                                             const std::vector<std::string>& otherJointNames) {
+  std::error_code error;
+  if (file.empty() || !std::filesystem::exists(file, error)) {
+    return std::nullopt;
   }
-  if (!root || root.IsNull()) {
-    return absl::InvalidArgumentError("[JointPdGains] the document is empty.");
+  // The parser's errors name the file, the line and the column already.
+  ASSIGN_OR_RETURN(const mpc_config::JointPdGainsFile typed, loadJointPdGainsFile(file));
+  absl::StatusOr<JointPdGains> gains = jointPdGainsFromConfig(typed, defaults, mpcJointNames, otherJointNames);
+  if (!gains.ok()) {
+    return absl::InvalidArgumentError(absl::StrCat(file, ": ", gains.status().message()));
   }
-  if (!root.IsMap()) {
-    return absl::InvalidArgumentError("[JointPdGains] the document is not a map of default_gains and joint_gains.");
-  }
-
-  // Read through a const node: the non-const operator[] of yaml-cpp inserts the keys it looks up.
-  const YAML::Node& document = root;
-  ASSIGN_OR_RETURN(const JointPdGainsDefaults resolvedDefaults, loadGainSet(document["default_gains"], "default_gains", defaults));
-
-  absl::flat_hash_map<std::string, JointPdGainsDefaults> named;
-  const YAML::Node jointGains = document["joint_gains"];
-  RETURN_IF_ERROR(checkMapOrEmpty(jointGains, "joint_gains"));
-  if (jointGains && jointGains.IsMap()) {
-    for (YAML::const_iterator entry = jointGains.begin(); entry != jointGains.end(); ++entry) {
-      std::string jointName;
-      try {
-        jointName = entry->first.as<std::string>();
-      } catch (const YAML::Exception& e) {
-        return absl::InvalidArgumentError(absl::StrCat("[JointPdGains] a key of joint_gains is not a joint name: ", e.what()));
-      }
-      ASSIGN_OR_RETURN(named[jointName], loadGainSet(entry->second, absl::StrCat("joint_gains.", jointName), resolvedDefaults));
-    }
-  }
-  return resolveJointPdGains(resolvedDefaults, named, mpcJointNames, otherJointNames);
-}
-
-absl::StatusOr<std::string> readJointPdGainsFile(const std::string& file) {
-  std::ifstream stream(file);
-  if (!stream.is_open()) {
-    return absl::NotFoundError(absl::StrCat("[JointPdGains] cannot open ", file, "."));
-  }
-  std::ostringstream text;
-  text << stream.rdbuf();
-  return text.str();
+  return std::optional<JointPdGains>(*std::move(gains));
 }
 
 std::filesystem::file_time_type jointPdGainsFileWriteTime(const std::string& file) {
-  if (file.empty() || !std::filesystem::exists(file)) {
+  // The std::error_code overloads, which do not throw (AGENTS.md, <filesystem>).
+  std::error_code error;
+  if (file.empty() || !std::filesystem::exists(file, error)) {
     return std::filesystem::file_time_type();
   }
-  std::error_code error;
   return std::filesystem::last_write_time(file, error);
 }
 

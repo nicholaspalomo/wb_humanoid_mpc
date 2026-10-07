@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -28,16 +32,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <string>
+#include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/log/log.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
 
 namespace ocs2::humanoid {
 namespace {
 
 /** Stretches closer to 1 than this change nothing worth a QP. */
-constexpr scalar_t kStretchTolerance = 1e-3;
+constexpr scalar_t kStretchTolerance = 1.0e-3;
 
 /**
  * The runs of equal contact state of one foot in an assignment, in nodes.
@@ -48,19 +58,19 @@ constexpr scalar_t kStretchTolerance = 1e-3;
  * are the phase.
  */
 struct FootPhaseRuns {
-  int longestContact = 0;                // longest run in contact that starts inside the horizon, in nodes
-  int longestSwing = 0;                  // longest run in the air that starts inside the horizon, in nodes
-  int leadingNodes = 0;                  // nodes of the run that contains node 0
-  std::int8_t leadingValue = kMiqpFree;  // its contact state (kMiqpFree when node 0 is not decided)
+  int longestContact = 0;           // longest run in contact that starts inside the horizon, in nodes
+  int longestSwing = 0;             // longest run in the air that starts inside the horizon, in nodes
+  int leadingNodes = 0;             // nodes of the run that contains node 0
+  int8_t leadingValue = kMiqpFree;  // its contact state (kMiqpFree when node 0 is not decided)
 };
 
 FootPhaseRuns footPhaseRuns(const MiqpAssignment& assignment, int numNodes, size_t foot) {
   FootPhaseRuns runs;
   int run = 0;
-  std::int8_t runValue = kMiqpFree;
+  int8_t runValue = kMiqpFree;
   bool leading = true;
   for (int node = 0; node < numNodes; ++node) {
-    const std::int8_t value = assignment[static_cast<size_t>(ContactLogicState::contactBinaryIndex(node, foot))];
+    const int8_t value = assignment[static_cast<size_t>(ContactLogicState::contactBinaryIndex(node, foot))];
     if (value != runValue || node == 0) {
       if (node > 0) leading = false;
       runValue = value;
@@ -97,11 +107,11 @@ scalar_t CadenceStretchStage::admissibleStretch(const ContactPlanningConfig& con
                                                 const MiqpAssignment& assignment,
                                                 int numNodes,
                                                 scalar_t maxStretch,
-                                                const ContactPlannerInput* input) {
+                                                const ContactPlannerInput* absl_nullable input) {
   const GaitLimits& limits = config.shared.gaitLimits;
   const scalar_t dt = config.planner.dt;
   scalar_t stretch = std::max(1.0, maxStretch);
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     const FootPhaseRuns runs = footPhaseRuns(assignment, numNodes, foot);
     // A maximum that is already violated at s = 1 cannot be repaired by stretching further, so the bound is only ever
     // applied where the phase still fits: max(1, ...) leaves such a plan alone rather than refusing to stretch at all.
@@ -144,43 +154,49 @@ scalar_t CadenceStretchStage::commitWindowStretch(const ContactPlannerInput& inp
   return std::max(1.0, window / (dt * static_cast<scalar_t>(numCommitted - 1)));
 }
 
-void CadenceStretchStage::afterSearch(SearchRun& run) const {
+absl::Status CadenceStretchStage::afterSearch(SearchRun& run) const {
   MiqpResult& result = *run.result;
-  if (samples_ <= 0 || !result.hasIncumbent) return;
+  if (samples_ <= 0 || !result.hasIncumbent) return absl::OkStatus();
 
   const scalar_t upperStretch = admissibleStretch(*run.config, result.assignment, run.config->planner.numNodes, maxStretch_, run.input);
-  if (upperStretch <= 1.0 + kStretchTolerance) return;
+  if (upperStretch <= 1.0 + kStretchTolerance) return absl::OkStatus();
 
   const scalar_t dt = run.config->planner.dt;
   scalar_t bestStretch = 1.0;
   scalar_t bestObjective = result.incumbentObjective;
   OcpQpProblem bestProblem;
   OcpQpSolution bestSolution;
+  // A sample that fails ends the sampling; the best stretch of the samples before it is still adopted, and the failure
+  // is returned after it.
+  absl::Status sampleError = absl::OkStatus();
 
   for (int sample = 1; sample <= samples_; ++sample) {
     if (run.elapsedSeconds() > timeBudget_) break;
     const scalar_t stretch = 1.0 + (upperStretch - 1.0) * static_cast<scalar_t>(sample) / static_cast<scalar_t>(samples_);
-    try {
-      OcpQpProblem stretched = run.assembleWithGrid(stretch * dt);
-      OcpQpSolution solution;
-      scalar_t objective = 0.0;
-      if (!run.miqp->solveFixed(stretched, *run.binaries, result.assignment, *run.propagate, *run.assignmentCost, solution, objective)) {
-        continue;
-      }
-      run.statistics->totalQpIterations += solution.iterations;
-      if (objective < bestObjective) {
-        bestObjective = objective;
-        bestStretch = stretch;
-        bestProblem = std::move(stretched);
-        bestSolution = std::move(solution);
-      }
-    } catch (const std::exception& e) {
-      LOG(ERROR) << "[LipContactPlanner] cadence stretch failure: " << e.what();
+    absl::StatusOr<OcpQpProblem> stretched = run.assembleWithGrid(stretch * dt);
+    if (!stretched.ok()) {
+      sampleError = stretched.status();
       break;
+    }
+    OcpQpSolution solution;
+    scalar_t objective = 0.0;
+    const absl::StatusOr<bool> solved =
+        run.miqp->solveFixed(*stretched, *run.binaries, result.assignment, *run.propagate, *run.assignmentCost, solution, objective);
+    if (!solved.ok()) {
+      sampleError = solved.status();
+      break;
+    }
+    if (!*solved) continue;
+    run.statistics->totalQpIterations += solution.iterations;
+    if (objective < bestObjective) {
+      bestObjective = objective;
+      bestStretch = stretch;
+      bestProblem = *std::move(stretched);
+      bestSolution = std::move(solution);
     }
   }
 
-  if (bestStretch <= 1.0 + kStretchTolerance) return;
+  if (bestStretch <= 1.0 + kStretchTolerance) return sampleError;
   *run.problem = std::move(bestProblem);
   result.solution = std::move(bestSolution);
   result.incumbentObjective = bestObjective;
@@ -189,6 +205,7 @@ void CadenceStretchStage::afterSearch(SearchRun& run) const {
   if (run.verbose) {
     LOG(INFO) << "[LipContactPlanner] cadence stretched by " << bestStretch << " to dt " << run.chosenDt;
   }
+  return sampleError;
 }
 
 }  // namespace ocs2::humanoid

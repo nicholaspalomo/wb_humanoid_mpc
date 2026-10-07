@@ -1,9 +1,38 @@
-"""The telemetry contract's panels plot series of its own groups, every group is plotted, and README.md tabulates it;
-the scene and status contracts are consistent."""
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""Tests for the contracts of the bridge (telemetry_contract.py, scene_contract.py and status_contract.py).
+
+The telemetry contract's panels plot series of its own groups, every group is plotted, and README.md tabulates it; the
+scene and status contracts are consistent.
+"""
 
 import os
 import unittest
-from typing import Dict, Tuple
 
 from humanoid_rerun_viewer import palette
 from humanoid_rerun_viewer import scene_contract
@@ -58,7 +87,7 @@ class PanelTabsTest(unittest.TestCase):
                 self.assertLessEqual(set(group.colors), curve_colors)
 
     def test_every_panel_group_is_reproduced_by_exactly_one_panel(self) -> None:
-        plotted: Dict[str, int] = {}
+        plotted: dict[str, int] = {}
         for tab in telemetry_contract.PANEL_TABS:
             for panel in tab.panels():
                 for path in panel.paths:
@@ -67,7 +96,7 @@ class PanelTabsTest(unittest.TestCase):
             self.assertEqual(plotted.get(group.path), 1, group.path)
 
 
-def palette_colors() -> Tuple[str, ...]:
+def palette_colors() -> tuple[str, ...]:
     """Every curve color palette.py defines, as "#rrggbb"."""
     return tuple(
         value
@@ -77,7 +106,7 @@ def palette_colors() -> Tuple[str, ...]:
 
 
 class TelemetryGroupsTest(unittest.TestCase):
-    def all_groups(self) -> Tuple[telemetry_contract.SeriesGroup, ...]:
+    def all_groups(self) -> tuple[telemetry_contract.SeriesGroup, ...]:
         return telemetry_contract.all_groups([SAMPLE_FRAME, "pelvis"])
 
     def test_paths_are_unique_and_valid(self) -> None:
@@ -98,12 +127,10 @@ class TelemetryGroupsTest(unittest.TestCase):
                 self.assertTrue(group.description)
 
     def test_every_group_is_plotted_by_a_tab(self) -> None:
-        panel_paths = [
-            path
-            for tab in telemetry_contract.TABS
-            for panel in tab.panels()
-            for path in panel.paths
-        ]
+        panel_paths: list[str] = []
+        for tab in telemetry_contract.TABS:
+            for panel in tab.panels():
+                panel_paths.extend(panel.paths)
         for group in self.all_groups():
             self.assertTrue(
                 any(plotted_by(path, group.path) for path in panel_paths), group.path
@@ -158,6 +185,8 @@ class TelemetryGroupsTest(unittest.TestCase):
 
 class ReadmeTest(unittest.TestCase):
     """README.md tabulates the contracts, so that the producer's author finds every path there."""
+
+    text: str
 
     @classmethod
     def setUpClass(cls) -> None:

@@ -1,5 +1,5 @@
 /******************************************************************************
-Copyright (c) 2025. All rights reserved.
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -10,6 +10,10 @@ modification, are permitted provided that the following conditions are met:
 * Redistributions in binary form must reproduce the above copyright notice,
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
@@ -26,10 +30,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <memory>
+#include <string>
 
-#include <ocs2_core/cost/StateInputCost.h>
-#include <ocs2_core/penalties/penalties/PenaltyBase.h>
-#include <ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h>
+#include "absl/base/nullability.h"
+#include "ocs2_core/cost/StateInputCost.h"
+#include "ocs2_core/penalties/penalties/PenaltyBase.h"
+#include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
@@ -48,7 +54,7 @@ namespace ocs2::humanoid {
  *
  * Whether it is gated on the mode schedule follows the hard `zero_wrench` constraint. With `zero_wrench` listed the
  * swing-phase λ are already pinned to zero by that equality, so bounding them again is redundant and the term switches
- * itself off. The contact-implicit formulation removes `zero_wrench` - loadMpcFormulationTasks() insists on it - and
+ * itself off. The contact-implicit formulation removes `zero_wrench` - checkMpcFormulationTasks() insists on it - and
  * this term is then the ONLY thing standing between the solver and a negative λ, because in basis-vector mode
  * CentroidalMpcInterface skips ContactWrenchConeConstraint entirely and the wrench cone is enforced structurally by
  * λ ≥ 0 alone. A negative λ is an adhesive, outside-the-cone wrench, and the complementarity penalty (f_n h)² is
@@ -91,7 +97,11 @@ class BasisScalingNonNegativityConstraint final : public StateInputCost {
   /** Whether this term is gated on the mode schedule's contact flag; see the class documentation. */
   bool isScheduleGated() const { return scheduleGated_; }
 
-  BasisScalingNonNegativityConstraint* clone() const override { return new BasisScalingNonNegativityConstraint(*this); }
+  BasisScalingNonNegativityConstraint* absl_nonnull clone() const override { return new BasisScalingNonNegativityConstraint(*this); }
+  ~BasisScalingNonNegativityConstraint() override = default;
+  BasisScalingNonNegativityConstraint& operator=(const BasisScalingNonNegativityConstraint&) = delete;
+  BasisScalingNonNegativityConstraint(BasisScalingNonNegativityConstraint&&) = delete;
+  BasisScalingNonNegativityConstraint& operator=(BasisScalingNonNegativityConstraint&&) = delete;
 
   bool isActive(scalar_t time) const override;
 
@@ -125,7 +135,7 @@ class BasisScalingNonNegativityConstraint final : public StateInputCost {
  private:
   BasisScalingNonNegativityConstraint(const BasisScalingNonNegativityConstraint& rhs);
 
-  const SwitchedModelReferenceManager* referenceManagerPtr_;
+  const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
   size_t contactIndex_;
   size_t lambdaStartIdx_;
   size_t numBasis_;

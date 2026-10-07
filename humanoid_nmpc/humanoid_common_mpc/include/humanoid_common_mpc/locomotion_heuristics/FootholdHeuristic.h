@@ -50,7 +50,7 @@ struct FootholdHeuristicContext {
   // feedback quantities the capture point closes its loop on. COMMANDED at the touch-down time: what the operator asked
   // for, which the Raibert-style leads are proportional to.
 
-  /** Which foot is landing; CONTACT_LEFT_INDEX or CONTACT_RIGHT_INDEX. */
+  /** Which foot is landing; kContactLeftIndex or kContactRightIndex. */
   size_t contactIndex = 0;
   /**
    * +1 for the left foot and -1 for the right: the side of the robot this foot is on.
@@ -96,10 +96,10 @@ struct FootholdHeuristicContext {
  *    alternative to an optimization-based foothold planner, and running both is two opinions fighting over one
  *    variable. The combination is rejected.
  *  - SOMETHING MUST KEEP THE FEET APART. The anchor takes its lateral separation from the stance foot plus
- *    `model_settings.nominal_foothold.stepWidth`, or - with `hip_centered_stepping` listed - from the hips. With the
+ *    `nominal_foothold.step_width`, or - with `hip_centered_stepping` listed - from the hips. With the
  *    step width at 0 and no hip_centered_stepping, every other heuristic would correct a target on the stance foot's
  *    own lateral line and the swing foot would be aimed at the stance foot. That combination is rejected too.
- *  - THE FOOT COST'S XY WEIGHTS MUST BE NON-ZERO. `task_space_foot_cost_weights.pos_x` and `pos_y` gate this whole
+ *  - THE FOOT COST'S XY WEIGHTS MUST BE NON-ZERO. `task_space_foot_cost.weights.pos_x` and `pos_y` gate this whole
  *    channel and are 0 on every robot shipped here, because with `zero_velocity` in `hard_constraints` the stance
  *    foot is pinned by the schedule and placement follows from it. A landing target multiplied by a zero weight is
  *    dead weight, so Create() warns (LocomotionHeuristicEnvironment::footPositionIsUntracked) rather than letting the

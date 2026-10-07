@@ -31,15 +31,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <filesystem>
 #include <string>
+#include <system_error>
 #include <vector>
 
+#include "absl/base/no_destructor.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid::validation {
 namespace {
 
-constexpr const char* kGaitFile = "humanoid_nmpc/humanoid_common_mpc/config/command/gait.yaml";
+// The contact planner's own file, beside the task file: kContactPlanningFileName of humanoid_common_mpc, spelled here so
+// that the metrics library does not link the MPC's.
+// LINT.IfChange(contact_planning_file_name)
+constexpr char kContactPlanningFile[] = "contact_planning.textproto";
+// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/ConfigFiles.h:contact_planning_file_name)
+
+constexpr char kGaitFile[] = "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto";
 
 /** A configuration whose MPC package keeps its files in `configDir` (config/mpc, config/command, config/controller). */
 RobotConfiguration makeConfiguration(const std::string& name,
@@ -51,12 +59,16 @@ RobotConfiguration makeConfiguration(const std::string& name,
   RobotConfiguration configuration;
   configuration.name = name;
   configuration.formulation = formulation;
-  configuration.taskFile = absl::StrCat(configDir, "/mpc/task.yaml");
-  configuration.referenceFile = absl::StrCat(configDir, "/command/reference.yaml");
+  // LINT.IfChange(config_layout)
+  configuration.taskFile = absl::StrCat(configDir, "/mpc/task.textproto");
+  configuration.referenceFile = absl::StrCat(configDir, "/command/reference.textproto");
+  configuration.pdGainsFile = absl::StrCat(configDir, "/controller/joint_pd_gains.textproto");
+  // clang-format off
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/ConfigFiles.h:config_layout, //humanoid_nmpc/remote_control/remote_control/config_files.py:config_layout)
+  // clang-format on
   configuration.gaitFile = kGaitFile;
   configuration.urdfFile = urdfFile;
   configuration.sceneFile = sceneFile;
-  configuration.pdGainsFile = absl::StrCat(configDir, "/controller/joint_pd_gains.yaml");
   configuration.walkingScenario = walkingScenario;
   return configuration;
 }
@@ -90,14 +102,15 @@ std::string formulationName(MpcFormulation formulation) {
 
 std::vector<std::string> RobotConfiguration::configurationFiles() const {
   std::vector<std::string> files = {taskFile, referenceFile, gaitFile, pdGainsFile, urdfFile, sceneFile};
-  const std::string contactPlanningFile = (std::filesystem::path(taskFile).parent_path() / "contact_planning.yaml").string();
-  if (std::filesystem::exists(contactPlanningFile)) files.push_back(contactPlanningFile);
+  const std::string contactPlanningFile = (std::filesystem::path(taskFile).parent_path() / kContactPlanningFile).string();
+  std::error_code error;  // a file that cannot be examined is not listed, as a missing one
+  if (std::filesystem::exists(contactPlanningFile, error)) files.push_back(contactPlanningFile);
   return files;
 }
 
 const std::vector<RobotConfiguration>& robotConfigurations() {
-  static const std::vector<RobotConfiguration> configurations = makeConfigurations();
-  return configurations;
+  static const absl::NoDestructor<std::vector<RobotConfiguration>> kConfigurations(makeConfigurations());
+  return *kConfigurations;
 }
 
 absl::StatusOr<RobotConfiguration> findRobotConfiguration(absl::string_view name) {

@@ -1,34 +1,60 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Base MJX Environment for humanoid reinforcement learning with MuJoCo Playground & Brax."""
 
-from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+import dataclasses
+from typing import Any
 
-from brax.envs.base import PipelineEnv, State
+from brax.envs import base as brax_base
 import jax
 import jax.numpy as jnp
 import mujoco
 from mujoco import mjx
 
 
-@dataclass
+@dataclasses.dataclass
 class HumanoidEnvConfig:
     """Configuration for humanoid MJX environment."""
 
-    xml_path: Optional[str] = None
-    xml_string: Optional[str] = None
+    xml_path: str | None = None
+    xml_string: str | None = None
     control_dt: float = 0.02
     physics_dt: float = 0.002
     action_scale: float = 0.5
-    default_joint_angles: Optional[Dict[str, float]] = None
     target_vx: float = 1.0
     target_vy: float = 0.0
     target_wz: float = 0.0
 
 
-class HumanoidMpxEnv(PipelineEnv):
+class HumanoidMpxEnv(brax_base.PipelineEnv):
     """Base MJX velocity-tracking environment inheriting from Brax PipelineEnv."""
 
-    def __init__(self, config: Optional[HumanoidEnvConfig] = None, **kwargs):
+    def __init__(self, config: HumanoidEnvConfig | None = None, **kwargs: Any) -> None:
         self.config = config or HumanoidEnvConfig()
 
         if self.config.xml_string is not None:
@@ -72,8 +98,9 @@ class HumanoidMpxEnv(PipelineEnv):
     def observation_size(self) -> int:
         return self.sys.nq + self.sys.nv + 3
 
-    def reset(self, rng: jax.Array) -> State:
+    def reset(self, rng: jax.Array) -> brax_base.State:
         """Resets the environment state."""
+        del rng  # Unused: the reset is deterministic.
         pipeline_state = self.pipeline_init(
             jnp.array(self.sys.qpos0),
             jnp.zeros(self.sys.nv),
@@ -89,9 +116,9 @@ class HumanoidMpxEnv(PipelineEnv):
             "tracking_reward": jnp.zeros(()),
             "energy_penalty": jnp.zeros(()),
         }
-        return State(pipeline_state, obs, reward, done, metrics)
+        return brax_base.State(pipeline_state, obs, reward, done, metrics)
 
-    def step(self, state: State, action: jax.Array) -> State:
+    def step(self, state: brax_base.State, action: jax.Array) -> brax_base.State:
         """Simulates one control step with n_substeps physics steps."""
         scaled_action = action * self.config.action_scale
         ctrl = jnp.clip(scaled_action, -1.0, 1.0)
@@ -118,7 +145,7 @@ class HumanoidMpxEnv(PipelineEnv):
 
     def _compute_reward(
         self, pipeline_state: mjx.Data, cmd: jax.Array, ctrl: jax.Array
-    ) -> Tuple[jax.Array, Dict[str, jax.Array]]:
+    ) -> tuple[jax.Array, dict[str, jax.Array]]:
         """Computes tracking reward and regularization penalties."""
         vx = pipeline_state.qvel[0]
         tracking_err = jnp.square(vx - cmd[0])

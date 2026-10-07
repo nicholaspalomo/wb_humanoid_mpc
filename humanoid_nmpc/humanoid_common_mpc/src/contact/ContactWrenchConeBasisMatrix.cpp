@@ -29,22 +29,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 
-#include <Eigen/QR>
-#include <Eigen/SVD>
-
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <exception>
-#include <optional>
-#include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
-#include <ocs2_core/misc/LoadData.h>
-#include <ocs2_core/misc/PropertyTree.h>
-
-#include "absl/log/log.h"
+#include "Eigen/QR"
+#include "Eigen/SVD"
+#include "absl/log/absl_check.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
@@ -61,11 +55,11 @@ constexpr size_t kNumTorsionSigns = 2;
 constexpr size_t kNumConservativeExtraGenerators = 7;  // 1 normal + 4 CoP corners + 2 torsional
 
 constexpr scalar_t kHalf = 0.5;
-constexpr scalar_t kPatchInsideTolerance = 1e-9;      // [m] slack when checking that the patch point is on the footprint
-constexpr scalar_t kConeFeasibilityTolerance = 1e-9;  // slack of the generator feasibility self-check
-constexpr scalar_t kPseudoInverseRelativeTolerance = 1e-6;
-constexpr scalar_t kNonNegativeRelativeTolerance = 1e-12;  // how negative B+ W may be and still count as non-negative
-constexpr scalar_t kNnlsRelativeTolerance = 1e-12;         // Lawson-Hanson optimality tolerance, relative to |A| |b|
+constexpr scalar_t kPatchInsideTolerance = 1.0e-9;      // [m] slack when checking that the patch point is on the footprint
+constexpr scalar_t kConeFeasibilityTolerance = 1.0e-9;  // slack of the generator feasibility self-check
+constexpr scalar_t kPseudoInverseRelativeTolerance = 1.0e-6;
+constexpr scalar_t kNonNegativeRelativeTolerance = 1.0e-12;  // how negative B+ W may be and still count as non-negative
+constexpr scalar_t kNnlsRelativeTolerance = 1.0e-12;         // Lawson-Hanson optimality tolerance, relative to |A| |b|
 constexpr size_t kNnlsIterationsPerColumn = 5;
 
 constexpr absl::string_view kContactRectanglePrefix = "contacts.contact_rectangle.";
@@ -73,7 +67,7 @@ constexpr absl::string_view kContactRectanglePrefix = "contacts.contact_rectangl
 // FNV-1a, 64 bit: https://datatracker.ietf.org/doc/html/draft-eastlake-fnv
 constexpr uint64_t kFnvOffsetBasis = 0xcbf29ce484222325ULL;
 constexpr uint64_t kFnvPrime = 0x100000001b3ULL;
-constexpr scalar_t kHashZeroThreshold = 1e-12;  // entries below this magnitude are hashed as zero
+constexpr scalar_t kHashZeroThreshold = 1.0e-12;  // entries below this magnitude are hashed as zero
 
 /** The footprint corners in the documented order: (x_max,y_max), (x_max,y_min), (x_min,y_max), (x_min,y_min). */
 std::array<vector2_t, kNumFootprintCorners> footprintCorners(const PolygonBounds& bounds) {
@@ -139,7 +133,7 @@ absl::StatusOr<matrix_t> buildConservativeInnerApproximation(const ContactWrench
   // 4. A unit normal force at the patch point with the torsional limit of either sign.
   basis.col(column++) = wrenchAt(patchXy, vector3_t::UnitZ(), config.torsionalFrictionCoefficient);
   basis.col(column++) = wrenchAt(patchXy, vector3_t::UnitZ(), -config.torsionalFrictionCoefficient);
-  assert(column == basis.cols());
+  ABSL_CHECK_EQ(column, basis.cols()) << "ContactWrenchConeBasisMatrix: a generator set filled another number of columns than it has";
   return basis;
 }
 
@@ -168,19 +162,20 @@ absl::StatusOr<matrix_t> buildExactWrenchCone(const ContactWrenchConeConstraint:
       }
     }
   }
-  assert(column == basis.cols());
+  ABSL_CHECK_EQ(column, basis.cols()) << "ContactWrenchConeBasisMatrix: a generator set filled another number of columns than it has";
   return basis;
 }
 
 struct GeneratorSetEntry {
+  // NOLINTNEXTLINE(totw-view-member): every entry is a string literal of a constexpr registry, alive for the whole program.
   absl::string_view name;
   BasisGeneratorSetBuilder builder;
 };
 
 // LINT.IfChange(basis_generator_set_registry)
 constexpr std::array<GeneratorSetEntry, 2> kGeneratorSetRegistry = {{
-    {kConservativeInnerApproximationGeneratorSet, &buildConservativeInnerApproximation},
-    {kExactWrenchConeGeneratorSet, &buildExactWrenchCone},
+    {.name = kConservativeInnerApproximationGeneratorSet, .builder = &buildConservativeInnerApproximation},
+    {.name = kExactWrenchConeGeneratorSet, .builder = &buildExactWrenchCone},
 }};
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h:basis_generator_set_names)
 
@@ -268,10 +263,7 @@ absl::StatusOr<ContactWrenchConeBasisMatrix> ContactWrenchConeBasisMatrix::Creat
   if (!builder.ok()) {
     return builder.status();
   }
-  const absl::Status configStatus = validateConeConfiguration(config, contactRectangle);
-  if (!configStatus.ok()) {
-    return configStatus;
-  }
+  RETURN_IF_ERROR(validateConeConfiguration(config, contactRectangle));
   absl::StatusOr<matrix_t> basis = (*builder)(config, contactRectangle);
   if (!basis.ok()) {
     return basis.status();
@@ -309,53 +301,7 @@ vector_t ContactWrenchConeBasisMatrix::solveNonNegativeScalings(const vector6_t&
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-absl::StatusOr<feet_array_t<ContactWrenchConeBasisMatrix>> loadContactWrenchConeBases(const std::string& taskFile,
-                                                                                      const ModelSettings& modelSettings,
-                                                                                      bool verbose) {
-  ASSIGN_OR_RETURN(const ContactWrenchConeConstraint::Config coneConfig, ContactWrenchConeConstraint::loadConfig(taskFile, verbose));
-
-  PropertyTree pt;
-  try {
-    loadData::readPropertyTree(taskFile, pt);
-  } catch (const std::exception& error) {
-    return absl::NotFoundError(
-        absl::StrCat("[ContactWrenchConeBasisMatrix] failed to read the task file '", taskFile, "': ", error.what()));
-  }
-  // Which generators make up B, by registry name. It sets the input dimension of the problem, so it is read at
-  // start-up only and never hot-reloaded.
-  // LINT.IfChange(basis_generator_set_yaml_path)
-  std::string generatorSet(kDefaultBasisGeneratorSet);
-  const std::optional<std::string> namedSet = pt.getOptional<std::string>(kBasisGeneratorSetKey);
-  // clang-format off
-  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:basis_generator_set_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:basis_generator_set_config)
-  // clang-format on
-  if (namedSet.has_value()) {
-    generatorSet = *namedSet;
-  }
-  if (verbose) {
-    LOG(INFO) << "[ContactWrenchConeBasisMatrix] " << kBasisGeneratorSetKey << ": " << generatorSet
-              << (namedSet.has_value() ? "" : " (default)");
-  }
-
-  // Two contacts, as everywhere the basis-vector parameterization is built (BasisInputsModelDecorator).
-  static_assert(N_CONTACTS == 2, "loadContactWrenchConeBases builds one basis per foot of a biped");
-  ASSIGN_OR_RETURN(
-      ContactWrenchConeBasisMatrix leftBasis,
-      ContactWrenchConeBasisMatrix::Create(
-          coneConfig, ContactRectangle::loadContactRectangle(taskFile, modelSettings, /*contactIndex=*/0, verbose), generatorSet));
-  ASSIGN_OR_RETURN(
-      ContactWrenchConeBasisMatrix rightBasis,
-      ContactWrenchConeBasisMatrix::Create(
-          coneConfig, ContactRectangle::loadContactRectangle(taskFile, modelSettings, /*contactIndex=*/1, verbose), generatorSet));
-  return feet_array_t<ContactWrenchConeBasisMatrix>{std::move(leftBasis), std::move(rightBasis)};
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 vector_t solveNonNegativeLeastSquares(const matrix_t& A, const vector_t& b) {
-  assert(A.rows() == b.size());
   const Eigen::Index numColumns = A.cols();
   vector_t x = vector_t::Zero(numColumns);
   if (numColumns == 0) {

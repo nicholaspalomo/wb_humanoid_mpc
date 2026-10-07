@@ -29,12 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_core/Types.h>
-#include <ocs2_core/reference/ModeSchedule.h>
-#include <ocs2_core/reference/TargetTrajectories.h>
-#include <ocs2_mpc/CommandData.h>
-#include <ocs2_mpc/SystemObservation.h>
-#include <ocs2_oc/oc_data/PrimalSolution.h>
+#include "absl/base/nullability.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/CommandData.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 
 namespace ocs2::humanoid::visualization {
 
@@ -68,7 +69,7 @@ bool isConsistentPlan(const PolicySnapshot& plan, size_t stateDim, size_t inputD
  * outside the horizon. At an event, where two nodes share a time, the node before the event is taken. Requires a plan
  * for which isConsistentPlan() holds.
  */
-void samplePlan(const PolicySnapshot& plan, scalar_t time, vector_t* state, vector_t* input);
+void samplePlan(const PolicySnapshot& plan, scalar_t time, vector_t* absl_nonnull state, vector_t* absl_nonnull input);
 
 /** What a TargetTrajectories gives at a time: nothing, a state, or a state and an input. */
 enum class TargetSample {
@@ -81,7 +82,11 @@ enum class TargetSample {
  * The reference state (and input, when the target carries inputs of `inputDim`) at `time`, interpolated as
  * samplePlan() interpolates. kNone, with the outputs untouched, when the target has no states of `stateDim`.
  */
-TargetSample sampleTarget(
-    const TargetTrajectories& target, scalar_t time, size_t stateDim, size_t inputDim, vector_t* state, vector_t* input);
+TargetSample sampleTarget(const TargetTrajectories& target,
+                          scalar_t time,
+                          size_t stateDim,
+                          size_t inputDim,
+                          vector_t* absl_nonnull state,
+                          vector_t* absl_nonnull input);
 
 }  // namespace ocs2::humanoid::visualization

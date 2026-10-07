@@ -27,15 +27,15 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <csignal>
 #include <memory>
 #include <string>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc_app/node/MpcFiles.h"
 #include "humanoid_common_mpc_app/node/NodeBus.h"
@@ -72,13 +72,13 @@ TEST(NodeBus, AnEmptyNetworkFileIsTheShippedLocalhostNetwork) {
   const absl::StatusOr<robot::ipc::NetworkConfig> shipped = loadNodeNetwork(*shippedFile);
   ASSERT_TRUE(shipped.ok()) << shipped.status();
   EXPECT_EQ(*shipped, *network);
-  for (const char* node : {"robot", "mpc", "operator", "teleop"}) {
+  for (const char* absl_nonnull node : {"robot", "mpc", "operator", "teleop", "config_push"}) {
     EXPECT_NE(network->find(node), nullptr) << node;
   }
 }
 
 TEST(NodeBus, RefusesANodeTheNetworkDoesNotHave) {
-  const absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = createNodeBus("", "planner");
+  const absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = createNodeBus(/*networkConfigPath=*/"", "planner");
   EXPECT_EQ(bus.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_TRUE(absl::StrContains(bus.status().message(), "planner")) << bus.status();
 }
@@ -104,7 +104,7 @@ TEST(MpcFiles, NamesTheFlagOfAFileThatIsNotGivenOrDoesNotExist) {
   EXPECT_EQ(notFound.code(), absl::StatusCode::kNotFound);
   EXPECT_TRUE(absl::StrContains(notFound.message(), "/nonexistent/robot.urdf")) << notFound;
 
-  EXPECT_EQ(validateFileFlag("--gait_file", "").code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(validateFileFlag("--gait_file", /*path=*/"").code(), absl::StatusCode::kInvalidArgument);
 }
 
 }  // namespace

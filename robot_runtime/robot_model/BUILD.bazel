@@ -1,5 +1,7 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+
 # robot_model - Robot description and state library
 
 package(default_visibility = ["//visibility:public"])
@@ -12,30 +14,50 @@ cc_library(
         "src/RobotState.cpp",
     ],
     hdrs = glob(["include/**"], allow_empty = True),
+    copts = FIRST_PARTY_COPTS,
     includes = ["include"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
     deps = [
         "//robot_runtime/robot_core",
-        "@eigen",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@eigen",
         "@urdf",
     ],
 )
 
+# RobotDescription: Create()'s errors, the joints numbered in name order, the lookups by name and by index.
 cc_test(
     name = "test_robot_description",
     size = "small",
     srcs = ["test/testRobotDescription.cpp"],
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
-        "@urdf",
+    ],
+)
+
+# RobotState, RobotJointAction and their IDMapBase: the joints of the description, the checked accesses, and copies
+# that keep the capacity.
+cc_test(
+    name = "test_robot_state",
+    size = "small",
+    srcs = ["test/testRobotState.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":robot_model",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
     ],
 )
 
@@ -43,8 +65,11 @@ cc_test(
     name = "test_contact_estimator",
     size = "small",
     srcs = ["test/testContactEstimator.cpp"],
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
     ],
 )
@@ -53,8 +78,11 @@ cc_test(
     name = "test_contact_estimator_registry",
     size = "small",
     srcs = ["test/testContactEstimatorRegistry.cpp"],
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
     ],
 )

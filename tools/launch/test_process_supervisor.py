@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Tests for process_supervisor.py with small sh and Python children: output, exits, delays and the teardown.
 
 The supervisor runs in this process (run() on the main thread, as the command line does); shutdown requests come from
@@ -12,8 +39,8 @@ import sys
 import tempfile
 import threading
 import time
+from typing import Any
 import unittest
-from typing import List, Optional
 
 import launch_file
 import process_supervisor
@@ -45,13 +72,15 @@ time.sleep(60)
 """
 
 
-def sh(name: str, script: str, **settings: object) -> launch_file.ProcessSpec:
+def sh(name: str, script: str, **settings: Any) -> launch_file.ProcessSpec:
+    """A process that runs `script` with sh; `settings` are further fields of ProcessSpec."""
     return launch_file.ProcessSpec(
         name=name, machine="robot", command=("sh", "-c", script), **settings
     )
 
 
-def python(name: str, script: str, **settings: object) -> launch_file.ProcessSpec:
+def python(name: str, script: str, **settings: Any) -> launch_file.ProcessSpec:
+    """A process that runs the Python `script` with this interpreter; `settings` are further fields of ProcessSpec."""
     return launch_file.ProcessSpec(
         name=name, machine="robot", command=(sys.executable, "-c", script), **settings
     )
@@ -72,6 +101,7 @@ def process_is_gone(pid: int) -> bool:
 
 
 def wait_until_gone(pid: int, timeout_s: float = TIMEOUT_S) -> bool:
+    """Whether the process `pid` is gone (process_is_gone) within `timeout_s` seconds."""
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         if process_is_gone(pid):
@@ -81,17 +111,19 @@ def wait_until_gone(pid: int, timeout_s: float = TIMEOUT_S) -> bool:
 
 
 class SupervisorTestCase(unittest.TestCase):
+    """A temporary repository root, supervisors writing to a captured console, and their runs."""
 
     def setUp(self) -> None:
+        # pylint: disable-next=consider-using-with  # The cleanup deletes it.
         self._directory = tempfile.TemporaryDirectory()
         self.addCleanup(self._directory.cleanup)
         self.output = io.StringIO()
 
     def supervisor(
         self,
-        processes: List[launch_file.ProcessSpec],
+        processes: list[launch_file.ProcessSpec],
         shutdown: launch_file.ShutdownPolicy = FAST_SHUTDOWN,
-        **settings: object,
+        **settings: Any,
     ) -> process_supervisor.Supervisor:
         return process_supervisor.Supervisor(
             processes,
@@ -106,7 +138,7 @@ class SupervisorTestCase(unittest.TestCase):
         self,
         supervisor: process_supervisor.Supervisor,
         text: str,
-        signals: List[int],
+        signals: list[int],
         spacing_s: float = 0.0,
     ) -> threading.Thread:
         """Requests a shutdown for each of `signals` once `text` was printed (or after TIMEOUT_S regardless)."""
@@ -134,7 +166,7 @@ class SupervisorTestCase(unittest.TestCase):
         match = re.search(
             rf"started {re.escape(name)} \(pid (\d+)\)", self.output.getvalue()
         )
-        self.assertIsNotNone(match, self.output.getvalue())
+        assert match is not None, self.output.getvalue()
         return int(match.group(1))
 
 

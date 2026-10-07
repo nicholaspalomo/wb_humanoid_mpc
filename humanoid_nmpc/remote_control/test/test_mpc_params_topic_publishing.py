@@ -1,694 +1,276 @@
-"""****************************************************************************
-Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
+"""The MPC Parameters tab on the bus: a change is published as the whole edited files, and only Save writes them.
 
-* Redistributions of source code must retain the above copyright notice, this
-  list of conditions and the following disclaimer.
-
-* Redistributions in binary form must reproduce the above copyright notice,
-  this list of conditions and the following disclaimer in the documentation
-  and/or other materials provided with the distribution.
-
-* Neither the name of the copyright holder nor the names of its
-  contributors may be used to endorse or promote products derived from
-  this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-****************************************************************************"""
-
-"""
-Tests for the bus-based MPC parameter publishing pipeline.
-
-Verifies the decoupling between real-time MPC parameter updates (a YamlDocument on operator/mpc_parameters)
-and explicit YAML file saves (via "Save to YAML" button). The tests give the tab the GUI's publisher over a bus that
-records, and assert on the messages that would have gone out.
+The tab is given the GUI's publisher of operator/mpc_parameters over a bus that records, so the tests assert on the
+humanoid_mpc_config.MpcParameterUpdate that would have gone out. The tab works on copies of the DRC Atlas files (which
+has a contact-planning file) and of the Unitree G1's (which has none). Needs a display.
 """
 
 import os
 import shutil
 import tempfile
+import tkinter as tk
+from typing import Any
 import unittest
 
-import yaml
+from humanoid_mpc_config import contact_planning_file_pb2
+from humanoid_mpc_config import mpc_parameter_update_pb2
+from humanoid_mpc_config import task_file_pb2
 
 from humanoid_mpc_ipc import topics
-from humanoid_mpc_msgs import yaml_document_pb2
-from operator_test_support import RecordingPublisher, repo_path, requires_display
-from remote_control.tk_app.yaml_editor_utils import load_yaml_safe
+import nproto_textproto
+import operator_test_support
+from remote_control import robot_config_save
+from remote_control.tk_app import mpc_params_tab
+from remote_control.tk_app import slider_row
+
+# A parameter of the task file the tests drag, and one of the contact-planning file.
+STATE_SCALING = "state_weights.scaling"
+PLANNER_DT = mpc_params_tab.CONTACT_PLANNING_BLOCK + ".planner.dt"
 
 
-@requires_display
+@operator_test_support.requires_display
 class TestMpcParamsTopicPublishing(unittest.TestCase):
-    """Test suite verifying that MpcParamsTab publishes slider values to a
-    topic without modifying task.yaml on disk."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.atlas_task_file = repo_path(
-            "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml"
-        )
-
     def setUp(self):
+        self.root = tk.Tk()
+        self.root.withdraw()
+        self.addCleanup(self.root.destroy)
         self.tmpdir = tempfile.mkdtemp()
-        self.tmp_task_file = os.path.join(self.tmpdir, "task.yaml")
-        shutil.copy2(self.atlas_task_file, self.tmp_task_file)
-        self.mock_publisher = RecordingPublisher(topics.OPERATOR_MPC_PARAMETERS)
-        # Snapshot file content to detect unintended writes
-        with open(self.tmp_task_file, "r") as f:
-            self.original_content = f.read()
-        self.original_mtime = os.path.getmtime(self.tmp_task_file)
-
-    def tearDown(self):
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def _create_tab(self, root, category=None):
-        """Create MpcParamsTab with a mock publisher."""
-        from remote_control.tk_app.mpc_params_tab import MpcParamsTab
-
-        tab = MpcParamsTab(
-            root,
-            task_file=self.tmp_task_file,
-            enable_online_tuning=True,
-            param_publisher=self.mock_publisher,
+        self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
+        config = operator_test_support.copy_config(
+            operator_test_support.ATLAS_CONFIG, self.tmpdir
         )
-        if category:
-            tab.active_category.set(category)
-            tab._render_active_category()
-        return tab
+        self.task_file = os.path.join(config, "mpc", "task.textproto")
+        self.planner_file = os.path.join(config, "mpc", "contact_planning.textproto")
+        self.publisher = operator_test_support.RecordingPublisher(
+            topics.OPERATOR_MPC_PARAMETERS
+        )
+        self.original = {
+            path: self._read(path) for path in (self.task_file, self.planner_file)
+        }
 
-    def _file_was_modified(self):
-        """Check if task.yaml on disk was modified since setUp."""
-        with open(self.tmp_task_file, "r") as f:
-            current_content = f.read()
-        return current_content != self.original_content
+    def _read(self, path: str) -> str:
+        with open(path, encoding="utf-8", newline="") as handle:
+            return handle.read()
 
-    # ──────────────────────────────────────────────────────────
-    #  1. Slider changes publish to topic, NOT to YAML
-    # ──────────────────────────────────────────────────────────
-    def test_slider_change_publishes_to_topic(self):
-        """Moving a slider should trigger a publish to the mock publisher."""
-        import tkinter as tk
+    def _tab(
+        self, task_file: str | None = None, **kwargs: Any
+    ) -> mpc_params_tab.MpcParamsTab:
+        options: dict[str, Any] = {
+            "enable_online_tuning": True,
+            "param_publisher": self.publisher,
+        }
+        options.update(kwargs)
+        return mpc_params_tab.MpcParamsTab(
+            self.root, task_file=task_file or self.task_file, **options
+        )
 
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root, "Q")
+    def _row(self, tab: mpc_params_tab.MpcParamsTab, key: str) -> slider_row.SliderRow:
+        self.assertTrue(tab.render_category_containing(key), key)
+        row = tab.slider_rows[key]
+        assert isinstance(row, slider_row.SliderRow), key
+        return row
 
-            # Find the first slider and change it
-            key = list(tab.slider_rows.keys())[0]
-            row = tab.slider_rows[key]
-            original = row.get_value()
-            row.set_value(original * 1.5)
+    def _published(self) -> mpc_parameter_update_pb2.MpcParameterUpdate:
+        """The last update published; every update published so far names the task file it is of."""
+        for update in self.publisher.messages:
+            assert isinstance(update, mpc_parameter_update_pb2.MpcParameterUpdate)
+            self.assertTrue(update.config_path)
+        message = self.publisher.last_message
+        assert isinstance(message, mpc_parameter_update_pb2.MpcParameterUpdate), message
+        return message
 
-            # Directly call the publish method (bypasses debounce timer)
-            tab._publish_to_topic()
+    def _files_unchanged(self) -> bool:
+        return all(self._read(path) == text for path, text in self.original.items())
 
-            self.assertGreater(
-                self.mock_publisher.publish_count,
-                0,
-                "Expected at least one publish after slider change",
-            )
-        finally:
-            root.destroy()
-
-    def test_slider_change_does_not_modify_yaml(self):
-        """Moving a slider and publishing should NOT modify task.yaml on disk."""
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root, "Q")
-
-            # Change a slider value
-            key = list(tab.slider_rows.keys())[0]
-            row = tab.slider_rows[key]
-            row.set_value(row.get_value() * 2.0)
-
-            # Trigger the publish path (not auto-save)
-            tab._publish_to_topic()
-
-            # Verify YAML was NOT modified
-            self.assertFalse(
-                self._file_was_modified(),
-                "task.yaml should NOT be modified by slider changes — "
-                "only the topic should be used",
-            )
-        finally:
-            root.destroy()
-
-    # ──────────────────────────────────────────────────────────
-    #  2. "Save to YAML" writes to file
-    # ──────────────────────────────────────────────────────────
-    def test_save_to_yaml_writes_file(self):
-        """Clicking 'Save to YAML' should write slider values to task.yaml."""
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root, "Q")
-
-            # Change a slider
-            key = list(tab.slider_rows.keys())[0]
-            row = tab.slider_rows[key]
-            row.set_value(row.get_value() * 2.0)
-
-            # Explicit save
-            tab.save_and_checkpoint()
-
-            self.assertTrue(
-                self._file_was_modified(),
-                "task.yaml SHOULD be modified after 'Save to YAML'",
-            )
-        finally:
-            root.destroy()
-
-    def test_save_and_checkpoint_updates_defaults(self):
-        """save_and_checkpoint should update slider defaults for Reset All."""
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root, "Q")
-
-            key = list(tab.slider_rows.keys())[0]
-            row = tab.slider_rows[key]
-            new_val = row.get_value() * 2.0
-            row.set_value(new_val)
-
-            tab.save_and_checkpoint()
-
-            # The default should now be the new value
-            self.assertAlmostEqual(
-                row.default_value,
-                new_val,
-                places=3,
-                msg="Default value should be updated after save_and_checkpoint",
-            )
-        finally:
-            root.destroy()
-
-    # ──────────────────────────────────────────────────────────
-    #  3. "Reset All" publishes reset values to topic
-    # ──────────────────────────────────────────────────────────
-    def test_reset_all_publishes_to_topic(self):
-        """Reset All should publish default values to the topic."""
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root, "Q")
-
-            # Change a slider, then reset
-            key = list(tab.slider_rows.keys())[0]
-            row = tab.slider_rows[key]
-            row.set_value(row.get_value() * 3.0)
-
-            pub_count_before = self.mock_publisher.publish_count
-            tab.reset_all_defaults()
-
-            self.assertGreater(
-                self.mock_publisher.publish_count,
-                pub_count_before,
-                "Reset All should publish to the topic",
-            )
-        finally:
-            root.destroy()
-
-    def test_reset_all_restores_default_values(self):
-        """Reset All should snap sliders back to default values."""
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root, "Q")
-
-            key = list(tab.slider_rows.keys())[0]
-            row = tab.slider_rows[key]
-            original_val = row.default_value
-            row.set_value(original_val * 3.0)
-
-            tab.reset_all_defaults()
-
-            self.assertAlmostEqual(
-                row.get_value(),
-                original_val,
-                places=3,
-                msg="Slider should be restored to default after Reset All",
-            )
-        finally:
-            root.destroy()
-
-    def test_reset_all_does_not_modify_yaml(self):
-        """Reset All should publish to topic but NOT modify task.yaml."""
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root, "Q")
-
-            key = list(tab.slider_rows.keys())[0]
-            row = tab.slider_rows[key]
-            row.set_value(row.get_value() * 3.0)
-
-            tab.reset_all_defaults()
-
-            self.assertFalse(
-                self._file_was_modified(),
-                "Reset All should NOT write to task.yaml",
-            )
-        finally:
-            root.destroy()
-
-    # ──────────────────────────────────────────────────────────
-    #  4. Reload publishes loaded values to topic
-    # ──────────────────────────────────────────────────────────
-    def test_reload_publishes_to_topic(self):
-        """Reload should publish the freshly-loaded values to the topic."""
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root, "Q")
-
-            pub_count_before = self.mock_publisher.publish_count
-            tab.reload_file()
-
-            self.assertGreater(
-                self.mock_publisher.publish_count,
-                pub_count_before,
-                "Reload should publish to the topic",
-            )
-        finally:
-            root.destroy()
-
-    def test_reload_does_not_modify_yaml(self):
-        """Reload reads the file but should not write back to it."""
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root, "Q")
-            tab.reload_file()
-
-            self.assertFalse(
-                self._file_was_modified(),
-                "Reload should NOT modify task.yaml",
-            )
-        finally:
-            root.destroy()
-
-    # ──────────────────────────────────────────────────────────
-    #  5. _build_yaml_with_slider_values correctness
-    # ──────────────────────────────────────────────────────────
-    def test_build_yaml_contains_slider_values(self):
-        """The YAML string builder should reflect current slider values."""
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root, "Q")
-
-            # Set a known distinctive value on the first slider
-            key = list(tab.slider_rows.keys())[0]
-            row = tab.slider_rows[key]
-            distinctive_val = 999.123
-            row.set_value(distinctive_val)
-
-            yaml_str = tab._build_yaml_with_slider_values()
-
-            self.assertIn(
-                "999.123",
-                yaml_str,
-                "Built YAML string should contain the distinctive slider value",
-            )
-        finally:
-            root.destroy()
-
-    def test_a_dragged_slider_is_keyed_by_its_path_not_its_label(self):
-        """SliderRow reports its display label (`key [comment]` plus annotations) to on_change. The tab used to store
-        the value under that label, and the YAML writer then split the label on '.' as if it were a key path, so every
-        drag added an update that edited nothing or the wrong line. The value is keyed by the row's dotted path.
-        """
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root, "Q")
-            labeled = [
-                (key, row) for key, row in tab.slider_rows.items() if row.name != key
-            ]
-            self.assertTrue(
-                labeled,
-                "every Q slider is labeled by its key; the test needs one that is not",
-            )
-            key, row = labeled[0]
-            dragged = row.get_value() * 1.5 + 1.25
-            # The path a drag takes: the scale's own callback, which reports the row's label.
-            row._on_scale_change(str(dragged))
-            if tab._debounce_publish_id is not None:
-                tab.after_cancel(tab._debounce_publish_id)
-                tab._debounce_publish_id = None
-
-            self.assertAlmostEqual(tab._live_values.get(key), dragged)
-            self.assertNotIn(row.name, tab._live_values)
-            known = {tab._slider_key(tunable) for tunable in tab._tunables} | {
-                tab.CONTACT_ESTIMATOR_KEY
-            }
-            self.assertEqual(
-                set(tab._live_values) - known,
-                set(),
-                "live values under something other than a tunable's key path",
-            )
-
-            # The published YAML carries the value at the key's own path.
-            tmp_parse = os.path.join(self.tmpdir, "dragged.yaml")
-            with open(tmp_parse, "w") as f:
-                f.write(tab._build_yaml_with_slider_values())
-            node = load_yaml_safe(tmp_parse)
-            for part in key.split("."):
-                node = node[part.strip('"')]
-            self.assertAlmostEqual(float(node), dragged, places=6)
-        finally:
-            root.destroy()
-
-    def test_syncing_q_final_from_q_adds_no_live_value(self):
-        """The Q -> Q_final sync used to publish through the slider callback with a made-up name, 'sync', which then
-        traveled with every later publish and save as an update of a key that does not exist.
-        """
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root, "Q_final")
-            self.assertTrue(
-                any(key.startswith('Q_final."(') for key in tab.slider_rows),
-                "the Q_final block renders no diagonal slider",
-            )
-            tab._sync_q_final_from_q()
-            # Positive control: the sync did schedule a publish.
-            self.assertIsNotNone(tab._debounce_publish_id)
+    def _flush(self, tab: mpc_params_tab.MpcParamsTab) -> None:
+        """Runs the pending debounced publish now."""
+        if tab._debounce_publish_id is not None:
             tab.after_cancel(tab._debounce_publish_id)
-            tab._debounce_publish_id = None
-            self.assertNotIn("sync", tab._live_values)
-            known = {tab._slider_key(tunable) for tunable in tab._tunables} | {
-                tab.CONTACT_ESTIMATOR_KEY
-            }
-            self.assertEqual(set(tab._live_values) - known, set())
-        finally:
-            root.destroy()
+        tab._publish_to_topic()
 
-    def test_build_yaml_preserves_original_structure(self):
-        """The YAML string should preserve comments and structure from original file."""
-        import tkinter as tk
+    def test_a_change_publishes_both_files_and_writes_nothing(self):
+        tab = self._tab()
+        row = self._row(tab, STATE_SCALING)
+        row.set_value(row.get_value() * 1.5)
+        self._flush(tab)
+        published = self._published()
+        self.assertEqual(published.task.state_weights.scaling, row.get_value())
+        self.assertTrue(published.HasField("contact_planning"))
+        self.assertTrue(self._files_unchanged())
+        # The task file's identity, which a receiver running another configuration refuses the update by.
+        self.assertEqual(
+            published.config_path, robot_config_save.config_path_of(self.task_file)
+        )
 
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root, "Q")
+    def test_the_update_is_the_files_parsed_strictly_with_the_change(self):
+        tab = self._tab()
+        planner_row = self._row(tab, PLANNER_DT)
+        planner_row.set_value(0.05)
+        self._flush(tab)
+        published = self._published()
+        task = nproto_textproto.load_textproto(self.task_file, task_file_pb2.TaskFile)
+        planner = nproto_textproto.load_textproto(
+            self.planner_file, contact_planning_file_pb2.ContactPlanningFile
+        )
+        # The task file as it is; the planner's with its one change.
+        self.assertEqual(published.task, task)
+        planner.planner.dt = 0.05
+        self.assertEqual(published.contact_planning, planner)
 
-            yaml_str = tab._build_yaml_with_slider_values()
+    def test_without_a_change_the_update_is_the_files(self):
+        tab = self._tab()
+        tab.reload_file()
+        published = self._published()
+        self.assertEqual(
+            published.task,
+            nproto_textproto.load_textproto(self.task_file, task_file_pb2.TaskFile),
+        )
 
-            # Should contain original YAML structural elements
-            self.assertIn("Q:", yaml_str, "YAML string should contain 'Q:' section")
-            self.assertIn("R:", yaml_str, "YAML string should contain 'R:' section")
-            self.assertIn(
-                "Q_final:", yaml_str, "YAML string should contain 'Q_final:' section"
-            )
-            # Should preserve inline comments
-            self.assertIn("#", yaml_str, "YAML string should preserve inline comments")
-        finally:
-            root.destroy()
+    def test_a_robot_without_a_contact_planner_sends_none(self):
+        config = operator_test_support.copy_config(
+            operator_test_support.ROBOT_CONFIGS["g1_centroidal_mpc"],
+            os.path.join(self.tmpdir, "g1"),
+        )
+        tab = self._tab(os.path.join(config, "mpc", "task.textproto"))
+        self.assertIsNone(tab.contact_planning)
+        self.assertNotIn(mpc_params_tab.CONTACT_PLANNING_BLOCK, tab.categories)
+        row = self._row(tab, STATE_SCALING)
+        row.set_value(row.get_value() + 1.0)
+        self._flush(tab)
+        self.assertFalse(self._published().HasField("contact_planning"))
 
-    def test_build_yaml_returns_empty_without_file(self):
-        """_build_yaml_with_slider_values should return '' if no task_file.
+    def test_save_writes_the_changes_into_their_files(self):
+        tab = self._tab()
+        row = self._row(tab, STATE_SCALING)
+        row.set_value(row.get_value() + 1.0)
+        self._row(tab, PLANNER_DT).set_value(0.05)
+        self.assertTrue(tab.save())
+        task = nproto_textproto.load_textproto(self.task_file, task_file_pb2.TaskFile)
+        planner = nproto_textproto.load_textproto(
+            self.planner_file, contact_planning_file_pb2.ContactPlanningFile
+        )
+        saved = row.get_value()
+        self.assertEqual(task.state_weights.scaling, saved)
+        self.assertEqual(planner.planner.dt, 0.05)
+        # The saved values are the reset checkpoint now: a row shows them unmodified, and Reset All publishes them.
+        shown = self._row(tab, STATE_SCALING)
+        self.assertEqual(shown.get_value(), saved)
+        self.assertFalse(shown.is_modified())
+        tab.reset_all_defaults()
+        self.assertEqual(self._published().task.state_weights.scaling, saved)
+        self.assertEqual(self._published().contact_planning.planner.dt, 0.05)
 
-        Without a file the tab falls back to the first robot preset, a path relative to the repository root, so the
-        test runs in an empty working directory where no preset can be found (its outcome must not depend on where
-        pytest is launched from)."""
-        import tkinter as tk
-        from remote_control.tk_app.mpc_params_tab import MpcParamsTab
+    def test_reset_all_returns_to_the_files_and_publishes_them(self):
+        tab = self._tab()
+        row = self._row(tab, STATE_SCALING)
+        original = row.get_value()
+        row.set_value(original * 3.0)
+        tab.reset_all_defaults()
+        self.assertEqual(row.get_value(), original)
+        self.assertEqual(self._published().task.state_weights.scaling, original)
+        self.assertTrue(self._files_unchanged())
 
-        root = tk.Tk()
-        root.withdraw()
-        previous_cwd = os.getcwd()
-        os.chdir(self.tmpdir)
-        try:
-            tab = MpcParamsTab(
-                root,
-                task_file=None,
-                enable_online_tuning=True,
-                param_publisher=self.mock_publisher,
-            )
-            self.assertIsNone(
-                tab.task_file, "no file and no reachable preset: nothing loaded"
-            )
-            result = tab._build_yaml_with_slider_values()
-            self.assertEqual(result, "", "Should return empty string with no task_file")
-        finally:
-            os.chdir(previous_cwd)
-            root.destroy()
+    def test_without_a_publisher_nothing_is_sent_and_nothing_fails(self):
+        tab = self._tab(param_publisher=None)
+        row = self._row(tab, STATE_SCALING)
+        row.set_value(row.get_value() + 1.0)
+        self._flush(tab)
+        self.assertEqual(self.publisher.publish_count, 0)
 
-    # ──────────────────────────────────────────────────────────
-    #  6. No-publisher graceful degradation
-    # ──────────────────────────────────────────────────────────
-    def test_publish_without_publisher_does_not_crash(self):
-        """If param_publisher is None, _publish_to_topic should be a no-op."""
-        import tkinter as tk
-        from remote_control.tk_app.mpc_params_tab import MpcParamsTab
+    def test_without_online_tuning_nothing_is_published_or_saved(self):
+        tab = self._tab(enable_online_tuning=False)
+        tab._publish_to_topic()
+        self.assertEqual(self.publisher.publish_count, 0)
+        self.assertFalse(tab.save())
+        self.assertTrue(self._files_unchanged())
 
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = MpcParamsTab(
-                root,
-                task_file=self.tmp_task_file,
-                enable_online_tuning=True,
-                param_publisher=None,  # No publisher
-            )
-            tab.active_category.set("Q")
-            tab._render_active_category()
+    def test_rapid_changes_publish_once(self):
+        tab = self._tab()
+        row = self._row(tab, STATE_SCALING)
+        for step in range(5):
+            row.set_value(row.get_value() + step)
+        self.assertIsNotNone(tab._debounce_publish_id)
+        self._flush(tab)
+        self.assertEqual(self.publisher.publish_count, 1)
 
-            # Change a slider and try to publish — should not raise
-            key = list(tab.slider_rows.keys())[0]
-            tab.slider_rows[key].set_value(42.0)
-            tab._publish_to_topic()  # Should be a silent no-op
-        finally:
-            root.destroy()
+    def test_rows_are_keyed_by_their_path_and_labeled_by_their_field_names(self):
+        tab = self._tab()
+        joint = "state_weights.joint_positions[joint=back_bkz].value"
+        self.assertTrue(tab.render_category_containing(joint))
+        # The field and the joint's key, from below the block; the comment of the line is not part of it.
+        self.assertEqual(tab.slider_rows[joint].name, "joint_positions[back_bkz]")
+        # Every row of the block on screen is a parameter of a file, by its path.
+        for key in tab.slider_rows:
+            with self.subTest(key=key):
+                file, path = tab._locate(key)
+                self.assertTrue(file.has(path))
 
-    # ──────────────────────────────────────────────────────────
-    #  7. Published YAML is parseable by load_yaml_safe
-    # ──────────────────────────────────────────────────────────
-    def test_published_yaml_is_parseable(self):
-        """The YAML string sent via topic should be parseable back to a dict."""
-        import tkinter as tk
+    def test_the_contact_estimator_selection_publishes_its_name_and_saves_it(self):
+        tab = self._tab()
+        notified: list[str | None] = []
 
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root, "Q")
+        def record() -> None:
+            notified.append(tab.selected_contact_estimator())
 
-            # Change a slider and publish
-            key = list(tab.slider_rows.keys())[0]
-            row = tab.slider_rows[key]
-            row.set_value(row.get_value() * 1.5)
-            tab._publish_to_topic()
+        tab.on_contact_estimator_changed = record
+        self.assertTrue(tab.has_contact_estimator_selection())
+        self.assertEqual(tab.selected_contact_estimator(), "cheater_sim")
+        self.assertIn("always_in_contact", tab.contact_estimator_names())
+        tab.set_contact_estimator("always_in_contact")
+        self.assertEqual(tab.selected_contact_estimator(), "always_in_contact")
+        self.assertIn("always_in_contact", notified)
+        self._flush(tab)
+        self.assertEqual(self._published().task.contact_estimator, "always_in_contact")
+        self.assertTrue(self._files_unchanged())
+        self.assertTrue(tab.save())
+        self.assertIn(
+            'contact_estimator: "always_in_contact"', self._read(self.task_file)
+        )
+        tab.set_contact_estimator("cheater_sim")
+        tab.reset_all_defaults()
+        self.assertEqual(tab.selected_contact_estimator(), "always_in_contact")
 
-            # The published message should be parseable YAML
-            self.assertGreater(self.mock_publisher.publish_count, 0)
-            yaml_str = self.mock_publisher.last_yaml
+    def test_the_contact_estimator_selection_is_ignored_without_online_tuning(self):
+        tab = self._tab(enable_online_tuning=False)
+        tab.set_contact_estimator("always_in_contact")
+        self.assertEqual(tab.selected_contact_estimator(), "cheater_sim")
+        self.assertEqual(self.publisher.publish_count, 0)
 
-            # Write to temp file and parse (same as C++ side does)
-            tmp_parse = os.path.join(self.tmpdir, "parse_test.yaml")
-            with open(tmp_parse, "w") as f:
-                f.write(yaml_str)
-            parsed = load_yaml_safe(tmp_parse)
-
-            self.assertIn("Q", parsed, "Parsed YAML should contain 'Q' section")
-            self.assertIn("R", parsed, "Parsed YAML should contain 'R' section")
-        finally:
-            root.destroy()
-
-    # ──────────────────────────────────────────────────────────
-    #  8. Debounce replaces pending publishes
-    # ──────────────────────────────────────────────────────────
-    def test_debounce_replaces_pending(self):
-        """Multiple rapid slider changes should only schedule one publish."""
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root, "Q")
-
-            key = list(tab.slider_rows.keys())[0]
-            row = tab.slider_rows[key]
-
-            # Simulate 5 rapid slider moves
-            for i in range(5):
-                row.set_value(row.get_value() + 1.0)
-                tab._on_any_slider_change(key, row.get_value())
-
-            # Only one pending after() should be active
-            self.assertIsNotNone(
-                tab._debounce_publish_id,
-                "A debounce timer should be pending after rapid slider moves",
-            )
-
-            # Cancel it to avoid interference
-            tab.after_cancel(tab._debounce_publish_id)
-            tab._debounce_publish_id = None
-        finally:
-            root.destroy()
-
-    # ──────────────────────────────────────────────────────────
-    #  6. Contact estimator selection (checkbox on the Base Controller tab)
-    # ──────────────────────────────────────────────────────────
-    def test_contact_estimator_selection_publishes_name_and_saves_it(self):
-        """The Base Controller checkbox selects the contact estimator by name through the tab: cheater_sim on,
-        always_in_contact off. Selecting publishes the name on the topic without touching the file; 'Save to YAML'
-        writes it; 'Reset All' restores the checkpoint; every change notifies the registered callback.
-        """
-        import tkinter as tk
-
-        import yaml
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root, "contact_planning")
-            notifications = []
-            tab.on_contact_estimator_changed = lambda: notifications.append(
-                tab.selected_contact_estimator()
-            )
-            self.assertTrue(tab.has_contact_estimator_selection())
-            self.assertTrue(
-                tab.is_cheater_contact_estimator_selected(),
-                "the Atlas task file selects cheater_sim",
-            )
-
-            # Off: always_in_contact goes out on the topic, the file stays as it is.
-            tab.set_cheater_contact_estimator(False)
-            self.assertEqual(notifications, ["always_in_contact"])
-            tab.after_cancel(tab._debounce_publish_id)
-            tab._debounce_publish_id = None
-            tab._publish_to_topic()
-            published = yaml.safe_load(self.mock_publisher.last_yaml)
-            self.assertEqual(published["contactEstimator"], "always_in_contact")
-            self.assertFalse(self._file_was_modified())
-            self.assertFalse(tab.is_cheater_contact_estimator_selected())
-
-            # Save writes the name into the file, keeping the comment block around it.
-            tab.save_and_checkpoint()
-            self.assertEqual(
-                load_yaml_safe(self.tmp_task_file)["contactEstimator"],
-                "always_in_contact",
-            )
-            with open(self.tmp_task_file, "r") as f:
-                content = f.read()
-            self.assertIn(
-                "# LINT.IfChange(contact_estimator)\ncontactEstimator: always_in_contact\n",
-                content,
-            )
-
-            # Back on, and Reset All returns to the saved checkpoint (always_in_contact after the save above).
-            tab.set_cheater_contact_estimator(True)
-            tab.after_cancel(tab._debounce_publish_id)
-            tab._debounce_publish_id = None
-            tab._publish_to_topic()
-            self.assertEqual(
-                yaml.safe_load(self.mock_publisher.last_yaml)["contactEstimator"],
-                "cheater_sim",
-            )
-            tab.reset_all_defaults()
-            self.assertFalse(tab.is_cheater_contact_estimator_selected())
-            self.assertEqual(notifications[-1], "always_in_contact")
-            self.assertEqual(
-                yaml.safe_load(self.mock_publisher.last_yaml)["contactEstimator"],
-                "always_in_contact",
-            )
-        finally:
-            root.destroy()
-
-    def test_contact_estimator_selection_is_ignored_without_online_tuning(self):
-        import tkinter as tk
-
-        from remote_control.tk_app.mpc_params_tab import MpcParamsTab
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = MpcParamsTab(
-                root,
-                task_file=self.tmp_task_file,
-                enable_online_tuning=False,
-                param_publisher=self.mock_publisher,
-            )
-            tab.set_cheater_contact_estimator(False)
-            self.assertTrue(tab.is_cheater_contact_estimator_selected())
-            self.assertIsNone(tab._debounce_publish_id)
-            self.assertEqual(self.mock_publisher.publish_count, 0)
-        finally:
-            root.destroy()
-
-    def test_the_message_is_a_yaml_document_with_the_task_file_and_the_sliders(self):
-        """What goes on operator/mpc_parameters is a YamlDocument carrying exactly the YAML text the tab builds."""
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root, "Q")
-            key = list(tab.slider_rows.keys())[0]
-            row = tab.slider_rows[key]
-            row.set_value(row.get_value() * 1.5)
-            tab._publish_to_topic()
-
-            self.assertEqual(self.mock_publisher.publish_count, 1)
-            message = self.mock_publisher.last_message
-            self.assertIsInstance(message, yaml_document_pb2.YamlDocument)
-            self.assertEqual(
-                self.mock_publisher.bus.published[0][0],
-                topics.OPERATOR_MPC_PARAMETERS,
-            )
-            self.assertEqual(message.yaml, tab._build_yaml_with_slider_values())
-            # The task file's document (and the planner's, when it has one), with the slider's value in it.
-            published = yaml.safe_load(message.yaml)
-            self.assertLessEqual(
-                set(load_yaml_safe(self.tmp_task_file)), set(published)
-            )
-            node = published
-            for part in key.split("."):
-                node = node[part.strip("\"'")]
-            # Written with six significant digits (yaml_editor_utils._format_yaml_scalar).
-            self.assertAlmostEqual(
-                float(node),
-                row.get_value(),
-                delta=1e-5 * max(1.0, abs(row.get_value())),
-            )
-        finally:
-            root.destroy()
+    def test_a_file_that_does_not_parse_is_reported_and_shows_nothing(self):
+        with open(self.task_file, "a", encoding="utf-8") as handle:
+            handle.write("terrainHeight: 0.1\n")
+        tab = self._tab()
+        self.assertIsNone(tab.task)
+        self.assertEqual(tab.categories, [])
+        self.assertIn("task.textproto", tab.status_label.cget("text"))
+        self.assertFalse(tab.save())
 
 
 if __name__ == "__main__":

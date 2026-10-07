@@ -1,6 +1,34 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Tests for bus_listener.py: the network file and the receive-only side of the bus contract over loopback."""
 
 import os
+import pathlib
 import tempfile
 import time
 import unittest
@@ -10,7 +38,7 @@ import bus_listener
 import bus_test_publisher
 import robot_ipc
 
-TYPE_NAME = "humanoid_mpc_msgs.YamlDocument"
+TYPE_NAME = "humanoid_mpc_msgs.FsmCommand"
 # Generous: a loaded CI machine may take a while to connect, and a passing test returns as soon as it receives.
 RECEIVE_TIMEOUT_S = 10.0
 
@@ -125,7 +153,7 @@ class ResolveInputPathTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as working, tempfile.TemporaryDirectory() as workspace:
             os.makedirs(os.path.join(workspace, "config", "ipc"))
             in_workspace = os.path.join(workspace, "config", "ipc", "network.textproto")
-            open(in_workspace, "w", encoding="utf-8").close()
+            pathlib.Path(in_workspace).touch()
             environment = {
                 "BUILD_WORKING_DIRECTORY": working,
                 "BUILD_WORKSPACE_DIRECTORY": workspace,
@@ -138,7 +166,7 @@ class ResolveInputPathTest(unittest.TestCase):
                     in_workspace,
                 )
                 in_working = os.path.join(working, "network.textproto")
-                open(in_working, "w", encoding="utf-8").close()
+                pathlib.Path(in_working).touch()
                 self.assertEqual(
                     bus_listener.resolve_input_path("network.textproto"), in_working
                 )
@@ -166,7 +194,7 @@ class BusListenerTest(unittest.TestCase):
                 # A node that is not running: connecting to it is harmless.
                 f"tcp://127.0.0.1:{bus_test_publisher.unused_port()}",
             ]
-            seen = set()
+            seen: set[str] = set()
             with bus_listener.BusListener(endpoints) as listener:
                 deadline = time.monotonic() + RECEIVE_TIMEOUT_S
                 while seen != {robot_topic, mpc_topic} and time.monotonic() < deadline:
@@ -192,10 +220,11 @@ class BusListenerTest(unittest.TestCase):
                 received = [
                     listener.receive(timeout_s=RECEIVE_TIMEOUT_S) for _ in range(5)
                 ]
-        self.assertTrue(all(message is not None for message in received))
-        self.assertEqual({message.topic for message in received}, {topic})
-        self.assertEqual({message.payload for message in received}, {b"yes"})
-        self.assertEqual({message.type_name for message in received}, {TYPE_NAME})
+        messages = [message for message in received if message is not None]
+        self.assertEqual(len(messages), len(received))
+        self.assertEqual({message.topic for message in messages}, {topic})
+        self.assertEqual({message.payload for message in messages}, {b"yes"})
+        self.assertEqual({message.type_name for message in messages}, {TYPE_NAME})
 
     def test_messages_that_are_not_three_frames_are_counted_and_skipped(
         self,
@@ -215,7 +244,9 @@ class BusListenerTest(unittest.TestCase):
                     listener.receive(timeout_s=RECEIVE_TIMEOUT_S) for _ in range(3)
                 ]
                 malformed = listener.malformed_messages
-        self.assertEqual({message.payload for message in received}, {b"ok"})
+        messages = [message for message in received if message is not None]
+        self.assertEqual(len(messages), len(received))
+        self.assertEqual({message.payload for message in messages}, {b"ok"})
         self.assertGreater(malformed, 0)
 
     def test_receive_returns_none_after_the_timeout(self) -> None:

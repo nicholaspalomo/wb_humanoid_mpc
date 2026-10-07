@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -27,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <vector>
+
+#include "absl/base/nullability.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
@@ -45,10 +51,10 @@ namespace ocs2::humanoid {
  * prefix: a snapshot taken before a pass misses what the pass itself fixes, which is exactly how the maximum-contact
  * rule once forced a lift-off inside a double-support hold it could not see.
  *
- * The binaries are laid out node-major: index N_CONTACTS * node + foot (contactBinaryIndex).
+ * The binaries are laid out node-major: index kNumContacts * node + foot (contactBinaryIndex).
  */
 struct ContactLogicState {
-  const ContactPlannerInput* input = nullptr;
+  const ContactPlannerInput* absl_nullable input = nullptr;
   int numNodes = 0;
   scalar_t dt = 0.1;
   int nSwingMin = 1, nSwingMax = 1, nContactMin = 1, nContactMax = 0, nDoubleSupportHold = 0;
@@ -57,16 +63,16 @@ struct ContactLogicState {
   scalar_t initialTouchDownNode = -1000.0;  // touch-down node of a double support already in progress at planning time
   // Previous plan, for the plan-consistency cost: -1 / null when there is no usable one.
   int previousPlanShift = -1;
-  const MiqpAssignment* previousAssignment = nullptr;
+  const MiqpAssignment* absl_nullable previousAssignment = nullptr;
 
-  static constexpr int kBinariesPerNode = static_cast<int>(N_CONTACTS);
+  static constexpr int kBinariesPerNode = static_cast<int>(kNumContacts);
   static int contactBinaryIndex(int node, size_t foot) { return kBinariesPerNode * node + static_cast<int>(foot); }
   int numBinaries() const { return kBinariesPerNode * numNodes; }
 
   static ContactLogicState make(const ContactPlannerInput& input,
                                 const ContactPlanningConfig& config,
                                 int previousPlanShift,
-                                const MiqpAssignment* previousAssignment);
+                                const MiqpAssignment* absl_nullable previousAssignment);
 
   /**
    * Nodes already spent in the phase active at planning time. Rounded down by default, which is conservative for a

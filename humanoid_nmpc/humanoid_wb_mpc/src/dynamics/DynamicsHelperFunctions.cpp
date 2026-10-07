@@ -28,19 +28,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include "humanoid_wb_mpc/dynamics/DynamicsHelperFunctions.h"
-#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+
+#include "ocs2_robotic_tools/common/RotationDerivativesTransforms.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
-
-#include <ocs2_robotic_tools/common/RotationDerivativesTransforms.h>
+#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 // Pinnochio
-#include <pinocchio/algorithm/contact-dynamics.hpp>
-#include <pinocchio/algorithm/crba.hpp>
-#include <pinocchio/algorithm/frames.hpp>
-#include <pinocchio/algorithm/rnea.hpp>
-#include <pinocchio/multibody/data.hpp>
-#include <pinocchio/multibody/model.hpp>
+#include "pinocchio/algorithm/contact-dynamics.hpp"
+#include "pinocchio/algorithm/crba.hpp"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/rnea.hpp"
+#include "pinocchio/multibody/data.hpp"
+#include "pinocchio/multibody/model.hpp"
 
 namespace ocs2::humanoid {
 

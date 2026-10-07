@@ -22,6 +22,21 @@
   `humanoid_nmpc/humanoid_mpc_validation`, not in `ros2c/test/support`, and solves through
   `InProcessMpcLink::runSolverIteration()` (`Execution::kCaller`), not through hooks of the MRT joint controllers. Read
   the `ros2c/`, `cros2/` and `wbros2/` anchors below as pointers into those packages.
+- **The configuration files are typed textprotos on the main line** (humanoid_nmpc/humanoid_mpc_config/README.md).
+  `task.yaml`, `reference.yaml` and `contact_planning.yaml` below are a robot's `config/mpc/task.textproto`,
+  `config/command/reference.textproto` and `config/mpc/contact_planning.textproto`, parsed strictly into nproto structs,
+  and the tuning GUI renders them from their schemas (`remote_control/config_schema.py`; `yaml_param_tree.py`,
+  `loadEigenMatrix` and `loadData` are gone). The weights and states that were matrices by `"(i,i)"` index are blocks
+  by name: `Q` and `Q_final` are `state_weights` and `final_state_weights`, `R` is `input_weights`, `initialState` is
+  `initial_state`, `Q_com` and `Q_acom` are `com_weights` and `acom_weights`, and the orientation rows are
+  `base_orientation { yaw pitch roll }` (whole body also `base_angular_velocity { yaw pitch roll }`, the rates about z, y
+  and x). The conversions (`stateWeightsFromConfig()`, `stateValuesFromConfig()`, `inputWeightsFromConfig()` on
+  `StateInputLayout`, `humanoid_common_mpc/config/weights/`) build **the same tuning-layout vector, index for index**:
+  every row number below still holds for the vectors, and only the file names the rows instead of numbering them. A
+  camelCase key below (`terminalCostScaling`, `recompileLibrariesCppAd`, `useFeedbackPolicy`,
+  `contactWrenchConeSoftConstraint`, `swingPitchAngle`, `maximumTilt`) is its snake_case schema field, and a line
+  anchor into a YAML file points at that field of the textproto. The int code `centroidalModelType` became the name
+  `centroidal_model` (0 is `"full_centroidal_dynamics"`, 1 `"single_rigid_body_dynamics"`).
 - **Rules every implementing agent follows** (repository standing rules):
   - Do not use `auto` except when the initializer is `std::make_unique` or `std::make_shared`. This includes range-for loops, structured bindings and lambdas.
   - Give every non-self-evident literal argument a `/*paramName=*/` comment, using the callee's parameter name exactly.
@@ -40,7 +55,7 @@
 Both MPCs will carry the base attitude as a unit quaternion in the state, and the vendored OCS2 SQP becomes a native manifold (tangent-space) solver.
 
 **Storage versus tangent.**
-- Trajectories, observations, targets and ROS messages store the quaternion: centroidal `nx = 13+nj`, whole-body `nx = 13+2nj`.
+- Trajectories, observations, targets and the bus's protobuf messages (ROS messages before the ROS removal) store the quaternion: centroidal `nx = 13+nj`, whole-body `nx = 13+2nj`.
 - The QP, Riccati gains, line search, shooting gaps, initial-state gap and feedback policy work in the 3-D rotation tangent: `ndx = 12+nj` and `12+2nj`. These are exactly today's Euler state sizes, so HPIPM sizes and gain shapes are unchanged.
 
 **Root joint.** The Pinocchio root joint of both MPCs becomes `Composite(Translation, Spherical)`, which gives `v_base = [ṗ_W, ω_B]`. This choice:
@@ -51,8 +66,8 @@ Both MPCs will carry the base attitude as a unit quaternion in the state, and th
 **Costs and constraints.**
 - Every term keeps OCS2's contract: it differentiates with respect to the stored (ambient) state, and the transcription pulls the derivatives back once.
 - Residuals that are already rotation-based keep their exact form, so their weights keep their meaning. These are: end-effector orientation and plane distance, foot yaw, twist/zero-acceleration, wrench cone, DCM/ICP, collisions and torques.
-- The Euler-weighted rows of `Q`, `Q_final` and `Q_acom` act on a heading–tilt residual laid out exactly like today's (yaw, pitch, roll) rows. So every `task.yaml`, GUI slider, FSM parser and Python reader keeps its keys, indices and meaning.
-- Euler angles survive only at named human-facing converters: the `initialState` loader, the target calculators, the heuristic seam, the planned-heading override, pose commands, telemetry and display.
+- The Euler-weighted rows of `Q`, `Q_final` and `Q_acom` act on a heading–tilt residual laid out exactly like today's (yaw, pitch, roll) rows. So the tuning-layout vector the task file's named blocks convert to keeps its size, indices and meaning, and the task file, the GUI and the Python readers keep their fields (`state_weights.base_orientation { yaw pitch roll }`, ...).
+- Euler angles survive only at named human-facing converters: the `initial_state` conversion, the target calculators, the heuristic seam, the planned-heading override, pose commands, telemetry and display.
 
 **Why this design.** It is the faithful-manifold design, which the three judges rated best on correctness, robustness and verifiability.
 - The re-anchored chart design is rejected because its state stores a heading angle plus MRPs rather than a quaternion. That contradicts the user's decision to "completely switch to a quaternion representation".
@@ -62,7 +77,7 @@ Both MPCs will carry the base attitude as a unit quaternion in the state, and th
 1. OCS2's `QuadraticStateInputCost`/`QuadraticStateCost` have `final` methods, so they are not subclassed. New humanoid `Tuning*` cost classes replace them, the hot-reload casts are migrated, and `InputQuadraticCost` becomes input-only. This removes the `zeroQ` sizing hazard.
 2. The tilt is evaluated with `n = ‖s_xy‖` plus a series expansion, so it cannot be 0/0 at a level attitude.
 3. The ACoM Jacobian carries the `Exp(Δθ)` adjoint.
-4. YAML relabels keep the first comment token `theta_base_*`/`omega_base_*` that `humanoid_finite_state_machine.py:296-308` filters on.
+4. The tuning fields keep their names (`base_orientation { yaw pitch roll }`, the whole-body `base_angular_velocity`), which the GUI labels its controls by and the FSM reads `initial_state` by. No comment of a file is parsed any more, so no comment token has to be kept.
 5. The Pinocchio Spherical-joint spike tapes under both `-c opt` and `-c fastbuild`, and fastbuild-with-asserts is never used as a mitigation.
 
 **Staging.** The migration is staged so that an intermediate step runs the quaternion-formulated costs on the old Euler coordinates. That separates formulation effects from coordinate effects. Each stage is gated against golden data recorded from the Euler formulation before anything is removed.
@@ -85,7 +100,7 @@ Everything else is settled by the evidence and decided below.
 | D3 | Discretization: OCS2's existing RK4 on the ambient vector field, then normalization (`F = Π∘Φ_RK4`). The defect is expressed on the manifold (§2.7). | The vector field is tangent to S³ (`Gᵀ(ξ)ξ = 0`), so RK4 keeps fourth order. Measured norm drift is about 1.1e-10 per step at dt 0.02 and |ω| = 5. A Lie-group RK would mean rewriting `SensitivityIntegratorImpl.cpp`. |
 | D4 | Every cost and constraint returns derivatives with respect to the **ambient** state. The transcription pulls them back once (`J ← J·E`, `H ← EᵀHE`). Analytic terms that naturally have tangent derivatives lift them (`J_a = J_t·E⁺`). | The roughly 30 CppAD terms need no derivative plumbing. |
 | D5 | Homogeneity rule: every function of the state sees the quaternion only through `ξ̂ = ξ/‖ξ‖`, computed safely (§2.6). The single exception is the kinematic row `ξ̇ = ½G(ξ)ω_B`, which uses the raw `ξ`. | Makes the retraction-curvature term vanish (`∇_ξℓ·ξ = 0`). Makes RK4 stages and the CppAD tape point (`x = ones`, so `ξ̂ = ½(1,1,1,1)`) valid configurations. Maps a zero state to the identity rotation instead of NaN. |
-| D6 | Tuning layout = tangent size: `n_t = ndx` = today's Euler `nx`, index for index. YAML `Q`, `Q_final`, `R`, `initialState` are unchanged in size, keys and indices. Costs evaluate a tuning residual `r(x, x_ref)` with its own Jacobian. | `loadEigenMatrix` would silently shift every index ≥ 9 for a quaternion-sized Q. The GUI (`remote_control/tk_app/yaml_param_tree.py`, `mpc_params_tab.py:618-664`) needs no code change. |
+| D6 | Tuning layout = tangent size: `n_t = ndx` = today's Euler `nx`, index for index. The task file's `state_weights`, `final_state_weights`, `input_weights` and `initial_state` blocks are unchanged: `StateInputLayout` places them on the same vectors, which keep their size and indices. Costs evaluate a tuning residual `r(x, x_ref)` with its own Jacobian. | A quaternion-sized Q would shift every index ≥ 9; the named blocks cannot, and the conversions refuse a block of the wrong layout. The GUI (`remote_control/config_schema.py`, rendered from the schemas) needs no code change. |
 | D7 | The Euler-weighted orientation rows use the heading–tilt split (§2.8.1): wrapped twist yaw, plus tilt rotation vector components (y, x) in the heading frame. | Tilt is exactly independent of the yaw error. `Log(R_refᵀR)` leaks tilt between axes under a yaw error: at a 0.35 rad yaw error it reports (0.108, 0.032) for a true (0.1, 0.05). Every robot ships `Q_yaw = 0`, so yaw errors are not controlled by Q, and SA01/R1 roll/pitch weights (85/5) would change meaning. |
 | D8 | Whole-body angular-velocity rows: `e_ω = P₃(ω_B − R(ξ̂)ᵀR(ξ̂_r)ω_{B,r})`, i.e. a body-frame error with the reference transported, ordered (z, y, x). | Exactly zero for correct tracking of a world yaw-rate command at any tilt (as the Euler-rate difference is). The Jacobian is linear plus one skew term. Equal to the Euler-rate rows at a level attitude (`T_B(0) = P₃`). |
 | D9 | One heading definition for reads: the twist `ψ_h(ξ) = 2·atan2(ξ_z, ξ_w)`, read in the hemisphere `ξ_w ≥ 0` (so `ψ_h ∈ (−π, π]` and `ψ_h(−ξ) = ψ_h(ξ)` exactly; implemented with signed zeros made positive, §2.8.1). Edits of level references at the Euler boundary (heuristic offsets, planned-heading override) use ZYX decomposition, add or replace, then recompose. | The twist is singular only upside down; ZYX yaw is singular at pitch ±90°. The two differ by `−2·atan(tan(θ/2)tan(φ/2)) ≈ −θφ/2` (0.0113 rad at θ = φ = 0.15). For level references (every shipped reference) ZYX yaw equals twist yaw exactly, so the edits are exact Euler arithmetic. |
@@ -96,8 +111,8 @@ Everything else is settled by the evidence and decided below.
 | D14 | CppAD libraries go in a layout-tagged folder `cppad_code_gen/cppad_<mpc><robot>/<kStateLayoutTag>` (`common/src/common/ModelSettings.cpp:189`). `CppAdInterface` checks `Domain()`/`Range()` on load and throws with the folder name on mismatch; a fresh interface (no earlier `createModels()`, not a copy) finds the expected range by one off-tape evaluation of the function at the tape point, so a changed output size with unchanged inputs is caught too. A library with the same dimensions but other arithmetic cannot be told apart: that is what the layout tag is for. | Every task file ships `recompileLibrariesCppAd: false` (Atlas `task.yaml:705`, SA01 `:607`, G1 `:376`, R1 `:363`, G1-WB `:147`). Today only the `.so` file's existence is checked (`ocs2/core/src/automatic_differentation/CppAdInterface.cpp:140-155, 305`). |
 | D15 | Pre-existing defects that do not change behavior are fixed before the goldens (Step 2). Behavior-changing ones are user-gated after the switch (Q1, Step 11). | The switch is validated against an unchanged plant. Each behavior change is validated alone. |
 | D16 | A staged ladder: layout-agnostic API on Euler (gate: bitwise or 1e-12 equal to G1), then the formulation on Euler coordinates (gate: stated first-order tolerances against G1; records G2), then the coordinate switch (gate: exact to round-off against G2). | Separates "formulation changed the behavior" from "coordinates/solver changed the behavior". |
-| D17 | The SRBD branch (`cm/src/ModelHelperFunctions.cpp:61-79`) is ported, not refused. | It is a model option, not an Euler path. All robots ship `centroidalModelType: 0`, so the port is tested against Full at the nominal posture. |
-| D18 | The whole-body `initialState` rows `9+nj..11+nj` (G1: 32..34) are reinterpreted as body angular velocity in (z, y, x) order, matching their `omega_base_z/y/x` labels and the Q rows. | Shipped values are 0, so this is identical. The label becomes true (today they are Euler rates). |
+| D17 | The SRBD branch (`cm/src/ModelHelperFunctions.cpp:61-79`) is ported, not refused. | It is a model option, not an Euler path. All robots ship `centroidal_model: "full_centroidal_dynamics"`, so the port is tested against Full at the nominal posture. |
+| D18 | The whole-body `initial_state.base_angular_velocity { yaw pitch roll }` rows `9+nj..11+nj` (G1: 32..34) are reinterpreted as body angular velocity in (z, y, x) order, matching the Q rows. | Shipped values are 0, so this is identical. The field's comment in `state_values.proto` becomes true (today they are Euler rates). |
 
 ---
 
@@ -149,7 +164,7 @@ Unchanged by the root-joint swap:
 
 **Centroidal** (`cmpc/include/humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h:52-60, 76-196`):
 
-| Block | Ambient `x` (storage) | Tangent `δx` (QP, gains) | Tuning rows (YAML) |
+| Block | Ambient `x` (storage) | Tangent `δx` (QP, gains) | Tuning rows (task file blocks, by name) |
 |---|---|---|---|
 | `h̄ = [ċ, L/m]` (world, normalized momentum) | 0..5 | 0..5 | 0..5 |
 | `p_W` | 6..8 | 6..8 | 6..8 |
@@ -305,8 +320,8 @@ u(t,x)=(1-\alpha)\big[u^*_k+K_k\,\mathrm{difference}(\bar x_k,x)\big]+\alpha\big
 - **Unchanged:** HPIPM (sizes from `OcpSize.cpp:55-59`; `δx₀` eliminated), the projection (`Transcription.cpp:96-123`, `Helpers.cpp:38-58`), `remapProjectedGain` (`Helpers.cpp:50-56`), `PerformanceIndexComputation`, and `FilterLinesearch`. State-only equality constraints never reach the QP (`SqpSolver.cpp:394-400`), and none is added: there is no norm constraint.
 - **Guards:**
   - `createValueFunction` throws with a non-flat manifold (`SqpSolver.cpp:172-191, 321-329`; off by default per `SqpSettings.h:58`).
-  - `GaussNewtonDDP`'s constructor throws with a non-flat manifold.
-  - IPM and SLP are not Bazel targets (`ocs2/BUILD.bazel` defines core, oc, robotic_tools, mpc, qp_solver, ddp, hpipm, sqp, pinocchio and ros2), so they need no guard.
+  - `GaussNewtonDDP`'s constructor throws with a non-flat manifold. (Stale: OCS2's DDP, `lib/ocs2/ddp`, was deleted, and this guard and its test `test_ddp_state_manifold_guard` with it; the SQP is the fork's only solver, `lib/ocs2/README.md`.)
+  - IPM and SLP are not Bazel targets, and the fork no longer carries them (`ocs2/BUILD.bazel` defines core, oc, robotic_tools, mpc, hpipm, sqp and pinocchio; qp_solver and ddp were deleted and ros2 went with ROS), so they need no guard.
 
 ### 2.8 Costs and constraints
 
@@ -330,7 +345,7 @@ n=\big\|s_{xy}\big\|,\qquad
 
 **Judge fix:** `n` is `‖s_xy‖`, never `sqrt(1−ρ²)`. Because `s_w = ρ ≥ 0`, `τ = Log(s)_xy` needs no sign flip and |τ| ≤ π. In double code, clamp `ρ ≥ 1e-9` (upside-down guard).
 
-The residual, rows in the YAML order (yaw, pitch, roll):
+The residual, rows in the order of the tuning layout (yaw, pitch, roll):
 
 ```math
 e_{HT}(\xi,\xi_r)=\big[\ \mathrm{wrap}_\pi(\psi_h(\xi)-\psi_h(\xi_r)),\ \ \tau_y(\xi)-\tau_y(\xi_r),\ \ \tau_x(\xi)-\tau_x(\xi_r)\ \big]
@@ -499,19 +514,21 @@ The index map from the tuning layout to the state is §2.3.
 | `Q`/`Q_final` pitch, roll rows ("theta_base_y/x") | `(τ_y − τ_y,r)²`, `(τ_x − τ_x,r)²` | exact for single-axis tilt; mixed tilt per §2.8.1; independent of the yaw error; Hessians equal at any level state (any reference), first order in the tilt otherwise |
 | Whole-body rows 32..34 ("omega_base_z/y/x", Euler rates today) | `e_ω` rows (z, y, x) | equal at level; O(tilt·rate) otherwise; zero error for correct world-yaw-rate tracking at any tilt; shipped weights isotropic (3/3/3) |
 | `Q_acom` (yaw, pitch, roll) | heading–tilt of `ξ̂⊗Exp(Δθ)` | first order |
-| `Q_com`, task-space torso and foot weights, `foot_constraint.*`, `contactWrenchConeSoftConstraint.*`, `swingPitchAngle`, `reference.yaml` rates, `contact_planning.yaml` | unchanged | exact (heading reads ≤ ½\|θφ\| for measured headings) |
+| `Q_com`, task-space torso and foot weights, `foot_constraint.*`, `contactWrenchConeSoftConstraint.*`, `swingPitchAngle`, the reference file's rates, the contact planner's file | unchanged | exact (heading reads ≤ ½\|θφ\| for measured headings) |
 | `initialState` (centroidal) | Euler rows 9..11 → `ξ = q_z q_y q_x` | exact rotation |
 | `initialState` (whole-body) | rows 3..5 → ξ; rows 32..34 = ω_B (z, y, x) (D18) | shipped zeros, so identical |
 | `locomotion_heuristics.orientation_compensation.*`, `periodic_orientation.*`, `maximumTilt` | Euler offsets at the seam | exact (all `base_pose` lists empty as shipped) |
 | Velocity and pose commands | Euler/yaw scalar, converted per knot | exact for level targets |
 | Reset heading | `q_t(ξ_obs)` | twist rather than ZYX yaw, ≤ ½\|θφ\| |
-| G1-WB `task_space_foot_cost_weights` | loader fixed, YAML set to effective values (Q2) | identical |
+| G1-WB `task_space_foot_cost` | loader fixed, the file set to the effective values (Q2) | identical |
 
-**YAML comments** become GUI slider labels. They are reworded **keeping the first token**, which `humanoid_finite_state_machine.py:296-308` filters on. For example:
+**The field comments** of `yaw_pitch_roll.proto`, `state_weights.proto` and `state_values.proto` say what the rows mean after the switch; the GUI labels its controls by the field names, which do not change, and no comment of a file is parsed. For example:
 
-```yaml
-"(10,10)": 5.0  # theta_base_y: pitch, tilt about the heading-frame y axis [rad]
-"(32,32)": 3.0  # omega_base_z: base angular velocity about body z [rad/s]
+```textproto
+state_weights {
+  base_orientation { yaw: 0.0 pitch: 5.0 roll: 85.0 }  # pitch: tilt about the heading-frame y axis [rad]
+  base_angular_velocity { yaw: 3.0 pitch: 3.0 roll: 3.0 }  # whole body: angular velocity about body z, y, x [rad/s]
+}
 ```
 
 ### 2.11 MRT, reset, policy, rollout, visualization, telemetry
@@ -541,7 +558,7 @@ The index map from the tuning layout to the state is §2.3.
 
 **Whole-body `getBaseComVelocity`** returns `[ṗ_W; P₃ω_B]` ("tuning-order base velocity"). Index 3 is ω_z ≈ ψ̇ and index 5 is ω_x ≈ φ̇, so `ProceduralMpcMotionManager.cpp:175-234` and `WBMpcTargetTrajectoriesCalculator.cpp:100-105` keep today's meaning to first order (Q1 defers their fixes). Centroidal `getBaseComVelocity` (h̄) is unchanged.
 
-**Rollouts and dummy sims.** `RolloutBase::setStateManifold`; `TimeTriggeredRollout` (`ocs2/oc/src/rollout/TimeTriggeredRollout.cpp:89`) projects every output state and its `clone()` keeps the manifold. `StateTriggeredRollout` and `InitializerRollout` do neither, so they refuse a non-null manifold (`supportsStateManifold()`, a `CHECK`) instead of ignoring it; the humanoid uses `TimeTriggeredRollout` only. The dummy loops (`ocs2/ros2_interfaces/src/mrt/MRT_ROS_Dummy_Loop.cpp:182-195`) feed back projected states, so no humanoid dummy-loop subclass is needed.
+**Rollouts and dummy sims.** `RolloutBase::setStateManifold`; `TimeTriggeredRollout` (`ocs2/oc/src/rollout/TimeTriggeredRollout.cpp:89`) projects every output state and its `clone()` keeps the manifold. `StateTriggeredRollout` and `InitializerRollout` do neither, so they refuse a non-null manifold (`supportsStateManifold()`, a `CHECK`) instead of ignoring it; the humanoid uses `TimeTriggeredRollout` only. The dummy loops (`ocs2/ros2_interfaces/src/mrt/MRT_ROS_Dummy_Loop.cpp:182-195`) feed back projected states, so no humanoid dummy-loop subclass is needed. (Stale: `ros2_interfaces` went with ROS; the dummy loops are now the `*DummySimMain.cpp` sources of `humanoid_{centroidal,wb}_mpc_app`, which step 9 re-checks.)
 
 **Visualization:**
 - `publishBaseTransform(position, quaternion)` (`ros2c/src/visualization/HumanoidVisualizer.cpp:126-175`).
@@ -549,9 +566,9 @@ The index map from the tuning layout to the state is §2.3.
 - `SimFsmBridge.cpp:234-250` sets the `RobotState` rotation from `getBaseOrientation(initState)`.
 
 **Telemetry:**
-- `common/include/humanoid_common_mpc/common/Types.h:126-150` splits `FLOATING_BASE_DIM`/`JOINT_COORDINATE_OFFSET` into:
-  - `BASE_CONFIGURATION_DIM = 7` (names `base_x, base_y, base_z, base_qx, base_qy, base_qz, base_qw`)
-  - `BASE_VELOCITY_DIM = 6` (`base_vx, base_vy, base_vz` world; `base_wx, base_wy, base_wz` body)
+- `common/include/humanoid_common_mpc/common/Types.h:126-150` splits `kFloatingBaseDim`/`kJointCoordinateOffset` into:
+  - `kBaseConfigurationDim = 7` (names `base_x, base_y, base_z, base_qx, base_qy, base_qz, base_qw`)
+  - `kBaseVelocityDim = 6` (`base_vx, base_vy, base_vz` world; `base_wx, base_wy, base_wz` body)
   - with separate configuration and velocity joint offsets.
 - `PinocchioTelemetryPublisher.cpp:369-403, 454` builds `q`/`v` through the measurement helpers. The singular `θ̇(ω_W)` at `:386-387` is removed.
 - The Euler topics (`/robot/base_euler`, `/mpc/target_base_euler`, `:541-575`; `HumanoidTelemetryPublisher.cpp:60-187`) are kept, derived through `EulerBoundary` with a clamped `asin`.
@@ -613,9 +630,9 @@ These hold at any attitude with cos θ ≠ 0, not only for small errors.
   - `:172-191, 321-329` + constructor: throw for `createValueFunction` with a non-flat manifold.
 - `mpc/include/ocs2_mpc/MRT_BASE.h` + `mpc/src/MRT_BASE.cpp:122-134`: `setStateManifold`; plan-state slerp in `evaluatePolicy`.
 - ~~`ros2_msgs/msg/MpcFlattenedController.idl:12-14`: `CONTROLLER_MANIFOLD_LINEAR = 3`.~~ Dropped with ROS; the protobuf encoder adds the wire code to `humanoid_mpc_msgs/controller_type.proto`.
-- `ros2_interfaces/src/mpc/MPC_ROS_Interface.cpp:112-119`: new case.
-- `ros2_interfaces/src/mrt/MRT_ROS_Interface.cpp:170-180` (+ `.h` `setStateManifold`): new case.
-- `ddp/src/GaussNewtonDDP.cpp` constructor: throw on a non-flat manifold.
+- `ros2_interfaces/src/mpc/MPC_ROS_Interface.cpp:112-119`: new case. (Stale: `ros2_interfaces` went with ROS; the protobuf policy encoder, `humanoid_nmpc/humanoid_mpc_ipc/src/MpcMessageConversions.cpp`, takes this case.)
+- `ros2_interfaces/src/mrt/MRT_ROS_Interface.cpp:170-180` (+ `.h` `setStateManifold`): new case. (Stale: the policy decoder of the same `MpcMessageConversions.cpp` takes it.)
+- `ddp/src/GaussNewtonDDP.cpp` constructor: throw on a non-flat manifold. (Stale: deleted with OCS2's DDP, guard and all.)
 - `cm/include/ocs2_centroidal_model/CentroidalModelInfo.h:68-73`, `cm/src/CentroidalModelInfo.cpp:135-154`:
   - `generalizedCoordinatesNum` → `configurationDim` (nq) and `velocityDim` (nv);
   - `actuatedDofNum = nv − 6`, `stateDim = 6 + nq`, new `stateTangentDim = 6 + nv`;
@@ -637,9 +654,9 @@ These hold at any attitude with cos θ ≠ 0, not only for small errors.
 - `pinocchio/pinocchio_interface/src/PinocchioEndEffectorKinematics.cpp:135, 310, 348`: Jacobians sized `model.nv`.
 
 **Deleted** (after a `grep` shows no caller in `lib/ocs2` targets or `humanoid_nmpc`):
-- `cm/src/PinocchioCentroidalDynamics.cpp` + header. This also removes the latent `3*inputIdx` bug at `:128-129`.
-- `cm/src/CentroidalModelRbdConversions.cpp` + header. This also removes the latent twist misuse at `:184-187, 225`.
-- `cm/test/testAnymalCentroidalModel.cpp` (not a Bazel target).
+- `cm/src/PinocchioCentroidalDynamics.cpp` + header. This also removes the latent `3*inputIdx` bug at `:128-129`. (Done: deleted with the dead-code cleanup, ahead of Step 8.)
+- `cm/src/CentroidalModelRbdConversions.cpp` + header. This also removes the latent twist misuse at `:184-187, 225`. (Done: deleted with the dead-code cleanup, ahead of Step 8.)
+- `cm/test/testAnymalCentroidalModel.cpp` (not a Bazel target). (Done: deleted with the other unbuilt upstream tests in the dead-code cleanup.)
 
 **New `cc_test`s in `ocs2/BUILD.bazel`:** see §5c.
 
@@ -711,6 +728,11 @@ These hold at any attitude with cos θ ≠ 0, not only for small errors.
 - `src/command/CentroidalMpcTargetTrajectoriesCalculator.cpp:84-86, 107-109, 143-148, 192-195`: §2.9; Step 2 rewrite of `:143-148` (Q1 default).
 - `src/mrt/CentroidalMpcMrtJointController.cpp:90, 227-262, 414, 457-469, 498-501, 899-931, 936-955`: §2.11; `mcpMrtInterface_.setStateManifold(...)` in the constructor.
 - `src/mrt/MpcParameterUpdaterModule.cpp:434-448, 656-661, 723-730, 974-1031`:
+  - (Stale: the live-tuning change moved the updater to `humanoid_common_mpc/parameter_update/`, where these writes
+    are the appliers' - Q, R and Q_final in `QuadraticCostWeightsApplier.cpp`, R under basis inputs in
+    `humanoid_centroidal_mpc/src/parameter_update/BasisInputsCostApplier.cpp` - so this file's citations of
+    `MpcParameterUpdaterModule` and its line ranges, here and in D13, section 3 and the `cmpc/test` list, name the
+    pre-move file; step 9 rewrites them.)
   - `stateDim_` renamed `tuningDim_`;
   - casts become `get<TuningQuadraticStateInputCost>("stateInputQuadraticCost")`, `get<TuningQuadraticStateInputCost>("stateQuadraticCost")`, `get<InputQuadraticCost>("inputQuadraticCost").setInputWeights(R)`, and `finalCostPtr->get<TuningQuadraticStateCost>(kQuadraticTerminalCostTerm)`;
   - `zeroQ` is removed.
@@ -722,7 +744,7 @@ These hold at any attitude with cos θ ≠ 0, not only for small errors.
 - `include/humanoid_wb_mpc/common/WBAccelMpcRobotModel.h:47-212`:
   - layout §2.3; new API; `getBaseComVelocity` = `[ṗ_W; P₃ω_B]`;
   - `getBaseAngularVelocityLocal`/`setBaseAngularVelocityLocal`, `setBaseAngularVelocityFromWorldYawRate`;
-  - remove `getBaseEulerZYXDerivatives`/`setBaseOrientationEulerZYXDerivatives`.
+  - remove `getBaseEulerZYXDerivatives`/`setBaseOrientationEulerZYXDerivatives`. (Half done: the dead-code cleanup deleted the unused getter; the setter, which `WBMpcMrtJointController.cpp` calls, is left for this step.)
 - New `include/humanoid_wb_mpc/cost/WBTuningDeviation.h` + `src/cost/WBTuningDeviation.cpp`.
 - `src/dynamics/DynamicsHelperFunctions.cpp:51-146`: §2.5.
 - `src/WBMpcInterface.cpp:114, 132-134, 233-247, 331`: `initialState` via `stateFromTuningLayout`; manifold registration; rollout manifold; `getStateManifold()`.
@@ -735,6 +757,8 @@ These hold at any attitude with cos θ ≠ 0, not only for small errors.
 
 ### 3.5 ROS 2 packages
 
+(Stale: these packages were removed with ROS. Their visualizer and telemetry publishers became `humanoid_common_mpc_app/visualization` (`SceneBuilder`, `TelemetryBuilder`), `SimFsmBridge` moved to the robot process (`humanoid_common_mpc_app/robot`), and the dummy-sim, robot-sim and SQP nodes became the `*DummySimMain.cpp`, `*RobotMain.cpp` and `*Node.cpp` sources of `humanoid_{centroidal,wb}_mpc_app`; the pose-command nodes and `MRTPolicySubscriber` have no successor. The line ranges below name the pre-removal files; step 9 rewrites this section.)
+
 - `ros2c/src/visualization/HumanoidVisualizer.cpp:75-81, 126-175, 184, 323-391`; `ros2c/src/telemetry/PinocchioTelemetryPublisher.cpp:68-76, 194-247, 369-403, 429-454, 541-575`; `ros2c/src/telemetry/HumanoidTelemetryPublisher.cpp:60-187`; `ros2c/src/fsm/SimFsmBridge.cpp:234-250`: §2.11.
 - `cros2/src/CentroidalMpcDummySimNode.cpp:33, 88`, `wbros2/src/WBMpcDummySimNode.cpp:32, 40, 72-101`: remove the analytic `PinocchioEndEffectorKinematics` include; `mrt.setStateManifold`; rollout manifold; initial observation from the converted `initialState`. Also remove the include at `testHumanoidVisualizer.cpp:40`.
 - `cros2/src/CentroidalMpcRobotSim.cpp`, `wbros2/src/WBMpcRobotSim.cpp`, `cros2/src/CentroidalMpcSqpNode.cpp`, `wbros2/src/WBMpcSqpNode.cpp`: manifold wiring only. The pose-command nodes (`CentroidalMpcKeyboardPoseCommandNode.cpp:88-92`, `wbros2/src/WBMpcPoseCommand.cpp:93-95`) are unchanged (Δψ in degrees through the base calculator).
@@ -742,11 +766,11 @@ These hold at any attitude with cos θ ≠ 0, not only for small errors.
 
 ### 3.6 Python, tools, configuration, documentation
 
-- `humanoid_nmpc/humanoid_common_mpc_pyutils/humanoid_common_mpc_pyutils/mpc_observation_logger.py:55-70`, `mpc_observation_inspector.py:49-51`: columns `qx, qy, qz, qw`; base velocity columns `vx, vy, vz` (world) and `wx, wy, wz` (body) for the whole-body model.
+- `humanoid_nmpc/humanoid_common_mpc_pyutils/humanoid_common_mpc_pyutils/mpc_observation_logger.py:55-70`, `mpc_observation_inspector.py:49-51`: columns `qx, qy, qz, qw`; base velocity columns `vx, vy, vz` (world) and `wx, wy, wz` (body) for the whole-body model. (Stale: the inspector has since been deleted: it read ROS-era columns the logger no longer writes. Only the logger changes.)
 - `humanoid_learning/acom/models.py:142-166`: `full_acom_pose` becomes quaternion composition (`acom_attitude`), mirroring the C++, with its test.
-- `tools/plotjuggler/humanoid_telemetry.xml`: new names.
-- `remote_control`: no code change (the YAML layout is unchanged). `humanoid_finite_state_machine.py:296-308` relies on the kept tokens.
-- Five `task.yaml` files (Atlas, SA01, G1 centroidal, R1, G1-WB): reworded orientation comments (§2.10) and `LINT.IfChange(tuning_layout)` blocks around `initialState`/`Q`/`Q_final`. G1-WB `task_space_foot_cost_weights` (`:476-494`) gets the effective values (Q2), with a comment stating the values previously listed but never applied.
+- `tools/plotjuggler/humanoid_telemetry.xml`: new names. (Stale: `tools/plotjuggler/` was deleted with ROS; the telemetry names are now the Rerun viewer's `humanoid_rerun_viewer/telemetry_contract.py`, produced by `humanoid_common_mpc_app/visualization/src/TelemetryBuilder.cpp`.)
+- `remote_control`: no code change (the schemas and the tuning layout are unchanged). The FSM reads `initial_state` by joint name.
+- Five `task.textproto` files (Atlas, SA01, G1 centroidal, R1, G1-WB): reworded orientation comments (§2.10). The `LINT.IfChange(tuning_layout)` pair ties the row constants to `StateInputLayout` (Appendix A), where the named blocks get their rows. G1-WB `task_space_foot_cost` gets the effective values (Q2), with a comment stating the values previously listed but never applied (done).
 - `tools/hooks/lint_code.py` + tests: Appendix B.
 - `humanoid_nmpc/docs/quaternion_base_orientation/README.md` (new; Appendix C); index in `humanoid_nmpc/docs/README.md`; update `robot_models/drc_atlas/README.md:15` ("base Euler angles" block 6..11), the root `README.md` if it describes the state, and `humanoid_learning/acom/README.md`.
 
@@ -771,14 +795,14 @@ These hold at any attitude with cos θ ≠ 0, not only for small errors.
 ### 4.2 Stays Euler: the conversion points
 
 All conversions go through `EulerBoundary` or the renamed `*EulerZyx` accessors, and nowhere else (lint-enforced):
-1. the `initialState` loaders (`CentroidalMpcInterface.cpp:176-177`, `WBMpcInterface.cpp:132-134`);
+1. the `initial_state` conversion (`stateValuesFromConfig()`, called by both interfaces' `Create`);
 2. `TargetTrajectoriesCalculatorBase` and the knot assembly in both calculators;
 3. the heuristic seam `shapeBasePose`;
 4. `PlannedHeadingOverride`;
 5. the pose-command nodes;
 6. telemetry Euler topics, logs and the visualizer's human-facing outputs;
-7. YAML comments and the GUI;
-8. Python YAML readers (`tools/locomotion_heuristics/derive_parameters.py:233-246`, `humanoid_learning/acom/tests/test_acom.py:76-84, 694`), which are unaffected.
+7. the schemas' named orientation blocks and the GUI;
+8. the Python readers of the task file (`tools/locomotion_heuristics/derive_parameters.py`, `humanoid_learning/acom/tests/test_acom.py`), which read the blocks by name and are unaffected.
 
 ### 4.3 Verification ladder
 
@@ -889,10 +913,10 @@ A failure blocks Step 10 until the pull-backs are block-optimized.
 **Infrastructure** (Step 1, each piece with its own tests):
 - `common/test/support/GoldenIo.{h,cpp}`: labeled matrices at `%.17g`, in the style of `ProblemFingerprint`/`common/test/data/contact_planning`. The header carries the commit hash and a hash of every configuration file.
 - `cmpc/test/golden/recordEulerGolden.cpp` and `wbmpc/test/golden/recordEulerGolden.cpp` (`testonly` `cc_binary`), with Make targets `make record-euler-golden ROBOT=…` run one robot at a time.
-- Data in `cmpc/test/data/euler_golden/<robot>/{G1,G2}/` and `wbmpc/test/data/euler_golden/g1/{G1,G2}/`, each with a `config/` snapshot of `task.yaml`, `reference.yaml` and `contact_planning.yaml`. The equivalence tests run the new code on the snapshots, so later tuning cannot invalidate them. Record selected nodes only, keeping files under 1 MB.
+- Data in `cmpc/test/data/euler_golden/<robot>/{G1,G2}/` and `wbmpc/test/data/euler_golden/g1/{G1,G2}/`, each with a `config/` snapshot of `task.textproto`, `reference.textproto` and `contact_planning.textproto`. The equivalence tests run the new code on the snapshots, so later tuning cannot invalidate them. Record selected nodes only, keeping files under 1 MB.
 
 **Points per robot:**
-- `initialState`;
+- `initial_state`;
 - roll/pitch ±0.02, ±0.05, ±0.2 (single-axis), and combined (0.05, −0.03) and (0.2, 0.1);
 - yaw 1.3, 2.5, −3.0 (with 0.05 tilt);
 - pitch 80° (records `cond(A_b,22)` to document the Euler singularity; excluded from equivalence);
@@ -904,7 +928,7 @@ A failure blocks Step 10 until the pull-backs are block-optimized.
 - the Euler state, the physical state `(h̄, p, ξ, q_j [, ṗ_W, ω_B, q̇_j])` and `P_e(x)`;
 - `f`, `∂f/∂x`, `∂f/∂u`; RK4 `Φ`, `A`, `B`;
 - per named cost: value, gradient, Gauss–Newton Hessian (state, input, cross); per named constraint: value and Jacobians; soft-constraint penalties;
-- inverse-dynamics torques (both MRT paths); SRBD dynamics on G1 (test copy with `centroidalModelType: 1`); the measured `max |Δθ|` (Atlas ACoM);
+- inverse-dynamics torques (both MRT paths); SRBD dynamics on G1 (test copy with `centroidal_model: "single_rigid_body_dynamics"`); the measured `max |Δθ|` (Atlas ACoM);
 - loaded and zeroed `Q`/`Q_final`/`Q_acom`;
 - references:
   - target knots for velocity commands {0, ±1 rad/s, 0.5 m/s} at initial yaw {0, 1.3, ±3.0};
@@ -937,7 +961,7 @@ Tolerances are those of §4.4. Run against G1 at Steps 6 (1e-12), 7 (E2) and 8 (
 | `ocs2/core/test/manifold/testStateManifold.cpp` (`test_state_manifold`) | `difference(x, x⊕δ) = δ` for ‖δ‖ < π; ⊕/⊖ inverse; `E⁺E = I`; `Jr⁻¹` vs finite differences; retraction curvature identity `∂²(ξ⊗Exp(δ)) = −ξ/4·I`; slerp endpoints and the antipodal boundary; in-place pull-backs equal dense `E` products |
 | `ocs2/oc/test/multiple_shooting/testManifoldProjection.cpp` | node/event/cost/constraint pull-backs vs finite differences of `F(x⊕δ, u+δu) ⊖ x_next` (≤ 1e-8) |
 | `ocs2/core/test/control/testManifoldLinearController.cpp` | node exactness; between-node blend; pre-event copy; `flatten`/`unFlatten` round trip; resampling off the nodes (flat: exact; curved: exact at the anchor, bilinear away); `−x` invariance |
-| `ocs2/ros2_interfaces/test/testManifoldControllerMessage.cpp` | `createMpcPolicyMsg` → `readPolicyMsg` round trip of `MANIFOLD_LINEAR` |
+| `ocs2/ros2_interfaces/test/testManifoldControllerMessage.cpp` (Stale: `ros2_interfaces` went with ROS; the round trip belongs in `humanoid_mpc_ipc/test/testMpcMessageConversions.cpp`, with the encoder's wire code) | `createMpcPolicyMsg` → `readPolicyMsg` round trip of `MANIFOLD_LINEAR` |
 | `ocs2/sqp/sqp/test/testSqpOnSO3.cpp` | rigid-body attitude OCP (ambient 7, tangent 6) tracking a 720° heading reference with a simulated plant: monotone heading; rotation part of ‖δx₀‖ < 0.1; same `u` to 1e-12 under `−ξ_init` |
 | `ocs2/sqp/sqp/test/testSqpFlatParity.cpp` | a flat toy problem's recorded solve (recorded before Step 4) is bitwise identical with `nullptr` manifold; `test_mpc_reset` unchanged |
 | `ocs2/core/test/automatic_differentiation/testCppAdLibraryDimensionCheck.cpp` | a library with a stale domain throws, naming the folder |
@@ -956,8 +980,8 @@ Tolerances are those of §4.4. Run against G1 at Steps 6 (1e-12), 7 (E2) and 8 (
 | `cmpc/test/testMrtObservationDoubleCover.cpp` + whole-body counterpart | `ξ` and `−ξ` observations give identical solver inputs, policy inputs and joint commands; a `w ≥ 0`-canonicalized stream crossing ±π gives continuous behavior |
 | `common/test/testCppAdLayoutTag.cpp` | the folder contains `kStateLayoutTag` (pattern of `testJointTorqueCostLibraryName.cpp`) |
 | `tools/hooks/test_lint_code.py` (extend) | each Appendix B rule fires on a violating snippet and not on the allow-listed boundary |
-| `humanoid_nmpc/remote_control/test/test_tuning_layout.py` | every shipped `task.yaml`: Q/Q_final/initialState sizes equal `n_t`; orientation comment tokens start with `theta_base_`/`omega_base_`; the FSM's `joint_val_map` contains no base rows |
-| `wbmpc/test/testFootWeightsLoader.cpp` (Step 2) | each YAML key lands in its own field; shipped G1-WB weights produce the previously effective vector |
+| `common/test/config/weights/testStateInputWeightsFromConfig.cpp` (extend) | every shipped task file's `state_weights`, `final_state_weights` and `initial_state` convert to vectors of size `n_t`, with each orientation block on its tuning rows |
+| `wbmpc/test/testFootWeightsLoader.cpp` (Step 2, done) | each field lands in its own weight; shipped G1-WB weights produce the previously effective vector |
 | `cmpc/test/testIntermediateKnotEffectiveBehavior.cpp` (Step 2) | the rewritten knot differs from the old expression by ≤ \|v_b\|/(2m)·0.7T |
 | `common/test/testQuaternionToEulerClamp.cpp` (Step 2) | finite output when \|2(wy − zx)\| exceeds 1 by round-off |
 | Python `humanoid_learning/acom/tests` | the `acom_attitude` composition matches the C++ formula on fixtures |
@@ -1001,7 +1025,7 @@ Each step is independently buildable and testable, lands as its own commit or co
 2. Delete `EndEffectorDynamicsQuadraticCost.*` and `WBAccelPinocchioStateInputMapping.h`.
 3. Stale comment `EndEffectorDynamicsAccelerationsConstraint.cpp:118-119`.
 4. Self-assignment `TargetTrajectoriesCalculatorBase.h:108`.
-5. G1-WB foot-weight loader (`EndEffectorDynamicsCostHelpers.cpp:107-110`) plus YAML effective values (Q2).
+5. G1-WB foot-weight loader (`EndEffectorDynamicsCostHelpers.cpp:107-110`) plus the file's effective values (Q2).
 6. Centroidal intermediate knot made explicit as `0.5·command` (`CentroidalMpcTargetTrajectoriesCalculator.cpp:143-148`; Q1 default), with a comment naming the previous expression and its value.
 7. Dead `xRef`/`uRef` removed.
 8. `PinocchioEndEffectorKinematics.cpp:135, 310, 348` sized `nv` (a no-op while nq = nv).
@@ -1050,13 +1074,13 @@ Acceptance: unit tests; ProblemFingerprint bitwise for every robot except the ce
   - manifold registration in both interfaces, the MRT joint controllers, dummy nodes and rollouts;
   - layout tag at `ModelSettings.cpp:189`;
   - `Types.h` values 7/6 and the telemetry names;
-  - Python logger and inspector; PlotJuggler;
-  - YAML comment rewording and `LINT.IfChange(tuning_layout)` blocks;
+  - Python logger and inspector; PlotJuggler (Stale: the inspector and PlotJuggler are gone; the Rerun telemetry contract takes the new names);
+  - the orientation fields' comment rewording and the `LINT.IfChange(tuning_layout)` pair;
   - lint rules (Appendix B) enforced;
   - all migrated tests.
 - Acceptance:
   - G2 under E1 tolerances; G1 under E2;
-  - every §5c test; `testCentroidalQuaternionDynamics`, `testSrbdQuaternion`, `testQuaternionInvariances` (all robots), `testUnitNorm`, `testTurnInPlace720`, `testPoseCommandSubdivision`, `testMrtObservationDoubleCover`, `testCppAdLayoutTag`, `test_tuning_layout`, lint tests;
+  - every §5c test; `testCentroidalQuaternionDynamics`, `testSrbdQuaternion`, `testQuaternionInvariances` (all robots), `testUnitNorm`, `testTurnInPlace720`, `testPoseCommandSubdivision`, `testMrtObservationDoubleCover`, `testCppAdLayoutTag`, the tuning-layout test of `testStateInputWeightsFromConfig`, lint tests;
   - the full `bazel test //...` passes;
   - the production CppAD terms of both MPCs, taped on the new root, against double precision with their first- and (where generated) second-order derivatives: Step 0 spiked the kinds of computation, not these tapes.
 - Note: every CppAD library regenerates on first use (memory: one Bazel command at a time; library-compiling tests one at a time).
@@ -1081,10 +1105,10 @@ Acceptance: unit tests; ProblemFingerprint bitwise for every robot except the ce
 | # | Risk | Mitigation |
 |---|---|---|
 | R1 | Pinocchio 3 `JointModelSpherical` inside a composite asserts or compares variables under CppADCG. It cannot be inspected here: Pinocchio is not on the host. | Step 0 before any other work. Safe normalization makes the tape point a valid unit quaternion. Taping tests run in the default `-c opt`; fastbuild-with-asserts is never relied on. **Fallback** (same state and tangent): FreeFlyer root. The mapping converts `v_FF = [R(ξ)ᵀṗ_W, ω_B]`; translational Jacobian columns are rotated by `Rᵀ`; `A_b⁻¹` is generalized to `[[Rᵀ/m, [r]×I⁻¹Rᵀ],[0, I⁻¹Rᵀ]]`; the whole-body Schur `A`-block changes accordingly. |
-| R2 | OCS2 regression for flat users | `nullptr` fast paths; `testSqpFlatParity` bitwise; full humanoid suite after Step 4 with fingerprints bitwise; DDP and value-function guards. |
+| R2 | OCS2 regression for flat users | `nullptr` fast paths; `testSqpFlatParity` bitwise; full humanoid suite after Step 4 with fingerprints bitwise; the value-function guard (the DDP guard went with OCS2's DDP, deleted). |
 | R3 | A missed flat site crashes on dimensions or silently mixes ambient and tangent sizes | §3.1 lists every site found by the solver map. `testManifoldProjection` covers node, event and terminal. Toy SO(3) problem end to end. Removing `getGenCoordinatesDim` forces every nq/nv choice to compile-fail until decided. |
 | R4 | Stale Euler CppAD libraries are loaded (`recompileLibrariesCppAd: false` everywhere) | Layout tag in the folder plus the throwing domain/range check; `testCppAdLibraryDimensionCheck`, `testCppAdLayoutTag`. |
-| R5 | A Q of the wrong size shifts indices silently | Loaders size by `getStateTangentDim()`; `stateFromTuningLayout` rejects wrong sizes; `test_tuning_layout`; IFTTT `tuning_layout`. |
+| R5 | A Q of the wrong size shifts indices silently | The named blocks cannot shift: `StateInputLayout` places them and refuses a missing, unknown or repeated joint; `stateFromTuningLayout` rejects wrong sizes; the tuning-layout test; IFTTT `tuning_layout`. |
 | R6 | Hot reload silently lost through a `bad_cast` | Updater migrated to the new classes; updater tests extended; `InputQuadraticCost` input-only removes the `zeroQ` mismatch. |
 | R7 | Some function sees the raw ξ, so the retraction-curvature term no longer vanishes, or a non-unit RK4 stage biases Pinocchio | Safe-normalized `getGeneralizedCoordinates`; radial-invariance tests over every registered term and the dynamics (`∇_ξg·ξ = 0`). |
 | R8 | Log cut locus at π (δx₀, defects) | Warm-start rejection when the rotation part of δx₀ exceeds π/2; per-node defects are O(dt·\|ω\|), far from π at 50-80 Hz. |
@@ -1094,7 +1118,7 @@ Acceptance: unit tests; ProblemFingerprint bitwise for every robot except the ce
 | R12 | Real-time regression from the pull-backs | In-place, block-structured operations; the §4.6 benchmark gate; tape operation counts. |
 | R13 | Pre-existing defects contaminate goldens or get silently re-implemented | Step 2 behavior-preserving fixes before G1; behavior-changing fixes deferred to Step 11 (Q1); the golden README lists what is deferred. |
 | R14 | Raw state slices or raw interpolation survive in humanoid code | Lint rules (Appendix B); grep audit before Step 8 closes; `−ξ` and radial tests over every term. |
-| R15 | The FSM and GUI parse YAML comments | First token kept; `test_tuning_layout`; IFTTT to `humanoid_finite_state_machine.py`. |
+| R15 | The FSM and GUI read the tuning by its comments | Closed: they read the fields by name (the GUI from the schemas, the FSM `initial_state` by joint), and no comment is parsed. |
 | R16 | Memory pressure when every library regenerates | Closed-loop and library-compiling tests `exclusive` and run one at a time; no out-of-Bazel compiles during builds (AGENTS.md). |
 | R17 | Upside-down states (falls) | Residual clamps keep values finite; dynamics stay regular (`I_G ≻ 0`); `SimFallRecovery` already computes tilt from the quaternion. |
 | R18 | The ACoM network's Δθ is not a true rotation vector (non-integrable connection) | First-order agreement is tested; `testAcomAngularVelocityConsistency` rewritten in ω terms against `dataset_generator.py:394-431`; tolerance set from the measured `max |Δθ|`. |
@@ -1103,10 +1127,10 @@ Acceptance: unit tests; ProblemFingerprint bitwise for every robot except the ce
 
 ## Appendix A: IFTTT pairs to add
 
-1. **`state_layout`:** the layout comments and start-index constants in `CentroidalMpcRobotModel.h` and `WBAccelMpcRobotModel.h` ↔ `common/include/humanoid_common_mpc/common/StateLayout.h:cppad_layout_tag` ↔ the README layout tables ↔ `mpc_observation_logger.py`/`mpc_observation_inspector.py` columns.
-2. **`tuning_layout`:** the row constants in `CentroidalTuningDeviation.cpp`/`WBTuningDeviation.cpp` ↔ the `initialState`/`Q`/`Q_final` blocks of the five `task.yaml` files ↔ `humanoid_finite_state_machine.py` token filter (`:296-308`) ↔ `remote_control/test/test_tuning_layout.py` ↔ the README tuning table.
-3. **`controller_type`:** `ocs2/core/include/ocs2_core/control/ControllerType.h` ↔ `ocs2/ros2_msgs/msg/MpcFlattenedController.idl` ↔ the switches in `MPC_ROS_Interface.cpp` and `MRT_ROS_Interface.cpp`.
-4. **`telemetry_layout`:** `Types.h` base names and offsets ↔ `tools/plotjuggler/humanoid_telemetry.xml` ↔ `testPinocchioTelemetryPublisher.cpp`.
+1. **`state_layout`:** the layout comments and start-index constants in `CentroidalMpcRobotModel.h` and `WBAccelMpcRobotModel.h` ↔ `common/include/humanoid_common_mpc/common/StateLayout.h:cppad_layout_tag` ↔ the README layout tables ↔ `mpc_observation_logger.py`/`mpc_observation_inspector.py` columns. (Stale: the inspector has since been deleted.)
+2. **`tuning_layout`:** the row constants in `CentroidalTuningDeviation.cpp`/`WBTuningDeviation.cpp` ↔ the layout table of `common/include/humanoid_common_mpc/config/weights/StateInputLayout.h`, where the named blocks get their rows ↔ the README tuning table.
+3. **`controller_type`:** `ocs2/core/include/ocs2_core/control/ControllerType.h` ↔ `ocs2/ros2_msgs/msg/MpcFlattenedController.idl` ↔ the switches in `MPC_ROS_Interface.cpp` and `MRT_ROS_Interface.cpp`. (Stale: the IDL and the ROS interfaces went with ROS; the pair is now `ControllerType.h:controller_types` ↔ `humanoid_mpc_msgs/controller_type.proto`, and `humanoid_mpc_ipc/src/MpcMessageConversions.cpp` maps the two.)
+4. **`telemetry_layout`:** `Types.h` base names and offsets ↔ `tools/plotjuggler/humanoid_telemetry.xml` ↔ `testPinocchioTelemetryPublisher.cpp`. (Stale: both went with ROS; the telemetry names now pair `TelemetryBuilder.cpp:telemetry_groups` with the Rerun viewer's `telemetry_contract.py`, tested by `testTelemetryBuilder.cpp`.)
 5. **`cppad_layout_tag`:** `StateLayout.h` ↔ `ModelSettings.cpp:189` ↔ the README CppAD section.
 6. **`euler_boundary`:** the lint allow-list in `tools/hooks/lint_code.py` ↔ README "Conversion points".
 7. Existing `base_pose_heuristic_seam` (`SwitchedModelReferenceManager.cpp:437-447` ↔ `BasePoseHeuristic.h`): keep, with the comment updated to say the seam operates on the Euler boundary accessors.
@@ -1124,8 +1148,8 @@ Acceptance: unit tests; ProblemFingerprint bitwise for every robot except the ce
 2. **Block diagram:**
 
 ```
- task.yaml / GUI / commands (Euler tuning layout, n_t = ndx)        RobotState (MuJoCo / estimator)
-   initialState, Q, Q_final, Q_acom, R, reference.yaml               p_W, xi (xyzw), v_B, w_B, q_j, qd_j
+ task.textproto / GUI / commands (Euler tuning layout, n_t = ndx)   RobotState (MuJoCo / estimator)
+   initial_state, state_weights, ..., reference.textproto             p_W, xi (xyzw), v_B, w_B, q_j, qd_j
             |                                                                  |
             v                                                                  v
    EulerBoundary: stateFromTuningLayout          MRT observation: q = [p, xi, q_j], v = [R v_B, w_B, qd_j]

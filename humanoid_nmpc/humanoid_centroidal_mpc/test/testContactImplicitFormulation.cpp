@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -23,9 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <algorithm>
 #include <cmath>
@@ -35,23 +37,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
-
-#include <ocs2_core/PreComputation.h>
-#include <ocs2_core/penalties/penalties/SquaredHingePenalty.h>
-#include <ocs2_core/soft_constraint/StateInputSoftConstraint.h>
-#include <ocs2_core/soft_constraint/StateSoftConstraint.h>
-
-#include <pinocchio/multibody/data.hpp>
-#include <pinocchio/multibody/model.hpp>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "gtest/gtest.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/misc/Collection.h"
+#include "ocs2_core/penalties/penalties/SquaredHingePenalty.h"
+#include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
+#include "ocs2_core/soft_constraint/StateSoftConstraint.h"
+#include "pinocchio/multibody/data.hpp"
+#include "pinocchio/multibody/model.hpp"
+
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/constraint/NormalVelocityConstraintCppAd.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
+#include "humanoid_common_mpc/config/model/MpcFormulationFromConfig.h"
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
 #include "humanoid_common_mpc/constraint/ContactComplementarityConstraint.h"
 #include "humanoid_common_mpc/constraint/ForceWeightedSlipConstraint.h"
@@ -60,10 +66,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "robot_core/ResourcePaths.h"
+#include "support/TypedConfigFiles.h"
 
 namespace ocs2::humanoid {
 namespace {
+
+/** Whether `collection` carries a term named `name`. */
+template <typename Term>
+bool hasTerm(const Collection<Term>& collection, const std::string& name) {
+  size_t index = 0;
+  return collection.getTermIndex(name, index);
+}
 
 /**
  * The contact-implicit formulation, assembled end to end by CentroidalMpcInterface.
@@ -80,56 +95,35 @@ namespace {
 class ContactImplicitFormulationTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    shippedTaskFile_ = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml").value();
-    referenceFile_ = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml").value();
-    urdfFile_ = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf").value();
-  }
-
-  void TearDown() override {
-    for (const std::string& path : writtenFiles_) {
-      std::remove(path.c_str());
-    }
+    files_ = atlasFiles();
+    absl::StatusOr<CentroidalMpcConfig> config = loadConfigOf(files_);
+    ASSERT_TRUE(config.ok()) << config.status();
+    shipped_ = *std::move(config);
   }
 
   /**
-   * The shipped task file with its two constraint lists REPLACED, written to a temporary path.
-   *
-   * Whole blocks are rewritten rather than individual lines substituted, deliberately. These tests have to work while
-   * an engineer is mid-experiment with the formulation toggled on in the working tree - matching on the exact text of
-   * a commented-out line would make the suite go red the moment somebody tried the thing the suite exists to support.
+   * The shipped task file with its two constraint lists REPLACED. The lists are set whole rather than edited entry by
+   * entry, deliberately: these tests have to work while an engineer is mid-experiment with the formulation toggled on in
+   * the working tree.
    */
-  std::string writeTaskFile(const std::string& name,
-                            const std::vector<std::string>& hardConstraints,
-                            const std::vector<std::string>& softConstraints) {
-    std::ifstream in(shippedTaskFile_);
-    std::stringstream buffer;
-    buffer << in.rdbuf();
-    std::string content = buffer.str();
-    content = replaceListBlock(content, "hard_constraints:", hardConstraints);
-    content = replaceListBlock(content, "soft_constraints:", softConstraints);
-
-    const std::string path = absl::StrCat(testing::TempDir(), "/testContactImplicit_", name, ".yaml");
-    std::ofstream out(path);
-    out << content;
-    out.close();
-    writtenFiles_.push_back(path);
-    return path;
+  mpc_config::TaskFile taskWithLists(const std::vector<std::string>& hardConstraints,
+                                     const std::vector<std::string>& softConstraints) const {
+    mpc_config::TaskFile task = shipped_.task;
+    task.hard_constraints = hardConstraints;
+    task.soft_constraints = softConstraints;
+    return task;
   }
 
-  /** Replaces everything from `key` up to the next blank line with `key` followed by the given entries. */
-  static std::string replaceListBlock(const std::string& content, const std::string& key, const std::vector<std::string>& entries) {
-    const size_t keyPos = content.find(absl::StrCat("\n", key));
-    EXPECT_NE(keyPos, std::string::npos) << "the task file has no " << key << " block";
-    if (keyPos == std::string::npos) return content;
-    const size_t blockStart = keyPos + 1;
-    size_t blockEnd = content.find("\n\n", blockStart);
-    if (blockEnd == std::string::npos) blockEnd = content.size();
+  /** The formulation `task` lists, or the refusal of its combination. */
+  static absl::StatusOr<MpcFormulationTasks> formulationOf(const mpc_config::TaskFile& task) {
+    return mpcFormulationTasksFromConfig(task, FormulationLogging::kQuiet);
+  }
 
-    std::string block = absl::StrCat(key, "\n");
-    for (const std::string& entry : entries) {
-      absl::StrAppend(&block, "  - ", entry, "\n");
-    }
-    return absl::StrCat(content.substr(0, blockStart), block, content.substr(blockEnd + 1));
+  /** The interface of the shipped configuration with `task` as its task file. */
+  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> create(const mpc_config::TaskFile& task) const {
+    CentroidalMpcConfig config = shipped_;
+    config.task = task;
+    return CentroidalMpcInterface::Create(config, files_.urdfFile);
   }
 
   /** The soft constraints the shipped robot always needs, whatever the contact formulation. */
@@ -157,77 +151,15 @@ class ContactImplicitFormulationTest : public ::testing::Test {
    * The whole formulation switched on: no schedule-gated hard constraints; the three contact-implicit terms and the soft
    * normal_velocity in, the latter at kTestNormalVelocityWeight; the ground at kTestTerrainHeight.
    */
-  std::string writeContactImplicitTaskFile(const std::string& name) {
-    const std::string path = writeTaskFile(name, {}, contactImplicitSoftConstraints());
-    rewriteScalarKey(path, "terrainHeight", kTestTerrainHeight);
-    rewriteNestedScalarKey(path, "normalVelocitySoftConstraintWeight", kTestNormalVelocityWeight);
-    return path;
+  mpc_config::TaskFile contactImplicitTask() const {
+    mpc_config::TaskFile task = taskWithLists(/*hardConstraints=*/{}, contactImplicitSoftConstraints());
+    task.terrain_height = kTestTerrainHeight;
+    task.model_settings.foot_constraint.normal_velocity_soft_constraint_weight = kTestNormalVelocityWeight;
+    return task;
   }
 
-  /** Rewrites the value of the one line, at any indentation, that sets `key`; fails the test unless exactly one does. */
-  static void rewriteNestedScalarKey(const std::string& path, const std::string& key, scalar_t value) {
-    std::ifstream in(path);
-    std::stringstream buffer;
-    buffer << in.rdbuf();
-    in.close();
-    std::string rewritten;
-    std::string line;
-    size_t matches = 0;
-    while (std::getline(buffer, line)) {
-      const size_t firstNonBlank = line.find_first_not_of(' ');
-      if (firstNonBlank != std::string::npos && line.compare(firstNonBlank, key.size() + 1, absl::StrCat(key, ":")) == 0) {
-        line = absl::StrCat(line.substr(0, firstNonBlank), key, ": ", value);
-        ++matches;
-      }
-      absl::StrAppend(&rewritten, line, "\n");
-    }
-    ASSERT_EQ(matches, 1U) << "expected exactly one '" << key << ":' line in " << path;
-    std::ofstream out(path);
-    out << rewritten;
-  }
-
-  /** Renames the one key, at any indentation, spelled `from:` to `to:`; fails the test unless exactly one line has it. */
-  static void renameNestedKey(const std::string& path, const std::string& from, const std::string& to) {
-    std::ifstream in(path);
-    std::stringstream buffer;
-    buffer << in.rdbuf();
-    in.close();
-    std::string rewritten;
-    std::string line;
-    size_t matches = 0;
-    while (std::getline(buffer, line)) {
-      const size_t firstNonBlank = line.find_first_not_of(' ');
-      if (firstNonBlank != std::string::npos && line.compare(firstNonBlank, from.size() + 1, absl::StrCat(from, ":")) == 0) {
-        line = absl::StrCat(line.substr(0, firstNonBlank), to, line.substr(firstNonBlank + from.size()));
-        ++matches;
-      }
-      absl::StrAppend(&rewritten, line, "\n");
-    }
-    ASSERT_EQ(matches, 1U) << "expected exactly one '" << from << ":' line in " << path;
-    std::ofstream out(path);
-    out << rewritten;
-  }
-
-  /** Rewrites a top-level scalar key of an already written task file. */
-  static void rewriteScalarKey(const std::string& path, const std::string& key, scalar_t value) {
-    std::ifstream in(path);
-    std::stringstream buffer;
-    buffer << in.rdbuf();
-    in.close();
-    std::string content = buffer.str();
-    const size_t keyPos = content.find(absl::StrCat("\n", key, ":"));
-    ASSERT_NE(keyPos, std::string::npos) << "the task file has no top-level " << key;
-    const size_t valueStart = keyPos + 1 + key.size() + 1;
-    const size_t lineEnd = content.find('\n', valueStart);
-    content.replace(valueStart, lineEnd - valueStart, absl::StrCat(" ", value));
-    std::ofstream out(path);
-    out << content;
-  }
-
-  std::string shippedTaskFile_;
-  std::string referenceFile_;
-  std::string urdfFile_;
-  std::vector<std::string> writtenFiles_;
+  CentroidalRobotFiles files_;
+  CentroidalMpcConfig shipped_;
 };
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -243,8 +175,8 @@ TEST_F(ContactImplicitFormulationTest, theHardNormalVelocityConstraintIsRefusedA
   // file first, and the test would prove nothing about this rule.
   std::vector<std::string> soft = contactImplicitSoftConstraints();
   soft.erase(std::remove(soft.begin(), soft.end(), std::string("normal_velocity")), soft.end());
-  const std::string taskFile = writeTaskFile("normalVelocityKept", {"normal_velocity"}, soft);
-  const absl::StatusOr<MpcFormulationTasks> tasks = loadMpcFormulationTasks(taskFile, /*verbose=*/false);
+  const mpc_config::TaskFile task = taskWithLists({"normal_velocity"}, soft);
+  const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(task);
   ASSERT_FALSE(tasks.ok()) << "normal_velocity fixes the whole height profile of the swing and must be refused";
   EXPECT_TRUE(absl::StrContains(tasks.status().message(), "the hard 'normal_velocity' constraint are mutually exclusive"))
       << tasks.status().message();
@@ -257,8 +189,8 @@ TEST_F(ContactImplicitFormulationTest, complementarityWithoutTheSlipTermIsRefuse
   // loader already refused complementarity without ground_penetration; this is the same argument for the third term.
   std::vector<std::string> soft = contactImplicitSoftConstraints();
   soft.erase(std::remove(soft.begin(), soft.end(), std::string("force_weighted_slip")), soft.end());
-  const std::string taskFile = writeTaskFile("noSlip", {}, soft);
-  const absl::StatusOr<MpcFormulationTasks> tasks = loadMpcFormulationTasks(taskFile, /*verbose=*/false);
+  const mpc_config::TaskFile task = taskWithLists(/*hardConstraints=*/{}, soft);
+  const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(task);
   ASSERT_FALSE(tasks.ok()) << "a loaded foot would be free to slide";
   EXPECT_NE(std::string(tasks.status().message()).find("force_weighted_slip"), std::string::npos) << tasks.status().message();
 }
@@ -268,8 +200,8 @@ TEST_F(ContactImplicitFormulationTest, complementarityCannotBePairedWithASchedul
   // exclusion fire, so complementarity alongside a schedule-gated zero_velocity is now refused as well. Before that
   // rule it was accepted, which left the solver told to choose contact by one term and told it by the schedule by
   // another.
-  const std::string taskFile = writeTaskFile("complementarityWithZeroVelocity", {"zero_velocity"}, contactImplicitSoftConstraints());
-  const absl::StatusOr<MpcFormulationTasks> tasks = loadMpcFormulationTasks(taskFile, /*verbose=*/false);
+  const mpc_config::TaskFile task = taskWithLists({"zero_velocity"}, contactImplicitSoftConstraints());
+  const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(task);
   ASSERT_FALSE(tasks.ok());
   EXPECT_NE(std::string(tasks.status().message()).find("zero_velocity"), std::string::npos) << tasks.status().message();
 }
@@ -279,9 +211,9 @@ TEST_F(ContactImplicitFormulationTest, groundPenetrationOnItsOwnIsRefusedAsAPart
   // of it assume. A lone ground_penetration used to load - this test once recorded that as deliberate - and beside the
   // shipped hard normal_velocity it was then refused by a check whose message, about a touch-down the solver is asked
   // to choose, had nothing to do with it. It is now refused up front, with a message that names what is missing.
-  const std::string taskFile = writeTaskFile("penetrationOnly", {"zero_wrench", "normal_velocity", "zero_velocity"},
-                                             {"joint_limits", "contact_wrench_cone", "ground_penetration"});
-  const absl::StatusOr<MpcFormulationTasks> tasks = loadMpcFormulationTasks(taskFile, /*verbose=*/false);
+  const mpc_config::TaskFile task =
+      taskWithLists({"zero_wrench", "normal_velocity", "zero_velocity"}, {"joint_limits", "contact_wrench_cone", "ground_penetration"});
+  const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(task);
   ASSERT_FALSE(tasks.ok());
   EXPECT_TRUE(absl::StrContains(tasks.status().message(), "together or not at all")) << tasks.status().message();
   EXPECT_FALSE(absl::StrContains(tasks.status().message(), "touch-down")) << tasks.status().message();
@@ -292,18 +224,18 @@ TEST_F(ContactImplicitFormulationTest, theTaskFileInTheWorkingTreeIsSelfConsiste
   // loader must accept it and the contact-constraint gate must agree with it. That the COMMITTED file keeps the
   // formulation off is a separate rule, pinned by humanoid_common_mpc:testMpcFormulationConfig over every robot's
   // task file, so that an experiment in the working tree turns that one target red rather than this whole suite.
-  const absl::StatusOr<MpcFormulationTasks> tasks = loadMpcFormulationTasks(shippedTaskFile_, /*verbose=*/false);
+  const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(shipped_.task);
   ASSERT_TRUE(tasks.ok()) << tasks.status().message();
 
   // The gate follows `zero_wrench`, and nothing else.
-  EXPECT_EQ(contactConstraintsAreScheduleGated(*tasks), tasks->hasHardConstraint(MpcHardConstraintType::ZeroWrench));
+  EXPECT_EQ(contactConstraintsAreScheduleGated(*tasks), tasks->hasHardConstraint(MpcHardConstraintType::kZeroWrench));
 
   // And the combinations the loader refuses really are absent, since it accepted the file.
   if (usesContactImplicitFormulation(*tasks)) {
-    EXPECT_FALSE(tasks->hasHardConstraint(MpcHardConstraintType::ZeroWrench));
-    EXPECT_FALSE(tasks->hasHardConstraint(MpcHardConstraintType::ZeroVelocity));
-    EXPECT_FALSE(tasks->hasHardConstraint(MpcHardConstraintType::NormalVelocity));
-    EXPECT_TRUE(tasks->hasSoftConstraint(MpcSoftConstraintType::NormalVelocity));
+    EXPECT_FALSE(tasks->hasHardConstraint(MpcHardConstraintType::kZeroWrench));
+    EXPECT_FALSE(tasks->hasHardConstraint(MpcHardConstraintType::kZeroVelocity));
+    EXPECT_FALSE(tasks->hasHardConstraint(MpcHardConstraintType::kNormalVelocity));
+    EXPECT_TRUE(tasks->hasSoftConstraint(MpcSoftConstraintType::kNormalVelocity));
   }
 }
 
@@ -312,63 +244,65 @@ TEST_F(ContactImplicitFormulationTest, theFormulationWithoutTheSoftNormalVelocit
   // term that can lift a swing foot, and without it the robot shuffled. The loader used to accept the omission.
   std::vector<std::string> soft = contactImplicitSoftConstraints();
   soft.erase(std::remove(soft.begin(), soft.end(), std::string("normal_velocity")), soft.end());
-  const std::string taskFile = writeTaskFile("noSoftNormalVelocity", {}, soft);
-  const absl::StatusOr<MpcFormulationTasks> tasks = loadMpcFormulationTasks(taskFile, /*verbose=*/false);
+  const mpc_config::TaskFile task = taskWithLists(/*hardConstraints=*/{}, soft);
+  const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(task);
   ASSERT_FALSE(tasks.ok());
   EXPECT_TRUE(absl::StrContains(tasks.status().message(), "needs 'normal_velocity' in soft_constraints")) << tasks.status().message();
 
-  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
-      CentroidalMpcInterface::Create(taskFile, urdfFile_, referenceFile_);
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface = create(task);
   EXPECT_FALSE(interface.ok());
 }
 
 TEST_F(ContactImplicitFormulationTest, anOutOfRangeContactImplicitValueIsAStatusNamingItsKey) {
-  // The contact_implicit values are divisors and penalty weights. A zero gapSmoothing used to reach the complementarity
+  // The contact_implicit values are divisors and penalty weights. A zero gap smoothing used to reach the complementarity
   // term's constructor, whose CHECK aborted the process from inside the Status-returning Create(); it is refused before
-  // any term is built, with a message naming the key to change.
-  const std::string taskFile = writeContactImplicitTaskFile("zeroGapSmoothing");
-  rewriteNestedScalarKey(taskFile, "gapSmoothing", /*value=*/0.0);
-  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
-      CentroidalMpcInterface::Create(taskFile, urdfFile_, referenceFile_);
+  // any term is built, with a message naming the field to change.
+  mpc_config::TaskFile task = contactImplicitTask();
+  task.contact_implicit.gap_smoothing = 0.0;
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface = create(task);
   ASSERT_FALSE(interface.ok());
   EXPECT_EQ(interface.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(interface.status().message(), "contact_implicit.gapSmoothing")) << interface.status();
+  EXPECT_TRUE(absl::StrContains(interface.status().message(), "contact_implicit.gap")) << interface.status();
 }
 
 TEST_F(ContactImplicitFormulationTest, aNegativePenetrationWeightIsAStatusNamingItsKey) {
   // A negative weight turns the hinge into a reward for a foot that goes through the floor; nothing aborts on it, so
   // without the check it would simply have run.
-  const std::string taskFile = writeContactImplicitTaskFile("negativePenetrationWeight");
-  rewriteNestedScalarKey(taskFile, "penetrationWeight", /*value=*/-5.0e4);
-  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
-      CentroidalMpcInterface::Create(taskFile, urdfFile_, referenceFile_);
+  mpc_config::TaskFile task = contactImplicitTask();
+  task.contact_implicit.penetration_weight = -5.0e4;
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface = create(task);
   ASSERT_FALSE(interface.ok());
   EXPECT_EQ(interface.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(interface.status().message(), "contact_implicit.penetrationWeight")) << interface.status();
+  EXPECT_TRUE(absl::StrContains(interface.status().message(), "contact_implicit.penetration")) << interface.status();
 }
 
 TEST_F(ContactImplicitFormulationTest, aContactImplicitKeyNothingReadsIsRefusedWhetherOrNotTheFormulationIsListed) {
-  // Audit findings A11/A22. A key renamed in the task file but not in the code was skipped by ModelSettings, by the
-  // validator and by the parameter updater alike: its term ran on the default and its tuning slider reached nothing.
-  // Refused here with the shipped, formulation-off lists, before any CppAD model is built.
-  const std::string taskFile =
-      writeTaskFile("renamedContactImplicitKey", {"zero_wrench", "normal_velocity", "zero_velocity"}, baseSoftConstraints());
-  renameNestedKey(taskFile, "gapSmoothing", "gap_smoothing");
+  // Audit findings A11/A22. A key renamed in the task file but not in the code used to be skipped: its term ran on the
+  // default and its tuning slider reached nothing. The strict parser refuses it, with the shipped, formulation-off lists,
+  // naming the field it was probably meant to be.
+  std::string text = taskFileText(taskWithLists({"zero_wrench", "normal_velocity", "zero_velocity"}, baseSoftConstraints()));
+  const std::string block = "contact_implicit {\n";
+  const size_t blockStart = text.find(block);
+  ASSERT_NE(blockStart, std::string::npos) << "the task file's text has no contact_implicit block";
+  text.insert(blockStart + block.size(), "  gapSmoothing: 0.001\n");
+  absl::StatusOr<CentroidalRobotFiles> files =
+      writeConfig(absl::StrCat(testing::TempDir(), "/contact_implicit_renamed_key"), shipped_, files_.urdfFile);
+  ASSERT_TRUE(files.ok()) << files.status();
+  ASSERT_TRUE(writeTextFile(files->taskFile, text).ok());
   const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
-      CentroidalMpcInterface::Create(taskFile, urdfFile_, referenceFile_);
+      CentroidalMpcInterface::Create(files->taskFile, files->urdfFile, files->referenceFile);
   ASSERT_FALSE(interface.ok());
   EXPECT_EQ(interface.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(interface.status().message(), "contact_implicit.gap_smoothing")) << interface.status();
-  EXPECT_TRUE(absl::StrContains(interface.status().message(), "gapSmoothing")) << "the message lists the keys the block may carry";
+  EXPECT_TRUE(absl::StrContains(interface.status().message(), "gapSmoothing")) << interface.status();
+  EXPECT_TRUE(absl::StrContains(interface.status().message(), "gap_smoothing")) << "the parser names the field it may have meant";
 }
 
 TEST_F(ContactImplicitFormulationTest, theContactImplicitTaskFileLoadsCleanly) {
-  const std::string taskFile = writeContactImplicitTaskFile("loads");
-  const absl::StatusOr<MpcFormulationTasks> tasks = loadMpcFormulationTasks(taskFile, /*verbose=*/false);
+  const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(contactImplicitTask());
   ASSERT_TRUE(tasks.ok()) << tasks.status().message();
   EXPECT_TRUE(usesContactImplicitFormulation(*tasks));
   EXPECT_FALSE(contactConstraintsAreScheduleGated(*tasks));
-  EXPECT_FALSE(tasks->hasHardConstraint(MpcHardConstraintType::NormalVelocity));
+  EXPECT_FALSE(tasks->hasHardConstraint(MpcHardConstraintType::kNormalVelocity));
 }
 
 TEST_F(ContactImplicitFormulationTest, noConeAtAllIsRefusedWhateverTheInputParameterization) {
@@ -379,15 +313,14 @@ TEST_F(ContactImplicitFormulationTest, noConeAtAllIsRefusedWhateverTheInputParam
   // themselves on. This is refused at the LOADER, before any parameterization-specific reasoning.
   std::vector<std::string> soft = contactImplicitSoftConstraints();
   soft.erase(std::remove(soft.begin(), soft.end(), std::string("contact_wrench_cone")), soft.end());
-  const std::string taskFile = writeTaskFile("noCone", {}, soft);
+  const mpc_config::TaskFile task = taskWithLists(/*hardConstraints=*/{}, soft);
 
-  const absl::StatusOr<MpcFormulationTasks> tasks = loadMpcFormulationTasks(taskFile, /*verbose=*/false);
+  const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(task);
   ASSERT_FALSE(tasks.ok()) << "nothing would bound any foot's wrench";
   EXPECT_NE(std::string(tasks.status().message()).find("friction_force_cone"), std::string::npos) << tasks.status().message();
 
   // And the interface refuses it too, since it loads through the same function.
-  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
-      CentroidalMpcInterface::Create(taskFile, urdfFile_, referenceFile_);
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface = create(task);
   EXPECT_FALSE(interface.ok());
 }
 
@@ -400,16 +333,15 @@ TEST_F(ContactImplicitFormulationTest, basisVectorInputsBoundTheScalingsWhicheve
   // because zero_wrench is gone, beside the friction cone the file asked for.
   std::vector<std::string> soft = contactImplicitSoftConstraints();
   std::replace(soft.begin(), soft.end(), std::string("contact_wrench_cone"), std::string("friction_force_cone"));
-  const std::string taskFile = writeTaskFile("frictionConeOnly", {}, soft);
+  const mpc_config::TaskFile task = taskWithLists(/*hardConstraints=*/{}, soft);
 
   // The loader is satisfied: a friction cone does bound f_n below.
-  const absl::StatusOr<MpcFormulationTasks> tasks = loadMpcFormulationTasks(taskFile, /*verbose=*/false);
+  const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(task);
   ASSERT_TRUE(tasks.ok()) << tasks.status().message();
-  ASSERT_FALSE(tasks->hasSoftConstraint(MpcSoftConstraintType::ContactWrenchCone));
+  ASSERT_FALSE(tasks->hasSoftConstraint(MpcSoftConstraintType::kContactWrenchCone));
 
   // This robot runs contactInputParameterization: basis_vectors.
-  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
-      CentroidalMpcInterface::Create(taskFile, urdfFile_, referenceFile_);
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface = create(task);
   ASSERT_TRUE(interface.ok()) << interface.status().message();
   ASSERT_TRUE((*interface)->usesContactBasisVectorInputs());
   OptimalControlProblem& problem = (*interface)->getOptimalControlProblemRef();
@@ -447,8 +379,7 @@ class ContactImplicitProblemTest : public ContactImplicitFormulationTest {
  protected:
   void SetUp() override {
     ContactImplicitFormulationTest::SetUp();
-    const std::string taskFile = writeContactImplicitTaskFile("problem");
-    absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created = CentroidalMpcInterface::Create(taskFile, urdfFile_, referenceFile_);
+    absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created = create(contactImplicitTask());
     ASSERT_TRUE(created.ok()) << created.status().message();
     interface_ = *std::move(created);
   }
@@ -457,13 +388,13 @@ class ContactImplicitProblemTest : public ContactImplicitFormulationTest {
   const std::vector<std::string>& contactNames() const { return interface_->modelSettings().contactNames; }
 
   /** State index of a foot's ankle pitch joint, looked up by name so the test cannot tilt the wrong joint. */
-  long anklePitchStateIndex(size_t contactIndex) const {
-    const std::string jointName = contactIndex == CONTACT_LEFT_INDEX ? "l_leg_aky" : "r_leg_aky";
+  Eigen::Index anklePitchStateIndex(size_t contactIndex) const {
+    const std::string jointName = contactIndex == kContactLeftIndex ? "l_leg_aky" : "r_leg_aky";
     const std::vector<std::string>& jointNames = interface_->modelSettings().mpcModelJointNames;
     const std::vector<std::string>::const_iterator found = std::find(jointNames.begin(), jointNames.end(), jointName);
     EXPECT_NE(found, jointNames.end()) << "no joint named " << jointName;
-    return static_cast<long>(interface_->getMpcRobotModel().getJointStartindex() +
-                             static_cast<size_t>(std::distance(jointNames.begin(), found)));
+    return static_cast<Eigen::Index>(interface_->getMpcRobotModel().getJointStartindex() +
+                                     static_cast<size_t>(std::distance(jointNames.begin(), found)));
   }
 
   /** [m] the world height of a frame at a state, from the numeric Pinocchio model the interface was built on. */
@@ -484,10 +415,10 @@ class ContactImplicitProblemTest : public ContactImplicitFormulationTest {
     swingFlags[swingFoot] = false;
     const ModeSchedule schedule(
         {-10.0, kSwingStart, kSwingEnd, 10.0},
-        {ModeNumber::STANCE, ModeNumber::STANCE, stanceLeg2ModeNumber(swingFlags), ModeNumber::STANCE, ModeNumber::STANCE});
+        {ModeNumber::kStance, ModeNumber::kStance, stanceLeg2ModeNumber(swingFlags), ModeNumber::kStance, ModeNumber::kStance});
     SwitchedModelReferenceManager& referenceManager = *interface_->getSwitchedModelReferenceManagerPtr();
     referenceManager.getGaitSchedule()->updateModeSchedule(schedule);
-    referenceManager.preSolverRun(kSwingStart - 0.2, kSwingEnd + 0.5, interface_->getInitialState(), ModeNumber::STANCE);
+    referenceManager.preSolverRun(kSwingStart - 0.2, kSwingEnd + 0.5, interface_->getInitialState(), ModeNumber::kStance);
   }
 
   static constexpr scalar_t kSwingStart = 0.0;
@@ -508,12 +439,9 @@ TEST_F(ContactImplicitProblemTest, allThreeContactImplicitTermsAreBuiltForEveryF
 TEST_F(ContactImplicitProblemTest, theScheduleGatedContactConstraintsAreGone) {
   // Nothing may force the swing foot's wrench or velocity from the mode schedule any more.
   for (const std::string& footName : contactNames()) {
-    EXPECT_THROW(problem().equalityConstraintPtr->get<StateInputConstraint>(absl::StrCat(footName, "_zeroWrench")), std::out_of_range)
-        << footName;
-    EXPECT_THROW(problem().equalityConstraintPtr->get<StateInputConstraint>(absl::StrCat(footName, "_zeroVelocity")), std::out_of_range)
-        << footName;
-    EXPECT_THROW(problem().equalityConstraintPtr->get<StateInputConstraint>(absl::StrCat(footName, "_normalVelocity")), std::out_of_range)
-        << footName;
+    EXPECT_FALSE(hasTerm(*problem().equalityConstraintPtr, absl::StrCat(footName, "_zeroWrench"))) << footName;
+    EXPECT_FALSE(hasTerm(*problem().equalityConstraintPtr, absl::StrCat(footName, "_zeroVelocity"))) << footName;
+    EXPECT_FALSE(hasTerm(*problem().equalityConstraintPtr, absl::StrCat(footName, "_normalVelocity"))) << footName;
   }
 }
 
@@ -566,15 +494,15 @@ TEST_F(ContactImplicitProblemTest, theComplementarityGapAndThePenetrationRowsAre
         problem()
             .stateSoftConstraintPtr->get<StateSoftConstraint>(absl::StrCat(footName, "_groundPenetration"))
             .get<GroundPenetrationConstraint>();
-    EXPECT_NEAR(complementarity.getGapSmoothing(), config.gapSmoothing, 1e-12) << footName;
+    EXPECT_NEAR(complementarity.getGapSmoothing(), config.gapSmoothing, 1.0e-12) << footName;
 
     // The penetration rows are the corner clearances; the gap is their smoothed minimum, so it is bracketed by the
     // smallest of them and that value plus log(N) * gapSmoothing. Measured at the sole center it would not be.
     const vector_t clearances = penetration.getValue(/*time=*/0.0, state, preComp);
-    ASSERT_EQ(clearances.size(), static_cast<long>(penetration.getNumPoints())) << footName;
+    ASSERT_EQ(clearances.size(), static_cast<Eigen::Index>(penetration.getNumPoints())) << footName;
     const scalar_t bound = std::log(static_cast<scalar_t>(penetration.getNumPoints())) * config.gapSmoothing;
-    EXPECT_GE(complementarity.getGap(state), clearances.minCoeff() - 1e-12) << footName;
-    EXPECT_LE(complementarity.getGap(state), clearances.minCoeff() + bound + 1e-12) << footName;
+    EXPECT_GE(complementarity.getGap(state), clearances.minCoeff() - 1.0e-12) << footName;
+    EXPECT_LE(complementarity.getGap(state), clearances.minCoeff() + bound + 1.0e-12) << footName;
 
     // Positive control: the pitched sole's center is well above its lowest corner, so a gap taken at the contact frame
     // would sit outside the bracket and fail it.
@@ -606,7 +534,7 @@ TEST_F(ContactImplicitProblemTest, groundPenetrationIsAHingeAndNotALogBarrier) {
 
 TEST_F(ContactImplicitProblemTest, theTerrainHeightIsTheSameEverywhereItIsUsed) {
   const scalar_t terrainHeight = interface_->modelSettings().terrainHeight;
-  ASSERT_NEAR(terrainHeight, kTestTerrainHeight, 1e-12)
+  ASSERT_NEAR(terrainHeight, kTestTerrainHeight, 1.0e-12)
       << "the test is vacuous unless the configured ground is away from the default of zero";
   for (const std::string& footName : contactNames()) {
     const ContactComplementarityConstraint& complementarity =
@@ -637,11 +565,11 @@ TEST_F(ContactImplicitProblemTest, theSlipTermUsesTheConfiguredReferencesInTheir
             .softConstraintPtr->get<StateInputSoftConstraint>(absl::StrCat(footName, "_forceWeightedSlip"))
             .get<ForceWeightedSlipConstraint>();
     const vector3_t inverseReferences = slip.getInverseTwistReference();
-    EXPECT_NEAR(inverseReferences(0), 1.0 / config.velocityReference, 1e-9) << footName;
-    EXPECT_NEAR(inverseReferences(1), 1.0 / config.velocityReference, 1e-9) << footName;
+    EXPECT_NEAR(inverseReferences(0), 1.0 / config.velocityReference, 1.0e-9) << footName;
+    EXPECT_NEAR(inverseReferences(1), 1.0 / config.velocityReference, 1.0e-9) << footName;
     // The yaw row is a rate, and must be normalized by the ANGULAR reference: sharing the linear one declared one
     // rad/s to be exactly as bad as one m/s, which is a statement about SI units rather than about the robot.
-    EXPECT_NEAR(inverseReferences(2), 1.0 / config.angularVelocityReference, 1e-9) << footName;
+    EXPECT_NEAR(inverseReferences(2), 1.0 / config.angularVelocityReference, 1.0e-9) << footName;
     EXPECT_NE(config.velocityReference, config.angularVelocityReference) << "the test is vacuous if the two agree";
   }
 }
@@ -651,13 +579,13 @@ TEST_F(ContactImplicitProblemTest, theSlipTermUsesTheConfiguredReferencesInTheir
 //
 // Removing the HARD constraint is necessary - it fixes the whole height profile of a scheduled swing, so the solver
 // can neither land early nor late - but removing it with nothing in its place leaves no term with the authority to
-// lift a foot at all. The only remaining vertical term is task_space_foot_cost_weights.pos_z at 150, against the
+// lift a foot at all. The only remaining vertical term is task_space_foot_cost.weights.pos_z at 150, against the
 // leg-joint entries of Q whose reference posture is the foot ON THE FLOOR. The robot shuffles.
 // ---------------------------------------------------------------------------------------------------------------
 
 TEST_F(ContactImplicitFormulationTest, normalVelocityMayBeHardOrSoftButNotBoth) {
-  const std::string taskFile = writeTaskFile("normalVelocityBoth", {"normal_velocity"}, {"joint_limits", "normal_velocity"});
-  const absl::StatusOr<MpcFormulationTasks> tasks = loadMpcFormulationTasks(taskFile, /*verbose=*/false);
+  const mpc_config::TaskFile task = taskWithLists({"normal_velocity"}, {"joint_limits", "normal_velocity"});
+  const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(task);
   ASSERT_FALSE(tasks.ok());
   EXPECT_NE(std::string(tasks.status().message()).find("normal_velocity"), std::string::npos) << tasks.status().message();
 }
@@ -665,11 +593,11 @@ TEST_F(ContactImplicitFormulationTest, normalVelocityMayBeHardOrSoftButNotBoth) 
 TEST_F(ContactImplicitFormulationTest, theSoftNormalVelocityIsAcceptedAlongsideTheContactImplicitTerms) {
   // The hard form is refused with the contact-implicit terms; the soft form is exactly what should replace it, so the
   // loader must NOT refuse it. Getting this backwards would leave the formulation with no way to lift a foot.
-  const std::string taskFile = writeTaskFile("softNormalVelocity", {}, contactImplicitSoftConstraints());
-  const absl::StatusOr<MpcFormulationTasks> tasks = loadMpcFormulationTasks(taskFile, /*verbose=*/false);
+  const mpc_config::TaskFile task = taskWithLists(/*hardConstraints=*/{}, contactImplicitSoftConstraints());
+  const absl::StatusOr<MpcFormulationTasks> tasks = formulationOf(task);
   ASSERT_TRUE(tasks.ok()) << tasks.status().message();
-  EXPECT_TRUE(tasks->hasSoftConstraint(MpcSoftConstraintType::NormalVelocity));
-  EXPECT_FALSE(tasks->hasHardConstraint(MpcHardConstraintType::NormalVelocity));
+  EXPECT_TRUE(tasks->hasSoftConstraint(MpcSoftConstraintType::kNormalVelocity));
+  EXPECT_FALSE(tasks->hasHardConstraint(MpcHardConstraintType::kNormalVelocity));
   EXPECT_TRUE(usesContactImplicitFormulation(*tasks));
 }
 
@@ -677,8 +605,7 @@ TEST_F(ContactImplicitProblemTest, theSoftNormalVelocityTermIsBuiltAndTheHardOne
   for (const std::string& footName : contactNames()) {
     EXPECT_NO_THROW(problem().softConstraintPtr->get<StateInputSoftConstraint>(absl::StrCat(footName, "_normalVelocitySoft"))) << footName;
     // The same row must NOT also be an equality, or the swing height is pinned again.
-    EXPECT_THROW(problem().equalityConstraintPtr->get<StateInputConstraint>(absl::StrCat(footName, "_normalVelocity")), std::out_of_range)
-        << footName;
+    EXPECT_FALSE(hasTerm(*problem().equalityConstraintPtr, absl::StrCat(footName, "_normalVelocity"))) << footName;
   }
 }
 
@@ -687,7 +614,7 @@ TEST_F(ContactImplicitProblemTest, theSoftNormalVelocityPricesAFootThatFailsToLe
   // scheduled swing therefore carries a non-zero residual, which is precisely the pressure to lift that removing the
   // hard constraint took away. The term must also be swing-only, so it never fights a planted stance foot, and its
   // weight must be the one the task file configures - here a value that is neither the shipped one nor the default.
-  scheduleOneSwing(CONTACT_LEFT_INDEX);
+  scheduleOneSwing(kContactLeftIndex);
   const scalar_t swingTime = 0.5 * (kSwingStart + kSwingEnd);
   const scalar_t stanceTime = kSwingEnd + 0.3;
   const vector_t& state = interface_->getInitialState();
@@ -699,9 +626,9 @@ TEST_F(ContactImplicitProblemTest, theSoftNormalVelocityPricesAFootThatFailsToLe
       << "the test task file's weight did not reach ModelSettings";
 
   StateInputSoftConstraint& swingFootTerm =
-      problem().softConstraintPtr->get<StateInputSoftConstraint>(absl::StrCat(contactNames()[CONTACT_LEFT_INDEX], "_normalVelocitySoft"));
+      problem().softConstraintPtr->get<StateInputSoftConstraint>(absl::StrCat(contactNames()[kContactLeftIndex], "_normalVelocitySoft"));
   StateInputSoftConstraint& stanceFootTerm =
-      problem().softConstraintPtr->get<StateInputSoftConstraint>(absl::StrCat(contactNames()[CONTACT_RIGHT_INDEX], "_normalVelocitySoft"));
+      problem().softConstraintPtr->get<StateInputSoftConstraint>(absl::StrCat(contactNames()[kContactRightIndex], "_normalVelocitySoft"));
   EXPECT_EQ(swingFootTerm.get<NormalVelocityConstraintCppAd>().getNumConstraints(swingTime), 1U) << "one row, the vertical servo";
 
   // Gated on the schedule: active for the foot the plan wants in the air, and only while it does.
@@ -716,7 +643,7 @@ TEST_F(ContactImplicitProblemTest, theSoftNormalVelocityPricesAFootThatFailsToLe
   ASSERT_EQ(residual.size(), 1);
   EXPECT_GT(std::abs(residual(0)), 1.0e-2) << "a foot that stays down mid-swing must be told to lift";
   EXPECT_NEAR(swingFootTerm.getValue(swingTime, state, input, noTarget, *problem().preComputationPtr),
-              0.5 * kTestNormalVelocityWeight * residual(0) * residual(0), 1e-9 * (1.0 + kTestNormalVelocityWeight));
+              0.5 * kTestNormalVelocityWeight * residual(0) * residual(0), 1.0e-9 * (1.0 + kTestNormalVelocityWeight));
 }
 
 }  // namespace

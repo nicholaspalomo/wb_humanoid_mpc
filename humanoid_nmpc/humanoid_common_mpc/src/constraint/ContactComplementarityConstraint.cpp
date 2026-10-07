@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -51,8 +55,8 @@ ContactComplementarityConstraint::ContactComplementarityConstraint(const Footpri
   // reference is not a task-file key at all.
   CHECK_GT(forceReference, 0.0) << "[ContactComplementarityConstraint] the force reference must be positive; it is the robot's weight, "
                                    "robotMass * g, taken from the URDF rather than configured";
-  CHECK_GT(heightReference, 0.0) << "[ContactComplementarityConstraint] contact_implicit.heightReference must be positive";
-  CHECK_GT(gapSmoothing_, 0.0) << "[ContactComplementarityConstraint] contact_implicit.gapSmoothing must be positive";
+  CHECK_GT(heightReference, 0.0) << "[ContactComplementarityConstraint] contact_implicit.height_reference must be positive";
+  CHECK_GT(gapSmoothing_, 0.0) << "[ContactComplementarityConstraint] contact_implicit.gap_smoothing must be positive";
 }
 
 ContactComplementarityConstraint::ContactComplementarityConstraint(const ContactComplementarityConstraint& rhs)
@@ -66,7 +70,7 @@ ContactComplementarityConstraint::ContactComplementarityConstraint(const Contact
       normalForceRow_(rhs.normalForceRow_) {}
 
 void ContactComplementarityConstraint::setGapSmoothing(scalar_t gapSmoothing) {
-  CHECK_GT(gapSmoothing, 0.0) << "[ContactComplementarityConstraint] contact_implicit.gapSmoothing must be positive";
+  CHECK_GT(gapSmoothing, 0.0) << "[ContactComplementarityConstraint] contact_implicit.gap_smoothing must be positive";
   gapSmoothing_ = gapSmoothing;
 }
 
@@ -74,19 +78,19 @@ scalar_t ContactComplementarityConstraint::getGap(const vector_t& state) const {
   return smoothMinimumHeight(cornerHeightsPtr_->getHeights(state), gapSmoothing_).value - terrainHeight_;
 }
 
-vector_t ContactComplementarityConstraint::getValue(scalar_t time,
+vector_t ContactComplementarityConstraint::getValue(scalar_t /*time*/,
                                                     const vector_t& state,
                                                     const vector_t& input,
-                                                    const PreComputation& preComp) const {
+                                                    const PreComputation& /*preComp*/) const {
   const scalar_t height = getGap(state) * inverseHeightReference_;
   const scalar_t normalForce = normalForceRow_.dot(input) * inverseForceReference_;
   return (vector_t(1) << normalForce * height).finished();
 }
 
-VectorFunctionLinearApproximation ContactComplementarityConstraint::getLinearApproximation(scalar_t time,
+VectorFunctionLinearApproximation ContactComplementarityConstraint::getLinearApproximation(scalar_t /*time*/,
                                                                                            const vector_t& state,
                                                                                            const vector_t& input,
-                                                                                           const PreComputation& preComp) const {
+                                                                                           const PreComputation& /*preComp*/) const {
   const SmoothMinimumHeight gap = smoothMinimumHeight(cornerHeightsPtr_->getHeights(state), gapSmoothing_);
   // Both factors are carried in their normalized form, so each derivative block picks up the scale of the factor that
   // survives the product rule: d(f_hat h_hat)/dx = f_hat dh_hat/dx, and dh_hat/dx is dh/dx over the reference height.

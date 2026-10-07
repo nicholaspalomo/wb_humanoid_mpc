@@ -40,7 +40,7 @@ from tools.hooks import check_test_support
 from tools.hooks import checks
 
 AGENTS = "AGENTS.md"
-SWEEP_CLANG_TIDY = "tools/clang_tidy/sweep.clang-tidy"
+CLANG_TIDY = ".clang-tidy"
 COPTS = "bazel/copts.bzl"
 
 # The labeled blocks of AGENTS.md that the registry and the configurations point at (LINT.ThenChange targets).
@@ -50,6 +50,7 @@ STYLE_LABELS = (
     "totw_rules",
     "python_style",
     "style_commands",
+    "protobuf_rules",
 )
 
 # The families of clang-tidy checks .clang-tidy draws from; a backticked name with one of these prefixes is a check.
@@ -73,10 +74,10 @@ _CPPLINT_CATEGORY = re.compile(r"^cpplint `(?P<category>[a-z_+]+/[a-z_+]+)`$")
 
 
 def _clang_tidy_checks() -> set[str]:
-    """Every check of sweep.clang-tidy, which lists the enforced checks of //:.clang-tidy too."""
+    """Every check of //:.clang-tidy."""
     names = set()
     in_checks = False
-    for line in check_test_support.read_repository_file(SWEEP_CLANG_TIDY).splitlines():
+    for line in check_test_support.read_repository_file(CLANG_TIDY).splitlines():
         if line.startswith("Checks:"):
             in_checks = True
             continue
@@ -91,13 +92,13 @@ def _clang_tidy_checks() -> set[str]:
 
 
 def _copts() -> set[str]:
-    return {
-        match.group("flag")
-        for match in map(
-            _COPT.match, check_test_support.read_repository_file(COPTS).splitlines()
-        )
-        if match
-    }
+    """The flags of FIRST_PARTY_COPTS, one per line of bazel/copts.bzl."""
+    flags = set()
+    for line in check_test_support.read_repository_file(COPTS).splitlines():
+        match = _COPT.match(line)
+        if match:
+            flags.add(match.group("flag"))
+    return flags
 
 
 def _block(text: str, label: str) -> str:
@@ -118,6 +119,11 @@ def _werror_flags(token: str) -> list[str]:
 
 class AgentsStyleSectionsTest(unittest.TestCase):
     """The names AGENTS.md cites resolve to a registry check, a clang-tidy check, a cpplint category or a GCC flag."""
+
+    agents: str
+    style: str
+    clang_tidy: set[str]
+    copts: set[str]
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -164,7 +170,7 @@ class AgentsStyleSectionsTest(unittest.TestCase):
                         self.assertIn(
                             name,
                             self.clang_tidy,
-                            f"{name} is not in {SWEEP_CLANG_TIDY}",
+                            f"{name} is not in {CLANG_TIDY}",
                         )
                     else:
                         self.assertIn(
@@ -198,6 +204,29 @@ class AgentsStyleSectionsTest(unittest.TestCase):
                 with self.subTest(name=name):
                     self.assertIn(name, known)
         self.assertGreater(found, 0)
+
+    def test_every_registry_check_is_named(self) -> None:
+        # checks.py's registry IFTTT block says that AGENTS.md lists what every check enforces; this keeps it true.
+        for name in sorted(checks.names()):
+            with self.subTest(check=name):
+                named = f"`{name}`" in self.agents or re.search(
+                    r"NOLINT(?:NEXTLINE|BEGIN|END)?\([^)]*\b" + re.escape(name) + r"\b",
+                    self.agents,
+                )
+                self.assertTrue(named, f"AGENTS.md does not name `{name}`")
+
+    def test_the_clang_tidy_checked_rules_are_not_agent_rules(self) -> None:
+        agent_rules = self.agents[
+            self.agents.index(
+                "Agent rules (no tool checks these):"
+            ) : self.agents.index("#### Raw pointers carry nullability")
+        ]
+        self.assertNotIn("Move constructors are `noexcept`", agent_rules)
+        self.assertNotIn(
+            "Default arguments go only on non-virtual functions", agent_rules
+        )
+        self.assertIn("performance-noexcept-move-constructor", self.style)
+        self.assertIn("google-default-arguments", self.style)
 
     def test_a_misspelled_name_is_caught(self) -> None:
         self.assertNotIn("bugprone-use-after-mvoe", self.clang_tidy)

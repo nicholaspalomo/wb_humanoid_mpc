@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """The visual geometry of a URDF, with its mesh files found on disk: what the bridge draws for every robot instance.
 
     model = load_urdf("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf",
@@ -13,18 +40,19 @@ from a file of the same name in a supported format next to it, when there is one
 in RobotModel.unsupported_meshes. Boxes, cylinders and spheres are drawn as Rerun primitives.
 """
 
+from collections.abc import Sequence
 import dataclasses
 import math
 import os
+from typing import TypeAlias
 import urllib.parse
-import xml.etree.ElementTree as element_tree
-from typing import Dict, FrozenSet, List, Optional, Sequence, Tuple, Union
+from xml.etree import ElementTree
 
 from humanoid_rerun_viewer import palette
 
 # The mesh formats Rerun's Asset3D draws, by lower-case file extension.
 # LINT.IfChange(mesh_media_types)
-MESH_MEDIA_TYPES: Dict[str, str] = {
+MESH_MEDIA_TYPES: dict[str, str] = {
     ".stl": "model/stl",
     ".obj": "model/obj",
     ".glb": "model/gltf-binary",
@@ -44,8 +72,8 @@ class UrdfError(ValueError):
 class Origin:
     """A pose relative to the link frame: translation [m] and unit quaternion (x, y, z, w)."""
 
-    translation: Tuple[float, float, float] = (0.0, 0.0, 0.0)
-    quaternion_xyzw: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0)
+    translation: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    quaternion_xyzw: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -62,12 +90,12 @@ class Mesh:
     uri: str
     path: str
     media_type: str
-    scale: Tuple[float, float, float] = (1.0, 1.0, 1.0)
+    scale: tuple[float, float, float] = (1.0, 1.0, 1.0)
 
 
 @dataclasses.dataclass(frozen=True)
 class Box:
-    size: Tuple[float, float, float]
+    size: tuple[float, float, float]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -83,7 +111,7 @@ class Sphere:
     radius: float
 
 
-Geometry = Union[Mesh, Box, Cylinder, Sphere]
+Geometry: TypeAlias = Mesh | Box | Cylinder | Sphere
 
 
 @dataclasses.dataclass(frozen=True)
@@ -102,7 +130,7 @@ class Visual:
     index: int
     origin: Origin
     geometry: Geometry
-    color: Optional[palette.Rgba]
+    color: palette.Rgba | None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -121,21 +149,21 @@ class RobotModel:
 
     name: str
     urdf_path: str
-    links: Tuple[str, ...]
+    links: tuple[str, ...]
     root_link: str
-    visuals: Tuple[Visual, ...]
-    unsupported_meshes: Tuple[str, ...] = ()
-    missing_meshes: Tuple[str, ...] = ()
+    visuals: tuple[Visual, ...]
+    unsupported_meshes: tuple[str, ...] = ()
+    missing_meshes: tuple[str, ...] = ()
 
-    def visuals_of(self, link: str) -> Tuple[Visual, ...]:
+    def visuals_of(self, link: str) -> tuple[Visual, ...]:
         return tuple(visual for visual in self.visuals if visual.link == link)
 
-    def links_with_visuals(self) -> FrozenSet[str]:
+    def links_with_visuals(self) -> frozenset[str]:
         return frozenset(visual.link for visual in self.visuals)
 
-    def mesh_paths(self) -> Tuple[str, ...]:
+    def mesh_paths(self) -> tuple[str, ...]:
         """The distinct mesh files the visuals draw, in first-use order."""
-        paths: Dict[str, None] = {}
+        paths: dict[str, None] = {}
         for visual in self.visuals:
             if isinstance(visual.geometry, Mesh):
                 paths.setdefault(visual.geometry.path, None)
@@ -147,7 +175,7 @@ class RobotModel:
 # ======================================================================================================================
 
 
-def _ancestors(directory: str) -> List[str]:
+def _ancestors(directory: str) -> list[str]:
     """`directory` and every directory above it, nearest first."""
     result = []
     current = os.path.abspath(directory)
@@ -173,16 +201,16 @@ class PackageResolver:
         self._search_roots = tuple(
             os.path.abspath(root) for root in search_roots if os.path.isdir(root)
         )
-        self._packages: Dict[str, Optional[str]] = {}
-        self._indexes: Dict[str, Dict[str, str]] = {}
+        self._packages: dict[str, str | None] = {}
+        self._indexes: dict[str, dict[str, str]] = {}
 
-    def package_directory(self, package: str) -> Optional[str]:
+    def package_directory(self, package: str) -> str | None:
         """The directory of `package`, or None when neither the URDF's ancestors nor the search roots have it."""
         if package not in self._packages:
             self._packages[package] = self._find_package(package)
         return self._packages[package]
 
-    def _find_package(self, package: str) -> Optional[str]:
+    def _find_package(self, package: str) -> str | None:
         for directory in _ancestors(self._urdf_directory):
             if os.path.basename(directory) == package:
                 return directory
@@ -195,10 +223,10 @@ class PackageResolver:
                 return found
         return None
 
-    def _index(self, root: str) -> Dict[str, str]:
+    def _index(self, root: str) -> dict[str, str]:
         """Every directory under `root` by name; the first one in sorted walk order wins a name."""
         if root not in self._indexes:
-            index: Dict[str, str] = {}
+            index: dict[str, str] = {}
             for directory, subdirectories, _ in os.walk(root, followlinks=True):
                 subdirectories.sort()
                 for subdirectory in subdirectories:
@@ -208,7 +236,7 @@ class PackageResolver:
             self._indexes[root] = index
         return self._indexes[root]
 
-    def resolve(self, uri: str) -> Optional[str]:
+    def resolve(self, uri: str) -> str | None:
         """The file `uri` names, or None when its package is not found. The file itself may not exist."""
         if uri.startswith(_PACKAGE_SCHEME):
             package, _, relative = uri[len(_PACKAGE_SCHEME) :].partition("/")
@@ -223,12 +251,12 @@ class PackageResolver:
         return os.path.normpath(os.path.join(self._urdf_directory, path))
 
 
-def media_type_of(path: str) -> Optional[str]:
+def media_type_of(path: str) -> str | None:
     """The Rerun media type of a mesh file, or None for a format Rerun does not draw."""
     return MESH_MEDIA_TYPES.get(os.path.splitext(path)[1].lower())
 
 
-def drawable_twin(path: str) -> Optional[str]:
+def drawable_twin(path: str) -> str | None:
     """A file next to `path` with the same name in a format Rerun draws (e.g. head.stl for head.dae), or None."""
     directory, filename = os.path.split(path)
     stem = os.path.splitext(filename)[0]
@@ -244,9 +272,16 @@ def drawable_twin(path: str) -> Optional[str]:
     return None
 
 
-def default_search_roots(urdf_path: str) -> Tuple[str, ...]:
-    """The robot_models/ directories to search packages in: the repository's (under `bazel run`), and any above the
-    URDF or the current directory."""
+def default_search_roots(urdf_path: str) -> tuple[str, ...]:
+    """Finds the robot_models/ directories to search packages in.
+
+    Args:
+        urdf_path: the URDF whose packages are searched.
+
+    Returns:
+        The existing robot_models/ directories, without repeats: the repository's (under `bazel run`), then any above
+        the URDF, then the one in the current directory.
+    """
     candidates = []
     workspace = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
     if workspace:
@@ -254,7 +289,7 @@ def default_search_roots(urdf_path: str) -> Tuple[str, ...]:
     for directory in _ancestors(os.path.dirname(os.path.abspath(urdf_path))):
         candidates.append(os.path.join(directory, "robot_models"))
     candidates.append(os.path.join(os.getcwd(), "robot_models"))
-    roots: Dict[str, None] = {}
+    roots: dict[str, None] = {}
     for candidate in candidates:
         if os.path.isdir(candidate):
             roots.setdefault(os.path.abspath(candidate), None)
@@ -268,7 +303,7 @@ def default_search_roots(urdf_path: str) -> Tuple[str, ...]:
 
 def quaternion_from_rpy(
     roll: float, pitch: float, yaw: float
-) -> Tuple[float, float, float, float]:
+) -> tuple[float, float, float, float]:
     """The unit quaternion (x, y, z, w) of URDF's fixed-axis roll, pitch, yaw: R = Rz(yaw) Ry(pitch) Rx(roll)."""
     cr, sr = math.cos(roll / 2.0), math.sin(roll / 2.0)
     cp, sp = math.cos(pitch / 2.0), math.sin(pitch / 2.0)
@@ -282,19 +317,41 @@ def quaternion_from_rpy(
 
 
 class _Parser:
+    """Reads the elements of one URDF; collects its materials, and the meshes it cannot draw.
+
+    Args:
+        urdf_path: the URDF, which the error messages name.
+        resolver: finds the mesh files.
+    """
+
     def __init__(self, urdf_path: str, resolver: PackageResolver) -> None:
         self._urdf_path = urdf_path
         self._resolver = resolver
-        self._materials: Dict[str, palette.Rgba] = {}
-        self.unsupported_meshes: List[str] = []
-        self.missing_meshes: List[str] = []
+        self._materials: dict[str, palette.Rgba] = {}
+        self.unsupported_meshes: list[str] = []
+        self.missing_meshes: list[str] = []
 
     def error(self, where: str, text: str) -> UrdfError:
+        """The error to raise for `text` about the element `where` of the URDF."""
         return UrdfError(f"{self._urdf_path}: {where}: {text}")
 
     def floats(
-        self, element: element_tree.Element, attribute: str, count: int, where: str
-    ) -> Optional[Tuple[float, ...]]:
+        self, element: ElementTree.Element, attribute: str, count: int, where: str
+    ) -> tuple[float, ...] | None:
+        """The `count` finite numbers of `attribute`, or None when the element has no such attribute.
+
+        Args:
+            element: the element that has the attribute.
+            attribute: the attribute's name.
+            count: how many numbers it holds.
+            where: the element, for the error message.
+
+        Returns:
+            The numbers, or None when the attribute is missing.
+
+        Raises:
+            UrdfError: the attribute does not hold `count` finite numbers.
+        """
         text = element.get(attribute)
         if text is None:
             return None
@@ -308,42 +365,45 @@ class _Parser:
             raise self.error(where, f'{attribute}="{text}" is not {count} numbers')
         return values
 
-    def number(
-        self, element: element_tree.Element, attribute: str, where: str
-    ) -> float:
+    def number(self, element: ElementTree.Element, attribute: str, where: str) -> float:
+        """The one number of `attribute`; a UrdfError when it is missing or not a finite number."""
         values = self.floats(element, attribute, 1, where)
         if values is None:
             raise self.error(where, f"<{element.tag}> has no {attribute}")
         return values[0]
 
     def color(
-        self, material: Optional[element_tree.Element], where: str
-    ) -> Optional[palette.Rgba]:
+        self, material: ElementTree.Element | None, where: str
+    ) -> palette.Rgba | None:
+        """The color of a <material>: its own <color>, else that of the named material defined before; None without."""
         if material is None:
             return None
         color = material.find("color")
         if color is not None:
             rgba = self.floats(color, "rgba", 4, where)
             if rgba is not None:
-                return rgba  # type: ignore[return-value]
+                return rgba  # type: ignore[return-value]  # floats() returned four.
         return self._materials.get(material.get("name", ""))
 
-    def read_materials(self, robot: element_tree.Element) -> None:
+    def read_materials(self, robot: ElementTree.Element) -> None:
+        """Remembers the colors of the robot's top-level named materials, which a visual's <material> may name."""
         for material in robot.findall("material"):
             name = material.get("name", "")
             color = self.color(material, f"material '{name}'")
             if name and color is not None:
                 self._materials[name] = color
 
-    def origin(self, element: element_tree.Element, where: str) -> Origin:
+    def origin(self, element: ElementTree.Element, where: str) -> Origin:
+        """The <origin> of `element`, or the identity when it has none."""
         origin = element.find("origin")
         if origin is None:
             return Origin()
         xyz = self.floats(origin, "xyz", 3, where) or (0.0, 0.0, 0.0)
         rpy = self.floats(origin, "rpy", 3, where) or (0.0, 0.0, 0.0)
-        return Origin(translation=xyz, quaternion_xyzw=quaternion_from_rpy(*rpy))  # type: ignore[arg-type]
+        return Origin(translation=xyz, quaternion_xyzw=quaternion_from_rpy(*rpy))  # type: ignore[arg-type]  # floats() returned three.
 
-    def mesh(self, mesh: element_tree.Element, where: str) -> Optional[Mesh]:
+    def mesh(self, mesh: ElementTree.Element, where: str) -> Mesh | None:
+        """The drawable file of a <mesh>, or None when it is missing or has no format Rerun draws (both are listed)."""
         uri = mesh.get("filename", "")
         if not uri:
             raise self.error(where, "<mesh> has no filename")
@@ -359,11 +419,10 @@ class _Parser:
                 self.unsupported_meshes.append(uri)
                 return None
             path, media_type = twin, media_type_of(twin)
-        return Mesh(uri=uri, path=path, media_type=media_type, scale=scale)  # type: ignore[arg-type]
+        return Mesh(uri=uri, path=path, media_type=media_type, scale=scale)  # type: ignore[arg-type]  # floats() returned three.
 
-    def geometry(
-        self, geometry: element_tree.Element, where: str
-    ) -> Optional[Geometry]:
+    def geometry(self, geometry: ElementTree.Element, where: str) -> Geometry | None:
+        """The shape of a <geometry>, or None for a mesh that is not drawn; a UrdfError for anything but one shape."""
         shapes = list(geometry)
         if len(shapes) != 1:
             raise self.error(where, "<geometry> must hold exactly one shape")
@@ -374,7 +433,7 @@ class _Parser:
             size = self.floats(shape, "size", 3, where)
             if size is None:
                 raise self.error(where, "<box> has no size")
-            return Box(size=size)  # type: ignore[arg-type]
+            return Box(size=size)  # type: ignore[arg-type]  # floats() returned three.
         if shape.tag == "cylinder":
             return Cylinder(
                 radius=self.number(shape, "radius", where),
@@ -384,8 +443,9 @@ class _Parser:
             return Sphere(radius=self.number(shape, "radius", where))
         raise self.error(where, f"unknown geometry <{shape.tag}>")
 
-    def visuals(self, link: element_tree.Element, name: str) -> List[Visual]:
-        visuals: List[Visual] = []
+    def visuals(self, link: ElementTree.Element, name: str) -> list[Visual]:
+        """The drawn <visual> elements of the link `name`, indexed among the drawn ones."""
+        visuals: list[Visual] = []
         for position, visual in enumerate(link.findall("visual")):
             where = f"link '{name}', visual {position}"
             geometry_element = visual.find("geometry")
@@ -409,22 +469,30 @@ class _Parser:
 def parse_urdf(
     text: str, urdf_path: str, search_roots: Sequence[str] = ()
 ) -> RobotModel:
-    """The model of the URDF document `text`, whose file is `urdf_path` (for relative mesh paths and messages).
+    """Parses the URDF document `text` into the model the bridge draws.
+
+    Args:
+        text: the URDF document.
+        urdf_path: its file, for relative mesh paths and the error messages.
+        search_roots: directories searched for the packages of package:// URIs (PackageResolver).
+
+    Returns:
+        The model.
 
     Raises:
         UrdfError: the document is not a URDF the bridge can draw; the message names the file and the element.
     """
     try:
-        robot = element_tree.fromstring(text)
-    except element_tree.ParseError as error:
+        robot = ElementTree.fromstring(text)
+    except ElementTree.ParseError as error:
         raise UrdfError(f"{urdf_path}: not XML: {error}") from None
     if robot.tag != "robot":
         raise UrdfError(f"{urdf_path}: the root element is <{robot.tag}>, not <robot>")
     parser = _Parser(urdf_path, PackageResolver(urdf_path, search_roots))
     parser.read_materials(robot)
 
-    links: List[str] = []
-    visuals: List[Visual] = []
+    links: list[str] = []
+    visuals: list[Visual] = []
     for link in robot.findall("link"):
         name = link.get("name", "")
         if not name:
@@ -436,11 +504,9 @@ def parse_urdf(
     if not links:
         raise UrdfError(f"{urdf_path}: the robot has no links")
 
-    children = {
-        child.get("link", "")
-        for joint in robot.findall("joint")
-        for child in joint.findall("child")
-    }
+    children: set[str] = set()
+    for joint in robot.findall("joint"):
+        children.update(child.get("link", "") for child in joint.findall("child"))
     roots = [link for link in links if link not in children]
     if not roots:
         raise UrdfError(
@@ -458,7 +524,14 @@ def parse_urdf(
 
 
 def load_urdf(path: str, search_roots: Sequence[str] = ()) -> RobotModel:
-    """The model of the URDF file `path`.
+    """Reads the URDF file `path` into the model the bridge draws.
+
+    Args:
+        path: the URDF file.
+        search_roots: directories searched for the packages of package:// URIs (PackageResolver).
+
+    Returns:
+        The model.
 
     Raises:
         UrdfError: the file cannot be read or is not a URDF the bridge can draw.

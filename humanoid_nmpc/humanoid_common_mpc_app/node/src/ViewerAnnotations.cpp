@@ -31,22 +31,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 
+#include "absl/base/nullability.h"
+
 namespace ocs2::humanoid::node {
 
-void targetContactPatchToProto(const TargetContactPose& pose, humanoid_mpc_msgs::TargetContactPatch* patch) {
+void targetContactPatchToProto(const TargetContactPose& pose, humanoid_mpc_msgs::TargetContactPatch* absl_nonnull patch) {
   patch->set_valid(pose.valid && pose.position.allFinite() && std::isfinite(pose.height) && std::isfinite(pose.yaw));
+  // Every enumerator is listed, so that -Wswitch reports a new one; a value outside them is drawn as a stance foot.
+  humanoid_mpc_msgs::TargetContactPatch::Kind kind = humanoid_mpc_msgs::TargetContactPatch::KIND_STANCE;
   switch (pose.kind) {
-    case TargetContactPose::Kind::SWING_IN_FLIGHT:
-      patch->set_kind(humanoid_mpc_msgs::TargetContactPatch::KIND_SWING_IN_FLIGHT);
+    case TargetContactPose::Kind::kSwingInFlight:
+      kind = humanoid_mpc_msgs::TargetContactPatch::KIND_SWING_IN_FLIGHT;
       break;
-    case TargetContactPose::Kind::NEXT_SWING:
-      patch->set_kind(humanoid_mpc_msgs::TargetContactPatch::KIND_NEXT_SWING);
+    case TargetContactPose::Kind::kNextSwing:
+      kind = humanoid_mpc_msgs::TargetContactPatch::KIND_NEXT_SWING;
       break;
-    case TargetContactPose::Kind::STANCE:
-    default:
-      patch->set_kind(humanoid_mpc_msgs::TargetContactPatch::KIND_STANCE);
+    case TargetContactPose::Kind::kStance:
+      kind = humanoid_mpc_msgs::TargetContactPatch::KIND_STANCE;
       break;
   }
+  patch->set_kind(kind);
   patch->set_x(pose.position(0));
   patch->set_y(pose.position(1));
   patch->set_z(pose.height);
@@ -54,9 +58,9 @@ void targetContactPatchToProto(const TargetContactPose& pose, humanoid_mpc_msgs:
   patch->set_yaw_planned(pose.yawPlanned);
 }
 
-void fillViewerAnnotations(const feet_array_t<TargetContactPose>* targetContactPoses,
+void fillViewerAnnotations(const feet_array_t<TargetContactPose>* absl_nullable targetContactPoses,
                            const WalkingVelocityCommand& scaledVelocityCommand,
-                           humanoid_mpc_msgs::ViewerAnnotations* annotations) {
+                           humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations) {
   annotations->Clear();
   if (targetContactPoses != nullptr) {
     for (const TargetContactPose& pose : *targetContactPoses) {

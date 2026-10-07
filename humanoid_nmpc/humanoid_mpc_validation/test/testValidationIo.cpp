@@ -27,21 +27,22 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <limits>
 #include <random>
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/match.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_mpc_validation/io/GoldenIo.h"
 #include "humanoid_mpc_validation/io/JsonValue.h"
@@ -56,7 +57,7 @@ namespace ocs2::humanoid::validation {
 namespace {
 
 std::string temporaryPath(const std::string& name) {
-  const char* tmp = std::getenv("TEST_TMPDIR");
+  const char* absl_nullable tmp = std::getenv("TEST_TMPDIR");
   return (std::filesystem::path(tmp != nullptr ? tmp : "/tmp") / name).string();
 }
 
@@ -96,14 +97,14 @@ TEST(Sha256, OfAFileIsOfItsBytes) {
 TEST(JsonValue, ADocumentReadsBackToTheSameValues) {
   JsonValue document = JsonValue::object();
   document.set("name", JsonValue::string("quote \" backslash \\ newline \n tab \t control \x01 unicode \xc3\xa9"));
-  document.set("flag", JsonValue::boolean(true));
+  document.set("flag", JsonValue::boolean(/*value=*/true));
   document.set("nothing", JsonValue());
   JsonValue& nested = document.set("nested", JsonValue::object());
   nested.set("pi", JsonValue::number(M_PI));
   nested.set("empty", JsonValue::object());
   JsonValue& list = document.set("list", JsonValue::array());
   list.append(JsonValue::number(-0.0));
-  list.append(JsonValue::number(1e-300));
+  list.append(JsonValue::number(1.0e-300));
   list.append(JsonValue::number(123456789012345.0));
   JsonValue objects = JsonValue::array();
   objects.append(JsonValue::object()).set("a", JsonValue::number(1.0));
@@ -136,6 +137,19 @@ TEST(JsonValue, NumbersReadBackBitForBitWithTheFewestDigits) {
   EXPECT_EQ(JsonValue::number(3.0).serialize(), "3");
 }
 
+TEST(JsonValue, NumbersAndControlCharactersAreWrittenAsPrintfWrites) {
+  // The digits of the shortest of %.15g, %.16g and %.17g that reads back, and the \u escape of a control character, as
+  // std::snprintf wrote them for the documents recorded under data/ (glibc's output).
+  EXPECT_EQ(JsonValue::number(1.0 / 3.0).serialize(), "0.3333333333333333");
+  EXPECT_EQ(JsonValue::number(std::nextafter(1.0, 2.0)).serialize(), "1.0000000000000002");
+  EXPECT_EQ(JsonValue::number(-1.5e-7).serialize(), "-1.5e-07");
+  EXPECT_EQ(JsonValue::number(1.0e21).serialize(), "1e+21");
+  EXPECT_EQ(JsonValue::number(std::numeric_limits<double>::denorm_min()).serialize(), "4.94065645841247e-324");
+  EXPECT_EQ(JsonValue::number(std::numeric_limits<double>::max()).serialize(), "1.7976931348623157e+308");
+  EXPECT_EQ(JsonValue::number(-0.0).serialize(), "-0");
+  EXPECT_EQ(JsonValue::string("\x01\x1f").serialize(), "\"\\u0001\\u001f\"");
+}
+
 TEST(JsonValue, ANumberThatIsNotFiniteIsWrittenAsNull) {
   EXPECT_EQ(JsonValue::number(std::numeric_limits<double>::quiet_NaN()).serialize(), "null");
   EXPECT_EQ(JsonValue::number(std::numeric_limits<double>::infinity()).serialize(), "null");
@@ -154,14 +168,14 @@ TEST(JsonValue, SetReplacesAMemberInPlace) {
 
 TEST(JsonValue, MalformedDocumentsAreRejectedWithTheirOffset) {
   for (const std::string& text :
-       {std::string("{\"a\": 1,}"), std::string("[1, 2"), std::string("{\"a\": 1, \"a\": 2}"), std::string("01"),
-        std::string("\"unterminated"), std::string("{} extra"), std::string("tru"), std::string("1."), std::string("\"\\q\"")}) {
+       {std::string("{\"a\": 1,}"), std::string("[1, 2"), std::string(R"({"a": 1, "a": 2})"), std::string("01"),
+        std::string("\"unterminated"), std::string("{} extra"), std::string("tru"), std::string("1."), std::string(R"("\q")")}) {
     const absl::StatusOr<JsonValue> parsed = JsonValue::parse(text);
     ASSERT_FALSE(parsed.ok()) << text;
     EXPECT_EQ(parsed.status().code(), absl::StatusCode::kInvalidArgument) << text;
     EXPECT_TRUE(absl::StrContains(parsed.status().message(), "at byte")) << parsed.status();
   }
-  const absl::StatusOr<JsonValue> surrogate = JsonValue::parse("\"\\ud83d\\ude00\"");
+  const absl::StatusOr<JsonValue> surrogate = JsonValue::parse(R"("\ud83d\ude00")");
   ASSERT_TRUE(surrogate.ok()) << surrogate.status();
   EXPECT_EQ(surrogate->asString(), "\xf0\x9f\x98\x80");
 }
@@ -183,11 +197,12 @@ GoldenFile makeGolden() {
   GoldenFile golden;
   golden.provenance.gitCommit = "c331ddd";
   golden.provenance.worktreeState = "dirty: diff sha256 0123";
-  golden.provenance.configurationHashes = {{"robot_models/a/task.yaml", sha256Hex("task")}, {"path with spaces.yaml", sha256Hex("x")}};
+  golden.provenance.configurationHashes = {{"robot_models/a/task.textproto", sha256Hex("task")},
+                                           {"path with spaces.textproto", sha256Hex("x")}};
   golden.provenance.notes = {{"robot", "unitree_g1"}, {"machine", "a CPU: 8 cores"}};
   golden_matrix_t special(2, 4);
   special << std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(),
-      -0.0, std::numeric_limits<double>::denorm_min(), std::numeric_limits<double>::max(), std::nextafter(1.0, 2.0), -1e-310;
+      -0.0, std::numeric_limits<double>::denorm_min(), std::numeric_limits<double>::max(), std::nextafter(1.0, 2.0), -1.0e-310;
   golden.entries.push_back({"special_values", special});
   golden.entries.push_back({"random", golden_matrix_t::Random(7, 5)});
   golden.entries.push_back({"no_rows", golden_matrix_t(0, 3)});
@@ -229,8 +244,54 @@ TEST(GoldenIo, AGoldenFileReadsBackBitForBitWithItsProvenance) {
   EXPECT_EQ(*again, *text);
 }
 
+TEST(GoldenIo, ValuesAreWrittenAsPrintfWritesThemWithSeventeenDigits) {
+  // %.17g as std::snprintf wrote it for the golden files recorded under data/ (glibc's output), and the non-finite
+  // values as strtod reads them back.
+  GoldenFile golden;
+  golden_matrix_t values(1, 12);
+  values << 0.1, 1.0 / 3.0, 1.0e-310, std::numeric_limits<double>::denorm_min(), std::numeric_limits<double>::max(), -0.0, 1.0, 1.0e21,
+      -1.5e-7, std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity();
+  golden.entries.push_back({"values", values});
+  const absl::StatusOr<std::string> text = formatGoldenFile(golden);
+  ASSERT_TRUE(text.ok()) << text.status();
+  EXPECT_TRUE(absl::EndsWith(*text,
+                             "matrix values 1 12\n0.10000000000000001 0.33333333333333331 9.9999999999999694e-311 4.9406564584124654e-324 "
+                             "1.7976931348623157e+308 -0 1 1e+21 -1.4999999999999999e-07 nan inf -inf\n"))
+      << *text;
+}
+
+TEST(ValidationIo, EveryRecordedFileFormatsBackToItsBytes) {
+  // The golden files and JSON documents recorded under data/ were written while std::snprintf printed their numbers:
+  // formatting what they parse to gives back their bytes, so absl::StrFormat prints every recorded value as it did.
+  const std::filesystem::path directory("humanoid_nmpc/humanoid_mpc_validation/data");
+  ASSERT_TRUE(std::filesystem::is_directory(directory)) << "the recorded files are a data dependency of this test";
+  size_t goldenFiles = 0;
+  size_t documents = 0;
+  for (const std::filesystem::directory_entry& entry : std::filesystem::recursive_directory_iterator(directory)) {
+    const std::filesystem::path& path = entry.path();
+    if (path.extension() != ".txt" && path.extension() != ".json") continue;
+    std::ifstream file(path, std::ios::binary);
+    const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    if (path.extension() == ".txt") {
+      const absl::StatusOr<GoldenFile> golden = parseGoldenFile(text);
+      ASSERT_TRUE(golden.ok()) << path << ": " << golden.status();
+      const absl::StatusOr<std::string> formatted = formatGoldenFile(*golden);
+      ASSERT_TRUE(formatted.ok()) << path << ": " << formatted.status();
+      EXPECT_TRUE(*formatted == text) << path << " does not format back to its bytes";
+      ++goldenFiles;
+    } else {
+      const absl::StatusOr<JsonValue> document = JsonValue::parse(text);
+      ASSERT_TRUE(document.ok()) << path << ": " << document.status();
+      EXPECT_TRUE(document->serialize() + "\n" == text) << path << " does not format back to its bytes";
+      ++documents;
+    }
+  }
+  EXPECT_GT(goldenFiles, 0u);
+  EXPECT_GT(documents, 0u);
+}
+
 TEST(GoldenIo, AFileRoundTripsAndItsProvenanceHashesTheConfiguration) {
-  const std::string configuration = temporaryPath("golden_config.yaml");
+  const std::string configuration = temporaryPath("golden_config.textproto");
   {
     std::ofstream file(configuration);
     file << "key: 1\n";
@@ -239,7 +300,7 @@ TEST(GoldenIo, AFileRoundTripsAndItsProvenanceHashesTheConfiguration) {
   ASSERT_TRUE(provenance.ok()) << provenance.status();
   ASSERT_EQ(provenance->configurationHashes.size(), 1u);
   EXPECT_EQ(provenance->configurationHashes[0].second, sha256Hex("key: 1\n"));
-  EXPECT_EQ(makeGoldenProvenance("abc123", "clean", {temporaryPath("missing.yaml")}).status().code(), absl::StatusCode::kNotFound);
+  EXPECT_EQ(makeGoldenProvenance("abc123", "clean", {temporaryPath("missing.textproto")}).status().code(), absl::StatusCode::kNotFound);
 
   GoldenFile golden = makeGolden();
   golden.provenance = *provenance;

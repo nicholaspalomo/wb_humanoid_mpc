@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """The generated Python messages import with the operator tools' protobuf runtime and round-trip.
 
 Every .proto file of the package has a generated module that loads, which also checks that its gencode version
@@ -10,18 +37,17 @@ import glob
 import importlib
 import os
 import re
+import types
 import unittest
-from types import ModuleType
-from typing import Dict, List
 
 import google.protobuf
 from google.protobuf.internal import api_implementation
-import zmq
-
 from humanoid_mpc_msgs import controller_type_pb2
 from humanoid_mpc_msgs import mpc_policy_pb2
 from humanoid_mpc_msgs import target_contact_patch_pb2
 from nproto import options_pb2
+import rerun
+import zmq
 
 PACKAGE = "humanoid_mpc_msgs"
 # The one import from outside the package: the options that name each message's nproto struct.
@@ -34,7 +60,7 @@ TIME_NODES = 4
 STATE_DIM = 3
 
 
-def proto_stems() -> List[str]:
+def proto_stems() -> list[str]:
     return sorted(
         os.path.splitext(os.path.basename(path))[0]
         for path in glob.glob(os.path.join(PROTO_DIR, "*.proto"))
@@ -76,7 +102,7 @@ class GeneratedModulesTest(unittest.TestCase):
     def setUp(self) -> None:
         self.stems = proto_stems()
         self.assertTrue(self.stems, f"no .proto files found in {PROTO_DIR}")
-        self.modules: Dict[str, ModuleType] = {
+        self.modules: dict[str, types.ModuleType] = {
             stem: importlib.import_module(f"{PACKAGE}.{stem}_pb2")
             for stem in self.stems
         }
@@ -178,8 +204,6 @@ class ZeroMqTest(unittest.TestCase):
 class RerunTest(unittest.TestCase):
 
     def test_rerun_sdk_loads_with_the_archetypes_the_bridge_maps_onto(self) -> None:
-        import rerun
-
         for archetype in ("Arrows3D", "LineStrips3D", "Points3D", "Transform3D"):
             with self.subTest(archetype=archetype):
                 self.assertTrue(hasattr(rerun, archetype))

@@ -1,17 +1,55 @@
+/******************************************************************************
+Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 
-#include "robot_model/RobotDescription.h"
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
 
-#include <gtest/gtest.h>
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
 
 #include <filesystem>
 #include <fstream>
+#include <limits>
+#include <optional>
 #include <sstream>
+#include <string>
+#include <system_error>
+#include <utility>
+#include <vector>
 
-#include "absl/container/flat_hash_map.h"
+#include "absl/base/nullability.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/match.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
+
 #include "robot_model/RobotDescription.h"
 
 namespace robot::model {
-namespace testing {
+namespace {
+
+using ::testing::HasSubstr;
 
 class RobotDescriptionTest : public ::testing::Test {
  protected:
@@ -65,45 +103,68 @@ class RobotDescriptionTest : public ::testing::Test {
     std::filesystem::remove_all(tempDir_, ec);
   }
 
+  RobotDescription description() const {
+    absl::StatusOr<RobotDescription> description = RobotDescription::Create(urdf_path_.string());
+    EXPECT_TRUE(description.ok()) << description.status();
+    return *std::move(description);
+  }
+
   std::filesystem::path tempDir_;
   std::filesystem::path urdf_path_;
 };
 
-// Test constructor with valid URDF
-TEST_F(RobotDescriptionTest, Constructor) {
-  ASSERT_NO_THROW({ RobotDescription robotDesc(urdf_path_.string()); });
-
-  RobotDescription robotDesc(urdf_path_.string());
-  EXPECT_EQ(robotDesc.getURDFPath(), urdf_path_.string());
-  EXPECT_EQ(robotDesc.getNumJoints(),
-            3);  // Should only count the revolute joints
+TEST_F(RobotDescriptionTest, CreateReadsTheRevoluteAndPrismaticJoints) {
+  const absl::StatusOr<RobotDescription> robotDesc = RobotDescription::Create(urdf_path_.string());
+  ASSERT_TRUE(robotDesc.ok()) << robotDesc.status();
+  EXPECT_EQ(robotDesc->getURDFPath(), urdf_path_.string());
+  EXPECT_EQ(robotDesc->getNumJoints(), 3u);  // Should only count the revolute joints
 }
 
-// Test constructor with non-existent URDF
-TEST_F(RobotDescriptionTest, ConstructorWithNonexistentFile) {
-  std::string nonexistentPath = tempDir_ / "nonexistent.urdf";
-  EXPECT_THROW({ RobotDescription robotDesc(nonexistentPath); }, std::runtime_error);
+TEST_F(RobotDescriptionTest, CreateOfAMissingFileIsNotFoundNamingIt) {
+  const std::string nonexistentPath = tempDir_ / "nonexistent.urdf";
+  const absl::StatusOr<RobotDescription> robotDesc = RobotDescription::Create(nonexistentPath);
+  EXPECT_EQ(robotDesc.status().code(), absl::StatusCode::kNotFound);
+  EXPECT_THAT(robotDesc.status().message(), HasSubstr(nonexistentPath));
 }
 
-// Test constructor with invalid URDF content
-TEST_F(RobotDescriptionTest, ConstructorWithInvalidURDF) {
-  std::filesystem::path invalidPath = tempDir_ / "invalid.urdf";
+TEST_F(RobotDescriptionTest, CreateOfAFileThatIsNotAUrdfIsInvalidArgument) {
+  const std::filesystem::path invalidPath = tempDir_ / "invalid.urdf";
   std::ofstream invalidFile(invalidPath);
   invalidFile << "This is not a valid URDF file";
   invalidFile.close();
 
-  EXPECT_THROW({ RobotDescription robotDesc(invalidPath.string()); }, std::runtime_error);
+  const absl::StatusOr<RobotDescription> robotDesc = RobotDescription::Create(invalidPath.string());
+  EXPECT_EQ(robotDesc.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(robotDesc.status().message(), HasSubstr("Failed to parse URDF file"));
 }
 
-// Test getURDFName method
+TEST_F(RobotDescriptionTest, CreateRefusesAUrdfWithFewerJointsThanAJointMapTakes) {
+  const std::filesystem::path onePath = tempDir_ / "one_joint.urdf";
+  std::ofstream oneFile(onePath);
+  oneFile << R"(<?xml version="1.0"?>
+        <robot name="one_joint">
+            <link name="base_link"/>
+            <link name="arm_link"/>
+            <joint name="arm_joint" type="revolute">
+                <parent link="base_link"/>
+                <child link="arm_link"/>
+                <axis xyz="0 0 1"/>
+                <limit lower="-1.0" upper="1.0" effort="10" velocity="1.0"/>
+            </joint>
+        </robot>)";
+  oneFile.close();
+
+  const absl::StatusOr<RobotDescription> robotDesc = RobotDescription::Create(onePath.string());
+  EXPECT_EQ(robotDesc.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(robotDesc.status().message(), HasSubstr("has 1 revolute and prismatic joints"));
+}
+
 TEST_F(RobotDescriptionTest, GetURDFName) {
-  RobotDescription robotDesc(urdf_path_.string());
-  EXPECT_EQ(robotDesc.getURDFName(), "test_robot.urdf");
+  EXPECT_EQ(description().getURDFName(), "test_robot.urdf");
 }
 
-// Test containsJoint method
 TEST_F(RobotDescriptionTest, ContainsJoint) {
-  RobotDescription robotDesc(urdf_path_.string());
+  const RobotDescription robotDesc = description();
 
   EXPECT_TRUE(robotDesc.containsJoint("shoulder_joint"));
   EXPECT_TRUE(robotDesc.containsJoint("elbow_joint"));
@@ -112,68 +173,65 @@ TEST_F(RobotDescriptionTest, ContainsJoint) {
   EXPECT_FALSE(robotDesc.containsJoint("nonexistent_joint"));
 }
 
-// Test getJointDescription method
-TEST_F(RobotDescriptionTest, GetJointDescription) {
-  RobotDescription robotDesc(urdf_path_.string());
+TEST_F(RobotDescriptionTest, FindJointDescription) {
+  const RobotDescription robotDesc = description();
 
-  // Test valid joint
-  const JointDescription& shoulderDesc = robotDesc.getJointDescription("shoulder_joint");
-  EXPECT_EQ(shoulderDesc.min_angle, -1.57);
-  EXPECT_EQ(shoulderDesc.max_angle, 1.57);
-  EXPECT_EQ(shoulderDesc.max_effort, 100.0);
-  EXPECT_EQ(shoulderDesc.max_velocity, 2.0);
+  const JointDescription* absl_nullable shoulderDesc = robotDesc.findJointDescription("shoulder_joint");
+  ASSERT_NE(shoulderDesc, nullptr);
+  EXPECT_EQ(shoulderDesc->min_angle, -1.57);
+  EXPECT_EQ(shoulderDesc->max_angle, 1.57);
+  EXPECT_EQ(shoulderDesc->max_effort, 100.0);
+  EXPECT_EQ(shoulderDesc->max_velocity, 2.0);
 
-  // Test another valid joint
-  const JointDescription& elbowDesc = robotDesc.getJointDescription("elbow_joint");
-  EXPECT_EQ(elbowDesc.min_angle, -2.0);
-  EXPECT_EQ(elbowDesc.max_angle, 2.0);
-  EXPECT_EQ(elbowDesc.max_effort, 80.0);
-  EXPECT_EQ(elbowDesc.max_velocity, 1.5);
+  const JointDescription* absl_nullable elbowDesc = robotDesc.findJointDescription("elbow_joint");
+  ASSERT_NE(elbowDesc, nullptr);
+  EXPECT_EQ(elbowDesc->min_angle, -2.0);
+  EXPECT_EQ(elbowDesc->max_angle, 2.0);
+  EXPECT_EQ(elbowDesc->max_effort, 80.0);
+  EXPECT_EQ(elbowDesc->max_velocity, 1.5);
 
-  // Test nonexistent joint should throw
-  EXPECT_THROW({ robotDesc.getJointDescription("nonexistent_joint"); }, std::out_of_range);
+  EXPECT_EQ(robotDesc.findJointDescription("nonexistent_joint"), nullptr);
 }
 
-// Test getJointIndex method
-TEST_F(RobotDescriptionTest, GetJointIndex) {
-  RobotDescription robotDesc(urdf_path_.string());
+TEST_F(RobotDescriptionTest, JointsAreNumberedInTheOrderOfTheirNames) {
+  const RobotDescription robotDesc = description();
 
-  int32_t shoulderIndex = robotDesc.getJointIndex("shoulder_joint");
-  int32_t elbowIndex = robotDesc.getJointIndex("elbow_joint");
-  int32_t wristIndex = robotDesc.getJointIndex("wrist_joint");
-
-  // Each joint should have a unique index
-  EXPECT_NE(shoulderIndex, elbowIndex);
-  EXPECT_NE(shoulderIndex, wristIndex);
-  EXPECT_NE(elbowIndex, wristIndex);
-
-  // Indices should be within expected range (0 to numJoints-1)
-  EXPECT_GE(shoulderIndex, 0);
-  EXPECT_LT(shoulderIndex, 3);
-
-  // Test nonexistent joint should throw
-  EXPECT_THROW({ robotDesc.getJointIndex("nonexistent_joint"); }, std::out_of_range);
+  EXPECT_EQ(robotDesc.getJointIndex("elbow_joint"), 0u);
+  EXPECT_EQ(robotDesc.getJointIndex("shoulder_joint"), 1u);
+  EXPECT_EQ(robotDesc.getJointIndex("wrist_joint"), 2u);
+  EXPECT_EQ(robotDesc.getJointIndices(), (std::vector<joint_index_t>{0, 1, 2}));
+  EXPECT_EQ(robotDesc.getJointNames(), (std::vector<std::string>{"elbow_joint", "shoulder_joint", "wrist_joint"}));
+  for (joint_index_t index = 0; index < robotDesc.getNumJoints(); ++index) {
+    EXPECT_EQ(robotDesc.getJointName(index), robotDesc.getJointNames()[index]);
+    const JointDescription* absl_nullable joint = robotDesc.findJointDescription(robotDesc.getJointName(index));
+    ASSERT_NE(joint, nullptr);
+    EXPECT_EQ(joint->id, index);
+  }
 }
 
-// Test getJointName method
-TEST_F(RobotDescriptionTest, GetJointName) {
-  RobotDescription robotDesc(urdf_path_.string());
+TEST_F(RobotDescriptionTest, FindJointIndicesNamesTheJointTheUrdfDoesNotHave) {
+  const RobotDescription robotDesc = description();
 
-  // Get indices first
-  int32_t shoulderIndex = robotDesc.getJointIndex("shoulder_joint");
-  int32_t elbowIndex = robotDesc.getJointIndex("elbow_joint");
-  int32_t wristIndex = robotDesc.getJointIndex("wrist_joint");
+  EXPECT_EQ(robotDesc.findJointIndex("wrist_joint"), std::optional<joint_index_t>(2));
+  EXPECT_EQ(robotDesc.findJointIndex("nonexistent_joint"), std::nullopt);
 
-  // Test mapping from index back to name
-  EXPECT_EQ(robotDesc.getJointName(shoulderIndex), "shoulder_joint");
-  EXPECT_EQ(robotDesc.getJointName(elbowIndex), "elbow_joint");
-  EXPECT_EQ(robotDesc.getJointName(wristIndex), "wrist_joint");
+  const absl::StatusOr<std::vector<joint_index_t>> found = robotDesc.findJointIndices({"wrist_joint", "elbow_joint"});
+  ASSERT_TRUE(found.ok()) << found.status();
+  EXPECT_EQ(*found, (std::vector<joint_index_t>{2, 0}));
+  EXPECT_EQ(robotDesc.getJointIndices({"wrist_joint", "elbow_joint"}), *found);
 
-  // Test invalid index should throw
-  EXPECT_THROW({ robotDesc.getJointName(999); }, std::out_of_range);
+  const absl::StatusOr<std::vector<joint_index_t>> missing = robotDesc.findJointIndices({"wrist_joint", "knee_joint"});
+  EXPECT_EQ(missing.status().code(), absl::StatusCode::kNotFound);
+  EXPECT_THAT(missing.status().message(), HasSubstr("'knee_joint'"));
 }
 
-// Test operator<< for JointDescription
+TEST_F(RobotDescriptionTest, MovingADescriptionKeepsItsJoints) {
+  RobotDescription original = description();
+  const RobotDescription moved(std::move(original));
+  EXPECT_EQ(moved.getNumJoints(), 3u);
+  EXPECT_EQ(moved.getJointIndex("wrist_joint"), 2u);
+}
+
 TEST_F(RobotDescriptionTest, JointDescriptionStreamOperator) {
   JointDescription jointDesc;
   jointDesc.id = 42;
@@ -184,41 +242,36 @@ TEST_F(RobotDescriptionTest, JointDescriptionStreamOperator) {
 
   std::stringstream ss;
   ss << jointDesc;
-
-  // Expected format may vary depending on your implementation
-  // This is just a simple check that something was written
-  EXPECT_FALSE(ss.str().empty());
-
-  // If your implementation has a specific format, test it here
-  // For example:
-  // EXPECT_EQ(ss.str(), "JointDescription(id=42, min_angle=-1.5,
-  // max_angle=1.5, max_velocity=2.0, max_effort=100.0)");
+  EXPECT_THAT(ss.str(), HasSubstr("id: 42"));
+  EXPECT_THAT(ss.str(), HasSubstr("min_angle: -1.5"));
 }
 
-// Test operator<< for RobotDescription
-TEST_F(RobotDescriptionTest, RobotDescriptionStreamOperator) {
-  RobotDescription robotDesc(urdf_path_.string());
+TEST(JointDescriptionTest, ADefaultJointHasNoLimits) {
+  const JointDescription joint;
+  EXPECT_EQ(joint.min_angle, std::numeric_limits<scalar_t>::lowest()) << "below every angle, not the smallest positive double";
+  EXPECT_EQ(joint.max_angle, std::numeric_limits<scalar_t>::max());
+}
 
+TEST_F(RobotDescriptionTest, RobotDescriptionStreamOperatorListsTheJointsInIndexOrder) {
   std::stringstream ss;
-  ss << robotDesc;
-
-  // Expected format may vary depending on your implementation
-  // This is just a simple check that something was written
-  EXPECT_FALSE(ss.str().empty());
-
-  // Basic checks that the output contains important information
-  std::string output = ss.str();
-  EXPECT_TRUE(output.find("test_robot.urdf") != std::string::npos);
-  EXPECT_TRUE(output.find("shoulder_joint") != std::string::npos);
-  EXPECT_TRUE(output.find("elbow_joint") != std::string::npos);
-  EXPECT_TRUE(output.find("wrist_joint") != std::string::npos);
+  ss << description();
+  const std::string output = ss.str();
+  EXPECT_TRUE(absl::StrContains(output, "test_robot.urdf"));
+  EXPECT_TRUE(absl::StrContains(output, "shoulder_joint"));
+  EXPECT_TRUE(absl::StrContains(output, "elbow_joint"));
+  EXPECT_TRUE(absl::StrContains(output, "wrist_joint"));
+  EXPECT_LT(output.find("elbow_joint"), output.find("shoulder_joint"));
+  EXPECT_LT(output.find("shoulder_joint"), output.find("wrist_joint"));
 }
 
-}  // namespace testing
+using RobotDescriptionDeathTest = RobotDescriptionTest;
+
+TEST_F(RobotDescriptionDeathTest, AJointNameOrIndexTheDescriptionDoesNotHaveIsAProgrammingError) {
+  const RobotDescription robotDesc = description();
+  EXPECT_DEATH(robotDesc.getJointIndex("nonexistent_joint"), "has no revolute or prismatic joint 'nonexistent_joint'");
+  EXPECT_DEATH(robotDesc.getJointIndices({"elbow_joint", "nonexistent_joint"}), "'nonexistent_joint'");
+  EXPECT_DEATH(robotDesc.getJointName(/*jointIndex=*/999), "has no joint of index 999");
+}
+
+}  // namespace
 }  // namespace robot::model
-
-// Main function that runs all tests
-int main(int argc, char** argv) {
-  ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
-}

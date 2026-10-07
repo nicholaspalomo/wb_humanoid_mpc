@@ -33,32 +33,36 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include <Eigen/Geometry>
-
+#include "Eigen/Geometry"
+#include "absl/base/nullability.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
 
 namespace ocs2::humanoid::validation {
 namespace {
 
 // LINT.IfChange(recorded_state_labels)
-constexpr const char* kJointNamesNote = "joint_names";
-constexpr const char* kTime = "time";
-constexpr const char* kBasePosition = "base_position";
-constexpr const char* kBaseQuaternion = "base_quaternion_xyzw";
-constexpr const char* kBaseLinearVelocity = "base_linear_velocity_local";
-constexpr const char* kBaseAngularVelocity = "base_angular_velocity_local";
-constexpr const char* kJointPositions = "joint_positions";
-constexpr const char* kJointVelocities = "joint_velocities";
-constexpr const char* kContactFlags = "contact_flags";
-constexpr const char* kGuiCommand = "gui_command";
+constexpr char kJointNamesNote[] = "joint_names";
+constexpr char kTime[] = "time";
+constexpr char kBasePosition[] = "base_position";
+constexpr char kBaseQuaternion[] = "base_quaternion_xyzw";
+constexpr char kBaseLinearVelocity[] = "base_linear_velocity_local";
+constexpr char kBaseAngularVelocity[] = "base_angular_velocity_local";
+constexpr char kJointPositions[] = "joint_positions";
+constexpr char kJointVelocities[] = "joint_velocities";
+constexpr char kContactFlags[] = "contact_flags";
+constexpr char kGuiCommand[] = "gui_command";
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/README.md:recorded_state_labels)
 
-absl::StatusOr<const golden_matrix_t*> requireMatrix(const GoldenFile& golden, const char* label, Eigen::Index rows, Eigen::Index cols) {
-  const golden_matrix_t* matrix = golden.find(label);
+absl::StatusOr<const golden_matrix_t* absl_nonnull> requireMatrix(const GoldenFile& golden,
+                                                                  absl::string_view label,
+                                                                  Eigen::Index rows,
+                                                                  Eigen::Index cols) {
+  const golden_matrix_t* absl_nullable matrix = golden.find(label);
   if (matrix == nullptr) return absl::InvalidArgumentError(absl::StrCat("[fromGoldenFile] no matrix '", label, "'"));
   if (matrix->rows() != rows || matrix->cols() != cols) {
     return absl::InvalidArgumentError(
@@ -85,7 +89,7 @@ RobotStateRecord recordRobotState(const robot::model::RobotState& state,
     record.jointPositions(static_cast<Eigen::Index>(i)) = state.getJointPosition(joints[i]);
     record.jointVelocities(static_cast<Eigen::Index>(i)) = state.getJointVelocity(joints[i]);
   }
-  const std::vector<bool> flags = state.getContactFlags();
+  const std::vector<bool>& flags = state.getContactFlags();
   for (size_t contact = 0; contact < 2 && contact < flags.size(); ++contact) record.contactFlags[contact] = flags[contact];
   record.guiCommand = guiCommand;
   return record;
@@ -109,8 +113,9 @@ absl::StatusOr<robot::model::RobotState> toRobotState(const RobotStateRecord& re
       return absl::InvalidArgumentError(absl::StrCat("[toRobotState] ", description.getURDFPath(), " has no joint '", name,
                                                      "' of the recording (", absl::StrJoin(jointNames, ","), ")"));
     }
-    if (!seen.insert(name).second)
+    if (!seen.insert(name).second) {
       return absl::InvalidArgumentError(absl::StrCat("[toRobotState] the joint '", name, "' is recorded twice"));
+    }
   }
   robot::model::RobotState state(description, /*contactSize=*/2);
   state.setTime(record.time);
@@ -180,19 +185,19 @@ absl::StatusOr<RecordedRobotStates> fromGoldenFile(const GoldenFile& golden) {
     haveJointNames = true;
   }
   if (!haveJointNames) return absl::InvalidArgumentError(absl::StrCat("[fromGoldenFile] no '", kJointNamesNote, "' note"));
-  const golden_matrix_t* time = golden.find(kTime);
+  const golden_matrix_t* absl_nullable time = golden.find(kTime);
   if (time == nullptr || time->cols() != 1) return absl::InvalidArgumentError(absl::StrCat("[fromGoldenFile] no '", kTime, "' column"));
   const Eigen::Index rows = time->rows();
   const Eigen::Index numJoints = static_cast<Eigen::Index>(states.jointNames.size());
-  absl::StatusOr<const golden_matrix_t*> position = requireMatrix(golden, kBasePosition, rows, /*cols=*/3);
-  absl::StatusOr<const golden_matrix_t*> quaternion = requireMatrix(golden, kBaseQuaternion, rows, /*cols=*/4);
-  absl::StatusOr<const golden_matrix_t*> linearVelocity = requireMatrix(golden, kBaseLinearVelocity, rows, /*cols=*/3);
-  absl::StatusOr<const golden_matrix_t*> angularVelocity = requireMatrix(golden, kBaseAngularVelocity, rows, /*cols=*/3);
-  absl::StatusOr<const golden_matrix_t*> jointPositions = requireMatrix(golden, kJointPositions, rows, numJoints);
-  absl::StatusOr<const golden_matrix_t*> jointVelocities = requireMatrix(golden, kJointVelocities, rows, numJoints);
-  absl::StatusOr<const golden_matrix_t*> contactFlags = requireMatrix(golden, kContactFlags, rows, /*cols=*/2);
-  absl::StatusOr<const golden_matrix_t*> guiCommand = requireMatrix(golden, kGuiCommand, rows, /*cols=*/4);
-  for (const absl::StatusOr<const golden_matrix_t*>* matrix :
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> position = requireMatrix(golden, kBasePosition, rows, /*cols=*/3);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> quaternion = requireMatrix(golden, kBaseQuaternion, rows, /*cols=*/4);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> linearVelocity = requireMatrix(golden, kBaseLinearVelocity, rows, /*cols=*/3);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> angularVelocity = requireMatrix(golden, kBaseAngularVelocity, rows, /*cols=*/3);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> jointPositions = requireMatrix(golden, kJointPositions, rows, numJoints);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> jointVelocities = requireMatrix(golden, kJointVelocities, rows, numJoints);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> contactFlags = requireMatrix(golden, kContactFlags, rows, /*cols=*/2);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> guiCommand = requireMatrix(golden, kGuiCommand, rows, /*cols=*/4);
+  for (const absl::StatusOr<const golden_matrix_t* absl_nonnull>* absl_nonnull matrix :
        {&position, &quaternion, &linearVelocity, &angularVelocity, &jointPositions, &jointVelocities, &contactFlags, &guiCommand}) {
     if (!matrix->ok()) return matrix->status();
   }

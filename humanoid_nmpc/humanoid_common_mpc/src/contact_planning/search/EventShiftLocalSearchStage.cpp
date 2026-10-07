@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -28,9 +32,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <functional>
 #include <set>
+#include <string>
 
 #include "absl/log/log.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+
+#include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
 #include "humanoid_common_mpc/contact_planning/search/CadenceStretchStage.h"
 
@@ -45,13 +54,13 @@ void EventShiftLocalSearchStage::configure(const ContactPlanningConfig& config) 
   params_ = config.eventShiftLocalSearch;
 }
 
-void EventShiftLocalSearchStage::afterSearch(SearchRun& run) const {
+absl::Status EventShiftLocalSearchStage::afterSearch(SearchRun& run) const {
   const SearchRun::Clock::time_point start = SearchRun::Clock::now();
   const std::function<scalar_t()> elapsed = [&start]() { return std::chrono::duration<scalar_t>(SearchRun::Clock::now() - start).count(); };
   MiqpResult& result = *run.result;
   SearchStatistics& statistics = *run.statistics;
   const scalar_t timeBudget = params_.maxTime;
-  if (!result.hasIncumbent || params_.iterations <= 0 || timeBudget <= 0.0) return;
+  if (!result.hasIncumbent || params_.iterations <= 0 || timeBudget <= 0.0) return absl::OkStatus();
   const int N = run.config->planner.numNodes;
   const MiqpAssignment& initial = *run.initialAssignment;
   // The grid the incumbent is on: planner.dt unless a stage listed before this one re-timed it (cadence_stretch).
@@ -63,7 +72,7 @@ void EventShiftLocalSearchStage::afterSearch(SearchRun& run) const {
     if (elapsed() > timeBudget) break;
     const MiqpAssignment base = result.assignment;
     bool improved = false;
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    for (size_t foot = 0; foot < kNumContacts; ++foot) {
       for (int k = 1; k < N; ++k) {
         const size_t index = static_cast<size_t>(ContactLogicState::contactBinaryIndex(k, foot));
         const size_t previousIndex = static_cast<size_t>(ContactLogicState::contactBinaryIndex(k - 1, foot));
@@ -84,7 +93,7 @@ void EventShiftLocalSearchStage::afterSearch(SearchRun& run) const {
           // chosenDt per node. A candidate that moves a touch-down one node later is then legal in nodes and too long
           // in seconds (a five-node swing at dt 0.1 against a 0.5 s maximum passes propagation and executes for
           // 0.625 s at a stretch of 1.25), so the candidate has to admit the stretch the incumbent was emitted with.
-          if (stretch > 1.0 && CadenceStretchStage::admissibleStretch(*run.config, candidate, N, stretch, run.input) < stretch - 1e-9) {
+          if (stretch > 1.0 && CadenceStretchStage::admissibleStretch(*run.config, candidate, N, stretch, run.input) < stretch - 1.0e-9) {
             continue;
           }
           if (!evaluated.insert(candidate).second) continue;
@@ -92,10 +101,12 @@ void EventShiftLocalSearchStage::afterSearch(SearchRun& run) const {
           OcpQpSolution solution;
           scalar_t objective = 0.0;
           ++statistics.numLocalSearchQps;
-          if (!run.miqp->solveFixed(*run.problem, *run.binaries, candidate, *run.propagate, *run.assignmentCost, solution, objective))
-            continue;
+          // A candidate the solver rejects ends the search; the improvements before it stay adopted.
+          ASSIGN_OR_RETURN(const bool solved, run.miqp->solveFixed(*run.problem, *run.binaries, candidate, *run.propagate,
+                                                                   *run.assignmentCost, solution, objective));
+          if (!solved) continue;
           statistics.totalQpIterations += solution.iterations;
-          if (objective < result.incumbentObjective - 1e-6) {
+          if (objective < result.incumbentObjective - 1.0e-6) {
             result.incumbentObjective = objective;
             result.solution = solution;
             result.assignment = candidate;
@@ -111,6 +122,7 @@ void EventShiftLocalSearchStage::afterSearch(SearchRun& run) const {
     if (!improved) break;
   }
   statistics.localSearchTime = elapsed();
+  return absl::OkStatus();
 }
 
 }  // namespace ocs2::humanoid

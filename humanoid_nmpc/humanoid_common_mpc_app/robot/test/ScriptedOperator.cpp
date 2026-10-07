@@ -27,7 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include "humanoid_common_mpc_app/robot/test_support/ScriptedOperator.h"
+#include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/ScriptedOperator.h"
 
 #include <algorithm>
 #include <functional>
@@ -40,10 +40,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 
-#include "humanoid_common_mpc_app/robot/test_support/LoopbackNetwork.h"
 #include "humanoid_mpc_ipc/Topics.h"
 #include "humanoid_mpc_msgs/fsm_command.pb.h"
 #include "humanoid_mpc_msgs/visualization_scene.pb.h"
+#include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/LoopbackNetwork.h"
 #include "robot_ipc/Delivery.h"
 
 namespace ocs2::humanoid::test_support {

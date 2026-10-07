@@ -20,7 +20,7 @@ flowchart LR
   subgraph Robot["Robot realtime computer"]
     direction TB
     RT["realtime thread<br/>backend read -> MRT joint controller -> backend write<br/>(no IPC, no protobuf, no locks it can wait on)"]
-    COMM_R["communication thread<br/>ZeroMQ, protobuf, YAML parsing"]
+    COMM_R["communication thread<br/>ZeroMQ, protobuf, file reading"]
     RT -- "observation (triple buffer)<br/>telemetry (SPSC ring)" --> COMM_R
     COMM_R -- "policy (MRT_BASE buffer, try-lock)<br/>commands (triple buffers, SPSC queues)" --> RT
   end
@@ -85,6 +85,7 @@ nodes { name: "robot"     host: "127.0.0.1"  port: 5600 }  # the robot process
 nodes { name: "mpc"       host: "127.0.0.1"  port: 5610 }  # the MPC node
 nodes { name: "operator"  host: "127.0.0.1"  port: 5620 }  # the remote_control GUI
 nodes { name: "teleop"    host: "127.0.0.1"  port: 5621 }  # keyboard / Xbox teleoperation
+nodes { name: "config_push"  host: "127.0.0.1"  port: 5622 }  # push_robot_config: a configuration file to the robot
 ```
 
 For the hardware split both machines use the same file with the robot's and the laptop's addresses. The C++ and the
@@ -113,26 +114,78 @@ the IO thread). **The realtime thread never calls the bus.**
 ### Topics
 
 The names are constants in `humanoid_nmpc/humanoid_mpc_ipc/include/humanoid_mpc_ipc/Topics.h` and
-`humanoid_nmpc/humanoid_mpc_ipc/python/humanoid_mpc_ipc/topics.py`, tied together with `LINT.IfChange`.
+`humanoid_nmpc/humanoid_mpc_ipc/python/humanoid_mpc_ipc/topics.py`, tied together with `LINT.IfChange`. The messages
+are those of `humanoid_nmpc/humanoid_mpc_msgs`, except the two tuning payloads of the GUI, which are whole
+configuration files of `humanoid_nmpc/humanoid_mpc_config`: `MpcParameterUpdate` (the task file and, for a robot that
+plans its contacts, the contact planner's file) and `JointPdGainsFile`. The payload is the file: a block it does not
+carry means its defaults, as at start-up. A subscriber drops, and logs, a message of another type than its own. A
+payload of the same type built from another version of the schemas is refused by the receiver, logged and counted: one
+with a field the receiver does not know, and an `MpcParameterUpdate` or a `ConfigFileSave` whose schema fingerprint is
+not the receiver's (humanoid_nmpc/humanoid_mpc_config/README.md, "Version skew"). Both also name the configuration they
+are of (`config_path`, the file's path from `robot_models/` on: `configFileIdentity()`), and the MPC node and the robot
+refuse one of another configuration, such as a centroidal G1 GUI's update reaching the whole-body G1, whose
+`robot_name` is the same.
 
 <!-- LINT.IfChange(topic_table) -->
 | Topic | Message | Publisher | Subscribers | Delivery | Rate |
 |---|---|---|---|---|---|
 | `robot/mpc_observation` | `MpcObservation` | robot | MPC | latest | every control cycle |
-| `robot/state` | `RobotStateSample` | robot | MPC (visualization) | all | `telemetryFrequency` |
+| `robot/state` | `RobotStateSample` | robot | MPC (visualization) | all | `telemetry_frequency` |
 | `robot/fsm_state` | `FsmState` | robot | GUI | latest | on change and 2 Hz |
 | `robot/loop_timing` | `LoopTiming` | robot | GUI, bridge | latest | 1 Hz |
 | `mpc/policy` | `MpcPolicy` | MPC | robot, dummy sim | latest | every solve |
 | `mpc/status` | `MpcStatus` | MPC | robot (solver health), GUI, bridge | latest | every solve attempt |
-| `viz/scene` | `VisualizationScene` | MPC (visualization) | bridge | latest | `rerunSceneFrequency` |
+| `viz/scene` | `VisualizationScene` | MPC (visualization) | bridge | latest | `rerun_scene_frequency` |
 | `viz/telemetry` | `TelemetrySeries` | MPC (visualization) | bridge | all | per `robot/state` sample |
 | `operator/walking_velocity_command` | `WalkingVelocityCommand` | GUI, teleop | MPC; robot (gantry height in sim) | latest | 25 Hz |
 | `operator/fsm_command` | `FsmCommand` | GUI | robot | all | on change |
-| `operator/mpc_parameters` | `YamlDocument` | GUI | MPC; robot (controller-side keys) | latest | on edit |
-| `operator/pd_gains` | `YamlDocument` | GUI | robot | latest | on edit |
+| `operator/mpc_parameters` | `MpcParameterUpdate` | GUI | MPC; robot (controller-side settings) | latest | on edit |
+| `operator/pd_gains` | `JointPdGainsFile` | GUI | robot | latest | on edit |
 | `operator/joint_targets` | `JointTargets` | GUI | robot | latest | on edit, JOINT_PD only |
-| `operator/dodgeball_throw` | `YamlDocument` | GUI | robot (simulation) | all | on button press |
+| `operator/dodgeball_throw` | `DodgeballThrow` | GUI | robot (simulation) | all | on button press |
+| `operator/config_save` | `ConfigFileSave` | GUI, `push_robot_config` | robot (its persistent copy) | all | on Save |
+| `robot/config_save_status` | `ConfigFileSaveStatus` | robot | GUI, `push_robot_config` | all | once per save |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_ipc/include/humanoid_mpc_ipc/Topics.h:topics, //humanoid_nmpc/remote_control/remote_control/operator_bus.py:operator_topics) -->
+
+### Saving the configuration
+
+The MPC node and the robot process run in two processes, on two machines on the robot, and each reads its own copy of
+the robot's configuration files. The tuning GUI's **Save** therefore writes both: the laptop's file, which the MPC node
+reads and watches, losslessly (comments and untouched values kept), and the robot's, by sending the exact text it wrote
+of every file the robot reads - the task file, the reference file, the PD gains file; not the contact planner's file,
+which only the MPC reads - on `operator/config_save` (`ConfigFileSave`: the file's kind, `robot_name`, `config_path`,
+the schema fingerprint of the file's message, the text and a sequence number).
+
+The robot process keeps its files in a persistent store (`--config_store_dir`; the robot images use
+`/var/lib/wb-humanoid-robot/config/<ROBOT>`, a directory of the robot's host that outlives the container and a
+redeploy), seeded from the files bundled in its image
+([`humanoid_common_mpc_app/robot`](../../humanoid_common_mpc_app/robot/README.md#the-configuration-store),
+[`tools/deploy`](../../../tools/deploy/README.md#the-stored-configuration)). Its `ConfigFileStore` checks a save on the
+bus's IO thread for what is cheap - the configuration, the robot, the schema fingerprint, the size - and then, on a
+writer thread of its own, never the realtime thread, parses it as strictly as at start-up and runs the checks start-up
+runs (`checkRobotConfiguration()`) with the saved file in place of its stored copy. A file it accepts is written
+atomically (the previous copy kept as `.bak`), and its watchers apply it as they apply an edit; the answer goes back on
+`robot/config_save_status` (`ConfigFileSaveStatus`: `SAVED` with the stored path, `UNCHANGED`, `REFUSED` or `FAILED`
+with the reason, `NOT_STORED` for a robot process without a store, naming the file it reads in place). The GUI shows it:
+saved on the laptop and on the robot, or the robot's refusal; a robot without a store that reads another file than
+the laptop's (a robot computer of its own) as a problem, since the save did not reach it; an answer that does not come
+leaves the robot's copy unknown, and a repeat of the same save is answered again without being written twice. The
+robot reads its stored files at its next start; a stored file it does not start with, where the bundled one starts, is
+renamed `.rejected` and the robot starts on the bundled one, while a failure the bundle shares (a port in use) keeps
+the stored files. `bazel run //humanoid_nmpc/remote_control:push_robot_config -- <file>` sends a file the same way from the command
+line, as the bus node `config_push` (an editor's save, which the robot does not see otherwise).
+
+### Trust model
+
+The bus has no authentication. Anything that can publish on it can command the robot's FSM, change its PD gains live
+and, with `operator/config_save`, replace the robot's three configuration files - so the bus belongs on the robot's
+private network (the addresses of the network file), never on an open one, and its ports (TCP 5600-5629) are open only
+between the robot and the laptop. The checks limit what a save can do, not who sends it: the store writes only its three
+fixed files (the message's `config_path` is compared with the configuration's, never joined into a path, and the contact
+planner's mirror has no kind), refuses whatever the robot would refuse at start-up, caps the size and the queue, keeps
+`.bak`, `.seed` and `.rejected`, and falls back to the bundled files when a stored configuration does not set up or dies
+in its first seconds. The configuration identity (`config_path`) on the live path and on Save guards against operator
+mistakes, a GUI opened on another configuration; it is not authentication.
 
 ## The realtime thread
 
@@ -143,12 +196,12 @@ The realtime thread of the robot process does, every period, only this:
    bounded `robot::realtime::SpscQueue` for events);
 3. run the MRT joint controller (`computeJointControlAction`), which evaluates the policy in use;
 4. hand the joint action to the backend;
-5. write the MPC observation into a triple buffer and, every `telemetryFrequency`, a telemetry sample into an SPSC
+5. write the MPC observation into a triple buffer and, every `telemetry_frequency`, a telemetry sample into an SPSC
    ring.
 
-It never calls ZeroMQ or protobuf, never parses YAML, never touches a file, never logs in steady state, and never
-waits on a lock another thread can hold for long: the policy swap is `MRT_BASE::updatePolicy()`, a `try_lock` that
-skips the swap if the communication thread is moving a new policy in.
+It never calls ZeroMQ or protobuf, never parses a configuration file, never touches a file, never logs in steady
+state, and never waits on a lock another thread can hold for long: the policy swap is `MRT_BASE::updatePolicy()`, a
+`try_lock` that skips the swap if the communication thread is moving a new policy in.
 
 The loop is paced with absolute deadlines (`clock_nanosleep(TIMER_ABSTIME)` on `CLOCK_MONOTONIC`). With
 `--realtime_priority=N` (0 = off) it runs `SCHED_FIFO` at priority N with its memory locked (`mlockall`), on the
@@ -159,8 +212,9 @@ solves. Period statistics go out on `robot/loop_timing`. The building blocks for
 which depends on Abseil only.
 
 The **communication thread** does everything else: it publishes observations and telemetry, receives and parses
-policies (allocating, then `MRT_BASE::moveToBuffer`, which frees the replaced policy on this thread), parses the YAML
-documents of the GUI into typed structures, and runs the reset handshake below.
+policies (allocating, then `MRT_BASE::moveToBuffer`, which frees the replaced policy on this thread), converts the
+GUI's typed tuning messages (the whole task file, the whole PD gains file, a dodgeball throw) into the controller's
+structures, and runs the reset handshake below.
 
 ## The MPC link
 
@@ -204,7 +258,7 @@ failure: the policy in use is no longer current until one solved after the failu
 in-process controller sees `hasOutstandingReset()` (its supervisor requested the solver's reset), the remote one sees
 `!isActivePolicyCurrent()` (the MPC node's supervisor requested it); the controller only reads the two together.
 
-**Link loss.** If no policy solved from an observation of the last `mpcLink.policyTimeout` seconds of robot time has
+**Link loss.** If no policy solved from an observation of the last `mpc_link.policy_timeout` seconds of robot time has
 arrived, the link reports itself unhealthy and the controller holds the robot in JOINT_PD, as for a failing solver; a
 policy that is older than the timeout when it arrives, or whose horizon has ended by then, is dropped. A plan is never
 executed past the end of its horizon: the link is lost, too, when the robot clock reaches the end of the newest policy.
@@ -226,11 +280,12 @@ the MuJoCo viewer.
 
 A feedforward policy is about 46 KB, a linear one (feedback gains) about 480 KB for nx = nu = 30 over 60 nodes
 (`humanoid_mpc_ipc:test_mpc_message_conversions` prints both). At 50-80 Hz the latter is 24-38 MB/s, too much for
-Wi-Fi. `mpc.solutionTimeWindow` (OCS2's MPC settings) bounds the horizon that is sent: the MPC node cuts every policy
-to it (`trimToSolutionWindow()`, GaussNewtonDDP's rule), also for `SqpSolver`, which ignores it in process. Every
-shipped task file keeps the full horizon (-1) as before. Measured on the DRC Atlas (`make ipc-hz TOPIC=mpc/policy`):
-742 KB per policy at 49 Hz, 36 MB/s, which loopback carries easily and a gigabit link with room; before a robot runs
-over a slower link, set `solutionTimeWindow` to what the robot needs between two policies (a few MPC periods).
+Wi-Fi. `mpc.solution_time_window` (OCS2's MPC settings) bounds the horizon that is sent: the MPC node cuts every policy
+to it (`trimToSolutionWindow()`, upstream OCS2 GaussNewtonDDP's rule), also for `SqpSolver`, which ignores it in
+process. Every shipped task file keeps the full horizon (-1) as before. Measured on the DRC Atlas
+(`make ipc-hz TOPIC=mpc/policy`): 742 KB per policy at 49 Hz, 36 MB/s, which loopback carries easily and a gigabit
+link with room; before a robot runs over a slower link, set `solution_time_window` to what the robot needs between
+two policies (a few MPC periods).
 
 ## Visualization with Rerun
 
@@ -242,7 +297,7 @@ block the solver; samples that do not fit its bounded queue are dropped and coun
 Pinocchio and the MPC's robot model, and publishes:
 
 - `viz/scene`: the robot model instances (measured, with every joint of the URDF; terminal state; terminal target) as
-  link poses, and the markers, at `rerunSceneFrequency` (30 Hz) at most;
+  link poses, and the markers, at `rerun_scene_frequency` (30 Hz) at most;
 - `viz/telemetry`: the plots, one message per `robot/state` sample: measured, reference and plan.
 
 The Rerun bridge (`humanoid_nmpc/humanoid_rerun_viewer`, [its README](../../humanoid_rerun_viewer/README.md)) loads
@@ -269,10 +324,10 @@ entity paths and the telemetry groups the visualization publisher must send: the
 
 - **Command line** (Abseil flags): `--robot_name --task_file --reference_file --gait_file --urdf_file --mjcf_file
   --network_config --ipc_node --mpc_link --realtime_priority`; the robot binaries add `--backend --realtime_cores
-  --backend_cores --headless` ([`humanoid_common_mpc_app/robot`](../../humanoid_common_mpc_app/robot/README.md#the-command-line)).
-- **Task file** (`config/mpc/task.yaml`): `mpcLink.policyTimeout`, `telemetrySinks` (the robot process's telemetry, by
-  name: `bus` publishes `robot/state`), `telemetryFrequency`, `telemetryFrames`, `rerunSceneFrequency`, `rerunPlanFrames`,
-  and the existing controller and simulator keys
+  --backend_cores --headless --config_store_dir --config_seed` ([`humanoid_common_mpc_app/robot`](../../humanoid_common_mpc_app/robot/README.md#the-command-line)).
+- **Task file** (`config/mpc/task.textproto`): `mpc_link.policy_timeout`, `telemetry_sinks` (the robot process's
+  telemetry, by name: `bus` publishes `robot/state`), `telemetry_frequency`, `telemetry_frames`, `rerun_scene_frequency`,
+  `rerun_plan_frames`, and the existing controller and simulator fields
   ([`humanoid_common_mpc_app/robot`](../../humanoid_common_mpc_app/robot/README.md#the-task-file)).
 - **Network file**: as above.
 
@@ -292,7 +347,7 @@ description a fourth:
 
 Their variables name the robot's files relative to the repository root (`task_file`, `reference_file`, `urdf_file`,
 `mjcf_file`, `gait_file`, `network_file`) and the settings a deployment changes (`backend`, `headless`,
-`realtime_priority`, `realtime_cores`, `backend_cores`, `rerun_sink`); `--set name=value` overrides one.
+`realtime_priority`, `realtime_cores`, `backend_cores`, `config_store_dir`, `config_seed`, `rerun_sink`); `--set name=value` overrides one.
 `//robot_models/tests:test_launch_files` checks that every one parses, starts built binaries with flags they define and
 files that exist, and keeps the robot process and the MPC apart.
 
@@ -331,9 +386,10 @@ the laptop's terminal. The robot's computer needs Docker with the compose plugin
 `robot-sim` container - `robot-runtime` plus only the MuJoCo viewer's GL, with the same compose file, the same
 `SCHED_FIFO` and locked memory - and the laptop side in the dev container, over the remote MPC link on the shipped
 localhost network. Nothing runs the MPC inside the robot process (the robot binaries have no in-process mode;
-`InProcessMpcLink` is for the controller unit tests and the lockstep closed loop). The robot container reads the checkout's `robot_models`, mounted
-read-only, so that the PD gains and the task file's controller-side keys reload live while tuning (tools/deploy/README.md,
-"Simulation"); a deployed robot reads its image's copy. `NETEM="delay 3ms 1ms loss 0.5%"` shapes
+`InProcessMpcLink` is for the controller unit tests and the lockstep closed loop). The robot container's bundled files
+are the checkout's `robot_models`, mounted read-only, which seed its stored configuration at every start; while it runs,
+the GUI's Save reaches it over the bus, as on the robot ("Saving the configuration", tools/deploy/README.md,
+"Simulation"). `NETEM="delay 3ms 1ms loss 0.5%"` shapes
 the bus's packets on loopback with tc-netem while the robot container runs, to rehearse the robot's link
 (`tools/deploy/netem.sh`). Until a hardware backend exists, the robot deployment runs the MuJoCo backend headless on
 the robot's computer: a true two-machine simulation. A hardware backend registers under a name of its own
@@ -350,7 +406,7 @@ backwards). ZeroMQ reconnects on its own, so either side may start, stop and res
 restart policy brings a robot process that exits back - in ZERO_TORQUE, so an operator has to take it into WB_MPC
 again.
 
-**Link loss holds the robot.** Without a policy solved from an observation of the last `mpcLink.policyTimeout`
+**Link loss holds the robot.** Without a policy solved from an observation of the last `mpc_link.policy_timeout`
 (0.5 s) of robot time, WB_MPC holds the JOINT_PD action, `robot/fsm_state` reports `mpc_healthy: false`, and the
 first policy solved after the full reset it requests ends the hold with the usual entry blend ("Link loss" above). The
 hold is not ramped in, so a false loss is a jump to the standing posture. A lost TCP segment costs a retransmission

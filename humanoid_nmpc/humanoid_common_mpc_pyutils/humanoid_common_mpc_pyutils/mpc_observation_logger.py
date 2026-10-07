@@ -1,3 +1,31 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+# Copyright (c) 2024, 1X Technologies. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Records the robot's MPC observations from the IPC bus into a CSV file, the input of export_rollouts.py.
 
     bazel run //humanoid_nmpc/humanoid_common_mpc_pyutils:mpc_observation_logger -- \\
@@ -15,6 +43,7 @@ which. The logger only subscribes, so it runs on any machine of the network file
 """
 
 import argparse
+from collections.abc import Sequence
 import csv
 import datetime
 import logging
@@ -22,11 +51,12 @@ import os
 import signal
 import threading
 import time
-from typing import List, Optional, Sequence, TextIO
+from typing import TextIO
 
-import robot_ipc
-from humanoid_mpc_ipc import topics
 from humanoid_mpc_msgs import mpc_observation_pb2
+
+from humanoid_mpc_ipc import topics
+import robot_ipc
 
 _LOGGER = logging.getLogger("mpc_observation_logger")
 
@@ -40,7 +70,7 @@ INPUT_COLUMN_PREFIX = "u"
 _POLL_PERIOD_S = 0.1
 
 
-def column_names(state_dim: int, input_dim: int) -> List[str]:
+def column_names(state_dim: int, input_dim: int) -> list[str]:
     """The CSV header of observations with a state of `state_dim` and an input of `input_dim` components."""
     return (
         [TIME_COLUMN, MODE_COLUMN]
@@ -49,7 +79,7 @@ def column_names(state_dim: int, input_dim: int) -> List[str]:
     )
 
 
-def observation_row(message: mpc_observation_pb2.MpcObservation) -> List[float]:
+def observation_row(message: mpc_observation_pb2.MpcObservation) -> list[float]:
     """The CSV row of one observation: time, mode, state, input."""
     observation = message.observation
     return (
@@ -70,7 +100,7 @@ class ObservationCsvWriter:
         self._stream = stream
         self._writer = csv.writer(stream)
         self._lock = threading.Lock()
-        self._dimensions: Optional[Sequence[int]] = None
+        self._dimensions: Sequence[int] | None = None
         self.written = 0
         self.skipped = 0
 
@@ -100,10 +130,15 @@ def log_file_name(now: datetime.datetime) -> str:
 
 def subscribe(bus: robot_ipc.Bus, writer: ObservationCsvWriter) -> None:
     """Hands every observation of the bus to `writer`. Call before bus.start()."""
+
+    def on_observation(message: mpc_observation_pb2.MpcObservation) -> None:
+        # A skipped observation is counted by the writer; the bus has no use for the result.
+        writer.write(message)
+
     bus.subscribe(
         topics.ROBOT_MPC_OBSERVATION,
         mpc_observation_pb2.MpcObservation,
-        writer.write,
+        on_observation,
         delivery=robot_ipc.Delivery.ALL,
     )
 
@@ -120,7 +155,8 @@ def _resolve(path: str) -> str:
     return candidate
 
 
-def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parses the logger's command line `argv` (sys.argv when None)."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument(
         "--network_config",
@@ -141,7 +177,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def run(args: argparse.Namespace, stop: Optional[threading.Event] = None) -> str:
+def run(args: argparse.Namespace, stop: threading.Event | None = None) -> str:
     """Records until `stop` is set or the duration passes; returns the path of the CSV file."""
     stop = stop if stop is not None else threading.Event()
     network = robot_ipc.load_network_config(_resolve(args.network_config))
@@ -178,7 +214,7 @@ def run(args: argparse.Namespace, stop: Optional[threading.Event] = None) -> str
     return path
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
     args = parse_args(argv)
     stop = threading.Event()

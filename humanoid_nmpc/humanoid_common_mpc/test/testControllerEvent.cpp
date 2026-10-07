@@ -27,12 +27,12 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <cstddef>
 #include <string>
 #include <type_traits>
 #include <vector>
+
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
@@ -56,6 +56,8 @@ constexpr ControllerEventCode kEveryCode[] = {
     ControllerEventCode::kContactWrenchGateChanged,
     ControllerEventCode::kContactEstimatorChanged,
     ControllerEventCode::kNoPolicyWeightCompensation,
+    ControllerEventCode::kContactEstimateRefused,
+    ControllerEventCode::kContactWrenchGateRefused,
 };
 
 /** A sink that keeps what it is handed, as the realtime event log does. */
@@ -70,7 +72,7 @@ class RecordingSink final : public ControllerEventSink {
 
 TEST(ControllerEvent, IsPlainDataMadeWithoutAllocating) {
   static_assert(std::is_trivially_copyable_v<ControllerEvent>, "an event is copied into a queue slot");
-  const std::size_t before = robot::realtime::heapAllocationCountOnThisThread();
+  const size_t before = robot::realtime::heapAllocationCountOnThisThread();
   const ControllerEvent event = makeControllerEvent(ControllerEventCode::kContactEstimatorChanged, "Controller", /*value0=*/1.0,
                                                     /*value1=*/2.0, "CheaterSimContactEstimator");
   EXPECT_EQ(robot::realtime::heapAllocationCountOnThisThread() - before, 0u);
@@ -96,6 +98,15 @@ TEST(ControllerEvent, EveryCodeFormatsToALineNamingItsController) {
             std::string::npos);
   EXPECT_TRUE(isWarningControllerEvent(makeControllerEvent(ControllerEventCode::kSafetyEntered, "C")));
   EXPECT_FALSE(isWarningControllerEvent(makeControllerEvent(ControllerEventCode::kContactWrenchGateChanged, "C")));
+}
+
+TEST(ControllerEvent, ARefusedEstimateIsAWarningNamingTheEstimatorAndTheCounts) {
+  const ControllerEvent event =
+      makeControllerEvent(ControllerEventCode::kContactEstimateRefused, "C", /*value0=*/1.0, /*value1=*/2.0, "fixed");
+  EXPECT_TRUE(isWarningControllerEvent(event));
+  const std::string line = formatControllerEvent(event);
+  EXPECT_NE(line.find("'fixed' reported 1 contact flags, expected 2"), std::string::npos) << line;
+  EXPECT_TRUE(isWarningControllerEvent(makeControllerEvent(ControllerEventCode::kContactWrenchGateRefused, "C")));
 }
 
 TEST(ControllerEvent, ASinkGetsTheEventAsPosted) {

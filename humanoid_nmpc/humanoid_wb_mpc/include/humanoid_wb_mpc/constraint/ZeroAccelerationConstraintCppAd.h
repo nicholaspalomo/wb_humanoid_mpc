@@ -30,40 +30,62 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_core/constraint/StateInputConstraint.h>
+#include <memory>
+#include <utility>
 
+#include "absl/base/nullability.h"
+#include "absl/status/statusor.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
+
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
-
 #include "humanoid_wb_mpc/constraint/EndEffectorDynamicsAccelerationsConstraint.h"
 
 namespace ocs2::humanoid {
 
 /**
- * Specializes the CppAd version of zero velocity constraint on an end-effector position and linear velocity.
- * Constructs the member EndEffectorKinematicsLinearVelConstraint object with number of constraints of 3.
+ * The whole-body MPC's stance-foot constraint (the zero_velocity term): the six rows of an
+ * EndEffectorDynamicsAccelerationsConstraint on the foot's pose, twist and accelerations (stanceFootAccelerationConstraintConfig()),
+ * active while the reference manager has the foot in contact. The height row servoes the foot to the ground the swing
+ * trajectory planner stands it on (its stance height, getZpositionConstraint(): terrain_height, moved by a hot reload),
+ * as the centroidal MPC's stance constraint does, so that a stance foot is held where a swing foot lands:
+ * g_z = Ax_zz (z - z_ground) + Av_zz v_z + Aa_zz a_z.
  *
- * See also EndEffectorKinematicsLinearVelConstraint for the underlying computation.
+ * Evaluated concurrently by the solver's workers, each on its own clone; configure() is for the solver thread between two
+ * solves.
  */
 class ZeroAccelerationConstraintCppAd final : public StateInputConstraint {
  public:
   /**
-   * Constructor
-   * @param [in] referenceManager : Switched model ReferenceManager
-   * @param [in] endEffectorDynamics: The dynamics interface to the target end-effector.
+   * Makes the constraint of the contact `contactPointIndex`, active while the reference manager has it in contact.
+   * @param [in] referenceManager : Switched model ReferenceManager; it must outlive the constraint and its clones.
+   * @param [in] endEffectorDynamics: The dynamics interface to the target end-effector, which has exactly one; cloned.
    * @param [in] contactPointIndex : The 3 DoF contact index.
    * @param [in] config: The constraint coefficients
+   * @return InvalidArgument when `endEffectorDynamics` has other than one end effector
+   *         (EndEffectorDynamicsAccelerationsConstraint::Create()).
    */
-  ZeroAccelerationConstraintCppAd(
+  static absl::StatusOr<std::unique_ptr<ZeroAccelerationConstraintCppAd>> Create(
       const SwitchedModelReferenceManager& referenceManager,
       const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
       size_t contactPointIndex,
       EndEffectorDynamicsAccelerationsConstraint::Config config = EndEffectorDynamicsAccelerationsConstraint::Config());
 
   ~ZeroAccelerationConstraintCppAd() override = default;
-  ZeroAccelerationConstraintCppAd* clone() const override { return new ZeroAccelerationConstraintCppAd(*this); }
+  ZeroAccelerationConstraintCppAd& operator=(const ZeroAccelerationConstraintCppAd&) = delete;
+  ZeroAccelerationConstraintCppAd(ZeroAccelerationConstraintCppAd&&) = delete;
+  ZeroAccelerationConstraintCppAd& operator=(ZeroAccelerationConstraintCppAd&&) = delete;
+  ZeroAccelerationConstraintCppAd* absl_nonnull clone() const override { return new ZeroAccelerationConstraintCppAd(*this); }
+
+  /**
+   * Sets the coefficients of the stance foot's constraint from the next evaluation on, as Create() with `config` would:
+   * the parameter updater's retuning of the foot-constraint gains, between solves. Unchecked: `config` has the six rows
+   * and 6 x 6 blocks of stanceFootAccelerationConstraintConfig().
+   */
+  void configure(EndEffectorDynamicsAccelerationsConstraint::Config config) { eeAccelConstraintPtr_->configure(std::move(config)); }
 
   bool isActive(scalar_t time) const override;
-  size_t getNumConstraints(scalar_t time) const override { return 6; }
+  size_t getNumConstraints(scalar_t /*time*/) const override { return 6; }
   vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
   VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
                                                            const vector_t& state,
@@ -71,11 +93,25 @@ class ZeroAccelerationConstraintCppAd final : public StateInputConstraint {
                                                            const PreComputation& preComp) const override;
 
  private:
+  ZeroAccelerationConstraintCppAd(const SwitchedModelReferenceManager& referenceManager,
+                                  std::unique_ptr<EndEffectorDynamicsAccelerationsConstraint> eeAccelConstraint,
+                                  size_t contactPointIndex);
   ZeroAccelerationConstraintCppAd(const ZeroAccelerationConstraintCppAd& rhs);
 
-  const SwitchedModelReferenceManager* referenceManagerPtr_;
+  /** Ax_zz z_ground at `time`, which the height row subtracts; 0 without a position gain. */
+  scalar_t groundTerm(scalar_t time) const;
+
+  const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
   std::unique_ptr<EndEffectorDynamicsAccelerationsConstraint> eeAccelConstraintPtr_;
   const size_t contactPointIndex_;
 };
+
+/**
+ * Returns the coefficients of the whole-body MPC's stance-foot constraint (the zero_velocity term) from the task file's
+ * foot-constraint `gains`: g = Ax [p; theta] + Av twist + Aa accelerations, 6 rows, each matrix diagonal - the position
+ * gain on z and the orientation gain on the tilt rows of Ax (each left out when 0), the velocity and acceleration gains
+ * on Av and Aa. ZeroAccelerationConstraintCppAd subtracts the ground's height from the z row.
+ */
+EndEffectorDynamicsAccelerationsConstraint::Config stanceFootAccelerationConstraintConfig(const ModelSettings::FootConstraintConfig& gains);
 
 }  // namespace ocs2::humanoid

@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <pinocchio/fwd.hpp>
 
+#include "absl/base/nullability.h"
+
 #include <pinocchio/algorithm/frames-derivatives.hpp>
 #include <pinocchio/algorithm/frames.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
@@ -66,7 +68,7 @@ PinocchioEndEffectorKinematics::PinocchioEndEffectorKinematics(const PinocchioEn
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-PinocchioEndEffectorKinematics* PinocchioEndEffectorKinematics::clone() const {
+PinocchioEndEffectorKinematics* absl_nonnull PinocchioEndEffectorKinematics::clone() const {
   return new PinocchioEndEffectorKinematics(*this);
 }
 

@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -32,11 +36,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <limits>
 #include <optional>
 #include <queue>
-#include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/log/log.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+
+#include "humanoid_common_mpc/common/StatusMacros.h"
 
 namespace ocs2::humanoid {
 
@@ -54,7 +64,7 @@ scalar_t elapsedSeconds(const Clock::time_point& start) {
 }
 
 bool isComplete(const MiqpAssignment& assignment) {
-  return std::none_of(assignment.begin(), assignment.end(), [](std::int8_t v) { return v == kMiqpFree; });
+  return std::none_of(assignment.begin(), assignment.end(), [](int8_t v) { return v == kMiqpFree; });
 }
 
 }  // namespace
@@ -62,18 +72,18 @@ bool isComplete(const MiqpAssignment& assignment) {
 MixedIntegerOcpQp::MixedIntegerOcpQp(OcpQpHpipmSolver::Settings qpSettings, MiqpSettings settings)
     : qpSolver_(qpSettings), settings_(settings) {}
 
-std::vector<MixedIntegerOcpQp::BinaryLocation> MixedIntegerOcpQp::locateBinaries(const OcpQpProblem& problem,
-                                                                                 const std::vector<MiqpBinaryVariable>& binaries) const {
+absl::StatusOr<std::vector<MixedIntegerOcpQp::BinaryLocation>> MixedIntegerOcpQp::locateBinaries(
+    const OcpQpProblem& problem, const std::vector<MiqpBinaryVariable>& binaries) const {
   std::vector<BinaryLocation> locations;
   locations.reserve(binaries.size());
   for (const MiqpBinaryVariable& binary : binaries) {
     if (binary.stage < 0 || binary.stage >= problem.numStages()) {
-      throw std::invalid_argument(absl::StrCat("[MixedIntegerOcpQp] binary variable stage out of range: ", binary.stage));
+      return absl::InvalidArgumentError(absl::StrCat("[MixedIntegerOcpQp] binary variable stage out of range: ", binary.stage));
     }
     const OcpQpStage& stage = problem.stages[binary.stage];
     const std::vector<int>::const_iterator it = std::find(stage.idxbu.begin(), stage.idxbu.end(), binary.inputIndex);
     if (it == stage.idxbu.end()) {
-      throw std::invalid_argument(
+      return absl::InvalidArgumentError(
           absl::StrCat("[MixedIntegerOcpQp] binary input ", binary.inputIndex, " of stage ", binary.stage, " has no box constraint"));
     }
     locations.push_back({binary.stage, static_cast<int>(it - stage.idxbu.begin())});
@@ -84,7 +94,7 @@ std::vector<MixedIntegerOcpQp::BinaryLocation> MixedIntegerOcpQp::locateBinaries
 void MixedIntegerOcpQp::applyAssignment(OcpQpProblem& problem,
                                         const std::vector<BinaryLocation>& locations,
                                         const MiqpAssignment& assignment) const {
-  for (std::size_t i = 0; i < locations.size(); ++i) {
+  for (size_t i = 0; i < locations.size(); ++i) {
     OcpQpStage& stage = problem.stages[locations[i].stage];
     const int boxIndex = locations[i].boxIndex;
     if (assignment[i] == kMiqpFree) {
@@ -102,7 +112,7 @@ int MixedIntegerOcpQp::firstFractional(const OcpQpSolution& solution,
                                        const std::vector<MiqpBinaryVariable>& binaries,
                                        const MiqpAssignment& assignment,
                                        scalar_t& fractionalValue) const {
-  for (std::size_t i = 0; i < binaries.size(); ++i) {
+  for (size_t i = 0; i < binaries.size(); ++i) {
     if (assignment[i] != kMiqpFree) {
       continue;
     }
@@ -115,16 +125,17 @@ int MixedIntegerOcpQp::firstFractional(const OcpQpSolution& solution,
   return -1;
 }
 
-bool MixedIntegerOcpQp::solveFixed(OcpQpProblem& problem,
-                                   const std::vector<MiqpBinaryVariable>& binaries,
-                                   MiqpAssignment assignment,
-                                   const MiqpPropagateFn& propagate,
-                                   const MiqpAssignmentCostFn& assignmentCost,
-                                   OcpQpSolution& solution,
-                                   scalar_t& objective) {
+absl::StatusOr<bool> MixedIntegerOcpQp::solveFixed(OcpQpProblem& problem,
+                                                   const std::vector<MiqpBinaryVariable>& binaries,
+                                                   MiqpAssignment assignment,
+                                                   const MiqpPropagateFn& propagate,
+                                                   const MiqpAssignmentCostFn& assignmentCost,
+                                                   OcpQpSolution& solution,
+                                                   scalar_t& objective) {
   objective = std::numeric_limits<scalar_t>::infinity();
   if (assignment.size() != binaries.size()) {
-    throw std::invalid_argument("[MixedIntegerOcpQp] assignment size does not match the number of binaries");
+    return absl::InvalidArgumentError(
+        absl::StrCat("[MixedIntegerOcpQp] the assignment has ", assignment.size(), " entries for ", binaries.size(), " binaries"));
   }
   if (propagate && !propagate(assignment)) {
     return false;
@@ -132,9 +143,9 @@ bool MixedIntegerOcpQp::solveFixed(OcpQpProblem& problem,
   if (!isComplete(assignment)) {
     return false;
   }
-  const std::vector<BinaryLocation> locations = locateBinaries(problem, binaries);
+  ASSIGN_OR_RETURN(const std::vector<BinaryLocation> locations, locateBinaries(problem, binaries));
   applyAssignment(problem, locations, assignment);
-  solution = qpSolver_.solve(problem);
+  ASSIGN_OR_RETURN(solution, qpSolver_.solve(problem));
   if (!solution.success()) {
     return false;
   }
@@ -142,20 +153,24 @@ bool MixedIntegerOcpQp::solveFixed(OcpQpProblem& problem,
   return true;
 }
 
-MiqpResult MixedIntegerOcpQp::solve(OcpQpProblem& problem,
-                                    const std::vector<MiqpBinaryVariable>& binaries,
-                                    const MiqpAssignment& initialAssignment,
-                                    const MiqpPropagateFn& propagate,
-                                    const MiqpAssignment* warmStart,
-                                    const MiqpAssignmentCostFn& assignmentCost) {
+absl::StatusOr<MiqpResult> MixedIntegerOcpQp::solve(OcpQpProblem& problem,
+                                                    const std::vector<MiqpBinaryVariable>& binaries,
+                                                    const MiqpAssignment& initialAssignment,
+                                                    const MiqpPropagateFn& propagate,
+                                                    const MiqpAssignment* absl_nullable warmStart,
+                                                    const MiqpAssignmentCostFn& assignmentCost) {
   const Clock::time_point startTime = Clock::now();
   MiqpResult result;
   result.incumbentObjective = std::numeric_limits<scalar_t>::infinity();
 
   if (initialAssignment.size() != binaries.size()) {
-    throw std::invalid_argument("[MixedIntegerOcpQp] initialAssignment size does not match the number of binaries");
+    return absl::InvalidArgumentError(absl::StrCat("[MixedIntegerOcpQp] the initial assignment has ", initialAssignment.size(),
+                                                   " entries for ", binaries.size(), " binaries"));
   }
-  const std::vector<BinaryLocation> locations = locateBinaries(problem, binaries);
+  ASSIGN_OR_RETURN(const std::vector<BinaryLocation> locations, locateBinaries(problem, binaries));
+  // The first problem the QP solver rejects (inconsistent data, memory). Every relaxation solves the same problem
+  // structure, so once one is rejected the search stops and returns this instead of a result.
+  absl::Status qpError = absl::OkStatus();
 
   const std::function<bool(MiqpAssignment&)> runPropagation = [&](MiqpAssignment& assignment) {
     return !propagate || propagate(assignment);
@@ -165,6 +180,7 @@ MiqpResult MixedIntegerOcpQp::solve(OcpQpProblem& problem,
   };
 
   const std::function<bool()> limitsHit = [&]() {
+    if (!qpError.ok()) return true;
     if (result.numNodes >= settings_.maxNodes) {
       result.nodeLimitHit = true;
       return true;
@@ -180,12 +196,17 @@ MiqpResult MixedIntegerOcpQp::solve(OcpQpProblem& problem,
   const std::function<bool(const MiqpAssignment&, OcpQpSolution&)> solveRelaxation = [&](const MiqpAssignment& assignment,
                                                                                          OcpQpSolution& solution) {
     applyAssignment(problem, locations, assignment);
-    solution = qpSolver_.solve(problem);
+    absl::StatusOr<OcpQpSolution> solved = qpSolver_.solve(problem);
+    if (!solved.ok()) {
+      qpError = solved.status();
+      return false;
+    }
+    solution = *std::move(solved);
     ++result.numNodes;
     result.totalQpIterations += solution.iterations;
     if (settings_.verbose) {
       int numFixed = 0;
-      for (const std::int8_t v : assignment) numFixed += (v != kMiqpFree);
+      for (const int8_t v : assignment) numFixed += (v != kMiqpFree);
       LOG(INFO) << "[MixedIntegerOcpQp] relaxation " << result.numNodes << ": fixed " << numFixed << "/" << assignment.size() << " status "
                 << static_cast<int>(solution.status) << " iterations " << solution.iterations << " objective " << solution.objective;
     }
@@ -217,13 +238,13 @@ MiqpResult MixedIntegerOcpQp::solve(OcpQpProblem& problem,
   const std::function<void(MiqpAssignment, OcpQpSolution)> dive = [&](MiqpAssignment assignment, OcpQpSolution relaxation) {
     for (int iteration = 0; iteration < settings_.maxDiveIterations && !limitsHit(); ++iteration) {
       bool rounded = false;
-      for (std::size_t i = 0; i < binaries.size(); ++i) {
+      for (size_t i = 0; i < binaries.size(); ++i) {
         if (assignment[i] != kMiqpFree) continue;
         const scalar_t value = relaxation.u[binaries[i].stage](binaries[i].inputIndex);
         if (std::abs(value - std::round(value)) <= settings_.integralityTol) {
-          assignment[i] = static_cast<std::int8_t>(std::round(value));
+          assignment[i] = static_cast<int8_t>(std::round(value));
         } else if (!rounded) {
-          assignment[i] = static_cast<std::int8_t>(value >= 0.5 ? 1 : 0);
+          assignment[i] = static_cast<int8_t>(value >= 0.5 ? 1 : 0);
           rounded = true;
         }
       }
@@ -253,7 +274,7 @@ MiqpResult MixedIntegerOcpQp::solve(OcpQpProblem& problem,
   // schedule that moved on since the warm start was made) the fixings win and the rest of the warm start is kept.
   if (warmStart != nullptr && warmStart->size() == binaries.size()) {
     MiqpAssignment warm = root;
-    for (std::size_t i = 0; i < warm.size(); ++i) {
+    for (size_t i = 0; i < warm.size(); ++i) {
       if (warm[i] == kMiqpFree) warm[i] = (*warmStart)[i];
     }
     if (runPropagation(warm) && isComplete(warm)) {
@@ -309,9 +330,9 @@ MiqpResult MixedIntegerOcpQp::solve(OcpQpProblem& problem,
         // Every binary is integral. The free ones took integral values by themselves, but only the propagation rules
         // (which the QP does not know) decide whether that combination is admissible.
         MiqpAssignment complete = node.assignment;
-        for (std::size_t i = 0; i < binaries.size(); ++i) {
+        for (size_t i = 0; i < binaries.size(); ++i) {
           if (complete[i] == kMiqpFree) {
-            complete[i] = static_cast<std::int8_t>(std::round(relaxation.u[binaries[i].stage](binaries[i].inputIndex)));
+            complete[i] = static_cast<int8_t>(std::round(relaxation.u[binaries[i].stage](binaries[i].inputIndex)));
           }
         }
         if (runPropagation(complete)) {
@@ -334,7 +355,7 @@ MiqpResult MixedIntegerOcpQp::solve(OcpQpProblem& problem,
           // Otherwise fall through and branch - the subtree may still hold something better than what we just took.
         }
         // Branch on the first free variable instead.
-        for (std::size_t i = 0; i < binaries.size(); ++i) {
+        for (size_t i = 0; i < binaries.size(); ++i) {
           if (node.assignment[i] == kMiqpFree) {
             branchIndex = static_cast<int>(i);
             fractionalValue = relaxation.u[binaries[i].stage](binaries[i].inputIndex);
@@ -351,15 +372,15 @@ MiqpResult MixedIntegerOcpQp::solve(OcpQpProblem& problem,
       }
 
       // Branch: continue with the rounding direction, queue the other child.
-      const std::int8_t preferred = static_cast<std::int8_t>(fractionalValue >= 0.5 ? 1 : 0);
-      Node other{node.assignment, bound};
-      other.assignment[branchIndex] = static_cast<std::int8_t>(1 - preferred);
+      const int8_t preferred = static_cast<int8_t>(fractionalValue >= 0.5 ? 1 : 0);
+      Node other{.assignment = node.assignment, .parentBound = bound};
+      other.assignment[branchIndex] = static_cast<int8_t>(1 - preferred);
       if (runPropagation(other.assignment)) {
         open.push(std::move(other));
       } else {
         ++result.numInfeasible;
       }
-      Node next{std::move(node.assignment), bound};
+      Node next{.assignment = std::move(node.assignment), .parentBound = bound};
       next.assignment[branchIndex] = preferred;
       if (runPropagation(next.assignment)) {
         current = std::move(next);
@@ -369,6 +390,7 @@ MiqpResult MixedIntegerOcpQp::solve(OcpQpProblem& problem,
     }
   }
 
+  RETURN_IF_ERROR(qpError);
   result.optimal = open.empty() && !result.nodeLimitHit && !result.timeLimitHit && result.numFailedRelaxations == 0;
   result.solveTime = elapsedSeconds(startTime);
   if (result.hasIncumbent) {

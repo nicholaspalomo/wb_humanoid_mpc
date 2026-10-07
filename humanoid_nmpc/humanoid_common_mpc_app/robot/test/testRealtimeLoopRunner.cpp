@@ -27,8 +27,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <chrono>
 #include <stdexcept>
@@ -36,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <thread>
 
 #include "absl/status/status.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc_app/robot/RealtimeLoopRunner.h"
 #include "robot_realtime/PeriodicTimer.h"
@@ -82,13 +81,13 @@ TEST(RealtimeLoopRunner, PacesTheCyclesOnAbsoluteDeadlines) {
   constexpr int kCycles = 100;
   RealtimeLoopRunner runner(loopConfig(kPeriod, milliseconds(1000)));
   std::atomic<int> cycles{0};
-  std::atomic<std::int64_t> firstCycleNs{0};
-  std::atomic<std::int64_t> lastCycleNs{0};
+  std::atomic<int64_t> firstCycleNs{0};
+  std::atomic<int64_t> lastCycleNs{0};
   // Half of every period spent computing: a loop that slept a whole period after its work would drift by that much.
   ASSERT_TRUE(runner
                   .start([&]() {
                     const int cycle = cycles.fetch_add(1);
-                    const std::int64_t now = robot::realtime::monotonicNow().count();
+                    const int64_t now = robot::realtime::monotonicNow().count();
                     if (cycle == 0) firstCycleNs.store(now);
                     if (cycle == kCycles) lastCycleNs.store(now);
                     spinFor(kPeriod / 2);
@@ -96,12 +95,12 @@ TEST(RealtimeLoopRunner, PacesTheCyclesOnAbsoluteDeadlines) {
                   .ok());
   ASSERT_TRUE(waitFor([&]() { return cycles.load() > kCycles; }));
   runner.stop();
-  const double elapsed = static_cast<double>(lastCycleNs.load() - firstCycleNs.load()) * 1e-9;
-  const double expected = kCycles * 1e-3 * 2.0;
+  const double elapsed = static_cast<double>(lastCycleNs.load() - firstCycleNs.load()) * 1.0e-9;
+  const double expected = kCycles * 1.0e-3 * 2.0;
   // On the grid: no drift of half a period per cycle (that would be 1.5x), and a little slack for a loaded machine.
   EXPECT_GE(elapsed, expected * 0.99);
   EXPECT_LT(elapsed, expected * 1.25);
-  EXPECT_GE(runner.cycles(), static_cast<std::uint64_t>(kCycles));
+  EXPECT_GE(runner.cycles(), static_cast<uint64_t>(kCycles));
 }
 
 TEST(RealtimeLoopRunner, ReportsEveryWindowAndCountsTheOverruns) {
@@ -121,7 +120,7 @@ TEST(RealtimeLoopRunner, ReportsEveryWindowAndCountsTheOverruns) {
   // A window of cycles that keep their period: no overrun.
   ASSERT_TRUE(waitFor([&]() { return runner.takeTimingSnapshot(snapshot) && snapshot.window >= 2; }));
   EXPECT_EQ(snapshot.totalOverruns, 0u);
-  EXPECT_NEAR(snapshot.targetPeriodS, 2e-3, 1e-12);
+  EXPECT_NEAR(snapshot.targetPeriodS, 2.0e-3, 1.0e-12);
   EXPECT_GT(snapshot.windowCycles, 0u);
 
   // Cycles that compute for longer than the period: every one of them is an overrun.
@@ -130,7 +129,7 @@ TEST(RealtimeLoopRunner, ReportsEveryWindowAndCountsTheOverruns) {
   ASSERT_TRUE(waitFor([&]() { return cycles.load() >= overrunStart + 10; }));
   overrun.store(false);
   ASSERT_TRUE(waitFor([&]() { return runner.takeTimingSnapshot(snapshot) && snapshot.totalOverruns >= 9; }));
-  EXPECT_GE(snapshot.maxComputeTimeS, 3e-3);
+  EXPECT_GE(snapshot.maxComputeTimeS, 3.0e-3);
   runner.stop();
 }
 
@@ -150,7 +149,7 @@ TEST(RealtimeLoopRunner, StopsAfterTheCurrentCycleAndRunsNoMore) {
 
 TEST(RealtimeLoopRunner, RunsOnceAndRefusesWhatItCannotRun) {
   RealtimeLoopRunner runner(loopConfig(milliseconds(1), milliseconds(1000)));
-  EXPECT_EQ(runner.start(nullptr).code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(runner.start(/*cycle=*/nullptr).code(), absl::StatusCode::kInvalidArgument);
   ASSERT_TRUE(runner.start([]() {}).ok());
   EXPECT_EQ(runner.start([]() {}).code(), absl::StatusCode::kFailedPrecondition);
   runner.stop();

@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 #include <ocs2_core/dynamics/ControlledSystemBase.h>
 
@@ -55,7 +57,7 @@ class SystemDynamicsBase : public ControlledSystemBase {
   ~SystemDynamicsBase() override = default;
 
   /** Clone */
-  SystemDynamicsBase* clone() const override = 0;
+  SystemDynamicsBase* absl_nonnull clone() const override = 0;
 
   /**
    * Computes the linear approximation.

@@ -1,0 +1,44 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "nproto/options.proto";
+
+// The foot collision constraint (the task file's collision_constraint block; the soft constraint foot_collision): the
+// spheres around the feet and the knees that must not overlap, and the relaxed barrier between them
+// (FootCollisionConstraint::Config).
+// Next ID: 5
+message CollisionConstraintConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::CollisionConstraintConfig";
+
+  reserved 5 to max;
+
+  // The feet: the frames of the two ankles and the radius of the spheres around them.
+  // Next ID: 4
+  message Foot {
+    reserved 4 to max;
+
+    string left_ankle_frame = 1 [default = ""];
+    string right_ankle_frame = 2 [default = ""];
+    // [m]
+    double foot_collision_sphere_radius = 3 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "m" }];
+  }
+
+  // The knees: the frames of the two knees and the radius of the spheres around them.
+  // Next ID: 4
+  message Knee {
+    reserved 4 to max;
+
+    string left_knee_frame = 1 [default = ""];
+    string right_knee_frame = 2 [default = ""];
+    // [m]
+    double knee_collision_sphere_radius = 3 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "m" }];
+  }
+
+  Foot foot = 1;
+  Knee knee = 2;
+  // The barrier (PieceWisePolynomialBarrierPenalty).
+  double mu = 3 [default = 1.0, (humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  double delta = 4 [default = 0.001, (humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+}

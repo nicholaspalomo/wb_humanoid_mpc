@@ -35,28 +35,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/control/ControllerBase.h"
+#include "ocs2_core/control/FeedforwardController.h"
+#include "ocs2_core/control/LinearController.h"
 
-#include <ocs2_core/Types.h>
-#include <ocs2_core/control/ControllerBase.h>
-#include <ocs2_core/control/FeedforwardController.h>
-#include <ocs2_core/control/LinearController.h>
-
+#include "humanoid_mpc_ipc/PolicyControllers.h"
 #include "humanoid_mpc_msgs/controller_type.pb.h"
 #include "humanoid_mpc_msgs/vector.pb.h"
 
 // absl::Status propagation for this file. humanoid_common_mpc's StatusMacros.h is not used because this package builds
 // on OCS2 and the messages alone.
-#define IPC_RETURN_IF_ERROR(expr)                 \
-  do {                                            \
-    const absl::Status ipc_macro_status = (expr); \
-    if (!ipc_macro_status.ok()) {                 \
-      return ipc_macro_status;                    \
-    }                                             \
+#define IPC_RETURN_IF_ERROR(expr)           \
+  do {                                      \
+    absl::Status ipc_macro_status = (expr); \
+    if (!ipc_macro_status.ok()) {           \
+      return ipc_macro_status;              \
+    }                                       \
   } while (0)
 
 namespace ocs2::humanoid::ipc {
@@ -81,20 +83,20 @@ constexpr absl::string_view kPolicyModeSchedule = "MpcPolicy.mode_schedule";
 // Writing. Every writer resizes the field it fills, so a field that already has the capacity does not allocate.
 // =====================================================================================================================
 
-void writeDoubles(const double* values, size_t size, DoubleField* field) {
+void writeDoubles(const double* absl_nullable values, size_t size, DoubleField* absl_nonnull field) {
   field->resize(static_cast<int>(size));
   std::copy_n(values, size, field->mutable_data());
 }
 
-void writeVector(const vector_t& vector, humanoid_mpc_msgs::Vector* message) {
+void writeVector(const vector_t& vector, humanoid_mpc_msgs::Vector* absl_nonnull message) {
   writeDoubles(vector.data(), static_cast<size_t>(vector.size()), message->mutable_data());
 }
 
-void writeScalars(const scalar_array_t& values, DoubleField* field) {
+void writeScalars(const scalar_array_t& values, DoubleField* absl_nonnull field) {
   writeDoubles(values.data(), values.size(), field);
 }
 
-void writeIndices(const std::vector<size_t>& values, IndexField* field) {
+void writeIndices(const std::vector<size_t>& values, IndexField* absl_nonnull field) {
   field->resize(static_cast<int>(values.size()));
   std::copy(values.begin(), values.end(), field->mutable_data());
 }
@@ -102,7 +104,7 @@ void writeIndices(const std::vector<size_t>& values, IndexField* field) {
 // Gives `field` exactly `size` elements. RepeatedPtrField keeps the elements RemoveLast() takes away for Add() to hand
 // out again, and each kept element keeps the capacity of its data, so this allocates only when the field grows past the
 // number of elements it ever held.
-void resizeVectors(size_t size, VectorField* field) {
+void resizeVectors(size_t size, VectorField* absl_nonnull field) {
   const int target = static_cast<int>(size);
   while (field->size() > target) {
     field->RemoveLast();
@@ -112,7 +114,7 @@ void resizeVectors(size_t size, VectorField* field) {
   }
 }
 
-void writeVectors(const vector_array_t& vectors, VectorField* field) {
+void writeVectors(const vector_array_t& vectors, VectorField* absl_nonnull field) {
   resizeVectors(vectors.size(), field);
   for (size_t k = 0; k < vectors.size(); ++k) {
     writeVector(vectors[k], field->Mutable(static_cast<int>(k)));
@@ -120,15 +122,15 @@ void writeVectors(const vector_array_t& vectors, VectorField* field) {
 }
 
 // The nodes of a LinearController in flattenSingle()'s layout: per input i, its bias followed by row i of the gain.
-void writeLinearControllerNodes(const LinearController& controller, VectorField* field) {
+void writeLinearControllerNodes(const LinearController& controller, VectorField* absl_nonnull field) {
   resizeVectors(controller.timeStamp_.size(), field);
   for (size_t k = 0; k < controller.timeStamp_.size(); ++k) {
     const vector_t& bias = controller.biasArray_[k];
     const matrix_t& gain = controller.gainArray_[k];
     const Eigen::Index stride = gain.cols() + 1;
-    DoubleField* data = field->Mutable(static_cast<int>(k))->mutable_data();
+    DoubleField* absl_nonnull data = field->Mutable(static_cast<int>(k))->mutable_data();
     data->resize(static_cast<int>(bias.size() * stride));
-    double* out = data->mutable_data();
+    double* absl_nullable out = data->mutable_data();
     for (Eigen::Index i = 0; i < bias.size(); ++i) {
       out[i * stride] = bias(i);
       Eigen::Map<Eigen::RowVectorXd>(out + i * stride + 1, gain.cols()) = gain.row(i);
@@ -138,9 +140,9 @@ void writeLinearControllerNodes(const LinearController& controller, VectorField*
 
 // The controller sampled at `timeTrajectory` with ControllerBase::flatten(), for a controller on other time stamps. The
 // flatten() interface writes std::vectors, so this allocates scratch arrays (and Eigen temporaries) on every call.
-void sampleController(const ControllerBase& controller, const scalar_array_t& timeTrajectory, VectorField* field) {
+void sampleController(const ControllerBase& controller, const scalar_array_t& timeTrajectory, VectorField* absl_nonnull field) {
   std::vector<std::vector<double>> samples(timeTrajectory.size());
-  std::vector<std::vector<double>*> sampleRefs;
+  std::vector<std::vector<double>* absl_nonnull> sampleRefs;
   sampleRefs.reserve(samples.size());
   for (std::vector<double>& sample : samples) {
     sampleRefs.push_back(&sample);
@@ -154,16 +156,16 @@ void sampleController(const ControllerBase& controller, const scalar_array_t& ti
 
 // What policyToProto() needs of the controller, checked before it writes anything.
 absl::Status checkController(const PrimalSolution& primalSolution) {
-  const ControllerBase* controller = primalSolution.controllerPtr_.get();
+  const ControllerBase* absl_nullable controller = primalSolution.controllerPtr_.get();
   if (controller == nullptr) {
     return absl::InvalidArgumentError("PrimalSolution.controllerPtr_ is null; a policy needs a controller");
   }
-  if (const FeedforwardController* feedforward = dynamic_cast<const FeedforwardController*>(controller); feedforward != nullptr) {
+  if (const FeedforwardController* absl_nullable feedforward = asFeedforwardController(*controller); feedforward != nullptr) {
     if (feedforward->uffArray_.size() != feedforward->timeStamp_.size()) {
       return absl::InvalidArgumentError(absl::StrCat("the FeedforwardController has ", feedforward->timeStamp_.size(), " time stamps but ",
                                                      feedforward->uffArray_.size(), " feedforward inputs"));
     }
-  } else if (const LinearController* linear = dynamic_cast<const LinearController*>(controller); linear != nullptr) {
+  } else if (const LinearController* absl_nullable linear = asLinearController(*controller); linear != nullptr) {
     if (linear->biasArray_.size() != linear->timeStamp_.size() || linear->gainArray_.size() != linear->timeStamp_.size()) {
       return absl::InvalidArgumentError(absl::StrCat("the LinearController has ", linear->timeStamp_.size(), " time stamps, ",
                                                      linear->biasArray_.size(), " biases and ", linear->gainArray_.size(), " gains"));
@@ -187,20 +189,19 @@ absl::Status checkController(const PrimalSolution& primalSolution) {
 }
 
 // Requires checkController(primalSolution) to have passed.
-void writeController(const PrimalSolution& primalSolution, humanoid_mpc_msgs::MpcPolicy* message) {
+void writeController(const PrimalSolution& primalSolution, humanoid_mpc_msgs::MpcPolicy* absl_nonnull message) {
   const ControllerBase& controller = *primalSolution.controllerPtr_;
-  VectorField* field = message->mutable_controller_data();
-  if (const FeedforwardController* feedforward = dynamic_cast<const FeedforwardController*>(&controller); feedforward != nullptr) {
+  VectorField* absl_nonnull field = message->mutable_controller_data();
+  if (const FeedforwardController* absl_nullable feedforward = asFeedforwardController(controller); feedforward != nullptr) {
     message->set_controller_type(humanoid_mpc_msgs::CONTROLLER_TYPE_FEEDFORWARD);
     if (feedforward->timeStamp_ == primalSolution.timeTrajectory_) {
       writeVectors(feedforward->uffArray_, field);
       return;
     }
-  } else {
+  } else if (const LinearController* absl_nullable linear = asLinearController(controller); linear != nullptr) {
     message->set_controller_type(humanoid_mpc_msgs::CONTROLLER_TYPE_LINEAR);
-    const LinearController& linear = dynamic_cast<const LinearController&>(controller);
-    if (linear.timeStamp_ == primalSolution.timeTrajectory_) {
-      writeLinearControllerNodes(linear, field);
+    if (linear->timeStamp_ == primalSolution.timeTrajectory_) {
+      writeLinearControllerNodes(*linear, field);
       return;
     }
   }
@@ -401,32 +402,32 @@ Eigen::Map<const vector_t> asVector(const DoubleField& field) {
 
 // Eigen keeps a vector's storage when an assignment does not change its size, so reading into vectors of the right
 // sizes allocates nothing.
-void readVectors(const VectorField& field, vector_array_t* vectors) {
+void readVectors(const VectorField& field, vector_array_t* absl_nonnull vectors) {
   vectors->resize(static_cast<size_t>(field.size()));
   for (int k = 0; k < field.size(); ++k) {
     (*vectors)[static_cast<size_t>(k)] = asVector(field.Get(k).data());
   }
 }
 
-void readObservation(const humanoid_mpc_msgs::SystemObservation& message, SystemObservation* observation) {
+void readObservation(const humanoid_mpc_msgs::SystemObservation& message, SystemObservation* absl_nonnull observation) {
   observation->time = message.time();
   observation->state = asVector(message.state());
   observation->input = asVector(message.input());
   observation->mode = static_cast<size_t>(message.mode());
 }
 
-void readModeSchedule(const humanoid_mpc_msgs::ModeSchedule& message, ModeSchedule* modeSchedule) {
+void readModeSchedule(const humanoid_mpc_msgs::ModeSchedule& message, ModeSchedule* absl_nonnull modeSchedule) {
   modeSchedule->eventTimes.assign(message.event_times().begin(), message.event_times().end());
   modeSchedule->modeSequence.assign(message.mode_sequence().begin(), message.mode_sequence().end());
 }
 
-void readTargetTrajectories(const humanoid_mpc_msgs::TargetTrajectories& message, TargetTrajectories* targetTrajectories) {
+void readTargetTrajectories(const humanoid_mpc_msgs::TargetTrajectories& message, TargetTrajectories* absl_nonnull targetTrajectories) {
   targetTrajectories->timeTrajectory.assign(message.time().begin(), message.time().end());
   readVectors(message.state(), &targetTrajectories->stateTrajectory);
   readVectors(message.input(), &targetTrajectories->inputTrajectory);
 }
 
-void readPerformanceIndex(const humanoid_mpc_msgs::PerformanceIndex& message, PerformanceIndex* performanceIndex) {
+void readPerformanceIndex(const humanoid_mpc_msgs::PerformanceIndex& message, PerformanceIndex* absl_nonnull performanceIndex) {
   performanceIndex->merit = message.merit();
   performanceIndex->cost = message.cost();
   performanceIndex->dualFeasibilitiesSSE = message.dual_feasibilities_sse();
@@ -450,7 +451,7 @@ std::unique_ptr<ControllerBase> readController(const humanoid_mpc_msgs::MpcPolic
       const Eigen::Index inputDim = message.input_trajectory(node).data_size();
       const Eigen::Index stateDim = message.state_trajectory(node).data_size();
       const Eigen::Index stride = stateDim + 1;
-      const double* data = message.controller_data(node).data().data();
+      const double* absl_nullable data = message.controller_data(node).data().data();
       bias[k].resize(inputDim);
       gain[k].resize(inputDim, stateDim);
       for (Eigen::Index i = 0; i < inputDim; ++i) {
@@ -465,7 +466,7 @@ std::unique_ptr<ControllerBase> readController(const humanoid_mpc_msgs::MpcPolic
   return std::make_unique<FeedforwardController>(timeTrajectory, std::move(feedforward));
 }
 
-void readPrimalSolution(const humanoid_mpc_msgs::MpcPolicy& message, PrimalSolution* primalSolution) {
+void readPrimalSolution(const humanoid_mpc_msgs::MpcPolicy& message, PrimalSolution* absl_nonnull primalSolution) {
   primalSolution->timeTrajectory_.assign(message.time_trajectory().begin(), message.time_trajectory().end());
   readVectors(message.state_trajectory(), &primalSolution->stateTrajectory_);
   readVectors(message.input_trajectory(), &primalSolution->inputTrajectory_);
@@ -480,14 +481,14 @@ void readPrimalSolution(const humanoid_mpc_msgs::MpcPolicy& message, PrimalSolut
 // SystemObservation
 // =====================================================================================================================
 
-void toProto(const SystemObservation& observation, humanoid_mpc_msgs::SystemObservation* message) {
+void toProto(const SystemObservation& observation, humanoid_mpc_msgs::SystemObservation* absl_nonnull message) {
   message->set_time(observation.time);
   writeDoubles(observation.state.data(), static_cast<size_t>(observation.state.size()), message->mutable_state());
   writeDoubles(observation.input.data(), static_cast<size_t>(observation.input.size()), message->mutable_input());
   message->set_mode(static_cast<uint64_t>(observation.mode));
 }
 
-absl::Status fromProto(const humanoid_mpc_msgs::SystemObservation& message, SystemObservation* observation) {
+absl::Status fromProto(const humanoid_mpc_msgs::SystemObservation& message, SystemObservation* absl_nonnull observation) {
   IPC_RETURN_IF_ERROR(validateObservation(message, "SystemObservation"));
   readObservation(message, observation);
   return absl::OkStatus();
@@ -501,12 +502,12 @@ absl::Status checkDimensions(const humanoid_mpc_msgs::SystemObservation& message
 // ModeSchedule
 // =====================================================================================================================
 
-void toProto(const ModeSchedule& modeSchedule, humanoid_mpc_msgs::ModeSchedule* message) {
+void toProto(const ModeSchedule& modeSchedule, humanoid_mpc_msgs::ModeSchedule* absl_nonnull message) {
   writeScalars(modeSchedule.eventTimes, message->mutable_event_times());
   writeIndices(modeSchedule.modeSequence, message->mutable_mode_sequence());
 }
 
-absl::Status fromProto(const humanoid_mpc_msgs::ModeSchedule& message, ModeSchedule* modeSchedule) {
+absl::Status fromProto(const humanoid_mpc_msgs::ModeSchedule& message, ModeSchedule* absl_nonnull modeSchedule) {
   IPC_RETURN_IF_ERROR(validateModeSchedule(message, "ModeSchedule"));
   readModeSchedule(message, modeSchedule);
   return absl::OkStatus();
@@ -516,13 +517,13 @@ absl::Status fromProto(const humanoid_mpc_msgs::ModeSchedule& message, ModeSched
 // TargetTrajectories
 // =====================================================================================================================
 
-void toProto(const TargetTrajectories& targetTrajectories, humanoid_mpc_msgs::TargetTrajectories* message) {
+void toProto(const TargetTrajectories& targetTrajectories, humanoid_mpc_msgs::TargetTrajectories* absl_nonnull message) {
   writeScalars(targetTrajectories.timeTrajectory, message->mutable_time());
   writeVectors(targetTrajectories.stateTrajectory, message->mutable_state());
   writeVectors(targetTrajectories.inputTrajectory, message->mutable_input());
 }
 
-absl::Status fromProto(const humanoid_mpc_msgs::TargetTrajectories& message, TargetTrajectories* targetTrajectories) {
+absl::Status fromProto(const humanoid_mpc_msgs::TargetTrajectories& message, TargetTrajectories* absl_nonnull targetTrajectories) {
   IPC_RETURN_IF_ERROR(validateTargetTrajectories(message, "TargetTrajectories"));
   readTargetTrajectories(message, targetTrajectories);
   return absl::OkStatus();
@@ -532,7 +533,7 @@ absl::Status fromProto(const humanoid_mpc_msgs::TargetTrajectories& message, Tar
 // PerformanceIndex
 // =====================================================================================================================
 
-void toProto(const PerformanceIndex& performanceIndex, humanoid_mpc_msgs::PerformanceIndex* message) {
+void toProto(const PerformanceIndex& performanceIndex, humanoid_mpc_msgs::PerformanceIndex* absl_nonnull message) {
   message->set_merit(performanceIndex.merit);
   message->set_cost(performanceIndex.cost);
   message->set_dual_feasibilities_sse(performanceIndex.dualFeasibilitiesSSE);
@@ -543,7 +544,7 @@ void toProto(const PerformanceIndex& performanceIndex, humanoid_mpc_msgs::Perfor
   message->set_inequality_lagrangian(performanceIndex.inequalityLagrangian);
 }
 
-absl::Status fromProto(const humanoid_mpc_msgs::PerformanceIndex& message, PerformanceIndex* performanceIndex) {
+absl::Status fromProto(const humanoid_mpc_msgs::PerformanceIndex& message, PerformanceIndex* absl_nonnull performanceIndex) {
   readPerformanceIndex(message, performanceIndex);
   return absl::OkStatus();
 }
@@ -555,7 +556,7 @@ absl::Status fromProto(const humanoid_mpc_msgs::PerformanceIndex& message, Perfo
 absl::Status policyToProto(const CommandData& commandData,
                            const PrimalSolution& primalSolution,
                            const PerformanceIndex& performanceIndex,
-                           humanoid_mpc_msgs::MpcPolicy* message) {
+                           humanoid_mpc_msgs::MpcPolicy* absl_nonnull message) {
   IPC_RETURN_IF_ERROR(checkController(primalSolution));
   toProto(commandData.mpcInitObservation_, message->mutable_init_observation());
   toProto(commandData.mpcTargetTrajectories_, message->mutable_target_trajectories());
@@ -570,9 +571,9 @@ absl::Status policyToProto(const CommandData& commandData,
 }
 
 absl::Status policyFromProto(const humanoid_mpc_msgs::MpcPolicy& message,
-                             CommandData* commandData,
-                             PrimalSolution* primalSolution,
-                             PerformanceIndex* performanceIndex) {
+                             CommandData* absl_nonnull commandData,
+                             PrimalSolution* absl_nonnull primalSolution,
+                             PerformanceIndex* absl_nonnull performanceIndex) {
   IPC_RETURN_IF_ERROR(validateObservation(message.init_observation(), kPolicyInitObservation));
   IPC_RETURN_IF_ERROR(validateTargetTrajectories(message.target_trajectories(), kPolicyTargetTrajectories));
   IPC_RETURN_IF_ERROR(validatePrimalSolution(message));

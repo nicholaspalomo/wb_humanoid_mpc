@@ -27,7 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <algorithm>
 #include <cstdlib>
@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
 #include "absl/log/globals.h"
@@ -54,31 +55,46 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * (by default the test's undeclared outputs, where `make benchmark-mpc-solve` collects it) and prints it.
  */
 
+// The defaults of the numeric flags.
+namespace {
+constexpr int kDefaultThreads = 0;  // not positive: the task file's multiple_shooting.n_threads
+constexpr int kDefaultRepeats = 3;
+constexpr int kDefaultWarmupSolves = 25;
+}  // namespace
+
+// NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
 ABSL_FLAG(std::string, robot, "", "The configuration to benchmark (RobotConfiguration::name).");
+// NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
 ABSL_FLAG(std::string,
           states,
           "",
           "The recorded robot states; empty: data/benchmark/states/<robot>_<walking scenario>_states.txt, the walking scenario of the "
           "robot's configuration (walk_0p5, or walk_0p3 for EngineAI SA01 and Unitree R1).");
+// NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
 ABSL_FLAG(std::string,
           baseline,
           "",
           "A label under data/benchmark/ (e.g. B0) to hold the run to with the real-time gate of section 4.6; empty: none.");
+// NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
 ABSL_FLAG(std::string, label, "B0", "The label written into the document.");
+// NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
 ABSL_FLAG(std::string, output_dir, "", "Where the document goes; empty: $TEST_UNDECLARED_OUTPUTS_DIR, else the working directory.");
+// NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
 ABSL_FLAG(int,
           threads,
-          /*default_value=*/0,
-          "Overrides the task file's sqp.nThreads when positive; the real-time gate uses the configured threads.");
-ABSL_FLAG(int, repeats, /*default_value=*/3, "Passes over the recording.");
-ABSL_FLAG(int, warmup, /*default_value=*/25, "Untimed solves at the start of each pass.");
+          kDefaultThreads,
+          "Overrides the task file's multiple_shooting.n_threads when positive; the real-time gate uses the configured threads.");
+// NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
+ABSL_FLAG(int, repeats, kDefaultRepeats, "Passes over the recording.");
+// NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
+ABSL_FLAG(int, warmup, kDefaultWarmupSolves, "Untimed solves at the start of each pass.");
 
 namespace ocs2::humanoid::validation {
 namespace {
 
 // LINT.IfChange(benchmark_paths)
-constexpr const char* kBenchmarkDirectory = "humanoid_nmpc/humanoid_mpc_validation/data/benchmark";
-constexpr const char* kStatesDirectory = "humanoid_nmpc/humanoid_mpc_validation/data/benchmark/states";
+constexpr char kBenchmarkDirectory[] = "humanoid_nmpc/humanoid_mpc_validation/data/benchmark";
+constexpr char kStatesDirectory[] = "humanoid_nmpc/humanoid_mpc_validation/data/benchmark/states";
 // LINT.ThenChange(//Makefile:closed_loop_targets)
 
 int runBenchmark() {
@@ -123,7 +139,7 @@ int runBenchmark() {
 
   std::string outputDir = absl::GetFlag(FLAGS_output_dir);
   if (outputDir.empty()) {
-    const char* undeclared = std::getenv("TEST_UNDECLARED_OUTPUTS_DIR");
+    const char* absl_nullable undeclared = std::getenv("TEST_UNDECLARED_OUTPUTS_DIR");
     outputDir = undeclared != nullptr ? undeclared : ".";
   }
   const std::string outputFile = (std::filesystem::path(outputDir) / absl::StrCat(configuration->name, "_solve_benchmark.json")).string();
@@ -158,7 +174,7 @@ int runBenchmark() {
 }  // namespace
 }  // namespace ocs2::humanoid::validation
 
-int main(int argc, char** argv) {
+int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   absl::ParseCommandLine(argc, argv);
   absl::SetMinLogLevel(absl::LogSeverityAtLeast::kWarning);
   return ocs2::humanoid::validation::runBenchmark();

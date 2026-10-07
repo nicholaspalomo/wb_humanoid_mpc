@@ -31,13 +31,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <cmath>
+#include <memory>
+#include <string>
 
-#include <ocs2_core/cost/StateInputGaussNewtonCostAd.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-#include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
-#include <pinocchio/algorithm/frames.hpp>
-
-#include <ocs2_centroidal_model/CentroidalModelInfo.h>
+#include "absl/base/nullability.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_core/cost/StateInputGaussNewtonCostAd.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "ocs2_pinocchio_interface/PinocchioStateInputMapping.h"
+#include "pinocchio/algorithm/frames.hpp"
 
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -46,19 +50,37 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
+/**
+ * The swing-foot tracking cost of the centroidal MPC (task_space_foot_cost): the pose and twist of one foot against the
+ * swing trajectory and the landing target the reference manager plans for it, weighted by task_space_foot_cost
+ * and, near touch-down, by the swing planner's impact proximity. Every reference is read from the reference manager,
+ * not from the solver's target. Not thread-safe; the solver clones it per worker.
+ */
 class CentroidalMpcEndEffectorFootCost final : public StateInputCostGaussNewtonAd {
  public:
+  /**
+   * The cost name the interface builds the cost of the contact `footName` with, which names its CppAD library
+   * ("<it>_yawRefHalfAngle"). The same string as its collection name (taskSpaceKinematicsCostName(footName),
+   * CostTermNames.h) today, defined apart on purpose: a rename of the term must not rename, and regenerate, the library
+   * (testCostTermAndLibraryNames).
+   */
+  static std::string libraryName(absl::string_view footName) { return absl::StrCat(footName, "_TaskSpaceKinematicsCost"); }
+
   CentroidalMpcEndEffectorFootCost(const SwitchedModelReferenceManager& referenceManager,
-                                   EndEffectorKinematicsWeights weights,
+                                   const EndEffectorKinematicsWeights& weights,
                                    const PinocchioInterface& pinocchioInterface,
                                    const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
                                    size_t contactIndex,
-                                   std::string costName,
+                                   const std::string& costName,
                                    const ModelSettings& modelSettings,
                                    bool activeInStance = false);
 
   ~CentroidalMpcEndEffectorFootCost() override = default;
-  CentroidalMpcEndEffectorFootCost* clone() const override { return new CentroidalMpcEndEffectorFootCost(*this); }
+  CentroidalMpcEndEffectorFootCost* absl_nonnull clone() const override { return new CentroidalMpcEndEffectorFootCost(*this); }
+  // Copied only by clone(), whose copy constructor is private; never assigned or moved.
+  CentroidalMpcEndEffectorFootCost& operator=(const CentroidalMpcEndEffectorFootCost&) = delete;
+  CentroidalMpcEndEffectorFootCost(CentroidalMpcEndEffectorFootCost&&) = delete;
+  CentroidalMpcEndEffectorFootCost& operator=(CentroidalMpcEndEffectorFootCost&&) = delete;
 
   vector_t getParameters(scalar_t time, const TargetTrajectories& targetTrajectories, const PreComputation& preComputation) const override;
 
@@ -116,7 +138,7 @@ class CentroidalMpcEndEffectorFootCost final : public StateInputCostGaussNewtonA
                                  const ad_vector_t& input,
                                  const ad_vector_t& parameters) override;
 
-  const SwitchedModelReferenceManager* referenceManagerPtr_;
+  const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
 
   vector12_t sqrtWeights_;
   bool isActive_ = true;

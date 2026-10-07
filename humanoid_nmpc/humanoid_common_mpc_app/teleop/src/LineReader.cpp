@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cerrno>
 #include <cstddef>
+#include <string>
 #include <utility>
 
 namespace ocs2::humanoid::teleop {
@@ -42,7 +43,7 @@ LineReader::LineReader(int fileDescriptor, absl::Duration pollPeriod) : fileDesc
 
 std::optional<std::string> LineReader::readLine(const std::function<bool()>& shouldStop) {
   while (true) {
-    const std::size_t lineBreak = buffer_.find('\n');
+    const size_t lineBreak = buffer_.find('\n');
     if (lineBreak != std::string::npos) {
       std::string line = buffer_.substr(0, lineBreak);
       buffer_.erase(0, lineBreak + 1);
@@ -75,7 +76,7 @@ std::optional<std::string> LineReader::readLine(const std::function<bool()>& sho
       endOfInput_ = true;
       continue;
     }
-    buffer_.append(chunk, static_cast<std::size_t>(count));
+    buffer_.append(chunk, static_cast<size_t>(count));
   }
 }
 

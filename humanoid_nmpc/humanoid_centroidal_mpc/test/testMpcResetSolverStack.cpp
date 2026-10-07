@@ -27,9 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <algorithm>
 #include <array>
@@ -37,13 +35,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <limits>
 #include <memory>
 #include <string>
+#include <utility>
 
-#include <ocs2_mpc/MPC_MRT_Interface.h>
-#include <ocs2_sqp/SqpMpc.h>
-
+#include "absl/base/nullability.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "gtest/gtest.h"
+#include "ocs2_mpc/MPC_MRT_Interface.h"
+#include "ocs2_sqp/SqpMpc.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h"
@@ -76,10 +76,11 @@ class SolverStack {
  public:
   /** `numThreads` > 0 replaces the task file's solver thread count; 1 makes every solve bit-for-bit repeatable. */
   explicit SolverStack(size_t numThreads = 0) {
-    const std::string taskFile = atlasRunfilePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml");
-    const std::string referenceFile = atlasRunfilePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml");
+    const std::string taskFile = atlasRunfilePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto");
+    const std::string referenceFile =
+        atlasRunfilePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.textproto");
     const std::string urdfFile = atlasRunfilePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf");
-    const std::string gaitFile = atlasRunfilePath("humanoid_nmpc/humanoid_common_mpc/config/command/gait.yaml");
+    const std::string gaitFile = atlasRunfilePath("humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto");
     absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created = CentroidalMpcInterface::Create(taskFile, urdfFile, referenceFile);
     EXPECT_TRUE(created.ok()) << created.status();
     interface_ = *std::move(created);
@@ -87,17 +88,20 @@ class SolverStack {
     if (numThreads > 0) sqpSettings.nThreads = numThreads;
     mpc_ = std::make_unique<SqpMpc>(interface_->mpcSettings(), sqpSettings, interface_->getOptimalControlProblem(),
                                     interface_->getInitializer());
-    calculator_ = std::make_unique<CentroidalMpcTargetTrajectoriesCalculator>(
-        referenceFile, interface_->getEffectiveMpcRobotModel(), interface_->getPinocchioInterface(), interface_->getCentroidalModelInfo(),
-        interface_->mpcSettings().timeHorizon_);
+    calculator_ = CentroidalMpcTargetTrajectoriesCalculator::Create(
+                      referenceFile, interface_->getEffectiveMpcRobotModel(), interface_->getPinocchioInterface(),
+                      interface_->getCentroidalModelInfo(), interface_->mpcSettings().timeHorizon_)
+                      .value();
     calculator_->setTerrainHeightSource(
         [referenceManager = interface_->getSwitchedModelReferenceManagerPtr()]() { return referenceManager->getAppliedTerrainHeight(); });
-    CentroidalMpcTargetTrajectoriesCalculator* calculator = calculator_.get();
-    motionManager_ = std::make_shared<ProceduralMpcMotionManager>(
-        gaitFile, referenceFile, interface_->getSwitchedModelReferenceManagerPtr(), interface_->getEffectiveMpcRobotModel(),
-        [calculator](const vector4_t& velocity, scalar_t initTime, scalar_t /*finalTime*/, const vector_t& initState) {
-          return calculator->commandedVelocityToTargetTrajectories(velocity, initTime, initState);
-        });
+    CentroidalMpcTargetTrajectoriesCalculator* absl_nonnull calculator = calculator_.get();
+    motionManager_ =
+        ProceduralMpcMotionManager::Create(
+            gaitFile, referenceFile, interface_->getSwitchedModelReferenceManagerPtr(), interface_->getEffectiveMpcRobotModel(),
+            [calculator](const vector4_t& velocity, scalar_t initTime, scalar_t /*finalTime*/, const vector_t& initState) {
+              return calculator->commandedVelocityToTargetTrajectories(velocity, initTime, initState);
+            })
+            .value();
     motionManager_->setResetHook([calculator]() { calculator->reset(); });
     mpc_->getSolverPtr()->setReferenceManager(interface_->getReferenceManagerPtr());
     mpc_->getSolverPtr()->addSynchronizedModule(motionManager_);
@@ -106,7 +110,7 @@ class SolverStack {
     observation_.time = 0.0;
     observation_.state = interface_->getInitialState();
     observation_.input = vector_t::Zero(interface_->getEffectiveMpcRobotModel().getInputDim());
-    observation_.mode = ModeNumber::STANCE;
+    observation_.mode = ModeNumber::kStance;
     mrt_->setCurrentObservation(observation_);
     mrt_->resetMpcNode(resetTarget());
   }
@@ -134,7 +138,7 @@ class SolverStack {
   int run(scalar_t duration, bool followPlan) {
     int failures = 0;
     const scalar_t end = observation_.time + duration;
-    while (observation_.time < end - 1e-9) {
+    while (observation_.time < end - 1.0e-9) {
       mrt_->setCurrentObservation(observation_);
       const absl::Status status = mrt_->advanceMpc();
       if (!status.ok()) {
@@ -157,7 +161,7 @@ class SolverStack {
 
   /** Whether the reference manager's mode schedule has a swing in [from, to]. */
   bool schedulesASwingIn(scalar_t from, scalar_t to) const {
-    for (scalar_t time = from; time <= to + 1e-9; time += 0.005) {
+    for (scalar_t time = from; time <= to + 1.0e-9; time += 0.005) {
       if (!interface_->getSwitchedModelReferenceManagerPtr()->isInStancePhase(time)) return true;
     }
     return false;
@@ -190,7 +194,7 @@ void trot(SolverStack& stack) {
 void putBackAtTheInitialPose(SolverStack& stack) {
   SystemObservation& observation = stack.observation();
   observation.state = stack.interface().getInitialState();
-  observation.mode = ModeNumber::STANCE;
+  observation.mode = ModeNumber::kStance;
   observation.time -= 0.3;
   stack.command(0.0);  // the remote control re-centers its sticks
 }
@@ -210,9 +214,9 @@ TEST(MpcResetSolverStack, AfterTheFullResetEverySolveSucceedsAndTheFirstPolicySt
   ASSERT_TRUE(stack.mrt().isActivePolicyCurrent());
   const SystemObservation& solvedFrom = stack.mrt().getCommand().mpcInitObservation_;
   EXPECT_DOUBLE_EQ(solvedFrom.time, held.time);
-  EXPECT_LT((solvedFrom.state - held.state).cwiseAbs().maxCoeff(), 1e-12);
+  EXPECT_LT((solvedFrom.state - held.state).cwiseAbs().maxCoeff(), 1.0e-12);
   for (scalar_t time = held.time; time <= held.time + horizon; time += 0.01) {
-    EXPECT_EQ(stack.mrt().getPolicy().modeSchedule_.modeAtTime(time), ModeNumber::STANCE) << "t = " << time;
+    EXPECT_EQ(stack.mrt().getPolicy().modeSchedule_.modeAtTime(time), ModeNumber::kStance) << "t = " << time;
   }
 
   // And every solve after it succeeds, the robot held there.
@@ -252,11 +256,11 @@ TEST(MpcResetSolverStack, AFullResetSolvesAndWalksExactlyAsAFreshStack) {
   trot(used);
   trot(solverOnly);
 
-  const std::array<SolverStack*, 4> resetStacks{&fresh, &control, &used, &solverOnly};
-  for (SolverStack* stack : resetStacks) {
+  const std::array<SolverStack* absl_nonnull, 4> resetStacks{&fresh, &control, &used, &solverOnly};
+  for (SolverStack* absl_nonnull stack : resetStacks) {
     SystemObservation& observation = stack->observation();
     observation.state = stack->interface().getInitialState();
-    observation.mode = ModeNumber::STANCE;
+    observation.mode = ModeNumber::kStance;
     observation.time = kResetTime;
     stack->command(0.0);
     stack->mrt().setCurrentObservation(observation);
@@ -269,23 +273,23 @@ TEST(MpcResetSolverStack, AFullResetSolvesAndWalksExactlyAsAFreshStack) {
   }
   EXPECT_EQ(policyDifference(fresh.mrt().getPolicy(), control.mrt().getPolicy()), 0.0) << "control: two fresh stacks";
   EXPECT_EQ(policyDifference(fresh.mrt().getPolicy(), used.mrt().getPolicy()), 0.0) << "the first policy after the reset";
-  EXPECT_GT(policyDifference(fresh.mrt().getPolicy(), solverOnly.mrt().getPolicy()), 1e-3)
+  EXPECT_GT(policyDifference(fresh.mrt().getPolicy(), solverOnly.mrt().getPolicy()), 1.0e-3)
       << "positive control: a reset of the solver alone leaves the trot behind, and the comparison has to see it";
 
-  const std::array<SolverStack*, 3> stacks{&fresh, &control, &used};
+  const std::array<SolverStack* absl_nonnull, 3> stacks{&fresh, &control, &used};
 
   // Stand 1 s, then walk 3 s from a standstill, each stack closed on its own prediction, one solve at a time. After
   // every solve the used stack must agree with the fresh one - in the mode schedule and the target its references hand
   // the solver, in the policy the solver returns and in the state that policy leads to - to the precision to which the
   // control agrees with it. The first quantity that does not names where the reset left something behind.
-  constexpr scalar_t kTolerance = 1e-9;
+  constexpr scalar_t kTolerance = 1.0e-9;
   scalar_t controlDrift = 0.0;
   const int numSolves = static_cast<int>(std::round(4.0 / kSolvePeriod));
   for (int solve = 0; solve < numSolves; ++solve) {
     if (solve == static_cast<int>(std::round(1.0 / kSolvePeriod))) {
-      for (SolverStack* stack : stacks) stack->command(1.0);
+      for (SolverStack* absl_nonnull stack : stacks) stack->command(1.0);
     }
-    for (SolverStack* stack : stacks) ASSERT_EQ(stack->run(kSolvePeriod, /*followPlan=*/true), 0);
+    for (SolverStack* absl_nonnull stack : stacks) ASSERT_EQ(stack->run(kSolvePeriod, /*followPlan=*/true), 0);
     controlDrift = std::max(controlDrift, (fresh.observation().state - control.observation().state).cwiseAbs().maxCoeff());
 
     const SwitchedModelReferenceManager& freshReferences = *fresh.interface().getSwitchedModelReferenceManagerPtr();
@@ -326,7 +330,7 @@ TEST(MpcResetSolverStack, AfterAResetAndARewoundClockTheRobotWalksWhenCommanded)
   // The simulator's automatic reset rewound the clock to 2 s and put the robot back at the origin.
   SystemObservation& observation = stack.observation();
   observation.state = stack.interface().getInitialState();
-  observation.mode = ModeNumber::STANCE;
+  observation.mode = ModeNumber::kStance;
   observation.time = 2.0;
   stack.command(0.0);
   stack.mrt().setCurrentObservation(observation);

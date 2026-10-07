@@ -51,11 +51,11 @@ class BusTelemetrySink final : public TelemetrySink {
   void write(const humanoid_mpc_msgs::RobotStateSample& sample) override;
 
   /** Samples the bus refused (its send queue full, or not called on its IO thread). */
-  std::uint64_t publishFailures() const { return publishFailures_; }
+  uint64_t publishFailures() const { return publishFailures_; }
 
  private:
   robot::ipc::Bus& bus_;
-  std::uint64_t publishFailures_ = 0;
+  uint64_t publishFailures_ = 0;
 };
 
 }  // namespace ocs2::humanoid

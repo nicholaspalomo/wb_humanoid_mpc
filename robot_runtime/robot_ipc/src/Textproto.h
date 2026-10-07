@@ -33,10 +33,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
-#include "google/protobuf/message.h"
-
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "google/protobuf/message.h"
 
 namespace robot::ipc {
 

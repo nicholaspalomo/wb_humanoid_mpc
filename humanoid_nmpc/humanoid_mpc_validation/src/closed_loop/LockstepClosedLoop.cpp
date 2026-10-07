@@ -27,7 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include "humanoid_mpc_validation/closed_loop/LockstepClosedLoop.h"
 
@@ -41,10 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include <Eigen/Geometry>
-
-#include <mujoco_sim_interface/MujocoSimInterface.h>
-
+#include "Eigen/Geometry"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 
@@ -54,6 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/RobotController.h"
 #include "humanoid_mpc_validation/closed_loop/LockstepSolveSchedule.h"
 #include "humanoid_mpc_validation/closed_loop/TimeSeriesLabels.h"
+#include "mujoco_sim_interface/MujocoSimInterface.h"
 
 namespace ocs2::humanoid::validation {
 namespace {
@@ -61,10 +59,10 @@ namespace {
 /** Where the runner is in the operator's sequence. */
 enum class Phase { kJointPd, kEnteringMpc, kStanding, kCommands };
 
-/** [rad] The fall threshold without a simMaxBaseTiltAngle. */
+/** [rad] The fall threshold without a sim_max_base_tilt_angle. */
 constexpr double kDefaultMaxBaseTilt = 1.0;
 /** Times within this of each other are the same [s]: the clock is a sum of simulation steps. */
-constexpr double kTimeTolerance = 1e-9;
+constexpr double kTimeTolerance = 1.0e-9;
 
 size_t countNonFinite(const vector_t& values) {
   size_t count = 0;
@@ -93,12 +91,14 @@ class RowCollector {
 }  // namespace
 
 LockstepClosedLoop::LockstepClosedLoop(RobotConfiguration configuration, LockstepOptions options)
-    : configuration_(std::move(configuration)), options_(std::move(options)) {}
+    : configuration_(std::move(configuration)), options_(options) {}
 
 absl::StatusOr<LockstepResult> LockstepClosedLoop::run(const ClosedLoopScenario& scenario, ClosedLoopRunInfo info) const {
   ASSIGN_OR_RETURN(std::unique_ptr<ClosedLoopDriver> driver, createClosedLoopDriver(configuration_, options_.driver));
   ASSIGN_OR_RETURN(const robot::mujoco_sim_interface::MujocoSimConfig simulatorConfig, driver->simulatorConfig());
-  robot::mujoco_sim_interface::MujocoSimInterface sim(simulatorConfig, configuration_.urdfFile);
+  ASSIGN_OR_RETURN(const std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface> simulator,
+                   robot::mujoco_sim_interface::MujocoSimInterface::Create(simulatorConfig, configuration_.urdfFile));
+  robot::mujoco_sim_interface::MujocoSimInterface& sim = *simulator;
   RETURN_IF_ERROR(driver->connectSimulator(sim));
   RobotController& controller = driver->robotController();
 
@@ -118,7 +118,7 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(const ClosedLoopScenario&
   const robot::model::RobotDescription& spawnDescription = driver->robotDescription();
   std::vector<scalar_t> nominalPosture(description.getNumJoints(), 0.0);
   for (const std::string& jointName : description.getJointNames()) {
-    nominalPosture[description.getJointIndex(jointName)] = spawnState.getJointPosition(spawnDescription.getJointIndex(jointName));
+    nominalPosture[description.getJointIndex(jointName)] = spawnState.getCheckedJointPosition(spawnDescription.getJointIndex(jointName));
   }
 
   const double timeStep = sim.getModel()->opt.timestep;
@@ -281,16 +281,9 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(const ClosedLoopScenario&
       sample.contactPositions = driver->contactPositions(driver->currentObservation());
       const std::vector<bool> contacts = sim.getGroundTruthContactFlags();
       for (size_t contact = 0; contact < 2 && contact < contacts.size(); ++contact) sample.contactFlags[contact] = contacts[contact];
-      const std::vector<robot::joint_index_t>& joints = driver->mpcJointIndices();
-      sample.jointTorques.resize(static_cast<Eigen::Index>(joints.size()));
-      size_t nonFinite = countNonFinite(driver->currentObservation().state) + countNonFinite(driver->latestPolicyInput());
-      for (size_t i = 0; i < joints.size(); ++i) {
-        const robot::model::JointAction& jointAction = action.at(joints[i]).value();
-        const double torque = jointAction.getTotalFeedbackTorque(state.getJointPosition(joints[i]), state.getJointVelocity(joints[i]));
-        sample.jointTorques(static_cast<Eigen::Index>(i)) = torque;
-        if (!std::isfinite(torque)) ++nonFinite;
-      }
-      sample.nonFiniteValues = nonFinite;
+      ASSIGN_OR_RETURN(sample.jointTorques, jointFeedbackTorques(action, state, driver->mpcJointIndices()));
+      sample.nonFiniteValues = countNonFinite(driver->currentObservation().state) + countNonFinite(driver->latestPolicyInput()) +
+                               countNonFinite(sample.jointTorques);
       sample.mpcHealthy = driver->resetSupervisor().isHealthy();
       metrics.addControlCycle(sample);
 
@@ -355,6 +348,21 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(const ClosedLoopScenario&
                                {time_series::kSolveRotationGap, seriesSolveRotationGap.matrix()}};
   result.finalObservationState = driver->currentObservation().state;
   return result;
+}
+
+absl::StatusOr<Eigen::VectorXd> jointFeedbackTorques(const robot::model::RobotJointAction& action,
+                                                     const robot::model::RobotState& state,
+                                                     absl::Span<const robot::joint_index_t> joints) {
+  Eigen::VectorXd torques(static_cast<Eigen::Index>(joints.size()));
+  for (size_t i = 0; i < joints.size(); ++i) {
+    const std::optional<robot::model::JointAction>& jointAction = action[joints[i]];
+    if (!jointAction.has_value()) {
+      return absl::InternalError(absl::StrCat("[LockstepClosedLoop] the controller commanded no action for joint ", joints[i]));
+    }
+    torques(static_cast<Eigen::Index>(i)) =
+        jointAction->getTotalFeedbackTorque(state.getJointPosition(joints[i]), state.getJointVelocity(joints[i]));
+  }
+  return torques;
 }
 
 }  // namespace ocs2::humanoid::validation

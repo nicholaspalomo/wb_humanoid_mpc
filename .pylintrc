@@ -5,7 +5,7 @@
 #
 # LINT.IfChange(repository_changes)
 # The changes from Google's file:
-# - ignore: also lib, build, install, log, .bazel_ros_install; ignore-paths: Bazel's convenience symlinks.
+# - ignore: also lib; ignore-paths: Bazel's convenience symlinks.
 # - py-version=3.11, Bazel's hermetic interpreter; jobs=1 (AGENTS.md, "Builds share one machine's memory").
 # - load-plugins: docparams, docstyle, typing and bad_builtin (docstring sections, quotes, modern typing).
 # - disable: the Python 2 names Google still lists are gone (they hid typos in pragmas as bad-option-value);
@@ -24,7 +24,7 @@
 [MAIN]
 
 # Files or directories to be skipped. They should be base names, not paths.
-ignore=third_party,lib,build,install,log,.bazel_ros_install
+ignore=third_party,lib
 
 # Files or directories matching the regex patterns are skipped. The regex
 # matches against base names, not paths.
@@ -95,46 +95,10 @@ disable=R,
         # rewrite would let NaN through the validators (tools/ipc/ipc_tool.py, tools/launch/launch_cli.py,
         # humanoid_rerun_viewer/model_sandbox.py).
         unnecessary-negation,
-        # SWEEP_BEGIN (generated from a pylint run on the tree; deleted by WP-E, each message with the change that fixes
-        # its last finding):
-        access-member-before-definition,
-        broad-exception-caught,
-        cell-var-from-loop,
-        consider-alternative-union-syntax,
-        consider-using-with,
-        deprecated-typing-alias,
-        docstring-first-line-empty,
-        exec-used,
-        import-outside-toplevel,
-        invalid-name,
-        keyword-arg-before-vararg,
-        line-too-long,
-        missing-class-docstring,
-        missing-function-docstring,
-        missing-module-docstring,
-        missing-param-doc,
-        no-name-in-module,
-        pointless-string-statement,
-        protected-access,
-        redefined-outer-name,
-        reimported,
-        self-assigning-variable,
-        subprocess-popen-preexec-fn,
-        subprocess-run-check,
-        unbalanced-tuple-unpacking,
-        undefined-all-variable,
-        unknown-option-value,
-        unnecessary-lambda,
-        unspecified-encoding,
-        unused-argument,
-        unused-import,
-        unused-variable,
-        wrong-import-position,
-        # SWEEP_END
 
-# After disable=, or pylint drops it. consider-using-with and consider-alternative-union-syntax come back here when they
-# leave the SWEEP block above (an enable= of a message overrides its disable=).
-enable=consider-using-alias,use-a-generator,consider-using-generator
+# After disable=, or pylint drops it. An enable= of a message overrides its disable=, so consider-using-with and the
+# others here are reported although disable=R hides the rest of their category.
+enable=consider-using-with,consider-using-alias,use-a-generator,consider-using-generator,consider-alternative-union-syntax
 
 
 [REPORTS]

@@ -29,6 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/JointNamesByIndex.h"
 
+#include <string>
+#include <vector>
+
 namespace ocs2::humanoid {
 
 std::vector<std::string> jointNamesByIndex(const robot::model::RobotDescription& robotDescription) {

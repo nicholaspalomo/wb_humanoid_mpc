@@ -29,7 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/visualization/PolicySnapshot.h"
 
-#include <ocs2_core/misc/LinearInterpolation.h>
+#include "absl/base/nullability.h"
+#include "ocs2_core/misc/LinearInterpolation.h"
 
 namespace ocs2::humanoid::visualization {
 
@@ -54,14 +55,18 @@ bool isConsistentPlan(const PolicySnapshot& plan, size_t stateDim, size_t inputD
   return true;
 }
 
-void samplePlan(const PolicySnapshot& plan, scalar_t time, vector_t* state, vector_t* input) {
+void samplePlan(const PolicySnapshot& plan, scalar_t time, vector_t* absl_nonnull state, vector_t* absl_nonnull input) {
   const LinearInterpolation::index_alpha_t indexAlpha = LinearInterpolation::timeSegment(time, plan.time);
   *state = LinearInterpolation::interpolate(indexAlpha, plan.state);
   *input = LinearInterpolation::interpolate(indexAlpha, plan.input);
 }
 
-TargetSample sampleTarget(
-    const TargetTrajectories& target, scalar_t time, size_t stateDim, size_t inputDim, vector_t* state, vector_t* input) {
+TargetSample sampleTarget(const TargetTrajectories& target,
+                          scalar_t time,
+                          size_t stateDim,
+                          size_t inputDim,
+                          vector_t* absl_nonnull state,
+                          vector_t* absl_nonnull input) {
   if (target.timeTrajectory.empty() || target.stateTrajectory.size() != target.timeTrajectory.size()) {
     return TargetSample::kNone;
   }

@@ -30,21 +30,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
 
-#include "humanoid_common_mpc/common/ModelSettings.h"
-
 #include <iostream>
+#include <utility>
 
 #include "absl/log/log.h"
+
+#include "humanoid_common_mpc/common/ModelSettings.h"
 
 namespace ocs2::humanoid {
 
 JointLimitsSoftConstraint::JointLimitsSoftConstraint(std::pair<vector_t, vector_t> positionlimits,
                                                      ocs2::PieceWisePolynomialBarrierPenalty::Config barrierSettings,
                                                      const MpcRobotModelBase<scalar_t>& mpcRobotModel)
-    : jointPositionPenaltyPtr_(new ocs2::PieceWisePolynomialBarrierPenalty(barrierSettings)),
-      positionLimits_(positionlimits),
+    : jointPositionPenaltyPtr_(std::make_unique<ocs2::PieceWisePolynomialBarrierPenalty>(barrierSettings)),
       mpcRobotModelPtr_(&mpcRobotModel),
-      offset_(0.0) {
+      positionLimits_(std::move(positionlimits)) {
   // Obtain the offset at the middle joint angles. Just to compensate high negative costs when being far away from an infinite joint limit
   // offset_ = -getValue(0.5 * (positionLimits_.first + positionLimits_.second));
   LOG(INFO) << "joint limit offset: " << offset_;
@@ -52,22 +52,25 @@ JointLimitsSoftConstraint::JointLimitsSoftConstraint(std::pair<vector_t, vector_
 
 JointLimitsSoftConstraint::JointLimitsSoftConstraint(const JointLimitsSoftConstraint& rhs)
     : jointPositionPenaltyPtr_(rhs.jointPositionPenaltyPtr_->clone()),
-      positionLimits_(rhs.positionLimits_),
       mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
+      positionLimits_(rhs.positionLimits_),
       offset_(rhs.offset_),
       // isActive_ is copied deliberately: the SQP solver clones the whole problem once per worker thread,
       // and a copy constructor that dropped this flag silently reverted a deactivated term to active.
       isActive_(rhs.isActive_) {}
 
-scalar_t JointLimitsSoftConstraint::getValue(scalar_t time,
+scalar_t JointLimitsSoftConstraint::getValue(scalar_t /*time*/,
                                              const vector_t& state,
-                                             const ocs2::TargetTrajectories& targetTrajectories,
-                                             const ocs2::PreComputation& preComp) const {
+                                             const ocs2::TargetTrajectories& /*targetTrajectories*/,
+                                             const ocs2::PreComputation& /*preComp*/) const {
   return getValue(mpcRobotModelPtr_->getJointAngles(state));
 }
 
 ScalarFunctionQuadraticApproximation JointLimitsSoftConstraint::getQuadraticApproximation(
-    scalar_t time, const vector_t& state, const ocs2::TargetTrajectories& targetTrajectories, const ocs2::PreComputation& preComp) const {
+    scalar_t /*time*/,
+    const vector_t& state,
+    const ocs2::TargetTrajectories& /*targetTrajectories*/,
+    const ocs2::PreComputation& /*preComp*/) const {
   return getQuadraticApproximation(mpcRobotModelPtr_->getJointAngles(state));
 }
 
@@ -105,7 +108,7 @@ ScalarFunctionQuadraticApproximation JointLimitsSoftConstraint::getQuadraticAppr
   return cost;
 }
 
-void JointLimitsSoftConstraint::setGains(const scalar_t& mu, const scalar_t& delta) {
+void JointLimitsSoftConstraint::setGains(scalar_t mu, scalar_t delta) {
   jointPositionPenaltyPtr_->setConfig(ocs2::PieceWisePolynomialBarrierPenalty::Config(mu, delta));
 }
 

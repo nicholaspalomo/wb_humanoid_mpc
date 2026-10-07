@@ -29,17 +29,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "robot_runtime/robot_realtime/test/AllocationCounter.h"
 
+// glibc's declarations of the functions this file defines: memalign() is in <malloc.h>, the others in <cstdlib>.
+#include <malloc.h>
+
 #include <atomic>
 #include <cerrno>
 #include <cstddef>
+#include <cstdlib>
+
+#include "absl/base/attributes.h"
+#include "absl/base/nullability.h"
 
 namespace {
 
 // Constant-initialized, so that it is ready before the first allocation of static initialization.
-constinit std::atomic<std::size_t> allocations_since_start{0};
+constinit std::atomic<size_t> allocations_since_start{0};
 
 // Per thread. Constant-initialized and initial-exec, so that counting never calls __tls_get_addr, which may allocate.
-constinit thread_local std::size_t allocations_on_this_thread __attribute__((tls_model("initial-exec"))) = 0;
+constinit thread_local size_t allocations_on_this_thread ABSL_ATTRIBUTE_INITIAL_EXEC = 0;
 
 void countAllocation() {
   ++allocations_since_start;
@@ -49,60 +56,62 @@ void countAllocation() {
 }  // namespace
 
 // glibc's own entry points. Defining the allocation functions in the binary interposes them on every caller in the
-// process; free needs no counting and stays glibc's.
+// process; free needs no counting and stays glibc's. The parameters carry the C library's names (nmemb, ptr, memptr):
+// glibc declares them as __nmemb, __ptr and __memptr, and a definition must not name them differently
+// (readability-inconsistent-declaration-parameter-name).
 extern "C" {
-void* __libc_malloc(std::size_t size);
-void* __libc_calloc(std::size_t count, std::size_t size);
-void* __libc_realloc(void* pointer, std::size_t size);
-void* __libc_memalign(std::size_t alignment, std::size_t size);
+void* absl_nullable __libc_malloc(size_t size);
+void* absl_nullable __libc_calloc(size_t nmemb, size_t size);
+void* absl_nullable __libc_realloc(void* absl_nullable ptr, size_t size);
+void* absl_nullable __libc_memalign(size_t alignment, size_t size);
 
-void* malloc(std::size_t size) noexcept {
+void* absl_nullable malloc(size_t size) noexcept {
   countAllocation();
   return __libc_malloc(size);
 }
 
-void* calloc(std::size_t count, std::size_t size) noexcept {
+void* absl_nullable calloc(size_t nmemb, size_t size) noexcept {
   countAllocation();
-  return __libc_calloc(count, size);
+  return __libc_calloc(nmemb, size);
 }
 
-void* realloc(void* pointer, std::size_t size) noexcept {
+void* absl_nullable realloc(void* absl_nullable ptr, size_t size) noexcept {
   countAllocation();
-  return __libc_realloc(pointer, size);
+  return __libc_realloc(ptr, size);
 }
 
 // The aligned entry points, which operator new uses for over-aligned types such as SpscQueue.
-void* aligned_alloc(std::size_t alignment, std::size_t size) noexcept {
+void* absl_nullable aligned_alloc(size_t alignment, size_t size) noexcept {
   countAllocation();
   return __libc_memalign(alignment, size);
 }
 
-void* memalign(std::size_t alignment, std::size_t size) noexcept {
+void* absl_nullable memalign(size_t alignment, size_t size) noexcept {
   countAllocation();
   return __libc_memalign(alignment, size);
 }
 
-int posix_memalign(void** pointer, std::size_t alignment, std::size_t size) noexcept {
+int posix_memalign(void* absl_nullable* absl_nonnull memptr, size_t alignment, size_t size) noexcept {
   countAllocation();
   if (alignment < sizeof(void*) || (alignment & (alignment - 1)) != 0) {
     return EINVAL;
   }
-  void* const allocated = __libc_memalign(alignment, size);
+  void* absl_nullable const allocated = __libc_memalign(alignment, size);
   if (allocated == nullptr) {
     return ENOMEM;
   }
-  *pointer = allocated;
+  *memptr = allocated;
   return 0;
 }
 }
 
 namespace robot::realtime {
 
-std::size_t heapAllocationCount() {
+size_t heapAllocationCount() {
   return allocations_since_start.load();
 }
 
-std::size_t heapAllocationCountOnThisThread() {
+size_t heapAllocationCountOnThisThread() {
   return allocations_on_this_thread;
 }
 

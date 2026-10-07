@@ -32,14 +32,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <random>
 
-#include <ocs2_core/Types.h>
-#include <ocs2_core/control/ControllerType.h>
-#include <ocs2_core/reference/ModeSchedule.h>
-#include <ocs2_core/reference/TargetTrajectories.h>
-#include <ocs2_mpc/CommandData.h>
-#include <ocs2_mpc/SystemObservation.h>
-#include <ocs2_oc/oc_data/PerformanceIndex.h>
-#include <ocs2_oc/oc_data/PrimalSolution.h>
+#include "ocs2_core/Types.h"
+#include "ocs2_core/control/ControllerType.h"
+#include "ocs2_core/reference/ModeSchedule.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/CommandData.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_oc/oc_data/PerformanceIndex.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 
 /**
  * Random OCS2 objects for the conversion tests, deterministic for a given generator state. The primal solutions look

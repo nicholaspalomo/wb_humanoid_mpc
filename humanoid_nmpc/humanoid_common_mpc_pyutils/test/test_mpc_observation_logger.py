@@ -1,7 +1,38 @@
-"""The MPC observation logger writes one CSV row per observation of the bus, in order, under generic column names, and
-export_rollouts.py reads what it writes."""
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""Tests for mpc_observation_logger.py.
+
+The logger writes one CSV row per observation of the bus, in order, under generic column names, and export_rollouts.py
+reads what it writes.
+"""
 
 import argparse
+from collections.abc import Callable
 import csv
 import datetime
 import io
@@ -11,21 +42,21 @@ import tempfile
 import threading
 import time
 import unittest
-from typing import Callable, List
 
+from humanoid_mpc_msgs import mpc_observation_pb2
 import numpy as np
-import robot_ipc
+
 from humanoid_common_mpc_pyutils import export_rollouts
 from humanoid_common_mpc_pyutils import mpc_observation_logger
 from humanoid_mpc_ipc import topics
-from humanoid_mpc_msgs import mpc_observation_pb2
+import robot_ipc
 
 TIMEOUT_S = 20.0
 ROBOT = "robot"
 
 
 def observation(
-    time_s: float, state: List[float], inputs: List[float], mode: int = 3
+    time_s: float, state: list[float], inputs: list[float], mode: int = 3
 ) -> mpc_observation_pb2.MpcObservation:
     message = mpc_observation_pb2.MpcObservation(sequence=int(abs(time_s) * 1000))
     message.observation.time = time_s
@@ -71,7 +102,8 @@ class ColumnsTest(unittest.TestCase):
         )
         self.assertEqual(name, "mpc_observation_20261001_093005.csv")
         with tempfile.TemporaryDirectory() as directory:
-            open(os.path.join(directory, name), "w", encoding="utf-8").close()
+            with open(os.path.join(directory, name), "w", encoding="utf-8"):
+                pass  # An empty log.
             self.assertEqual(
                 export_rollouts.find_csv_files(directory),
                 [os.path.join(directory, name)],

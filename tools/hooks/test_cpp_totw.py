@@ -31,7 +31,6 @@ import unittest
 
 from tools.hooks import check_test_support
 from tools.hooks import check_types
-from tools.hooks import checks
 from tools.hooks import cpp_totw as totw
 
 
@@ -113,6 +112,8 @@ class TotwTest(unittest.TestCase):
             "void f() { switch (mode) { case Mode::kWalk: break; case Mode::kStand: break; } }",
             "void f() { switch (c) { case 'a': break; default: break; } }",
             "void f() { switch (proto) { case Proto::WALK: break; default: break; } }",
+            # A std::variant's index, against index constants (nproto's oneofs).
+            "void f() { switch (value.shape.index()) { case Oneofs::kRadiusIndex: break; default: break; } }",
         ]:
             with self.subTest(clean=clean):
                 self.assertEqual(_count(totw.check_enum_switch_default, clean), 0)
@@ -123,7 +124,7 @@ class TotwTest(unittest.TestCase):
             ["int x = v.at(3);", "int x = p->at(3);"],
             ["int x = v[3];", "int at = 3;"],
         )
-        check = check_test_support.assert_registered(self, "totw-at", pending=True)
+        check = check_test_support.assert_registered(self, "totw-at")
         self.assertFalse(check.applies_to("src/test/testA.cpp"))
 
     def test_raw_new(self):
@@ -281,8 +282,23 @@ class TotwTest(unittest.TestCase):
     def test_std_specialization(self):
         self.assert_cases(
             totw.check_std_specialization,
-            ["namespace std { void f(); }", "template <> struct hash<Foo> {};"],
-            ["namespace stdx {}", "std::hash<int> h;"],
+            [
+                "namespace std { void f(); }",
+                "template <> struct hash<Foo> {};",
+                "template <> struct std::hash<Bar> {};",
+                "template <> struct ::std::hash<Bar> {};",
+                "template <> class std::numeric_limits<Bar> {};",
+                "template <> struct formatter<Bar> {};",
+                "template <> struct std::tuple_size<Bar> : std::integral_constant<size_t, 2> {};",
+                "template <> struct absl::hash_internal::HashImpl<Bar> {};",
+            ],
+            [
+                "namespace stdx {}",
+                "std::hash<int> h;",
+                "template <typename T> struct Hasher<T> {};",
+                "struct Bar { template <typename H> friend H AbslHashValue(H h, const Bar& b); };",
+                "size_t n = std::tuple_size<std::tuple<int>>::value;",
+            ],
         )
 
     def test_flag_location(self):
@@ -413,9 +429,7 @@ class RegistryTest(unittest.TestCase):
             ("totw-reader-lock", "std::shared_mutex mutex_;\n", "src/a.cpp"),
         ]:
             with self.subTest(check=name):
-                check_test_support.assert_check_behaves(
-                    self, name, flagged, path, pending=name in totw_pending()
-                )
+                check_test_support.assert_check_behaves(self, name, flagged, path)
 
     def test_the_enum_switch_default_check_behaves(self):
         check_test_support.assert_check_behaves(
@@ -423,13 +437,7 @@ class RegistryTest(unittest.TestCase):
             "totw-enum-switch-default",
             "void f() {\n  switch (mode) {\n    case Mode::kWalk:\n      break;\n    default:\n      break;\n  }\n}\n",
             "src/a.cpp",
-            pending=True,
         )
-
-
-def totw_pending() -> frozenset[str]:
-    """The totw-* checks that are still PENDING."""
-    return frozenset(name for name in checks.PENDING if name.startswith("totw-"))
 
 
 if __name__ == "__main__":

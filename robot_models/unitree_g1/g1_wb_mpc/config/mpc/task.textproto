@@ -1,0 +1,615 @@
+# proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto
+# proto-message: humanoid_mpc_config.TaskFile
+# Simulation & Telemetry Configuration
+# Where the robot process sends its telemetry (robot/state), by name (TelemetrySinkRegistry.h): bus publishes it on
+# the IPC bus for the visualization publisher, the Rerun bridge and ipc_tool; no telemetry_sinks line turns the
+# telemetry off.
+# LINT.IfChange(telemetry_sinks)
+telemetry_sinks: "bus"
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h:telemetry_sink_names)
+telemetry_frequency: 100  # [Hz] robot/state, decimated from the control loop
+# MuJoCo backend of the robot process only. The viewer's contact timeline ('b' toggles it) shows, per contact point,
+# the contact state the executed MPC policy plans against the simulator's ground truth over a sliding window of time.
+sim_contact_timeline_window: 5.0  # [s] width of the sliding window
+sim_contact_force_threshold: 5.0  # [N] normal force above which a contact point counts as touching (ground truth)
+# Fall recovery (SimFallRecovery, humanoid_nmpc/docs/mpc_reset/README.md). sim_max_base_tilt_angle is the tilt of the base
+# past which the simulator catches the robot on the gantry, holding it upright where it is at the gantry height,
+# switching to JOINT_PD (the whole-body MPC is overconstrained against a pinned base) and resetting the controller, which
+# holds the robot until it has planned from where the robot is now. The simulator's own resets (base below the floor
+# limit, an unstable step) are caught the same way. The remote control follows the lock and re-centers its joysticks,
+# so a stick left forward cannot keep commanding a walk into a robot hanging from the harness. The measure is the angle
+# between the base's own vertical and the world vertical, so it is heading independent: 0 upright, pi/2 on its side, pi
+# upside down. 0 disables the catch and leaves a fallen robot where it lands, which is what you want when the fall
+# itself is the thing being studied. 1.0 rad (57 deg) is past any recoverable lean.
+# sim_gantry_catch_lift is how far the gantry then lifts the caught robot so that its feet clear the ground: JOINT_PD brings
+# the legs back to the nominal posture, the gantry lowers the robot back onto its feet, and WB_MPC is refused until it
+# rests there. Caught at its standing height with its feet loaded where they landed, the robot hung pitched and fell
+# again within two seconds of the unlock. 0 skips the sequence and accepts WB_MPC at once. Simulation only.
+sim_max_base_tilt_angle: 1.0  # [rad] 0 disables
+sim_gantry_catch_lift: 0.15  # [m] 0 skips the settle sequence
+# Measured contact state of the controller, by name (robot_model/ContactEstimatorRegistry.h): the MPC observation mode and
+# which planned contact wrenches the inverse dynamics projects into feedforward torques. One of:
+#   cheater_sim        the ground truth of the physics (normal force above sim_contact_force_threshold); required for the
+#                      phase_resetting execution rule of contact_planning.textproto
+#   robot_state        the contact flags of the RobotState (in MuJoCo the same ground truth)
+#   always_in_contact  every contact point touching: the executed schedule is taken as the measured contact state
+# LINT.IfChange(contact_estimator)
+contact_estimator: "cheater_sim"
+# LINT.ThenChange(//robot_runtime/robot_model/src/ContactEstimatorRegistry.cpp:contact_estimator_names, //robot_runtime/mujoco_sim_interface/src/CheaterSimContactEstimator.cpp:cheater_sim_contact_estimator_name)
+# How the virtual gantry holds the floating base while it is locked. Two different physical models, so the name selects
+# one rather than a boolean switching a feature on:
+#   weld_constraint    a MuJoCo weld the solver satisfies INSIDE mj_step, so the base is really supported while the
+#                      dynamics are integrated. This is what a physical gantry does, and the only setting under which
+#                      GRAVITY_COMP holds the limbs still. It needs the scene's 'gantry' weld from the world to the base
+#                      (test_robot_scene_gantry_hold checks every configuration's scene).
+#   kinematic_teleport legacy: qpos/qvel are overwritten just BEFORE mj_step, leaving the base unsupported during the
+#                      step. The robot is then in free fall while integrating, and a free-falling chain in uniform
+#                      gravity needs zero joint torque to keep its shape, so the commanded gravity torque is entirely
+#                      surplus lift: measured ~130 deg of joint drift in 3 s, into the stops. Kept only to reproduce
+#                      recorded runs.
+# LINT.IfChange(gantry_hold)
+gantry_hold: "weld_constraint"
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/MujocoSimInterface.h:gantry_hold_names)
+
+# Where the mode schedule and the footholds come from, by name (MpcFormulationConfig.h). The whole-body MPC builds the
+# gait schedule's reference manager only, so `gait_schedule` (the default) is the one name it accepts: it refuses
+# `contact_planner`, the online contact planner, which is implemented for the centroidal MPC only. It replaced the
+# useContactPlanning key, which start-up refuses. See humanoid_nmpc/docs/README.md, section 2.
+# LINT.IfChange(contact_schedule_source_config)
+contact_schedule_source: "gait_schedule"
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/MpcFormulationConfig.h:contact_schedule_source_names)
+
+# The ball the GUI's Dodgeball tab throws, by name (robot_runtime/mujoco_sim_interface/.../Projectile.h). MuJoCo
+# compiles its model once at load and bodies cannot be added afterwards, so naming one here appends a free-floating
+# sphere to the scene BEFORE it is compiled. Until a throw arms it, it is parked 100 m above the scene with its
+# collisions off and its weight held by gravity compensation; it is parked again once it has come to rest, after ten
+# seconds in play at most, and whenever the robot is caught on the gantry.
+#
+#   dodgeball   a regulation 0.216 m sphere of 0.45 kg (the GUI's mass slider sets 0.1-5 kg per throw) that bounces
+#               back at 0.80 of the speed it arrived at. MuJoCo has no restitution parameter: it is converted to the
+#               contact damping ratio solref needs by the logarithmic decrement (0.80 gives 0.0708), and the ball's
+#               contact parameters take priority over the floor's and the robot's so that it is the bounce it gets.
+#
+# Remove the key, or set it empty, to compile the scene exactly as it is on disk. The Throw button then still works:
+# with no ball to fly, the simulator applies the momentum the ball would have ARRIVED with as a one-step force on the
+# base - a lower bound on the push, since a real ball that bounces off hands over more.
+#
+# Simulation only. It changes nothing about the MPC, and a contact with the ball is excluded from the ground-truth
+# contact mask and from the ZMP marker, so a ball against a swing foot is never mistaken for the ground.
+# LINT.IfChange(sim_projectile)
+sim_projectile: "dodgeball"
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/Projectile.cpp:projectile_names)
+
+# Viewer visualizations (each listed one starts on; the key in brackets toggles it, 'p' prints the cheatsheet). Every
+# marker is a class in robot_runtime/mujoco_sim_interface/.../visualization; the names are those of VisualizationRegistry.
+# LINT.IfChange(sim_visualizations)
+sim_visualizations: "metrics"  # render/sim FPS, real-time factor and drift (top-left text)
+sim_visualizations: "external_forces"  # arrows of the external forces applied to the bodies (pushes)
+sim_visualizations: "contact_forces"  # arrows of the physical contact forces on the robot
+sim_visualizations: "base_velocity"  # measured (red) vs commanded (green) base velocity and yaw rate at the CoM
+sim_visualizations: "contact_timeline"  # [b] barcode of planned vs ground-truth contact per contact point
+sim_visualizations: "target_contact_patches"  # [g] contact patch of every foot at the planner's target position and yaw
+# sim_visualizations: "center_of_mass"        # [o] whole-body center of mass: sphere, vertical, and its shadow on the ground
+# sim_visualizations: "zmp"                   # [z] zero moment point of the physical ground reaction, on the ground
+# sim_visualizations: "dcm"                   # [d] divergent component of motion (capture point) of the measured CoM, on the ground
+# MuJoCo's own markers, off unless listed:
+# sim_visualizations: "mj_contact_points"     # [c] markers at the physical contact points
+# sim_visualizations: "mj_contact_forces"     # [f] MuJoCo's normal and friction force arrows at the contacts
+# sim_visualizations: "mj_com"                # [m] center of mass markers of the bodies
+# sim_visualizations: "mj_inertia"            # [i] equivalent inertia ellipsoids
+# sim_visualizations: "mj_convex_hull"        # [h] convex hulls of the meshes
+# sim_visualizations: "mj_transparent"        # [t] model transparency (x-ray view)
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/visualization/VisualizationRegistry.cpp:visualization_names)
+enable_online_tuning: true  # Enable runtime parameter and gain tuning in Controller GUI
+
+# The visualization publisher of the MPC node (humanoid_nmpc/humanoid_common_mpc_app/visualization/README.md), read at
+# start-up. rerun_scene_frequency bounds how often the Rerun scene (robots and markers) is sent; the plots follow every
+# robot/state sample. telemetry_frames are the frames whose pose, twist, acceleration and wrench are plotted, measured,
+# reference and plan; rerun_plan_frames (the contact frames when absent) those whose planned paths the scene draws.
+rerun_scene_frequency: 30  # [Hz] viz/scene at most this often
+# Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench)
+telemetry_frames: "foot_l_contact"
+telemetry_frames: "foot_r_contact"
+telemetry_frames: "pelvis"
+telemetry_frames: "torso_link"
+rerun_plan_frames: "foot_l_contact"
+rerun_plan_frames: "foot_r_contact"
+rerun_plan_frames: "mid360_link"
+rerun_plan_frames: "left_hand_palm_joint"
+rerun_plan_frames: "right_hand_palm_joint"
+
+# MPC Problem Formulation Tasks
+hard_constraints: "zero_wrench"
+hard_constraints: "zero_velocity"
+hard_constraints: "normal_velocity"
+soft_constraints: "joint_limits"
+soft_constraints: "foot_collision"
+soft_constraints: "friction_force_cone"
+soft_constraints: "contact_moment_xy"
+costs: "state_quadratic_cost"
+costs: "input_quadratic_cost"
+costs: "terminal_cost"
+costs: "task_space_foot_cost"
+
+# Locomotion heuristics (Bledt RPC, humanoid_nmpc/docs/locomotion_heuristics/README.md) are NOT configurable here.
+#
+# They are built and installed by CentroidalMpcInterface::setupLocomotionHeuristics(), and WBMpcInterface has no
+# counterpart, so nothing in the whole-body path ever reads a `locomotion_heuristics` block. A block in this file
+# would be silently inert - exactly the failure the layer refuses to allow elsewhere - so it is deliberately absent
+# rather than present and dead. The centroidal task file of this same robot
+# (robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto) carries the real one.
+#
+# One thing stands between here and supporting it. The reference manager, the base-pose seam and the parameter
+# updater (MpcParameterUpdaterModule, shared by both formulations) would work unchanged, but the commanded yaw rate the
+# foothold and wrench heuristics read is recovered by inverting the CENTROIDAL state's angular-momentum channel, and the
+# whole-body state has no such channel. The schema marks the block `formulations: "centroidal"`, so the tuning GUI
+# labels it not applicable on this file.
+
+interface {
+  verbose: false  # show the loaded parameters
+}
+
+model_settings {
+  robot_name: "g1"
+
+  foot_constraint {
+    position_error_gain_z: 100.0
+    orientation_error_gain: 80.0
+    linear_velocity_error_gain_z: 10.0
+    linear_velocity_error_gain_xy: 20.0
+    angular_velocity_error_gain: 20.0
+    linear_acceleration_error_gain_z: 1.0
+    linear_acceleration_error_gain_xy: 1.0
+    angular_acceleration_error_gain: 1.0
+  }
+
+  phase_transition_stance_time: 0.0
+
+  verbose_cpp_ad: true
+  recompile_libraries_cpp_ad: false
+
+  # Exclude these joints from MPC model
+  fixed_joint_names: "left_wrist_roll_joint"
+  fixed_joint_names: "left_wrist_pitch_joint"
+  fixed_joint_names: "left_wrist_yaw_joint"
+  fixed_joint_names: "right_wrist_roll_joint"
+  fixed_joint_names: "right_wrist_pitch_joint"
+  fixed_joint_names: "right_wrist_yaw_joint"
+
+  # Pinocchio Frame names for the contact frames
+  contact_names_6dof: "foot_l_contact"
+  contact_names_6dof: "foot_r_contact"
+
+  # The Parent frames on which the contact frames are added.
+  contact_parent_joint_names: "left_ankle_roll_joint"
+  contact_parent_joint_names: "right_ankle_roll_joint"
+
+  # ; Used for arm swing reference
+  arm_joint_names {
+    left_shoulder_y: "left_shoulder_pitch_joint"
+    right_shoulder_y: "right_shoulder_pitch_joint"
+    left_elbow_y: "left_elbow_joint"
+    right_elbow_y: "right_elbow_joint"
+  }
+}
+
+swing_trajectory_config {
+  lift_off_velocity: 0.05
+  touch_down_velocity: -0.0
+  swing_height: 0.08
+  touch_down_height_offset: -0.001
+  swing_time_scale: 0.4
+  impact_proximity_factor_lift_off_velocity: -0.15
+  impact_proximity_factor_touch_down_velocity: 0.3
+  impact_proximity_factor_mid_point_value: 0.005
+}
+
+# multiple_shooting settings
+multiple_shooting {
+  n_threads: 4
+  dt: 0.035
+  sqp_iteration: 1
+  delta_tol: 1e-4
+  g_max: 1e-2
+  g_min: 1e-6
+  project_state_input_equality_constraints: true
+  print_solver_statistics: true
+  print_solver_status: false
+  print_linesearch: false
+  use_feedback_policy: false
+  integrator_type: "RK4"
+  thread_priority: 90
+}
+
+# Rollout settings
+rollout {
+  abs_tol_ode: 1e-5
+  rel_tol_ode: 1e-3
+  time_step: 0.015
+  integrator_type: "ODE45"
+  max_num_steps_per_second: 10000
+  check_numerical_stability: false
+}
+
+mpc {
+  time_horizon: 1.1  # [s]
+  solution_time_window: -1  # maximum [s]
+  cold_start: false
+
+  debug_print: false
+
+  mpc_desired_frequency: 60  # [Hz]
+  mrt_desired_frequency: 500  # [Hz]
+}
+
+initial_state {
+  # ; Base Pose: [position, orientation] ;;
+  base_position {
+    x: 0.0  # p_base_x
+    y: 0.0  # p_base_y
+    z: 0.7911  # p_base_z
+  }
+  base_orientation {
+    yaw: 0.0  # theta_base_z
+    pitch: 0.0  # theta_base_y
+    roll: 0.0  # theta_base_x
+  }
+
+  # ; Joint Positions: ;;
+  joint_positions { joint: "left_hip_pitch_joint" value: -0.05 }
+  joint_positions { joint: "left_hip_roll_joint" value: 0.0 }
+  joint_positions { joint: "left_hip_yaw_joint" value: 0.0 }
+  joint_positions { joint: "left_knee_joint" value: 0.1 }
+  joint_positions { joint: "left_ankle_pitch_joint" value: -0.05 }
+  joint_positions { joint: "left_ankle_roll_joint" value: 0.0 }
+  joint_positions { joint: "right_hip_pitch_joint" value: -0.05 }
+  joint_positions { joint: "right_hip_roll_joint" value: 0.0 }
+  joint_positions { joint: "right_hip_yaw_joint" value: 0.0 }
+  joint_positions { joint: "right_knee_joint" value: 0.1 }
+  joint_positions { joint: "right_ankle_pitch_joint" value: -0.05 }
+  joint_positions { joint: "right_ankle_roll_joint" value: 0.0 }
+  joint_positions { joint: "waist_yaw_joint" value: 0.0 }
+  joint_positions { joint: "waist_roll_joint" value: 0.0 }
+  joint_positions { joint: "waist_pitch_joint" value: 0.0 }
+  joint_positions { joint: "left_shoulder_pitch_joint" value: 0.0 }
+  joint_positions { joint: "left_shoulder_roll_joint" value: 0.0 }
+  joint_positions { joint: "left_shoulder_yaw_joint" value: 0.0 }
+  joint_positions { joint: "left_elbow_joint" value: 0.0 }
+  joint_positions { joint: "right_shoulder_pitch_joint" value: 0.0 }
+  joint_positions { joint: "right_shoulder_roll_joint" value: 0.0 }
+  joint_positions { joint: "right_shoulder_yaw_joint" value: 0.0 }
+  joint_positions { joint: "right_elbow_joint" value: 0.0 }
+
+  # ; Base Velocity: [velocity, angular velocity] ;;
+  base_linear_velocity {
+    x: 0.0  # v_base_x
+    y: 0.0  # v_base_y
+    z: 0.0  # v_base_z
+  }
+  base_angular_velocity {
+    yaw: 0.0  # omega_base_z
+    pitch: 0.0  # omega_base_y
+    roll: 0.0  # omega_base_x
+  }
+
+  # ; Leg Joint Velocities: [LF, LH, RF, RH] ;;
+  joint_velocities { joint: "left_hip_pitch_joint" value: 0.0 }
+  joint_velocities { joint: "left_hip_roll_joint" value: 0.0 }
+  joint_velocities { joint: "left_hip_yaw_joint" value: 0.0 }
+  joint_velocities { joint: "left_knee_joint" value: 0.0 }
+  joint_velocities { joint: "left_ankle_pitch_joint" value: 0.0 }
+  joint_velocities { joint: "left_ankle_roll_joint" value: 0.0 }
+  joint_velocities { joint: "right_hip_pitch_joint" value: 0.0 }
+  joint_velocities { joint: "right_hip_roll_joint" value: 0.0 }
+  joint_velocities { joint: "right_hip_yaw_joint" value: 0.0 }
+  joint_velocities { joint: "right_knee_joint" value: 0.0 }
+  joint_velocities { joint: "right_ankle_pitch_joint" value: 0.0 }
+  joint_velocities { joint: "right_ankle_roll_joint" value: 0.0 }
+  joint_velocities { joint: "waist_yaw_joint" value: 0.0 }
+  joint_velocities { joint: "waist_roll_joint" value: 0.0 }
+  joint_velocities { joint: "waist_pitch_joint" value: 0.0 }
+  joint_velocities { joint: "left_shoulder_pitch_joint" value: 0.0 }
+  joint_velocities { joint: "left_shoulder_roll_joint" value: 0.0 }
+  joint_velocities { joint: "left_shoulder_yaw_joint" value: 0.0 }
+  joint_velocities { joint: "left_elbow_joint" value: 0.0 }
+  joint_velocities { joint: "right_shoulder_pitch_joint" value: 0.0 }
+  joint_velocities { joint: "right_shoulder_roll_joint" value: 0.0 }
+  joint_velocities { joint: "right_shoulder_yaw_joint" value: 0.0 }
+  joint_velocities { joint: "right_elbow_joint" value: 0.0 }
+}
+
+# standard state weight matrix
+state_weights {
+  scaling: 1e+0
+
+  # ; Base Pose: [position, orientation] ;;
+  base_position {
+    x: 0.0  # p_base_x
+    y: 0.0  # p_base_y
+    z: 10.0  # p_base_z
+  }
+  base_orientation {
+    yaw: 0.0  # theta_base_z
+    pitch: 20.0  # theta_base_y
+    roll: 20.0  # theta_base_x
+  }
+
+  # ; Joint Positions ;;
+  joint_positions { joint: "left_hip_pitch_joint" value: 0.05 }
+  joint_positions { joint: "left_hip_roll_joint" value: 0.2 }
+  joint_positions { joint: "left_hip_yaw_joint" value: 0.2 }
+  joint_positions { joint: "left_knee_joint" value: 0.1 }
+  joint_positions { joint: "left_ankle_pitch_joint" value: 0.1 }
+  joint_positions { joint: "left_ankle_roll_joint" value: 0.1 }
+  joint_positions { joint: "right_hip_pitch_joint" value: 0.05 }
+  joint_positions { joint: "right_hip_roll_joint" value: 0.2 }
+  joint_positions { joint: "right_hip_yaw_joint" value: 0.2 }
+  joint_positions { joint: "right_knee_joint" value: 0.1 }
+  joint_positions { joint: "right_ankle_pitch_joint" value: 0.1 }
+  joint_positions { joint: "right_ankle_roll_joint" value: 0.1 }
+  joint_positions { joint: "waist_yaw_joint" value: 2.0 }
+  joint_positions { joint: "waist_roll_joint" value: 2.0 }
+  joint_positions { joint: "waist_pitch_joint" value: 2.0 }
+  joint_positions { joint: "left_shoulder_pitch_joint" value: 0.4 }
+  joint_positions { joint: "left_shoulder_roll_joint" value: 2.0 }
+  joint_positions { joint: "left_shoulder_yaw_joint" value: 0.4 }
+  joint_positions { joint: "left_elbow_joint" value: 0.4 }
+  joint_positions { joint: "right_shoulder_pitch_joint" value: 0.4 }
+  joint_positions { joint: "right_shoulder_roll_joint" value: 2.0 }
+  joint_positions { joint: "right_shoulder_yaw_joint" value: 0.4 }
+  joint_positions { joint: "right_elbow_joint" value: 0.4 }
+
+  # ; Base Velocities: [linear, angular] ;;
+  base_linear_velocity {
+    x: 3.0  # v_base_x
+    y: 3.0  # v_base_y
+    z: 3.0  # v_base_z
+  }
+  base_angular_velocity {
+    yaw: 3.0  # omega_base_z
+    pitch: 3.0  # omega_base_y
+    roll: 3.0  # omega_base_x
+  }
+
+  # ; Joint Velocities ;;
+  joint_velocities { joint: "left_hip_pitch_joint" value: 0.001 }
+  joint_velocities { joint: "left_hip_roll_joint" value: 0.001 }
+  joint_velocities { joint: "left_hip_yaw_joint" value: 0.001 }
+  joint_velocities { joint: "left_knee_joint" value: 0.001 }
+  joint_velocities { joint: "left_ankle_pitch_joint" value: 0.001 }
+  joint_velocities { joint: "left_ankle_roll_joint" value: 0.001 }
+  joint_velocities { joint: "right_hip_pitch_joint" value: 0.001 }
+  joint_velocities { joint: "right_hip_roll_joint" value: 0.001 }
+  joint_velocities { joint: "right_hip_yaw_joint" value: 0.001 }
+  joint_velocities { joint: "right_knee_joint" value: 0.001 }
+  joint_velocities { joint: "right_ankle_pitch_joint" value: 0.001 }
+  joint_velocities { joint: "right_ankle_roll_joint" value: 0.001 }
+  joint_velocities { joint: "waist_yaw_joint" value: 0.2 }
+  joint_velocities { joint: "waist_roll_joint" value: 0.2 }
+  joint_velocities { joint: "waist_pitch_joint" value: 0.2 }
+  joint_velocities { joint: "left_shoulder_pitch_joint" value: 0.02 }
+  joint_velocities { joint: "left_shoulder_roll_joint" value: 0.02 }
+  joint_velocities { joint: "left_shoulder_yaw_joint" value: 0.02 }
+  joint_velocities { joint: "left_elbow_joint" value: 0.02 }
+  joint_velocities { joint: "right_shoulder_pitch_joint" value: 0.02 }
+  joint_velocities { joint: "right_shoulder_roll_joint" value: 0.02 }
+  joint_velocities { joint: "right_shoulder_yaw_joint" value: 0.02 }
+  joint_velocities { joint: "right_elbow_joint" value: 0.02 }
+}
+
+# control weight matrix
+input_weights {
+  scaling: 1e-3
+
+  # ; Feet Contact Forces: [LF, RF, LH, RH] ;;
+  contact_wrenches {
+    contact: "foot_l_contact"
+    force {
+      x: 0.003  # left_force_x
+      y: 0.003  # left_force_y
+      z: 0.001  # left_force_z
+    }
+    moment {
+      x: 0.01  # left_moment_x
+      y: 0.01  # left_moment_y
+      z: 0.1  # left_moment_z
+    }
+  }
+  contact_wrenches {
+    contact: "foot_r_contact"
+    force {
+      x: 0.003  # right_force_x
+      y: 0.003  # right_force_y
+      z: 0.001  # right_force_z
+    }
+    moment {
+      x: 0.01  # right_moment_x
+      y: 0.01  # right_moment_y
+      z: 0.1  # right_moment_z
+    }
+  }
+
+  # ; Joint Accelerations ;;
+  joint_accelerations { joint: "left_hip_pitch_joint" value: 0.005 }
+  joint_accelerations { joint: "left_hip_roll_joint" value: 0.005 }
+  joint_accelerations { joint: "left_hip_yaw_joint" value: 0.005 }
+  joint_accelerations { joint: "left_knee_joint" value: 0.005 }
+  joint_accelerations { joint: "left_ankle_pitch_joint" value: 0.005 }
+  joint_accelerations { joint: "left_ankle_roll_joint" value: 0.005 }
+  joint_accelerations { joint: "right_hip_pitch_joint" value: 0.005 }
+  joint_accelerations { joint: "right_hip_roll_joint" value: 0.005 }
+  joint_accelerations { joint: "right_hip_yaw_joint" value: 0.005 }
+  joint_accelerations { joint: "right_knee_joint" value: 0.005 }
+  joint_accelerations { joint: "right_ankle_pitch_joint" value: 0.005 }
+  joint_accelerations { joint: "right_ankle_roll_joint" value: 0.005 }
+  joint_accelerations { joint: "waist_yaw_joint" value: 0.005 }
+  joint_accelerations { joint: "waist_roll_joint" value: 0.005 }
+  joint_accelerations { joint: "waist_pitch_joint" value: 0.005 }
+  joint_accelerations { joint: "left_shoulder_pitch_joint" value: 0.005 }
+  joint_accelerations { joint: "left_shoulder_roll_joint" value: 0.005 }
+  joint_accelerations { joint: "left_shoulder_yaw_joint" value: 0.005 }
+  joint_accelerations { joint: "left_elbow_joint" value: 0.005 }
+  joint_accelerations { joint: "right_shoulder_pitch_joint" value: 0.005 }
+  joint_accelerations { joint: "right_shoulder_roll_joint" value: 0.005 }
+  joint_accelerations { joint: "right_shoulder_yaw_joint" value: 0.005 }
+  joint_accelerations { joint: "right_elbow_joint" value: 0.005 }
+}
+
+terminal_cost_scaling: 4.0
+final_state_weights {
+  scaling: 1e+0
+
+  # ; Base Pose: [position, orientation] ;;
+  base_position {
+    x: 0.0  # p_base_x
+    y: 0.0  # p_base_y
+    z: 10.0  # p_base_z
+  }
+  base_orientation {
+    yaw: 0.0  # theta_base_z
+    pitch: 20.0  # theta_base_y
+    roll: 20.0  # theta_base_x
+  }
+
+  # ; Joint Positions ;;
+  joint_positions { joint: "left_hip_pitch_joint" value: 0.05 }
+  joint_positions { joint: "left_hip_roll_joint" value: 0.1 }
+  joint_positions { joint: "left_hip_yaw_joint" value: 0.1 }
+  joint_positions { joint: "left_knee_joint" value: 0.1 }
+  joint_positions { joint: "left_ankle_pitch_joint" value: 0.1 }
+  joint_positions { joint: "left_ankle_roll_joint" value: 0.1 }
+  joint_positions { joint: "right_hip_pitch_joint" value: 0.05 }
+  joint_positions { joint: "right_hip_roll_joint" value: 0.1 }
+  joint_positions { joint: "right_hip_yaw_joint" value: 0.1 }
+  joint_positions { joint: "right_knee_joint" value: 0.1 }
+  joint_positions { joint: "right_ankle_pitch_joint" value: 0.1 }
+  joint_positions { joint: "right_ankle_roll_joint" value: 0.1 }
+  joint_positions { joint: "waist_yaw_joint" value: 2.0 }
+  joint_positions { joint: "waist_roll_joint" value: 2.0 }
+  joint_positions { joint: "waist_pitch_joint" value: 2.0 }
+  joint_positions { joint: "left_shoulder_pitch_joint" value: 0.4 }
+  joint_positions { joint: "left_shoulder_roll_joint" value: 2.0 }
+  joint_positions { joint: "left_shoulder_yaw_joint" value: 0.4 }
+  joint_positions { joint: "left_elbow_joint" value: 0.4 }
+  joint_positions { joint: "right_shoulder_pitch_joint" value: 0.4 }
+  joint_positions { joint: "right_shoulder_roll_joint" value: 2.0 }
+  joint_positions { joint: "right_shoulder_yaw_joint" value: 0.4 }
+  joint_positions { joint: "right_elbow_joint" value: 0.4 }
+
+  # ; Base Velocities: [linear, angular] ;;
+  base_linear_velocity {
+    x: 3.0  # v_base_x
+    y: 3.0  # v_base_y
+    z: 3.0  # v_base_z
+  }
+  base_angular_velocity {
+    yaw: 3.0  # omega_base_z
+    pitch: 3.0  # omega_base_y
+    roll: 3.0  # omega_base_x
+  }
+
+  # ; Joint Velocities ;;
+  joint_velocities { joint: "left_hip_pitch_joint" value: 0.001 }
+  joint_velocities { joint: "left_hip_roll_joint" value: 0.001 }
+  joint_velocities { joint: "left_hip_yaw_joint" value: 0.001 }
+  joint_velocities { joint: "left_knee_joint" value: 0.001 }
+  joint_velocities { joint: "left_ankle_pitch_joint" value: 0.001 }
+  joint_velocities { joint: "left_ankle_roll_joint" value: 0.001 }
+  joint_velocities { joint: "right_hip_pitch_joint" value: 0.001 }
+  joint_velocities { joint: "right_hip_roll_joint" value: 0.001 }
+  joint_velocities { joint: "right_hip_yaw_joint" value: 0.001 }
+  joint_velocities { joint: "right_knee_joint" value: 0.001 }
+  joint_velocities { joint: "right_ankle_pitch_joint" value: 0.001 }
+  joint_velocities { joint: "right_ankle_roll_joint" value: 0.001 }
+  joint_velocities { joint: "waist_yaw_joint" value: 0.2 }
+  joint_velocities { joint: "waist_roll_joint" value: 0.2 }
+  joint_velocities { joint: "waist_pitch_joint" value: 0.2 }
+  joint_velocities { joint: "left_shoulder_pitch_joint" value: 0.02 }
+  joint_velocities { joint: "left_shoulder_roll_joint" value: 0.02 }
+  joint_velocities { joint: "left_shoulder_yaw_joint" value: 0.02 }
+  joint_velocities { joint: "left_elbow_joint" value: 0.02 }
+  joint_velocities { joint: "right_shoulder_pitch_joint" value: 0.02 }
+  joint_velocities { joint: "right_shoulder_roll_joint" value: 0.02 }
+  joint_velocities { joint: "right_shoulder_yaw_joint" value: 0.02 }
+  joint_velocities { joint: "right_elbow_joint" value: 0.02 }
+}
+
+# The weights the swing-foot cost has always applied. Until a bug of the old loader was fixed, it wrote the
+# lin_acceleration_* and ang_acceleration_* keys over the velocity weights and left the acceleration
+# weights at their defaults of 0.01, so the values this block used to list were never applied: lin_velocity 50/50/0,
+# ang_velocity 100/100/100, lin_acceleration 5/5/0, ang_acceleration 2/2/2. Restoring them is a re-tuning, to be
+# validated in MuJoCo.
+task_space_foot_cost {
+  weights {
+    pos_x: 0.0
+    pos_y: 0.0
+    pos_z: 0.0
+    orientation_x: 10000.0
+    orientation_y: 10000.0
+    orientation_z: 0.0
+    lin_velocity_x: 5.0
+    lin_velocity_y: 5.0
+    lin_velocity_z: 0.0
+    ang_velocity_x: 2.0
+    ang_velocity_y: 2.0
+    ang_velocity_z: 2.0
+    lin_acceleration_x: 0.01
+    lin_acceleration_y: 0.01
+    lin_acceleration_z: 0.01
+    ang_acceleration_x: 0.01
+    ang_acceleration_y: 0.01
+    ang_acceleration_z: 0.01
+  }
+}
+
+contacts {
+  contact_frame_translation {
+    # ; Translation vector from parent joint to contact frame ;;
+    x: 0.035
+    y: 0.0
+    z: -0.035
+  }
+  contact_rectangle {
+    # ; length specified in contact frame ;;
+    x_max: 0.09
+    x_min: -0.09
+    y_max: 0.03
+    y_min: -0.03
+  }
+
+  friction_force_cone_soft_constraint {
+    friction_coefficient: 0.4
+    # relaxed log barrier parameters
+    mu: 0.2
+    delta: 5.0
+  }
+  contact_moment_xy_soft_constraint {
+    # relaxed log barrier parameters
+    mu: 0.6
+    delta: 0.03
+  }
+}
+
+joint_limits {
+  # relaxed log barrier parameters
+  mu: 1200.0
+  delta: 0.1
+}
+
+collision_constraint {
+  foot {
+    left_ankle_frame: "left_ankle_roll_joint"
+    right_ankle_frame: "right_ankle_roll_joint"
+
+    foot_collision_sphere_radius: 0.05
+  }
+  knee {
+    left_knee_frame: "left_knee_joint"
+    right_knee_frame: "right_knee_joint"
+
+    knee_collision_sphere_radius: 0.075
+  }
+  # relaxed log barrier parameters
+  mu: 1500
+  delta: 0.04
+}

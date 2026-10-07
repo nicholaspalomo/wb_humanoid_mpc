@@ -29,9 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_core/reference/TargetTrajectories.h>
-#include <ocs2_mpc/SystemObservation.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"

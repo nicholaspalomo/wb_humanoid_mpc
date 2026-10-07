@@ -25,12 +25,11 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""The clang-tidy configurations: //:.clang-tidy (the enforced checks) and tools/clang_tidy/sweep.clang-tidy (all).
+"""The clang-tidy configuration, //:.clang-tidy, and the file lists of the aspect that runs it.
 
 Each check is listed once with the guide section or tip it enforces, the checks that contradict the repository's rules
-stay out, the enforced checks are a subset of the swept ones, and the aspect's header filter covers exactly the
-first-party C++ (tools/clang_tidy/clang_tidy.bzl). clang-tidy itself checks the names and options (`--verify-config`,
-in //tools/clang_tidy:selftest).
+stay out, and the aspect's header filter covers exactly the first-party C++ (tools/clang_tidy/clang_tidy.bzl).
+clang-tidy itself checks the names and options (`--verify-config`, in //tools/clang_tidy:selftest).
 """
 
 import os
@@ -42,11 +41,10 @@ import yaml
 from tools.hooks import check_test_support
 from tools.hooks import lint_files
 
-ENFORCED = ".clang-tidy"
-SWEEP = "tools/clang_tidy/sweep.clang-tidy"
+CONFIG = ".clang-tidy"
 BZL = "tools/clang_tidy/clang_tidy.bzl"
 
-# Checks that contradict a rule of this repository (the comment block of the configurations says which).
+# Checks that contradict a rule of this repository (the comment block of the configuration says which).
 NEVER_ENABLED = (
     "bugprone-easily-swappable-parameters",
     "cert-err58-cpp",
@@ -120,64 +118,47 @@ def _header_filter() -> re.Pattern[str]:
 
 
 class ConfigurationTest(unittest.TestCase):
-    def _each(self):
-        for path in (ENFORCED, SWEEP):
-            with self.subTest(config=path):
-                yield path
-
     def test_checks_start_from_nothing_and_are_sorted_within_each_group(self):
-        for path in self._each():
-            checks = _load(path)["Checks"]
-            self.assertEqual(checks[0], "-*")
-            groups: list[list[str]] = [[]]
-            for line in _check_lines(path)[1:]:
-                if line.startswith("  # "):
-                    if groups[-1]:
-                        groups.append([])
-                elif line.startswith("  - "):
-                    groups[-1].append(line.split()[1])
-            for group in groups:
-                self.assertEqual(group, sorted(group))
-            self.assertEqual(len(checks), len(set(checks)))
+        checks = _load(CONFIG)["Checks"]
+        self.assertEqual(checks[0], "-*")
+        groups: list[list[str]] = [[]]
+        for line in _check_lines(CONFIG)[1:]:
+            if line.startswith("  # "):
+                if groups[-1]:
+                    groups.append([])
+            elif line.startswith("  - "):
+                groups[-1].append(line.split()[1])
+        for group in groups:
+            self.assertEqual(group, sorted(group))
+        self.assertEqual(len(checks), len(set(checks)))
 
     def test_every_check_names_what_it_enforces(self):
-        for path in self._each():
-            for line in _check_lines(path)[1:]:
-                if line.startswith("  - "):
-                    self.assertRegex(line, r"^  - [a-z0-9.-]+ +# \S", line)
+        for line in _check_lines(CONFIG)[1:]:
+            if line.startswith("  - "):
+                self.assertRegex(line, r"^  - [a-z0-9.-]+ +# \S", line)
 
     def test_findings_are_errors_and_the_aspect_sets_the_header_filter(self):
-        for path in self._each():
-            config = _load(path)
-            self.assertEqual(config["WarningsAsErrors"], "*")
-            self.assertIs(config["SystemHeaders"], False)
-            # tools/clang_tidy/clang_tidy.bzl passes --header-filter per action; a value here would be dead.
-            self.assertNotIn("HeaderFilterRegex", config)
-            self.assertNotIn("ExcludeHeaderFilterRegex", config)
+        config = _load(CONFIG)
+        self.assertEqual(config["WarningsAsErrors"], "*")
+        self.assertIs(config["SystemHeaders"], False)
+        # tools/clang_tidy/clang_tidy.bzl passes --header-filter per action; a value here would be dead.
+        self.assertNotIn("HeaderFilterRegex", config)
+        self.assertNotIn("ExcludeHeaderFilterRegex", config)
 
     def test_the_checks_against_the_repositorys_rules_stay_out(self):
-        for path in self._each():
-            checks = _load(path)["Checks"]
-            # A glob would enable checks nobody reviewed, the never-enabled ones among them.
-            self.assertEqual([check for check in checks if "*" in check], ["-*"])
-            for check in NEVER_ENABLED:
-                self.assertNotIn(check, checks)
-            self.assertFalse([check for check in checks if check.startswith("llvm-")])
-
-    def test_the_enforced_checks_are_swept_with_the_same_options(self):
-        enforced = _load(ENFORCED)
-        sweep = _load(SWEEP)
-        self.assertLessEqual(set(enforced["Checks"]), set(sweep["Checks"]))
-        for key in ("CheckOptions", "WarningsAsErrors", "SystemHeaders", "FormatStyle"):
-            self.assertEqual(enforced[key], sweep[key], key)
+        checks = _load(CONFIG)["Checks"]
+        # A glob would enable checks nobody reviewed, the never-enabled ones among them.
+        self.assertEqual([check for check in checks if "*" in check], ["-*"])
+        for check in NEVER_ENABLED:
+            self.assertNotIn(check, checks)
+        self.assertFalse([check for check in checks if check.startswith("llvm-")])
 
     def test_each_clang_diagnostic_check_has_its_warning_flag(self):
         # `clang-diagnostic-<name>` reports clang's -W<name>, and the aspect drops every warning flag of the build.
         flags = set(_bzl_list("CLANG_DIAGNOSTIC_FLAGS"))
-        for path in self._each():
-            for check in _load(path)["Checks"]:
-                if check.startswith("clang-diagnostic-"):
-                    self.assertIn("-W" + check[len("clang-diagnostic-") :], flags)
+        for check in _load(CONFIG)["Checks"]:
+            if check.startswith("clang-diagnostic-"):
+                self.assertIn("-W" + check[len("clang-diagnostic-") :], flags)
 
 
 class AspectFileListsTest(unittest.TestCase):

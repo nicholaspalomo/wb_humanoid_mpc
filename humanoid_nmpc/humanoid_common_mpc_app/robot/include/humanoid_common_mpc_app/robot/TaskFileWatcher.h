@@ -31,24 +31,42 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <string>
+
+#include "absl/strings/string_view.h"
 
 namespace ocs2::humanoid {
 
 /**
- * Calls a function when a file has been written since the last poll (its modification time changed), for the
+ * Calls a function when a task file has been written since the last poll (its modification time changed), for the
  * communication thread to poll at the rate the file should be checked: the robot process re-reads the controller-side
- * keys of its task file (`contactEstimator`, `contact_wrench_gate`) at about 1 Hz, as the in-process MPC's parameter
- * updater does. The file's time at construction is the baseline, so an unchanged file never calls. Not thread-safe:
- * one polling thread.
+ * settings of its task file (contact_estimator, contact_wrench_gate) at about 1 Hz, as the in-process MPC's parameter
+ * updater does. The baseline is the file's time when its owner read it (or at construction), so an unchanged file never
+ * calls and a file written after it was read always does. Not thread-safe: one polling thread.
  */
 class TaskFileWatcher {
  public:
-  TaskFileWatcher(std::string file, std::function<void(const std::string& file)> onChange);
+  /**
+   * Watches `file`, the robot's task file, which is handed to `onChange`, from `readAt`: the write time the file had
+   * when its contents were last read (writeTimeOf(), taken before the read). A write after that time is reported by the
+   * first poll, also one made before the watcher existed (a save while the process was starting). nullopt: the file's
+   * time now.
+   */
+  TaskFileWatcher(absl::string_view file,
+                  std::optional<std::filesystem::file_time_type> readAt,
+                  std::function<void(const std::string& file)> onChange);
 
-  /** Calls onChange when the file's modification time differs from the last one seen; true when it did. */
+  /** Watches `file` from its time now: the constructor above with writeTimeOf(file). */
+  TaskFileWatcher(absl::string_view file, std::function<void(const std::string& file)> onChange);
+
+  /** The write time of `file`; nullopt when it has none to read (it does not exist). */
+  static std::optional<std::filesystem::file_time_type> writeTimeOf(absl::string_view file);
+
+  /** Calls onChange with file() when the file's modification time differs from the last one seen; true when it did. */
   bool poll();
 
+  /** The file watched. */
   const std::string& file() const { return file_; }
 
  private:

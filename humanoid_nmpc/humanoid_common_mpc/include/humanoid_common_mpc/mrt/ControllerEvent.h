@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdint>
 #include <string>
 
+#include "absl/base/nullability.h"
 #include "absl/strings/string_view.h"
 
 namespace ocs2::humanoid {
@@ -44,7 +45,7 @@ namespace ocs2::humanoid {
  * these to its ControllerEventSink instead, a few plain values, and formatControllerEvent() turns it into the line the
  * controller used to log.
  */
-enum class ControllerEventCode : std::uint8_t {
+enum class ControllerEventCode : uint8_t {
   /** The policy diverged from the measured state; the solver is reset. values[0]: the largest joint error [rad]. */
   kPolicyDiverged,
   /** The observation clock ran backwards; the MPC is reset. values: the rewind [s] and the new time [s]. */
@@ -59,13 +60,22 @@ enum class ControllerEventCode : std::uint8_t {
   kContactEstimatorChanged,
   /** WB_MPC without a first policy: the weight-compensating action holds the robot until one arrives. */
   kNoPolicyWeightCompensation,
+  /**
+   * The contact estimator reported another number of flags than the controller has contact points, so the measured
+   * contact state stays that of the cycle before (ContactEstimateIntake). Posted once per run of refused estimates.
+   * values: the flags reported and the flags expected. text: the estimator's name.
+   */
+  kContactEstimateRefused,
+  /** A contact wrench gate configuration was refused and the one in use kept. values: debounceTime and rampTime [s]. */
+  kContactWrenchGateRefused,
 };
 
 /** One report of a controller: plain data, so that posting it copies a few words and allocates nothing. */
 struct ControllerEvent {
   ControllerEventCode code = ControllerEventCode::kPolicyDiverged;
   /** The class that reports it, e.g. "CentroidalMpcMrtJointController": a string literal, never owned. */
-  const char* controller = "";
+  // NOLINTNEXTLINE(totw-string-constant): a field of the event, set per event; "" is its default, not a constant.
+  const char* absl_nonnull controller = "";
   std::array<double, 2> values{};
   /** A name, NUL-terminated and cut to fit. */
   std::array<char, 32> text{};
@@ -73,7 +83,7 @@ struct ControllerEvent {
 
 /** An event of `code` from `controller` with `values` and `text` (cut to fit). */
 ControllerEvent makeControllerEvent(
-    ControllerEventCode code, const char* controller, double value0 = 0.0, double value1 = 0.0, absl::string_view text = {});
+    ControllerEventCode code, const char* absl_nonnull controller, double value0 = 0.0, double value1 = 0.0, absl::string_view text = {});
 
 /** The text of `event`, as a string_view of its NUL-terminated buffer. */
 absl::string_view controllerEventText(const ControllerEvent& event);

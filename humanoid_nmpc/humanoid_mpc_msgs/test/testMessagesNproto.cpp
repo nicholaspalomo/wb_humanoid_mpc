@@ -30,8 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // The nproto structs of every humanoid_mpc_msgs message (ocs2::humanoid::msgs, tools/nproto/README.md): each one
 // round-trips through its protobuf message both ways, and the test covers every .proto file of the package.
 
-#include <gtest/gtest.h>
-
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -42,13 +40,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <type_traits>
 #include <vector>
 
-#include <Eigen/Core>
-
+#include "Eigen/Core"
 #include "absl/status/status.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_mpc_msgs/arrows.nproto.pb.h"
 #include "humanoid_mpc_msgs/color.nproto.pb.h"
+#include "humanoid_mpc_msgs/config_file_kind.nproto.pb.h"
+#include "humanoid_mpc_msgs/config_file_save.nproto.pb.h"
+#include "humanoid_mpc_msgs/config_file_save_status.nproto.pb.h"
 #include "humanoid_mpc_msgs/controller_type.nproto.pb.h"
+#include "humanoid_mpc_msgs/dodgeball_throw.nproto.pb.h"
 #include "humanoid_mpc_msgs/fsm_command.nproto.pb.h"
 #include "humanoid_mpc_msgs/fsm_state.nproto.pb.h"
 #include "humanoid_mpc_msgs/joint_targets.nproto.pb.h"
@@ -78,7 +80,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_msgs/visualization_scene.nproto.pb.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.nproto.pb.h"
 #include "humanoid_mpc_msgs/wrench.nproto.pb.h"
-#include "humanoid_mpc_msgs/yaml_document.nproto.pb.h"
 #include "tools/nproto/test/ProtoTestValues.h"
 
 namespace ocs2::humanoid::msgs {
@@ -93,8 +94,8 @@ static_assert(std::is_same_v<decltype(MpcPolicy::state_trajectory), std::vector<
 static_assert(std::is_same_v<decltype(MpcPolicy::controller_type), ControllerType>);
 static_assert(std::is_same_v<decltype(Vector::data), Eigen::VectorXd>);
 static_assert(std::is_same_v<decltype(SystemObservation::state), Eigen::VectorXd>);
-static_assert(std::is_same_v<decltype(SystemObservation::mode), std::uint64_t>);
-static_assert(std::is_same_v<decltype(ModeSchedule::mode_sequence), std::vector<std::uint64_t>>);
+static_assert(std::is_same_v<decltype(SystemObservation::mode), uint64_t>);
+static_assert(std::is_same_v<decltype(ModeSchedule::mode_sequence), std::vector<uint64_t>>);
 static_assert(std::is_same_v<decltype(RobotStateSample::joint_names), std::vector<std::string>>);
 static_assert(std::is_same_v<decltype(RobotStateSample::contact_flags), std::vector<bool>>);
 static_assert(std::is_same_v<decltype(RobotStateSample::measured_contact_wrenches), std::vector<Wrench>>);
@@ -109,9 +110,12 @@ struct Conversion {
   using Proto = ProtoType;
 };
 
-// Every message of the package; controller_type.proto is the one enum (EnumTest below).
+// Every message of the package; controller_type.proto and config_file_kind.proto are its enums (EnumTest below).
 using AllMessages = ::testing::Types<Conversion<Arrows, humanoid_mpc_msgs::Arrows>,
                                      Conversion<Color, humanoid_mpc_msgs::Color>,
+                                     Conversion<ConfigFileSave, humanoid_mpc_msgs::ConfigFileSave>,
+                                     Conversion<ConfigFileSaveStatus, humanoid_mpc_msgs::ConfigFileSaveStatus>,
+                                     Conversion<DodgeballThrow, humanoid_mpc_msgs::DodgeballThrow>,
                                      Conversion<FsmCommand, humanoid_mpc_msgs::FsmCommand>,
                                      Conversion<FsmState, humanoid_mpc_msgs::FsmState>,
                                      Conversion<JointTargets, humanoid_mpc_msgs::JointTargets>,
@@ -140,8 +144,7 @@ using AllMessages = ::testing::Types<Conversion<Arrows, humanoid_mpc_msgs::Arrow
                                      Conversion<ViewerAnnotations, humanoid_mpc_msgs::ViewerAnnotations>,
                                      Conversion<VisualizationScene, humanoid_mpc_msgs::VisualizationScene>,
                                      Conversion<WalkingVelocityCommand, humanoid_mpc_msgs::WalkingVelocityCommand>,
-                                     Conversion<Wrench, humanoid_mpc_msgs::Wrench>,
-                                     Conversion<YamlDocument, humanoid_mpc_msgs::YamlDocument>>;
+                                     Conversion<Wrench, humanoid_mpc_msgs::Wrench>>;
 
 template <typename T>
 class MessageRoundTripTest : public ::testing::Test {};
@@ -159,9 +162,10 @@ std::set<std::string> filesOf(::testing::Types<Conversions...> /*types*/) {
 TEST(CoverageTest, EveryProtoFileOfThePackageIsTested) {
   std::set<std::string> covered = filesOf(AllMessages());
   covered.insert(std::string(humanoid_mpc_msgs::ControllerType_descriptor()->file()->name()));
+  covered.insert(std::string(humanoid_mpc_msgs::ConfigFileKind_descriptor()->file()->name()));
   const std::filesystem::path directory =
       std::filesystem::path(std::getenv("TEST_SRCDIR")) / "_main" / "humanoid_nmpc" / "humanoid_mpc_msgs";
-  std::size_t files = 0;
+  size_t files = 0;
   for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(directory)) {
     if (entry.path().extension() != ".proto") {
       continue;
@@ -189,6 +193,46 @@ TEST(EnumTest, ControllerTypeConvertsBothWaysAndRejectsUndefinedNumbers) {
   const absl::Status status = FromProto(static_cast<humanoid_mpc_msgs::ControllerType>(17), &value);
   EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_EQ(status.message(), "17 is not a value of humanoid_mpc_msgs.ControllerType");
+}
+
+TEST(EnumTest, ConfigFileKindConvertsBothWaysAndRejectsUndefinedNumbers) {
+  for (const ConfigFileKind kind :
+       {ConfigFileKind::kUnspecified, ConfigFileKind::kTask, ConfigFileKind::kReference, ConfigFileKind::kJointPdGains}) {
+    humanoid_mpc_msgs::ConfigFileKind proto = humanoid_mpc_msgs::CONFIG_FILE_KIND_UNSPECIFIED;
+    ToProto(kind, &proto);
+    ConfigFileKind back = ConfigFileKind::kUnspecified;
+    ASSERT_TRUE(FromProto(proto, &back).ok());
+    EXPECT_EQ(back, kind);
+  }
+  ConfigFileKind value = ConfigFileKind::kUnspecified;
+  EXPECT_EQ(FromProto(static_cast<humanoid_mpc_msgs::ConfigFileKind>(9), &value).code(), absl::StatusCode::kInvalidArgument);
+}
+
+// A save as the GUI sends it, and the robot's answer: the text travels byte for byte, the result by its name.
+TEST(ConfigFileSaveTest, TheTextAndTheResultTravelUnchanged) {
+  ConfigFileSave save;
+  save.kind = ConfigFileKind::kJointPdGains;
+  save.robot_name = "g1";
+  save.config_path = "robot_models/unitree_g1/g1_wb_mpc/config/controller/joint_pd_gains.textproto";
+  save.text = "# proto-file: x\ndefault_gains { kp: 100.0 }\n";
+  save.sequence = 1'759'680'000'000'000'000ULL;
+  humanoid_mpc_msgs::ConfigFileSave proto;
+  ToProto(save, &proto);
+  EXPECT_EQ(proto.kind(), humanoid_mpc_msgs::CONFIG_FILE_KIND_JOINT_PD_GAINS);
+  EXPECT_EQ(proto.text(), save.text);
+  humanoid_mpc_msgs::ConfigFileSave parsed;
+  ASSERT_TRUE(parsed.ParseFromString(proto.SerializeAsString()));
+  ConfigFileSave back;
+  ASSERT_TRUE(FromProto(parsed, &back).ok());
+  EXPECT_TRUE(back == save);
+
+  ConfigFileSaveStatus status;
+  status.sequence = save.sequence;
+  status.kind = save.kind;
+  status.result = ConfigFileSaveStatus::Result::kSaved;
+  humanoid_mpc_msgs::ConfigFileSaveStatus statusProto;
+  ToProto(status, &statusProto);
+  EXPECT_EQ(statusProto.result(), humanoid_mpc_msgs::ConfigFileSaveStatus::RESULT_SAVED);
 }
 
 TEST(ErrorTest, AnUndefinedEnumNumberDeepInAPolicyNamesItsPath) {

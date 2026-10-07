@@ -34,16 +34,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include <ocs2_centroidal_model/CentroidalModelInfo.h>
-#include <ocs2_mpc/CommandData.h>
-#include <ocs2_mpc/SystemObservation.h>
-#include <ocs2_oc/oc_data/PrimalSolution.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
+#include "absl/base/nullability.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_mpc/CommandData.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc_app/visualization/VisualizationModel.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_msgs/robot_state_sample.pb.h"
 
 namespace ocs2::humanoid::visualization::test {
@@ -76,7 +78,7 @@ std::vector<std::pair<RobotFiles, Formulation>> shippedConfigurations();
 
 /**
  * A robot's MPC model as the MPC node builds it, without the solver: the model settings, the MPC's Pinocchio model
- * (createCustomPinocchioInterface) and the robot model of the formulation; plus synthetic observations, policies and
+ * (loadCustomPinocchioInterface) and the robot model of the formulation; plus synthetic observations, policies and
  * robot/state samples for it. Paths are resolved from the test's runfiles.
  */
 class TestRobot {
@@ -90,10 +92,12 @@ class TestRobot {
   /** A second, independently built MPC Pinocchio model, for reference kinematics. */
   PinocchioInterface makeReferencePinocchioInterface() const;
   const std::string& taskFile() const { return taskFile_; }
+  /** The task file, as loadTaskFile() read it. */
+  const mpc_config::TaskFile& task() const { return task_; }
   const std::string& urdfFile() const { return urdfFile_; }
   Formulation formulation() const { return formulation_; }
 
-  /** The task file's initialState: a standing configuration. */
+  /** The task file's initial_state: a standing configuration. */
   const vector_t& nominalState() const { return nominalState_; }
 
   /** The nominal state at `time` in `mode`, its input zero. */
@@ -110,8 +114,8 @@ class TestRobot {
                   size_t nodes,
                   scalar_t normalForce,
                   const vector2_t& copOffset,
-                  CommandData* command,
-                  PrimalSolution* solution) const;
+                  CommandData* absl_nonnull command,
+                  PrimalSolution* absl_nonnull solution) const;
 
   /**
    * A robot/state sample of every joint of fullJointNames (named, in reverse order, so that the order of the names is
@@ -125,6 +129,7 @@ class TestRobot {
 
   Formulation formulation_ = Formulation::kCentroidal;
   std::string taskFile_;
+  mpc_config::TaskFile task_;
   std::string referenceFile_;
   std::string urdfFile_;
   std::unique_ptr<ModelSettings> modelSettings_;

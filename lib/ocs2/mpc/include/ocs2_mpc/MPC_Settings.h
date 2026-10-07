@@ -70,15 +70,5 @@ struct Settings {
   scalar_t mrtDesiredFrequency_ = 100.0;
 };
 
-/**
- * Loads the MPC settings from a given file.
- *
- * @param [in] filename: File name which contains the configuration data.
- * @param [in] fieldName: Field name which contains the configuration data.
- * @param [in] verbose: Flag to determine whether to print out the loaded settings or not.
- * @return The MPC settings
- */
-Settings loadSettings(const std::string& filename, const std::string& fieldName = "mpc", bool verbose = true);
-
 }  // namespace mpc
 }  // namespace ocs2

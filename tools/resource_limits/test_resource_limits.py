@@ -70,7 +70,7 @@ def _host_ram_factor(bazelrc, command, flag):
 
 class BazelParallelismTest(unittest.TestCase):
     def setUp(self):
-        with open(_runfile(".bazelrc")) as f:
+        with open(_runfile(".bazelrc"), encoding="utf-8") as f:
             self.bazelrc = f.read()
 
     def test_jobs_are_bounded_by_memory_not_a_fixed_count(self):
@@ -132,11 +132,11 @@ class LocalCiEmulatorTest(unittest.TestCase):
     """
 
     def setUp(self):
-        with open(_runfile("tools/ci_local.sh")) as f:
+        with open(_runfile("tools/ci_local.sh"), encoding="utf-8") as f:
             self.emulator = f.read()
-        with open(_runfile(".github/workflows/build_test.yml")) as f:
+        with open(_runfile(".github/workflows/build_test.yml"), encoding="utf-8") as f:
             self.workflow = f.read()
-        with open(_runfile(".bazelrc")) as f:
+        with open(_runfile(".bazelrc"), encoding="utf-8") as f:
             self.bazelrc = f.read()
 
     def test_it_installs_what_the_workflow_installs(self):
@@ -146,7 +146,7 @@ class LocalCiEmulatorTest(unittest.TestCase):
 
     def test_it_runs_the_workflows_container_and_steps(self):
         container = re.search(r"^    container: (\S+)\s*$", self.workflow, re.MULTILINE)
-        self.assertIsNotNone(container, "the workflow names no container")
+        assert container is not None, "the workflow names no container"
         self.assertIn('CI_IMAGE="%s"' % container.group(1), self.emulator)
         self.assertIn('  "${CI_IMAGE}" \\', self.emulator)
         for step in (
@@ -185,8 +185,7 @@ class LocalCiEmulatorTest(unittest.TestCase):
     def test_its_job_counts_are_no_more_than_bazelrc_gives_the_runner(self):
         jobs = re.search(r"build --jobs=(\d+)", self.emulator)
         test_jobs = re.search(r"test --local_test_jobs=(\d+)", self.emulator)
-        self.assertIsNotNone(jobs)
-        self.assertIsNotNone(test_jobs)
+        assert jobs is not None and test_jobs is not None
         self.assertLessEqual(
             int(jobs.group(1)), 16384 * _host_ram_factor(self.bazelrc, "build", "jobs")
         )
@@ -201,7 +200,7 @@ class LocalCiEmulatorTest(unittest.TestCase):
 
 class ContainerMemoryCapTest(unittest.TestCase):
     def test_compose_caps_memory_and_forbids_swap_beyond_the_cap(self):
-        with open(_runfile("docker-compose.yaml")) as f:
+        with open(_runfile("docker-compose.yaml"), encoding="utf-8") as f:
             compose = f.read()
         # LINT.IfChange(container_memory_limit)
         self.assertIn("mem_limit: ${WB_CONTAINER_MEMORY_LIMIT:-0}", compose)
@@ -211,7 +210,7 @@ class ContainerMemoryCapTest(unittest.TestCase):
         # LINT.ThenChange(//docker-compose.yaml:container_memory_limit)
 
     def test_the_dev_container_computes_the_cap_before_it_starts(self):
-        with open(_runfile(".devcontainer/devcontainer.json")) as f:
+        with open(_runfile(".devcontainer/devcontainer.json"), encoding="utf-8") as f:
             devcontainer = f.read()
         self.assertRegex(
             devcontainer,
@@ -221,6 +220,7 @@ class ContainerMemoryCapTest(unittest.TestCase):
 
 class SetContainerMemoryLimitScriptTest(unittest.TestCase):
     def setUp(self):
+        # pylint: disable-next=consider-using-with  # tearDown() deletes it.
         self.dir = tempfile.TemporaryDirectory()
         self.env_file = os.path.join(self.dir.name, ".env")
         self.meminfo = os.path.join(self.dir.name, "meminfo")
@@ -230,7 +230,7 @@ class SetContainerMemoryLimitScriptTest(unittest.TestCase):
 
     def _run(self, total_kb=None, **env):
         if total_kb is not None:
-            with open(self.meminfo, "w") as f:
+            with open(self.meminfo, "w", encoding="utf-8") as f:
                 f.write("MemTotal:       %d kB\nMemFree:        1000 kB\n" % total_kb)
         environment = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
@@ -247,7 +247,7 @@ class SetContainerMemoryLimitScriptTest(unittest.TestCase):
         )
 
     def _env_lines(self):
-        with open(self.env_file) as f:
+        with open(self.env_file, encoding="utf-8") as f:
             return f.read().splitlines()
 
     def test_the_cap_is_a_share_of_the_hosts_ram(self):
@@ -264,7 +264,7 @@ class SetContainerMemoryLimitScriptTest(unittest.TestCase):
         self.assertIn("WB_CONTAINER_MEMORY_LIMIT=20g", self._env_lines())
 
     def test_other_variables_are_kept_and_the_line_is_replaced_not_repeated(self):
-        with open(self.env_file, "w") as f:
+        with open(self.env_file, "w", encoding="utf-8") as f:
             f.write("GIT_USER_NAME=someone\nWB_CONTAINER_MEMORY_LIMIT=1m\n")
         self._run(total_kb=16 * 1024 * 1024)
         self._run(total_kb=16 * 1024 * 1024)

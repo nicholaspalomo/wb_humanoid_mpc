@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -28,7 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <vector>
 
-#include <ocs2_core/Types.h>
+#include "absl/status/statusor.h"
+#include "ocs2_core/Types.h"
 
 namespace ocs2::humanoid {
 
@@ -36,7 +41,7 @@ namespace ocs2::humanoid {
  * Bound magnitude from which a general constraint bound is treated as absent (masked out in HPIPM) rather than as a
  * finite, very loose bound. Use +-kOcpQpInfiniteBound for one-sided constraints.
  */
-constexpr scalar_t kOcpQpInfiniteBound = 1.0e6;
+inline constexpr scalar_t kOcpQpInfiniteBound = 1.0e6;
 
 /**
  * One node of a discrete-time linear-quadratic optimal control problem with box and general inequality constraints.
@@ -96,16 +101,20 @@ struct OcpQpProblem {
   int numStages() const { return static_cast<int>(stages.size()) - 1; }
 };
 
+/**
+ * What OcpQpHpipmSolver::solve() returns for a problem it accepted: HPIPM's status, its iteration count, the objective
+ * and the trajectories. Passive data; a copy per solve, so it is safe to read from any thread once returned.
+ */
 struct OcpQpSolution {
-  enum class Status { SUCCESS, MAX_ITER, MIN_STEP, NAN_SOL, INCONS_EQ, UNKNOWN };
+  enum class Status { kSuccess, kMaxIter, kMinStep, kNanSol, kInconsEq, kUnknown };
 
-  Status status = Status::UNKNOWN;
+  Status status = Status::kUnknown;
   int iterations = 0;
   scalar_t objective = 0.0;  // includes the soft-constraint slack penalties
   std::vector<vector_t> x;   // size N + 1
   std::vector<vector_t> u;   // size N
 
-  bool success() const { return status == Status::SUCCESS; }
+  bool success() const { return status == Status::kSuccess; }
 };
 
 /** Evaluates the objective of the problem (including soft constraint penalties) for the given trajectories. */
@@ -124,13 +133,13 @@ class OcpQpHpipmSolver {
  public:
   struct Settings {
     int iterMax = 60;
-    scalar_t alphaMin = 1e-12;
-    scalar_t mu0 = 1e2;
-    scalar_t tolStat = 1e-6;
-    scalar_t tolEq = 1e-8;
-    scalar_t tolIneq = 1e-8;
-    scalar_t tolComp = 1e-8;
-    scalar_t regPrim = 1e-10;
+    scalar_t alphaMin = 1.0e-12;
+    scalar_t mu0 = 1.0e2;
+    scalar_t tolStat = 1.0e-6;
+    scalar_t tolEq = 1.0e-8;
+    scalar_t tolIneq = 1.0e-8;
+    scalar_t tolComp = 1.0e-8;
+    scalar_t regPrim = 1.0e-10;
     int warmStart = 0;
     int predCorr = 1;
     int hpipmMode = 2;  // hpipm_mode: 0 SPEED_ABS, 1 SPEED, 2 BALANCE, 3 ROBUST
@@ -143,8 +152,11 @@ class OcpQpHpipmSolver {
   OcpQpHpipmSolver(const OcpQpHpipmSolver&) = delete;
   OcpQpHpipmSolver& operator=(const OcpQpHpipmSolver&) = delete;
 
-  /** Solves the problem. Throws std::invalid_argument for inconsistent problem data. */
-  OcpQpSolution solve(const OcpQpProblem& problem);
+  /**
+   * Solves the problem. Inconsistent problem data (sizes, indices) is an InvalidArgument naming the stage, and memory
+   * HPIPM could not be given is a ResourceExhausted; a solve HPIPM did not finish is a solution whose status says why.
+   */
+  absl::StatusOr<OcpQpSolution> solve(const OcpQpProblem& problem);
 
   const Settings& getSettings() const { return settings_; }
 

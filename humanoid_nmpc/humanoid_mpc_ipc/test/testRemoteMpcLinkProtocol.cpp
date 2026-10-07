@@ -31,8 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // link accepts and which it drops, how it serves the reset handshake, how it mirrors the reported health and when the
 // link counts as lost. The test thread is the robot's control thread.
 
-#include <gtest/gtest.h>
-
 #include <cmath>
 #include <cstdint>
 #include <memory>
@@ -48,8 +46,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-
-#include <ocs2_core/Types.h>
+#include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
 #include "humanoid_mpc_ipc/RemoteMpcLink.h"
@@ -601,8 +599,8 @@ TEST(RemoteMpcLinkOwnBusTest, ALinkWithABusOfItsOwnSendsAndReceives) {
     port = ports(generator);
     robot::ipc::BusOptions options;
     options.nodeName = "robot";
-    options.network.nodes = {robot::ipc::NodeEndpoint{.name = "robot", .host = "127.0.0.1", .port = port},
-                             robot::ipc::NodeEndpoint{.name = "mpc", .host = "127.0.0.1", .port = mpc.bus().boundPort()}};
+    options.network.nodes = {robot::ipc::NodeEndpoint{.name = "robot", .host = "127.0.0.1", .port = port, .bindHost = ""},
+                             robot::ipc::NodeEndpoint{.name = "mpc", .host = "127.0.0.1", .port = mpc.bus().boundPort(), .bindHost = ""}};
     absl::StatusOr<std::unique_ptr<RemoteMpcLink>> created = RemoteMpcLink::Create(std::move(options), supervisor, config);
     if (created.ok()) {
       link = std::move(*created);

@@ -27,11 +27,10 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include "humanoid_common_mpc/common/StateLayout.h"
-
-#include <gtest/gtest.h>
-
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
+
+#include "humanoid_common_mpc/common/StateLayout.h"
 
 namespace ocs2::humanoid {
 namespace {

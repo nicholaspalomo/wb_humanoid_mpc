@@ -36,6 +36,14 @@ CONTEXT_DIR=".deploy/context"
 UNIT="wb-humanoid-robot@.service"
 SERVICES="none install enable"
 TARGETS="robot-runtime robot-sim"
+# LINT.IfChange(config_seed_policies)
+CONFIG_SEEDS="when_bundle_changes every_start never"
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/RobotConfigDirectory.h:config_seed_policies)
+# The robot's persistent configuration in the deployment directory, which compose binds into the container
+# (WB_ROBOT_CONFIG_SOURCE, docker-compose.robot.yaml); a deploy creates it and never empties it.
+# LINT.IfChange(robot_config_dir)
+ROBOT_CONFIG_DIR="robot_config"
+# LINT.ThenChange(//docker-compose.robot.yaml:robot_config_store, //.gitignore)
 
 usage() {
     sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
@@ -59,6 +67,8 @@ Options:
   --realtime_cores LIST     cores of the realtime thread (default: the launch file's)
   --backend_cores LIST      cores of the backend's threads (default: the launch file's)
   --backend NAME            the robot backend (default: the launch file's, mujoco)
+  --config_seed POLICY      when the robot's stored configuration is replaced by the deployed files: when_bundle_changes
+                            (default: a deploy that changed a file), every_start or never
   --netem PARAMS            tc-netem parameters for the bus's packets, e.g. "delay 3ms 1ms loss 0.5%" (default: none)
   --netem_interface NAME    the interface NETEM shapes (default lo)
   --dev_container NAME      the dev container Bazel runs in from the host (default devcontainer-app-1)
@@ -134,6 +144,7 @@ realtime_priority=""
 realtime_cores=""
 backend_cores=""
 backend=""
+config_seed=""
 netem=""
 netem_interface="lo"
 skip_bundle="no"
@@ -155,6 +166,7 @@ while [ "$#" -gt 0 ]; do
         --realtime_cores) realtime_cores="$2"; shift 2 ;;
         --backend_cores) backend_cores="$2"; shift 2 ;;
         --backend) backend="$2"; shift 2 ;;
+        --config_seed) config_seed="$2"; shift 2 ;;
         --netem) netem="$2"; shift 2 ;;
         --netem_interface) netem_interface="$2"; shift 2 ;;
         --dev_container) export WB_DEV_CONTAINER="$2"; shift 2 ;;
@@ -167,6 +179,7 @@ done
 [ -n "${host}" ] || host="localhost"
 one_of "${target}" "${TARGETS}" "target"
 one_of "${service}" "${SERVICES}" "service"
+[ -z "${config_seed}" ] || one_of "${config_seed}" "${CONFIG_SEEDS}" "seed policy"
 # A tty for sudo's password prompt and for Ctrl-C of `up`.
 ssh_flags=()
 if [ -t 0 ]; then
@@ -261,6 +274,7 @@ print_environment() {
         [ -z "${realtime_priority}" ] || echo "WB_ROBOT_REALTIME_PRIORITY=${realtime_priority}"
         [ -z "${realtime_cores}" ] || echo "WB_ROBOT_REALTIME_CORES=${realtime_cores}"
         [ -z "${backend_cores}" ] || echo "WB_ROBOT_BACKEND_CORES=${backend_cores}"
+        [ -z "${config_seed}" ] || echo "WB_ROBOT_CONFIG_SEED=${config_seed}"
         # LINT.ThenChange(//docker-compose.robot.yaml:robot_environment)
         echo "NETEM=\"${netem}\""
         echo "NETEM_INTERFACE=${netem_interface}"
@@ -311,7 +325,9 @@ deploy() {
     if [ "${host}" = "localhost" ] && [ "${deploy_dir#/}" = "${deploy_dir}" ]; then
         remote_dir="${HOME}/${deploy_dir}"
     fi
-    on_host "mkdir -p '${remote_dir}'"
+    # The robot's stored configuration lives in the deployment directory, created here by the deploy user (compose
+    # would create a missing one as root); the robot seeds it from the image's bundle when it starts.
+    on_host "mkdir -p '${remote_dir}' '${remote_dir}/${ROBOT_CONFIG_DIR}'"
     copy_to_host docker-compose.robot.yaml "${remote_dir}/docker-compose.robot.yaml"
     copy_to_host docker-compose.robot.netem.yaml "${remote_dir}/docker-compose.robot.netem.yaml"
     copy_to_host "${network}" "${remote_dir}/network.textproto"

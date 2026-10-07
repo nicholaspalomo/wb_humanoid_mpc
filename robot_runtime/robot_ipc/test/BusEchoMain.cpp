@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
 #include "absl/log/log.h"
@@ -63,7 +64,7 @@ constexpr char kOrigin[] = "robot_ipc_bus_echo";
 
 }  // namespace
 
-int main(int argc, char** argv) {
+int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   absl::ParseCommandLine(argc, argv);
   const std::string peer = absl::GetFlag(FLAGS_peer);
   const std::string inputTopic = absl::GetFlag(FLAGS_input_topic);
@@ -102,7 +103,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  std::cout << "READY " << bus.boundEndpoint() << std::endl;
+  std::cout << "READY " << bus.boundEndpoint() << '\n' << std::flush;  // the test reads the line before it writes
   std::string line;
   while (std::getline(std::cin, line)) {
     // Runs until the test closes standard input.
@@ -111,6 +112,7 @@ int main(int argc, char** argv) {
 
   const robot::ipc::TopicStatistics statistics = bus.topicStatistics(inputTopic);
   std::cout << "STATS received=" << statistics.received << " delivered=" << statistics.delivered << " rejected=" << statistics.rejected
-            << std::endl;
+            << '\n'
+            << std::flush;
   return 0;
 }

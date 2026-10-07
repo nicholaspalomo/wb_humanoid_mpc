@@ -63,17 +63,21 @@ inline constexpr absl::string_view kVizTelemetry = "viz/telemetry";
 inline constexpr absl::string_view kOperatorWalkingVelocityCommand = "operator/walking_velocity_command";
 // FsmCommand, GUI -> robot, on change.
 inline constexpr absl::string_view kOperatorFsmCommand = "operator/fsm_command";
-// YamlDocument, GUI -> MPC and robot, on edit.
+// MpcParameterUpdate (humanoid_mpc_config: the whole task and contact planner files), GUI -> MPC and robot, on edit.
 inline constexpr absl::string_view kOperatorMpcParameters = "operator/mpc_parameters";
-// YamlDocument, GUI -> robot, on edit.
+// JointPdGainsFile (humanoid_mpc_config: the whole PD gains file), GUI -> robot, on edit.
 inline constexpr absl::string_view kOperatorPdGains = "operator/pd_gains";
 // JointTargets, GUI -> robot, on edit (JOINT_PD only).
 inline constexpr absl::string_view kOperatorJointTargets = "operator/joint_targets";
-// YamlDocument, GUI -> robot (simulation), on button press.
+// DodgeballThrow, GUI -> robot (simulation), on button press.
 inline constexpr absl::string_view kOperatorDodgeballThrow = "operator/dodgeball_throw";
+// ConfigFileSave, GUI and push_robot_config -> robot, on Save: a configuration file for the robot's persistent copy.
+inline constexpr absl::string_view kOperatorConfigSave = "operator/config_save";
+// ConfigFileSaveStatus, robot -> GUI and push_robot_config, once per ConfigFileSave.
+inline constexpr absl::string_view kRobotConfigSaveStatus = "robot/config_save_status";
 
 // Every topic above, for tools that list or check them.
-inline constexpr std::array<absl::string_view, 14> kAllTopics = {
+inline constexpr std::array<absl::string_view, 16> kAllTopics = {
     kRobotMpcObservation,
     kRobotState,
     kRobotFsmState,
@@ -88,6 +92,8 @@ inline constexpr std::array<absl::string_view, 14> kAllTopics = {
     kOperatorPdGains,
     kOperatorJointTargets,
     kOperatorDodgeballThrow,
+    kOperatorConfigSave,
+    kRobotConfigSaveStatus,
 };
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_ipc/python/humanoid_mpc_ipc/topics.py:topics, //humanoid_nmpc/docs/distributed_runtime/README.md:topic_table)

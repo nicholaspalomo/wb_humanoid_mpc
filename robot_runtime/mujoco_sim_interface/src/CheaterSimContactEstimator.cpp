@@ -29,11 +29,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "mujoco_sim_interface/CheaterSimContactEstimator.h"
 
-#include <iostream>
-
-#include "mujoco_sim_interface/MujocoSimInterface.h"
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <vector>
 
 #include "absl/log/log.h"
+
+#include "mujoco_sim_interface/MujocoSimInterface.h"
 
 namespace robot::mujoco_sim_interface {
 
@@ -74,7 +77,7 @@ void registerCheaterSimContactEstimator(robot::model::ContactEstimatorRegistry& 
                [&sim] { return std::make_shared<CheaterSimContactEstimator>(sim); });
 }
 // clang-format off
-// LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:contact_estimator, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml:contact_estimator, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml:contact_estimator, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.yaml:contact_estimator, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:contact_estimator)
+// LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:contact_estimator, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto:contact_estimator, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto:contact_estimator, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto:contact_estimator, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto:contact_estimator, //humanoid_nmpc/humanoid_mpc_config/task_file.proto:contact_estimator)
 // clang-format on
 
 }  // namespace robot::mujoco_sim_interface

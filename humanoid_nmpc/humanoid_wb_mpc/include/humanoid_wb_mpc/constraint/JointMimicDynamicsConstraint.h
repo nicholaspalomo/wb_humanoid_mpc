@@ -30,7 +30,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_core/constraint/StateInputConstraint.h>
+#include <memory>
+#include <string>
+
+#include "absl/base/nullability.h"
+#include "absl/status/statusor.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -38,47 +43,62 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
+/**
+ * The equality constraint that makes a child joint mimic a parent one at the acceleration level,
+ * Kp (m q_parent - q_child) + Kd (m qd_parent - qd_child) + (m qdd_parent - qdd_child) = 0, so that the joint error
+ * decays as a stable second-order system (the knees of a robot with a four-bar linkage). Holds a pointer to the robot
+ * model, which must outlive it and its clones. Not thread-safe; the solver clones one per worker thread.
+ */
 class JointMimicDynamicsConstraint final : public StateInputConstraint {
  public:
+  /** The mimic pair of Create(), with both joints resolved to their index among the MPC joints. */
   struct Config {
-    Config() = delete;
-    explicit Config(const WBAccelMpcRobotModel<scalar_t>& mpcRobotModel,
-                    std::string parentJointNameParam,
-                    std::string childJointNameParam,
-                    scalar_t multiplierParam,
-                    scalar_t positionGainParam,
-                    scalar_t velocityGainParam);
-    const std::string parentJointName;
-    const std::string childJointName;
-    const size_t parentJointIndex;
-    const size_t childJointIndex;
-    const scalar_t multiplier;  // q_child = multiplier* q_parent
-    scalar_t positionGain;
-    scalar_t velocityGain;
+    std::string parentJointName;
+    std::string childJointName;
+    size_t parentJointIndex = 0;
+    size_t childJointIndex = 0;
+    scalar_t multiplier = 0.0;  // q_child = multiplier* q_parent
+    scalar_t positionGain = 0.0;
+    scalar_t velocityGain = 0.0;
   };
 
   /**
-   * @param [in] contactPointIndex : The 3 DoF contact index.
+   * The constraint q_child = multiplier * q_parent between two MPC joints of `mpcRobotModel`, which must outlive it.
+   *
+   * @return NotFound naming the joint when `parentJointName` or `childJointName` is not an active joint of the MPC
+   *         model; InvalidArgument unless 0 < velocityGain < positionGain.
    */
-  JointMimicDynamicsConstraint(const WBAccelMpcRobotModel<scalar_t>& mpcRobotModel, Config config);
+  static absl::StatusOr<std::unique_ptr<JointMimicDynamicsConstraint>> Create(const WBAccelMpcRobotModel<scalar_t>& mpcRobotModel,
+                                                                              const std::string& parentJointName,
+                                                                              const std::string& childJointName,
+                                                                              scalar_t multiplier,
+                                                                              scalar_t positionGain,
+                                                                              scalar_t velocityGain);
 
   ~JointMimicDynamicsConstraint() override = default;
-  JointMimicDynamicsConstraint* clone() const override { return new JointMimicDynamicsConstraint(*this); }
+  JointMimicDynamicsConstraint& operator=(const JointMimicDynamicsConstraint&) = delete;
+  JointMimicDynamicsConstraint(JointMimicDynamicsConstraint&&) = delete;
+  JointMimicDynamicsConstraint& operator=(JointMimicDynamicsConstraint&&) = delete;
+  JointMimicDynamicsConstraint* absl_nonnull clone() const override { return new JointMimicDynamicsConstraint(*this); }
 
   bool isActive(scalar_t time) const override;
   void setActive(bool isActive) override { isActive_ = isActive; }
   bool getActive() const override { return isActive_; }
-  size_t getNumConstraints(scalar_t time) const override { return 1; }
+  size_t getNumConstraints(scalar_t /*time*/) const override { return 1; }
   vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
   VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
                                                            const vector_t& state,
                                                            const vector_t& input,
                                                            const PreComputation& preComp) const override;
 
+  /** The mimic pair, as Create() resolved it. */
+  const Config& getConfig() const { return config_; }
+
  private:
+  JointMimicDynamicsConstraint(const WBAccelMpcRobotModel<scalar_t>& mpcRobotModel, Config config);
   JointMimicDynamicsConstraint(const JointMimicDynamicsConstraint& rhs);
 
-  const WBAccelMpcRobotModel<scalar_t>* wbAccelMpcRobotModelPtr_;
+  const WBAccelMpcRobotModel<scalar_t>* absl_nonnull wbAccelMpcRobotModelPtr_;
   const Config config_;
 
   bool isActive_ = true;

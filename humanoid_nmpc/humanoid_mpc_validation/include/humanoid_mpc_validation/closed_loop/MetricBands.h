@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 
 #include "humanoid_mpc_validation/io/GoldenIo.h"
@@ -139,7 +140,7 @@ absl::StatusOr<WindowedTrackingErrors> trackingErrorsOutsideWindows(const Golden
 std::vector<std::string> compareClosedLoopRuns(const JsonValue& candidate,
                                                const GoldenFile& candidateSeries,
                                                const JsonValue& baseline,
-                                               const GoldenFile* baselineSeries,
+                                               const GoldenFile* absl_nullable baselineSeries,
                                                const BandOptions& bandOptions,
                                                const HeadingCrossingOptions& crossingOptions);
 // clang-format off

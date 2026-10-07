@@ -64,7 +64,10 @@ struct RobotConfiguration {
   /// or walk_0p3 for a robot that falls at 0.5 m/s (EngineAI SA01 and Unitree R1 in M0).
   std::string walkingScenario = "walk_0p5";
 
-  /** Every file the run depends on, whose hashes go into the provenance: the files above and contact_planning.yaml. */
+  /**
+   * Every file the run depends on, whose hashes go into the provenance: the files above and the contact_planning.textproto
+   * beside the task file, when there is one.
+   */
   std::vector<std::string> configurationFiles() const;
 };
 

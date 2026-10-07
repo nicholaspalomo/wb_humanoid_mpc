@@ -27,7 +27,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -35,26 +34,67 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <fstream>
 #include <functional>
 #include <limits>
+#include <memory>
+#include <optional>
+#include <string>
 #include <thread>
 #include <tuple>
 #include <utility>
+#include <vector>
 
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "gtest/gtest.h"
+#include "ocs2_mpc/MPC_Settings.h"
+#include "ocs2_mpc_test/ScriptedMpc.h"
 
-#include <humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h>
-#include <ocs2_mpc/MPC_BASE.h>
+#include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotStateContactEstimator.h"
 
-using namespace ocs2;
-using namespace ocs2::humanoid;
+namespace ocs2::humanoid {
+namespace {
 
-#include <robot_model/RobotDescription.h>
-#include <robot_model/RobotStateContactEstimator.h>
+/** The action of joint `index`, which every joint of the description holds: a test failure and a zero action if not. */
+const ::robot::model::JointAction& actionOf(const ::robot::model::RobotJointAction& action, size_t index) {
+  const std::optional<::robot::model::JointAction>& entry = action.at(index);
+  if (!entry.has_value()) {
+    ADD_FAILURE() << "no action for joint " << index;
+    static const ::robot::model::JointAction kNoAction;
+    return kNoAction;
+  }
+  return *entry;
+}
+
+/** A URDF of two revolute joints that no MPC model of the test robots names. */
+constexpr char kTwoJointUrdf[] = R"(<?xml version="1.0"?>
+<robot name="two_joints">
+  <link name="base"/>
+  <link name="arm"/>
+  <link name="hand"/>
+  <joint name="shoulder" type="revolute">
+    <parent link="base"/><child link="arm"/><axis xyz="0 1 0"/><limit lower="-1" upper="1" effort="10" velocity="1"/>
+  </joint>
+  <joint name="wrist" type="revolute">
+    <parent link="arm"/><child link="hand"/><axis xyz="0 1 0"/><limit lower="-1" upper="1" effort="10" velocity="1"/>
+  </joint>
+</robot>
+)";
+
+/** The robot description of kTwoJointUrdf, written to the test's temporary directory. */
+absl::StatusOr<::robot::model::RobotDescription> twoJointDescription() {
+  const std::filesystem::path path = std::filesystem::path(::testing::TempDir()) / "two_joint_robot.urdf";
+  std::ofstream(path) << kTwoJointUrdf;
+  return ::robot::model::RobotDescription::Create(path.string());
+}
+
+}  // namespace
 
 // A contact estimator that answers with a fixed contact state, whatever the RobotState says.
 class FixedContactEstimator final : public ::robot::model::ContactEstimator {
@@ -66,34 +106,21 @@ class FixedContactEstimator final : public ::robot::model::ContactEstimator {
   }
   std::string getName() const override { return "FixedContactEstimator"; }
   void set(std::vector<bool> flags) { flags_ = std::move(flags); }
-  size_t calls{0};
+  size_t calls = 0;
 
  private:
   std::vector<bool> flags_;
 };
 
-class MockMpc : public MPC_BASE {
- public:
-  MockMpc() : MPC_BASE(mpc::Settings{}) {}
-
-  bool run(scalar_t currentTime, const vector_t& currentState, size_t currentMode = 0) override { return true; }
-  void calculateController(scalar_t initTime, const vector_t& initState, size_t initMode, scalar_t finalTime) override {}
-  SolverBase* getSolverPtr() override { return nullptr; }
-  const SolverBase* getSolverPtr() const override { return nullptr; }
-};
-
 class CentroidalMpcMrtJointControllerTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    tempPdGainsFile_ = std::filesystem::temp_directory_path() / "test_pd_gains.yaml";
+    tempPdGainsFile_ = std::filesystem::temp_directory_path() / "test_pd_gains.textproto";
 
-    // Create a dummy PD gains file
+    // A PD gains file (humanoid_mpc_config.JointPdGainsFile) that names no joint: every joint has the controller's
+    // own gains. (A joint the model does not have would make it another robot's file, which the controller refuses.)
     std::ofstream ofs(tempPdGainsFile_);
-    ofs << "joints:\n"
-        << "  LeftKneePitch:\n"
-        << "    kp: 100.0\n"
-        << "    kd: 10.0\n"
-        << "    torque_limit: 150.0\n";
+    ofs << "# The controller's own gains for every joint.\n";
     ofs.close();
   }
 
@@ -103,21 +130,28 @@ class CentroidalMpcMrtJointControllerTest : public ::testing::Test {
     }
   }
 
-  CentroidalTestingModelInterface testingModelInterface;
+  CentroidalTestingModelInterface testingModelInterface_;
   std::filesystem::path tempPdGainsFile_;
+  // The MPC of the controllers below: a scripted solver (ocs2_mpc_test/ScriptedMpc.h), which solves only once a
+  // controller's link is started (startMpcThread()). Only testAStartedControllerRunsAgainstTheScriptedMpc starts one; in
+  // every other test no policy ever arrives.
+  mpc_test::ScriptedMpc scriptedMpc_{mpc::Settings{}, testingModelInterface_.getMpcRobotModel().getInputDim()};
 };
 
 TEST_F(CentroidalMpcMrtJointControllerTest, testPdGainsHotReloading) {
-  MockMpc mockMpc;
-
-  ::robot::model::RobotDescription robotDesc(testingModelInterface.urdfFile);
-  robot::model::RobotState robotState(robotDesc);
-  robot::model::RobotJointAction jointAction(robotDesc);
+  absl::StatusOr<::robot::model::RobotDescription> robotDescOrStatus =
+      ::robot::model::RobotDescription::Create(testingModelInterface_.urdfFile);
+  ASSERT_TRUE(robotDescOrStatus.ok()) << robotDescOrStatus.status();
+  ::robot::model::RobotDescription& robotDesc = *robotDescOrStatus;
+  ::robot::model::RobotState robotState(robotDesc);
+  ::robot::model::RobotJointAction jointAction(robotDesc);
 
   // Create controller
-  CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(),
-                                             mockMpc, testingModelInterface.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
-                                             tempPdGainsFile_.string());
+  absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = CentroidalMpcMrtJointController::Create(
+      robotDesc, testingModelInterface_.getModelSettings(), testingModelInterface_.getMpcRobotModel(), scriptedMpc_,
+      testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0, tempPdGainsFile_.string());
+  ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
+  CentroidalMpcMrtJointController& controller = **controllerOrStatus;
 
   controller.setControlMode("JOINT_PD");
 
@@ -127,10 +161,7 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testPdGainsHotReloading) {
   // Modify file
   std::this_thread::sleep_for(std::chrono::milliseconds(100));  // Ensure timestamp difference
   std::ofstream ofs(tempPdGainsFile_, std::ios::app);
-  ofs << "  RightKneePitch:\n"
-      << "    kp: 200.0\n"
-      << "    kd: 20.0\n"
-      << "    torque_limit: 150.0\n";
+  ofs << "joint_gains { joint: \"right_knee_joint\" kp: 200.0 kd: 20.0 torque_limit: 150.0 }\n";
   ofs.close();
 
   // Trigger again: the file watcher runs on a non-realtime thread now (pollPdGainsFile()), not inside the control cycle.
@@ -142,19 +173,23 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testPdGainsHotReloading) {
 // this test the mode had no branch at all in the controller: SimFsmBridge enabled the torques and forwarded the name,
 // and the mode then fell through to the active MPC path, so "SAFETY" ran the solver at full authority.
 TEST_F(CentroidalMpcMrtJointControllerTest, testSafetyModeDecaysADampedPdToZeroTorque) {
-  MockMpc mockMpc;
-  ::robot::model::RobotDescription robotDesc(testingModelInterface.urdfFile);
-  robot::model::RobotState robotState(robotDesc);
+  absl::StatusOr<::robot::model::RobotDescription> robotDescOrStatus =
+      ::robot::model::RobotDescription::Create(testingModelInterface_.urdfFile);
+  ASSERT_TRUE(robotDescOrStatus.ok()) << robotDescOrStatus.status();
+  ::robot::model::RobotDescription& robotDesc = *robotDescOrStatus;
+  ::robot::model::RobotState robotState(robotDesc);
 
   const scalar_t timeConstant = 0.5;
-  CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(),
-                                             mockMpc, testingModelInterface.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
-                                             tempPdGainsFile_.string());
+  absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = CentroidalMpcMrtJointController::Create(
+      robotDesc, testingModelInterface_.getModelSettings(), testingModelInterface_.getMpcRobotModel(), scriptedMpc_,
+      testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0, tempPdGainsFile_.string());
+  ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
+  CentroidalMpcMrtJointController& controller = **controllerOrStatus;
   controller.setSafetyDecayTimeConstant(timeConstant);
 
   // The gains SAFETY decays from are the ones JOINT_PD commands, so take that mode's action as the reference.
   controller.setControlMode("JOINT_PD");
-  robot::model::RobotJointAction reference(robotDesc);
+  ::robot::model::RobotJointAction reference(robotDesc);
   robotState.setTime(0.0);
   controller.computeJointControlAction(/*time=*/0.0, robotState, reference);
 
@@ -165,20 +200,20 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testSafetyModeDecaysADampedPdToZeroT
   }
 
   controller.setControlMode("SAFETY");
-  robot::model::RobotJointAction atEntry(robotDesc);
+  ::robot::model::RobotJointAction atEntry(robotDesc);
   robotState.setTime(1.0);
   controller.computeJointControlAction(/*time=*/1.0, robotState, atEntry);
 
   size_t checkedJoints = 0;
   for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
     if (!atEntry.at(index).has_value() || !reference.at(index).has_value()) continue;
-    const robot::model::JointAction& action = atEntry.at(index).value();
+    const ::robot::model::JointAction& action = actionOf(atEntry, index);
     // Full authority at the instant of entry: the torque must not jump when the mode is switched.
-    EXPECT_NEAR(action.kp, reference.at(index)->kp, 1e-9);
-    EXPECT_NEAR(action.kd, reference.at(index)->kd, 1e-9);
+    EXPECT_NEAR(action.kp, actionOf(reference, index).kp, 1.0e-9);
+    EXPECT_NEAR(action.kd, actionOf(reference, index).kd, 1.0e-9);
     // The posture held is the measured one, and nothing model-derived is fed forward: SAFETY is what runs when the
     // model or the solver is the problem.
-    EXPECT_NEAR(action.q_des, robotState.getJointPosition(index), 1e-9);
+    EXPECT_NEAR(action.q_des, robotState.getJointPosition(index), 1.0e-9);
     EXPECT_DOUBLE_EQ(action.qd_des, 0.0);
     EXPECT_DOUBLE_EQ(action.feed_forward_effort, 0.0);
     ++checkedJoints;
@@ -190,25 +225,25 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testSafetyModeDecaysADampedPdToZeroT
   for (int step = 0; step <= 20; ++step) {
     const scalar_t time = 1.0 + 0.2 * step * timeConstant;
     robotState.setTime(time);
-    robot::model::RobotJointAction action(robotDesc);
+    ::robot::model::RobotJointAction action(robotDesc);
     controller.computeJointControlAction(time, robotState, action);
     scalar_t maxKp = 0.0;
     for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
       if (!action.at(index).has_value()) continue;
-      maxKp = std::max(maxKp, action.at(index)->kp);
-      EXPECT_DOUBLE_EQ(action.at(index)->feed_forward_effort, 0.0);
+      maxKp = std::max(maxKp, actionOf(action, index).kp);
+      EXPECT_DOUBLE_EQ(actionOf(action, index).feed_forward_effort, 0.0);
     }
-    EXPECT_LE(maxKp, previousKp + 1e-9) << "the SAFETY gains must never climb back up at t = " << time;
+    EXPECT_LE(maxKp, previousKp + 1.0e-9) << "the SAFETY gains must never climb back up at t = " << time;
     previousKp = maxKp;
   }
 
   robotState.setTime(1.0 + 4.0 * timeConstant);
-  robot::model::RobotJointAction afterDecay(robotDesc);
+  ::robot::model::RobotJointAction afterDecay(robotDesc);
   controller.computeJointControlAction(1.0 + 4.0 * timeConstant, robotState, afterDecay);
   EXPECT_TRUE(controller.isSafetyDecayComplete());
   for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
     if (!afterDecay.at(index).has_value()) continue;
-    const robot::model::JointAction& action = afterDecay.at(index).value();
+    const ::robot::model::JointAction& action = actionOf(afterDecay, index);
     EXPECT_DOUBLE_EQ(action.kp, 0.0);
     EXPECT_DOUBLE_EQ(action.kd, 0.0);
     EXPECT_DOUBLE_EQ(action.feed_forward_effort, 0.0);
@@ -221,21 +256,26 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testSafetyModeDecaysADampedPdToZeroT
 // which only shapes the ramp that follows. It used to switch at once when the blend time was 0, executing the policy
 // solved before the entry (or, before the first policy, a weight-compensating stand-in), for as long as the solver took.
 TEST_F(CentroidalMpcMrtJointControllerTest, testEntryHoldsThePreviousModeUntilAPostResetPolicyIsActive) {
-  MockMpc mockMpc;
-  ::robot::model::RobotDescription robotDesc(testingModelInterface.urdfFile);
-  robot::model::RobotState robotState(robotDesc);
+  absl::StatusOr<::robot::model::RobotDescription> robotDescOrStatus =
+      ::robot::model::RobotDescription::Create(testingModelInterface_.urdfFile);
+  ASSERT_TRUE(robotDescOrStatus.ok()) << robotDescOrStatus.status();
+  ::robot::model::RobotDescription& robotDesc = *robotDescOrStatus;
+  ::robot::model::RobotState robotState(robotDesc);
 
-  using EntryResult = std::tuple<bool, robot::model::RobotJointAction, robot::model::RobotJointAction>;
+  using EntryResult = std::tuple<bool, ::robot::model::RobotJointAction, ::robot::model::RobotJointAction>;
   const std::function<EntryResult(scalar_t)> run = [&](scalar_t blendTime) {
-    CentroidalMpcMrtJointController controller(
-        robotDesc, testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(), mockMpc,
-        testingModelInterface.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0, tempPdGainsFile_.string());
+    const std::unique_ptr<CentroidalMpcMrtJointController> controllerPtr =
+        CentroidalMpcMrtJointController::Create(
+            robotDesc, testingModelInterface_.getModelSettings(), testingModelInterface_.getMpcRobotModel(), scriptedMpc_,
+            testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0, tempPdGainsFile_.string())
+            .value();
+    CentroidalMpcMrtJointController& controller = *controllerPtr;
     controller.setMpcEntryBlendTime(blendTime);
     controller.setControlMode("JOINT_PD");
-    robot::model::RobotJointAction held(robotDesc);
+    ::robot::model::RobotJointAction held(robotDesc);
     controller.computeJointControlAction(/*time=*/0.01, robotState, held);
-    controller.setControlMode("WB_MPC");  // requests a reset; the mock never solves, so no post-reset policy ever arrives
-    robot::model::RobotJointAction entered(robotDesc);
+    controller.setControlMode("WB_MPC");  // requests a reset; the link is never started, so no post-reset policy arrives
+    ::robot::model::RobotJointAction entered(robotDesc);
     controller.computeJointControlAction(/*time=*/0.02, robotState, entered);
     controller.computeJointControlAction(/*time=*/0.03, robotState, entered);
     return EntryResult(controller.isEnteringMpc(), held, entered);
@@ -244,15 +284,15 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testEntryHoldsThePreviousModeUntilAP
   for (const scalar_t blendTime : {0.0, 0.3}) {
     const EntryResult result = run(blendTime);
     const bool entering = std::get<0>(result);
-    const robot::model::RobotJointAction& held = std::get<1>(result);
-    const robot::model::RobotJointAction& entered = std::get<2>(result);
+    const ::robot::model::RobotJointAction& held = std::get<1>(result);
+    const ::robot::model::RobotJointAction& entered = std::get<2>(result);
     EXPECT_TRUE(entering) << "blend time " << blendTime;
     for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
       if (!held.at(index).has_value()) continue;
-      EXPECT_DOUBLE_EQ(entered.at(index)->q_des, held.at(index)->q_des) << "joint " << index << ", blend time " << blendTime;
-      EXPECT_DOUBLE_EQ(entered.at(index)->kp, held.at(index)->kp) << "joint " << index << ", blend time " << blendTime;
-      EXPECT_DOUBLE_EQ(entered.at(index)->kd, held.at(index)->kd) << "joint " << index << ", blend time " << blendTime;
-      EXPECT_DOUBLE_EQ(entered.at(index)->feed_forward_effort, held.at(index)->feed_forward_effort)
+      EXPECT_DOUBLE_EQ(actionOf(entered, index).q_des, actionOf(held, index).q_des) << "joint " << index << ", blend time " << blendTime;
+      EXPECT_DOUBLE_EQ(actionOf(entered, index).kp, actionOf(held, index).kp) << "joint " << index << ", blend time " << blendTime;
+      EXPECT_DOUBLE_EQ(actionOf(entered, index).kd, actionOf(held, index).kd) << "joint " << index << ", blend time " << blendTime;
+      EXPECT_DOUBLE_EQ(actionOf(entered, index).feed_forward_effort, actionOf(held, index).feed_forward_effort)
           << "joint " << index << ", blend time " << blendTime;
     }
   }
@@ -263,11 +303,12 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testEntryHoldsThePreviousModeUntilAP
 // basis layout and (b) hand WORLD-frame wrenches to the inverse dynamics (which uses LOCAL_WORLD_ALIGNED Jacobians). Pitching
 // the ankles makes the local contact frames differ from the world frame, so a local-frame wrench would yield different torques.
 TEST_F(CentroidalMpcMrtJointControllerTest, testBasisVectorInputsUseWorldFrameWrenchesForFeedforward) {
-  MockMpc mockMpc;
-
-  ::robot::model::RobotDescription robotDesc(testingModelInterface.urdfFile);
-  robot::model::RobotState robotState(robotDesc);
-  robot::model::RobotJointAction jointAction(robotDesc);
+  absl::StatusOr<::robot::model::RobotDescription> robotDescOrStatus =
+      ::robot::model::RobotDescription::Create(testingModelInterface_.urdfFile);
+  ASSERT_TRUE(robotDescOrStatus.ok()) << robotDescOrStatus.status();
+  ::robot::model::RobotDescription& robotDesc = *robotDescOrStatus;
+  ::robot::model::RobotState robotState(robotDesc);
+  ::robot::model::RobotJointAction jointAction(robotDesc);
 
   // Pitch both feet so that the local contact frames are not aligned with the world frame.
   constexpr scalar_t kAnklePitch = 0.3;
@@ -283,25 +324,27 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testBasisVectorInputsUseWorldFrameWr
   absl::StatusOr<ContactWrenchConeBasisMatrix> rightBasis = ContactWrenchConeBasisMatrix::Create(
       coneConfig, ContactRectangle(footBounds, ContactCenterPoint("foot_r_contact", "right_ankle_roll_joint", vector3_t::Zero())));
   ASSERT_TRUE(rightBasis.ok()) << rightBasis.status();
-  const std::array<ContactWrenchConeBasisMatrix, N_CONTACTS> basisMatrices = {*std::move(leftBasis), *std::move(rightBasis)};
+  const std::array<ContactWrenchConeBasisMatrix, kNumContacts> basisMatrices = {*std::move(leftBasis), *std::move(rightBasis)};
   BasisInputsModelDecorator<scalar_t> basisModel(
-      std::unique_ptr<MpcRobotModelBase<scalar_t>>(testingModelInterface.getMpcRobotModel().clone()), basisMatrices,
-      testingModelInterface.getPinocchioInterface());
-  ASSERT_NE(basisModel.getInputDim(), testingModelInterface.getMpcRobotModel().getInputDim());
+      std::unique_ptr<MpcRobotModelBase<scalar_t>>(testingModelInterface_.getMpcRobotModel().clone()), basisMatrices,
+      testingModelInterface_.getPinocchioInterface());
+  ASSERT_NE(basisModel.getInputDim(), testingModelInterface_.getMpcRobotModel().getInputDim());
 
   // A generous torque limit keeps the controller's clamp from masking the torque comparison below.
-  const std::filesystem::path gainsFile = std::filesystem::temp_directory_path() / "test_pd_gains_basis.yaml";
+  const std::filesystem::path gainsFile = std::filesystem::temp_directory_path() / "test_pd_gains_basis.textproto";
   {
     std::ofstream ofs(gainsFile);
-    ofs << "default_gains:\n  kp: 100.0\n  kd: 10.0\n  torque_limit: 1000000.0\n";
+    ofs << "default_gains { kp: 100.0 kd: 10.0 torque_limit: 1000000.0 }\n";
   }
 
-  CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(),
-                                             mockMpc, testingModelInterface.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
-                                             gainsFile.string(), &basisModel);
+  absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = CentroidalMpcMrtJointController::Create(
+      robotDesc, testingModelInterface_.getModelSettings(), testingModelInterface_.getMpcRobotModel(), scriptedMpc_,
+      testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0, gainsFile.string(), &basisModel);
+  ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
+  CentroidalMpcMrtJointController& controller = **controllerOrStatus;
 
-  // The default mode is WB_MPC and the mock MPC never publishes a policy, so the controller takes the weight-compensating
-  // feed-forward branch.
+  // The default mode is WB_MPC and the link is never started, so no policy arrives and the controller takes the
+  // weight-compensating feed-forward branch.
   ASSERT_NO_THROW(controller.computeJointControlAction(/*time=*/0.01, robotState, jointAction));
   std::filesystem::remove(gainsFile);
 
@@ -313,7 +356,7 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testBasisVectorInputsUseWorldFrameWr
 
   // (b) Reference torques: the same state-aware weight-compensating input read back in the world frame and projected with the
   // same inverse dynamics the controller uses.
-  PinocchioInterface pinocchioInterface = testingModelInterface.getPinocchioInterface();
+  PinocchioInterface pinocchioInterface = testingModelInterface_.getPinocchioInterface();
   const vector_t weightInput = weightCompensatingInput(pinocchioInterface, {true, true}, basisModel, observation.state);
   const std::array<vector6_t, 2> worldWrenches{basisModel.getContactWrenchInWorldFrame(observation.state, weightInput, /*contactIndex=*/0),
                                                basisModel.getContactWrenchInWorldFrame(observation.state, weightInput, /*contactIndex=*/1)};
@@ -330,13 +373,13 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testBasisVectorInputsUseWorldFrameWr
   ASSERT_GT((worldWrenches[0] - localWrenches[0]).norm(), 1.0);
   ASSERT_GT((expectedTorques - localFrameTorques).norm(), 1.0);
 
-  const std::vector<std::string>& mpcJointNames = testingModelInterface.getModelSettings().mpcModelJointNames;
-  const std::vector<robot::joint_index_t> mpcJointIndices = robotDesc.getJointIndices(mpcJointNames);
+  const std::vector<std::string>& mpcJointNames = testingModelInterface_.getModelSettings().mpcModelJointNames;
+  const std::vector<::robot::joint_index_t> mpcJointIndices = robotDesc.getJointIndices(mpcJointNames);
   ASSERT_EQ(static_cast<Eigen::Index>(mpcJointIndices.size()), expectedTorques.size());
   for (size_t i = 0; i < mpcJointIndices.size(); ++i) {
-    const scalar_t feedforward = jointAction.at(mpcJointIndices[i]).value().feed_forward_effort;
+    const scalar_t feedforward = actionOf(jointAction, mpcJointIndices[i]).feed_forward_effort;
     EXPECT_TRUE(std::isfinite(feedforward)) << "joint " << mpcJointNames[i];
-    EXPECT_NEAR(feedforward, expectedTorques[i], 1e-6) << "joint " << mpcJointNames[i];
+    EXPECT_NEAR(feedforward, expectedTorques[i], 1.0e-6) << "joint " << mpcJointNames[i];
   }
 }
 
@@ -344,13 +387,17 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testBasisVectorInputsUseWorldFrameWr
 // MPC follows the estimator, not the contact flags of the RobotState. Without an estimator the RobotState flags are used
 // (RobotStateContactEstimator), which is the historical behavior.
 TEST_F(CentroidalMpcMrtJointControllerTest, testObservationModeFollowsTheContactEstimator) {
-  MockMpc mockMpc;
-  ::robot::model::RobotDescription robotDesc(testingModelInterface.urdfFile);
-  robot::model::RobotState robotState(robotDesc);
-  robot::model::RobotJointAction jointAction(robotDesc);
-  CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(),
-                                             mockMpc, testingModelInterface.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
-                                             tempPdGainsFile_.string());
+  absl::StatusOr<::robot::model::RobotDescription> robotDescOrStatus =
+      ::robot::model::RobotDescription::Create(testingModelInterface_.urdfFile);
+  ASSERT_TRUE(robotDescOrStatus.ok()) << robotDescOrStatus.status();
+  ::robot::model::RobotDescription& robotDesc = *robotDescOrStatus;
+  ::robot::model::RobotState robotState(robotDesc);
+  ::robot::model::RobotJointAction jointAction(robotDesc);
+  absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = CentroidalMpcMrtJointController::Create(
+      robotDesc, testingModelInterface_.getModelSettings(), testingModelInterface_.getMpcRobotModel(), scriptedMpc_,
+      testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0, tempPdGainsFile_.string());
+  ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
+  CentroidalMpcMrtJointController& controller = **controllerOrStatus;
   controller.setControlMode("JOINT_PD");
 
   // Default: the RobotState flags.
@@ -373,9 +420,13 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testObservationModeFollowsTheContact
   EXPECT_EQ(estimator->calls, 2u);
   EXPECT_EQ(controller.getCurrentObservation().mode, stanceLeg2ModeNumber({true, true}));
 
-  // An estimator that reports the wrong number of contact points is a configuration error, not a silent mode.
+  // An estimator that reports the wrong number of contact points is a configuration error, not a silent mode: the
+  // estimate is refused, counted and reported once as a warning through the event sink (kContactEstimateRefused), and
+  // the measured contact state stays that of the cycle before.
   estimator->set({true});
-  EXPECT_THROW(controller.computeJointControlAction(/*time=*/0.04, robotState, jointAction), std::runtime_error);
+  controller.computeJointControlAction(/*time=*/0.04, robotState, jointAction);
+  EXPECT_EQ(controller.getNumRefusedContactEstimates(), 1U);
+  EXPECT_EQ(controller.getMeasuredContactFlags(), (contact_flag_t{true, true})) << "a refused estimate changed the contact state";
 
   // A null pointer restores the default.
   controller.setContactEstimator(nullptr);
@@ -389,36 +440,40 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testObservationModeFollowsTheContact
 // in the air the whole weight goes through the left foot, and the feedforward torques match the inverse dynamics of that
 // single-support wrench (a two-foot distribution would give different torques).
 TEST_F(CentroidalMpcMrtJointControllerTest, testFeedforwardWrenchesFollowTheMeasuredContactState) {
-  MockMpc mockMpc;
-  ::robot::model::RobotDescription robotDesc(testingModelInterface.urdfFile);
-  robot::model::RobotState robotState(robotDesc);
+  absl::StatusOr<::robot::model::RobotDescription> robotDescOrStatus =
+      ::robot::model::RobotDescription::Create(testingModelInterface_.urdfFile);
+  ASSERT_TRUE(robotDescOrStatus.ok()) << robotDescOrStatus.status();
+  ::robot::model::RobotDescription& robotDesc = *robotDescOrStatus;
+  ::robot::model::RobotState robotState(robotDesc);
 
   // A generous torque limit keeps the controller's clamp from masking the torque comparison below.
-  const std::filesystem::path gainsFile = std::filesystem::temp_directory_path() / "test_pd_gains_measured_contacts.yaml";
+  const std::filesystem::path gainsFile = std::filesystem::temp_directory_path() / "test_pd_gains_measured_contacts.textproto";
   {
     std::ofstream ofs(gainsFile);
-    ofs << "default_gains:\n  kp: 100.0\n  kd: 10.0\n  torque_limit: 1000000.0\n";
+    ofs << "default_gains { kp: 100.0 kd: 10.0 torque_limit: 1000000.0 }\n";
   }
-  CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(),
-                                             mockMpc, testingModelInterface.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
-                                             gainsFile.string());
+  absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = CentroidalMpcMrtJointController::Create(
+      robotDesc, testingModelInterface_.getModelSettings(), testingModelInterface_.getMpcRobotModel(), scriptedMpc_,
+      testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0, gainsFile.string());
+  ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
+  CentroidalMpcMrtJointController& controller = **controllerOrStatus;
   std::filesystem::remove(gainsFile);
   auto estimator = std::make_shared<FixedContactEstimator>(std::vector<bool>{true, true});
   controller.setContactEstimator(estimator);
 
-  const std::function<robot::model::RobotJointAction(const std::vector<bool>&)> feedforward = [&](const std::vector<bool>& measured) {
+  const std::function<::robot::model::RobotJointAction(const std::vector<bool>&)> feedforward = [&](const std::vector<bool>& measured) {
     estimator->set(measured);
-    robot::model::RobotJointAction action(robotDesc);
+    ::robot::model::RobotJointAction action(robotDesc);
     controller.computeJointControlAction(/*time=*/0.01, robotState, action);  // WB_MPC mode, no policy: weight-compensating branch
     return action;
   };
-  const robot::model::RobotJointAction bothFeet = feedforward({true, true});
-  const robot::model::RobotJointAction leftFootOnly = feedforward({true, false});
+  const ::robot::model::RobotJointAction bothFeet = feedforward({true, true});
+  const ::robot::model::RobotJointAction leftFootOnly = feedforward({true, false});
 
   // Reference: the inverse dynamics of the controller with the measured single-support wrench.
-  std::unique_ptr<MpcRobotModelBase<scalar_t>> modelPtr(testingModelInterface.getMpcRobotModel().clone());
+  std::unique_ptr<MpcRobotModelBase<scalar_t>> modelPtr(testingModelInterface_.getMpcRobotModel().clone());
   MpcRobotModelBase<scalar_t>& model = *modelPtr;
-  PinocchioInterface pinocchioInterface = testingModelInterface.getPinocchioInterface();
+  PinocchioInterface pinocchioInterface = testingModelInterface_.getPinocchioInterface();
   const SystemObservation& observation = controller.getCurrentObservation();
   const vector_t weightInput = weightCompensatingInput(pinocchioInterface, {true, false}, model, observation.state);
   const std::array<vector6_t, 2> wrenches{model.getContactWrenchInWorldFrame(observation.state, weightInput, /*contactIndex=*/0),
@@ -434,13 +489,58 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testFeedforwardWrenchesFollowTheMeas
                                                               vector_t::Zero(model.getJointDim()), wrenches, pinocchioInterface);
   ASSERT_GT((floatingBase - expected).cwiseAbs().maxCoeff(), 1.0);
 
-  const std::vector<size_t> mpcJointIndices = robotDesc.getJointIndices(testingModelInterface.getModelSettings().mpcModelJointNames);
+  const std::vector<size_t> mpcJointIndices = robotDesc.getJointIndices(testingModelInterface_.getModelSettings().mpcModelJointNames);
   scalar_t maxDifferenceBetweenContactStates = 0.0;
   for (size_t i = 0; i < mpcJointIndices.size(); ++i) {
     const size_t index = mpcJointIndices[i];
-    EXPECT_NEAR(leftFootOnly.at(index)->feed_forward_effort, expected[i], 1e-6) << "joint " << index;
-    maxDifferenceBetweenContactStates = std::max(
-        maxDifferenceBetweenContactStates, std::abs(leftFootOnly.at(index)->feed_forward_effort - bothFeet.at(index)->feed_forward_effort));
+    EXPECT_NEAR(actionOf(leftFootOnly, index).feed_forward_effort, expected[i], 1.0e-6) << "joint " << index;
+    maxDifferenceBetweenContactStates =
+        std::max(maxDifferenceBetweenContactStates,
+                 std::abs(actionOf(leftFootOnly, index).feed_forward_effort - actionOf(bothFeet, index).feed_forward_effort));
   }
-  EXPECT_GT(maxDifferenceBetweenContactStates, 1e-3);
+  EXPECT_GT(maxDifferenceBetweenContactStates, 1.0e-3);
 }
+
+// The controller with its link started: the solver thread resets the scripted MPC from the controller's observation and
+// solves through MPC_BASE::getSolverPtr(), and the policy reaches the controller. The stand-in these tests used before,
+// a MockMpc whose getSolverPtr() returned null, could not have been started at all; getSolverPtr() is absl_nonnull.
+TEST_F(CentroidalMpcMrtJointControllerTest, testAStartedControllerRunsAgainstTheScriptedMpc) {
+  absl::StatusOr<::robot::model::RobotDescription> robotDescOrStatus =
+      ::robot::model::RobotDescription::Create(testingModelInterface_.urdfFile);
+  ASSERT_TRUE(robotDescOrStatus.ok()) << robotDescOrStatus.status();
+  ::robot::model::RobotDescription& robotDesc = *robotDescOrStatus;
+  ::robot::model::RobotState robotState(robotDesc);
+  ::robot::model::RobotJointAction jointAction(robotDesc);
+  absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = CentroidalMpcMrtJointController::Create(
+      robotDesc, testingModelInterface_.getModelSettings(), testingModelInterface_.getMpcRobotModel(), scriptedMpc_,
+      testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/100.0, tempPdGainsFile_.string());
+  ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
+  CentroidalMpcMrtJointController& controller = **controllerOrStatus;
+  ASSERT_FALSE(controller.ready()) << "a policy arrived before the link was started";
+
+  controller.startMpcThread(robotState);
+  const std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (!controller.ready() && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  ASSERT_TRUE(controller.ready()) << "the solver thread produced no policy";
+  EXPECT_GE(scriptedMpc_.solver().numResets(), 1u) << "the link did not reset the MPC from the start observation";
+  EXPECT_GE(scriptedMpc_.solver().numSolves(), 1u);
+  EXPECT_EQ(scriptedMpc_.solver().numFailedSolves(), 0u);
+  EXPECT_NO_THROW(controller.computeJointControlAction(/*time=*/0.01, robotState, jointAction));
+}
+
+// Create() refuses a robot description that lacks a joint of the MPC model, naming the joint: the control cycle indexes
+// the joints without a check, so the constructor's check would otherwise end the process on a mismatched URDF.
+TEST_F(CentroidalMpcMrtJointControllerTest, testCreateRefusesAModelJointTheRobotDescriptionDoesNotHave) {
+  absl::StatusOr<::robot::model::RobotDescription> description = twoJointDescription();
+  ASSERT_TRUE(description.ok()) << description.status();
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> created = CentroidalMpcMrtJointController::Create(
+      *description, testingModelInterface_.getModelSettings(), testingModelInterface_.getMpcRobotModel(), scriptedMpc_,
+      testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0, tempPdGainsFile_.string());
+  EXPECT_EQ(created.status().code(), absl::StatusCode::kNotFound);
+  EXPECT_NE(created.status().message().find(testingModelInterface_.getModelSettings().mpcModelJointNames.front()), std::string::npos)
+      << created.status();
+}
+
+}  // namespace ocs2::humanoid

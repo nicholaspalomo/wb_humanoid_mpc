@@ -33,16 +33,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/strings/string_view.h"
 
-#include <humanoid_common_mpc/common/Types.h>
-#include <mujoco_sim_interface/MujocoSimInterface.h>
-#include <robot_model/RobotDescription.h>
-#include <robot_model/RobotState.h>
-
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc_app/robot/FsmStateMailbox.h"
 #include "humanoid_common_mpc_app/robot/OperatorCommandMailbox.h"
 #include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
+#include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid {
 
@@ -75,7 +75,7 @@ class SimFsmBridge {
                const robot::model::RobotState& initState,
                OperatorCommandMailbox& commands,
                FsmStateMailbox& fsmStates,
-               RealtimeEventLog* eventLog = nullptr);
+               RealtimeEventLog* absl_nullable eventLog = nullptr);
 
   /** Writes the current FSM mode, the gantry state, the controller resets so far and the MPC's health. */
   void publishFsmState(absl::string_view modeName, bool gantryLocked);
@@ -116,7 +116,7 @@ class SimFsmBridge {
  private:
   OperatorCommandMailbox& commands_;
   FsmStateMailbox& fsmStates_;
-  RealtimeEventLog* const eventLog_;
+  RealtimeEventLog* absl_nullable const eventLog_;
   std::vector<scalar_t> nominalJointPositions_;
   uint64_t controllerResets_ = 0;
   bool mpcHealthy_ = true;

@@ -22,19 +22,19 @@ The **whole-body dynamics** MPC optimizes directly over contact forces, joint ac
 flowchart LR
     subgraph cmd["Commands"]
         VEL["Velocity command<br/>(joystick / keyboard / GUI)"]
-        GUI["Controller GUI<br/>live task.yaml tuning"]
+        GUI["Controller GUI<br/>live task.textproto tuning"]
     end
 
     subgraph ref["Reference generation (solver pre-solve hooks)"]
         MM["Procedural motion manager<br/>target trajectories (CoM velocity, base pose)"]
         GS["Gait schedule<br/>periodic mode templates"]
-        CP["Online contact planner<br/>H-LIP or LIP MIQP: contacts, timing, footholds<br/><i>contactScheduleSource: contact_planner</i>"]
+        CP["Online contact planner<br/>H-LIP or LIP MIQP: contacts, timing, footholds<br/><i>contact_schedule_source: contact_planner</i>"]
         RM["Switched-model reference manager<br/>mode schedule · swing-foot height · landing references"]
     end
 
     subgraph mpc["Centroidal NMPC (OCS2 SQP + HPIPM)"]
-        OCP["Costs: state / input / CoM+aCoM / foot & torso task-space<br/>Terminal: DCM viability (<i>dcm_terminal_cost</i>) or Q_final (<i>terminal_cost</i>)<br/>Constraints: contact wrench cone / basis vectors, zero velocity, normal velocity, joint limits"]
-        UPD["Parameter updater<br/>hot-reload of task.yaml"]
+        OCP["Costs: state / input / CoM+aCoM / foot & torso task-space<br/>Terminal: DCM viability (<i>dcm_terminal_cost</i>) or final_state_weights (<i>terminal_cost</i>)<br/>Constraints: contact wrench cone / basis vectors, zero velocity, normal velocity, joint limits"]
+        UPD["Parameter updater<br/>hot reload of task.textproto"]
     end
 
     subgraph rt["Runtime"]
@@ -59,14 +59,14 @@ flowchart LR
     SIM --> TEL
 ```
 
-The reference layer decides *when* and *where* the feet touch the ground, the NMPC decides *how* the whole body moves. Two optional formulation features change the reference layer and the end of the NMPC horizon; both are selected by name in the robot's `config/mpc/task.yaml`:
+The reference layer decides *when* and *where* the feet touch the ground, the NMPC decides *how* the whole body moves. Two optional formulation features change the reference layer and the end of the NMPC horizon; both are selected by name in the robot's `config/mpc/task.textproto`:
 
 | Selection | What it does |
 | --- | --- |
-| `dcm_terminal_cost` in `costs` | Ends the horizon with a Divergent Component of Motion (capture point) viability cost instead of the quadratic `Q_final` terminal cost `terminal_cost`; the two are alternatives, and start-up refuses a list that names both. Keeps the horizon end capturable for any gait cadence. |
-| `contactScheduleSource: contact_planner` | Replaces the periodic gait schedule (`gait_schedule`, the default, which every robot ships) with an online contact planner, selected by `planner.type` in `config/mpc/contact_planning.yaml`: the closed-form H-LIP stepper (`hlip`, both shipped robots; [humanoid_nmpc/docs/hlip_contact_planner/README.md](humanoid_nmpc/docs/hlip_contact_planner/README.md)) or the mixed-integer program (`lip_miqp`: LIP model, branch-and-bound over HPIPM relaxations). It chooses the contact sequence, the switching times and the footholds from the current state and the velocity command. Optional, off by default: the executed schedule can adapt to measured early / late touch-downs and the landing targets can follow the capture point (the `phase_resetting` and `dcm_step_adjustment` rules of the planner's `execution` list). The planner is assembled from named terms listed in `config/mpc/contact_planning.yaml`, like the NMPC from the task file's lists. |
+| `dcm_terminal_cost` in `costs` | Ends the horizon with a Divergent Component of Motion (capture point) viability cost instead of the quadratic terminal cost `terminal_cost` on `final_state_weights`; the two are alternatives, and start-up refuses a list that names both. Keeps the horizon end capturable for any gait cadence. |
+| `contact_schedule_source: "contact_planner"` | Replaces the periodic gait schedule (`gait_schedule`, the default, which every robot ships) with an online contact planner, selected by `planner.type` in `config/mpc/contact_planning.textproto`: the closed-form H-LIP stepper (`hlip`, both shipped robots; [humanoid_nmpc/docs/hlip_contact_planner/README.md](humanoid_nmpc/docs/hlip_contact_planner/README.md)) or the mixed-integer program (`lip_miqp`: LIP model, branch-and-bound over HPIPM relaxations). It chooses the contact sequence, the switching times and the footholds from the current state and the velocity command. Optional, off by default: the executed schedule can adapt to measured early / late touch-downs and the landing targets can follow the capture point (the `phase_resetting` and `dcm_step_adjustment` rules of the planner's `execution` list). The planner is assembled from named terms listed in `config/mpc/contact_planning.textproto`, like the NMPC from the task file's lists. |
 
-Both replaced a top-level boolean (`useDcmTerminalCost`, `useContactPlanning`); a task file that still carries one is refused at start-up with a message naming its replacement. The formulation and the math of both features are described in [humanoid_nmpc/docs/README.md](humanoid_nmpc/docs/README.md).
+Both replaced a top-level boolean, now the retired fields `use_dcm_terminal_cost` and `use_contact_planning`: a task file that still carries one is refused when it is read, with a message naming its replacement. The formulation and the math of both features are described in [humanoid_nmpc/docs/README.md](humanoid_nmpc/docs/README.md).
 
 ---
 
@@ -256,50 +256,133 @@ State transitions travel on the IPC bus (`humanoid_nmpc/humanoid_mpc_ipc/include
 
 ### 🎛️ Interactive Controller GUI & Parameter Tuning Tabs
 
-The joystick GUI (`base_velocity_controller_gui`) features a dark-themed tabbed interface organized into three specialized workstations:
+The joystick GUI (`base_velocity_controller_gui`, [humanoid_nmpc/remote_control/README.md](humanoid_nmpc/remote_control/README.md)) features a dark-themed tabbed interface:
 
 1. **🕹️ Base Controller:**
    - Command planar velocities ($v_x, v_y, \omega_z$) via interactive virtual joysticks or physical Xbox gamepad.
    - Adjust root pelvis height and virtual gantry suspension.
    - Switch supervisory FSM modes (`ZERO_TORQUE`, `JOINT_PD`, `GRAVITY_COMP`, `WB_MPC`, `SAFETY`).
-   - Checkbox selecting the simulator's cheater contact estimator (task file `contactEstimator: cheater_sim` on, `always_in_contact` off), applied live through the parameter topic.
+   - Checkbox selecting the simulator's cheater contact estimator (task file `contact_estimator: "cheater_sim"` on, `"always_in_contact"` off), applied live through the parameter topic.
    - **Open Rerun viewer** starts the Rerun bridge, which opens the native viewer with the 3D scene and the plot tabs.
 
-2. **⚙️ Joint PD Gains Tuning (`joint_pd_gains.yaml`):**
-   - Individual real-time sliders and numeric input boxes for joint proportional ($K_p$) and derivative ($K_d$) feedback gains.
-   - **Limb Grouping:** Organized collapsible accordion categories for Spine, Left Arm, Right Arm, Left Leg, and Right Leg.
-   - **Master Scaling:** Global scale multipliers ($\times 0.5 \dots \times 2.0$) to scale all $K_p$ and $K_d$ gains simultaneously.
+2. **⚙️ Joint PD Gains (`joint_pd_gains.textproto`):**
+   - A slider and a numeric entry per gain of the file: the default gains and each joint's proportional ($K_p$) and derivative ($K_d$) gain.
+   - **Limb Grouping:** the joints' rows are grouped into torso and spine, left and right leg, left and right arm, and head and neck.
+   - **Global Scaling:** Multipliers ($\times 0.001 \dots \times 2.0$) that scale all $K_p$ and $K_d$ gains simultaneously.
    - **Robot Model Presets:** Instantly switch between Unitree G1, DRC Atlas, Unitree R1, and EngineAI SA01 gain files.
-   - **Comment-Preserving Save:** Saves modifications directly into `joint_pd_gains.yaml` preserving all existing comments, whitespace, and formatting, with automated timestamped `.bak` safety backups.
+   - **💾 Save** writes the laptop's file and sends the same text to the robot's store; the status line shows the
+     robot's answer.
 
-3. **📈 MPC Parameters Tuning (`task.yaml`):**
-   - Real-time sliders and numeric entry for diagonal state cost weights ($Q$), control input penalties ($R$), and terminal state weights ($Q_{\text{final}}$).
-   - Category filtering across **State Costs (Q)**, **Input Costs (R)**, **Terminal Costs (Q_final)**, **Task-Space Costs** (foot/torso tracking), **Constraints & Barriers** (friction cone $\mu$, relaxed barrier parameters), **Solver & Horizon** and **Contact Planning** (the contact planner's parameter blocks).
-   - In-place YAML updater preserving all section headers, inline documentation, and matrix layouts with `.bak` safety backups.
+3. **📈 MPC Parameters (`task.textproto`, and `contact_planning.textproto` for a robot with a contact planner):**
+   - A slider, entry, checkbox or choice per number, bool and registry name of the two files, shown block by block in
+     the order of the file: the state, input and terminal weights by coordinate and joint name (`state_weights`,
+     `input_weights`, `final_state_weights`), the task-space costs, the constraints and barriers, the solver and
+     horizon, and the contact planner's blocks.
+   - Both formulations apply the hot fields live: the parameter updater of the running centroidal or whole-body MPC
+     applies an edit before its next solve. A field the running MPC applies only at its next start is labeled
+     **(restart)**; one the file's formulation does not read is labeled **not applicable** and says why.
+   - **💾 Save** writes both files on the laptop and sends the task file's text to the robot's store (the
+     contact-planning file is the MPC's alone).
+
+4. **🎯 Joint Targets:** a position slider per joint, starting from the reference file's `default_joint_state`, published in `JOINT_PD` only.
+5. **🎚️ Command Limits (`reference.textproto`):** the velocity command limits and reference defaults, which the running MPC reloads when the file is saved; Save also sends the file to the robot's store, which the robot reads at its next start.
+6. **🏐 Dodgeball:** aims and throws a ball at the robot in simulation ([humanoid_nmpc/docs/dodgeball/README.md](humanoid_nmpc/docs/dodgeball/README.md)).
+
+The tuning tabs are built from the schemas of their files, so a hyperparameter added to a schema appears in the GUI
+with no GUI code. How they publish and save is described in the next section.
 
 ---
 
-### ⚙️ Telemetry & Online Tuning Configuration (`task.yaml`)
+### ⚙️ Configuration Files and Tuning (textproto)
 
-Each robot model's MPC task configuration file (`task.yaml`) includes runtime flags at the very top:
+Every hyperparameter of the MPC, the robot's controller and the tuning GUI lives in a typed textproto, parsed strictly
+into the message of its schema in [humanoid_nmpc/humanoid_mpc_config](humanoid_nmpc/humanoid_mpc_config/README.md):
 
-```yaml
-# Simulation & Telemetry Configuration
-telemetrySinks: [bus]        # Where the robot process sends robot/state, by name; [] turns the telemetry off
-telemetryFrequency: 100      # [Hz] robot/state, decimated from the control loop
-enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
+| File | Message | What it sets |
+|---|---|---|
+| `robot_models/<robot>/<package>/config/mpc/task.textproto` | `TaskFile` | the MPC formulation (term lists, weights, constraints, solver, horizon), the robot process, the simulator, the telemetry and the visualization |
+| `.../config/command/reference.textproto` | `ReferenceFile` | the command limits and filters, the default base height and joint state, the initial gait |
+| `.../config/controller/joint_pd_gains.textproto` | `JointPdGainsFile` | the PD gains and torque limits of the MRT joint controllers |
+| `.../config/mpc/contact_planning.textproto` | `ContactPlanningFile` | the online contact planner (DRC Atlas and EngineAI SA01) |
+| `humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto` | `GaitFile` | the gaits of the procedural motion manager, shared by every robot |
 
+Each file names its schema in its first two lines, which the parsers check and `make lint` requires. The task file
+starts with the runtime flags of the robot process and the GUI:
+
+```textproto
+# proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto
+# proto-message: humanoid_mpc_config.TaskFile
+telemetry_sinks: "bus"         # where the robot process sends robot/state, by name; no telemetry_sinks line turns it off
+telemetry_frequency: 100       # [Hz] robot/state, decimated from the control loop
+enable_online_tuning: true     # Enable runtime parameter and gain tuning in Controller GUI
 # Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench)
-telemetryFrames:
-  - "foot_l_contact"
-  - "foot_r_contact"
-  - "pelvis"
-  - "torso_link"
+telemetry_frames: "foot_l_contact"
+telemetry_frames: "foot_r_contact"
+telemetry_frames: "pelvis"
 ```
 
-- **`telemetrySinks`:** The telemetry sinks of the robot process, by name (`humanoid_nmpc/humanoid_common_mpc_app/robot/README.md`): `bus` publishes every sample on `robot/state`; an empty list turns the telemetry off, and the realtime loop then samples nothing. The retired boolean `enableTelemetry` is refused at start-up with this replacement.
-- **`enableOnlineTuning`:** When `false`, the GUI disables all sliders, quick multipliers, and YAML save buttons in both the **⚙️ Joint PD Gains** and **📈 MPC Parameters** tabs, displaying an orange safety badge `🔒 Online Tuning Disabled`.
-- **`telemetryFrames`:** Optional targeted list of Pinocchio frames to monitor. The telemetry engine automatically computes forward kinematics, spatial twists, frame accelerations, and contact wrenches for both measured and MPC desired states.
+- **`telemetry_sinks`:** The telemetry sinks of the robot process, by name (`humanoid_nmpc/humanoid_common_mpc_app/robot/README.md`): `bus` publishes every sample on `robot/state`; a file without a `telemetry_sinks` line turns the telemetry off, and the realtime loop then samples nothing. The retired boolean `enable_telemetry` is refused with this replacement.
+- **`enable_online_tuning`:** When `false`, the GUI disables all sliders, quick multipliers, and save buttons in both the **⚙️ Joint PD Gains** and **📈 MPC Parameters** tabs, displaying an orange safety badge `🔒 Online Tuning Disabled`.
+- **`telemetry_frames`:** Optional targeted list of Pinocchio frames to monitor. The telemetry engine automatically computes forward kinematics, spatial twists, frame accelerations, and contact wrenches for both measured and MPC desired states.
+
+Weights and states are addressed by name, never by index. Momenta, positions and velocities are `{x y z}` blocks, the
+base orientation is tuned in Euler angles `{yaw pitch roll}`, and joints are named entries; every joint of the MPC
+model is listed exactly once, and a missing, unknown or fixed joint is refused by name:
+
+```textproto
+state_weights {
+  scaling: 85
+  normalized_linear_momentum {
+    x: 10  # h_com_x / robotMass
+    y: 10  # h_com_y / robotMass
+    z: 15  # h_com_z / robotMass
+  }
+  base_orientation {
+    yaw: 0  # theta_base_z
+    pitch: 0  # theta_base_y
+    roll: 0  # theta_base_x
+  }
+  joint_positions { joint: "back_bkz" value: 5 }
+  joint_positions { joint: "back_bky" value: 5 }
+  # ... every other joint of the MPC model
+}
+```
+
+- **Strict parsing.** A field the schema does not have, a value of the wrong type or a field given twice is an error
+  that names the file, the line and the column (`task.textproto:12:3: ...`). A retired field says what replaced it:
+  `use_dcm_terminal_cost`, for example, says to list `dcm_terminal_cost` under `costs`.
+- **Defaults.** A field left out takes the schema's default (`[default = ...]` in the `.proto`); a repeated field left
+  out is empty.
+- **Named components are strings** (`costs: "dcm_terminal_cost"`, `contact_estimator: "cheater_sim"`,
+  `planner { type: "hlip" }`), which their registries resolve, refusing an unknown name with the valid ones.
+
+**Tuning by hand.** Edit a file and save it: the running stack applies the fields the schema marks hot
+(`reload: RELOAD_HOT` in a field's `tuning` options; the GUI labels the others "(restart)"). The MPC, centroidal or
+whole-body, polls the task, reference and contact-planning files about once a second and logs every other changed
+field as taking effect at the next start. The robot process reads its own copies from its persistent store: it watches
+the stored task file for its controller-side settings (`contact_estimator`, `contact_wrench_gate`), and the MRT joint
+controllers watch the stored PD gains file. An editor's save therefore reaches the MPC at once and a running robot at
+its next start, or at once with `bazel run //humanoid_nmpc/remote_control:push_robot_config -- <file>`. A reload is
+the whole file: a field or block it leaves out takes its default, as at start-up, not the value that was running. A
+file that does not parse is logged and the running values stay, and so do those of a block whose conversion is
+refused.
+
+**Tuning in the GUI.** The MPC Parameters and Joint PD Gains tabs publish every change, debounced, as the whole edited
+file - a typed `humanoid_mpc_config.MpcParameterUpdate` (task and contact-planning file) on `operator/mpc_parameters`,
+a `humanoid_mpc_config.JointPdGainsFile` on `operator/pd_gains` - after parsing the edited text strictly, so an edit
+the schema would refuse is reported on the tab and never sent. Nothing is written to disk until **💾 Save**, which
+changes only the values that were edited and keeps every other byte of the file (comments, blank lines, `LINT`
+directives, the spelling of the values not edited), replaces the file atomically so that no file watcher reads half
+of it, and keeps the file as it was before the first save as `<file>.bak`. Save then delivers exactly the text it
+wrote to the robot's persistent store (`operator/config_save`), which checks it as at start-up, stores it atomically
+and answers; the tab shows "Saved on the laptop and on the robot", the robot's refusal, or that the robot's copy is
+unknown when it did not answer ([humanoid_nmpc/remote_control/README.md](humanoid_nmpc/remote_control/README.md)).
+**↺ Reset All** returns to the file as loaded or last saved, and publishes it.
+
+**Adding a hyperparameter** takes a field in its schema, with its default and, where the GUI's defaults do not fit,
+its `tuning` options (slider range, unit, reload class, or the reason it gets no widget), and its conversion in C++;
+the GUI shows it with no GUI code ([humanoid_nmpc/humanoid_mpc_config/README.md](humanoid_nmpc/humanoid_mpc_config/README.md),
+[humanoid_nmpc/remote_control/README.md](humanoid_nmpc/remote_control/README.md)).
 
 ---
 
@@ -326,12 +409,12 @@ bazel run //humanoid_nmpc/humanoid_rerun_viewer -- --urdf <robot.urdf> --rerun_s
 6. **Frame Kinematics & Acceleration:** the feet's vertical acceleration and velocity, measured against the reference.
 
 Further tabs plot the complete groups: every degree of freedom (measured, reference and the MPC's plan), every tracked
-frame of `telemetryFrames`, both contact wrenches and the MPC observation, and the status of the robot loop and the MPC.
+frame of `telemetry_frames`, both contact wrenches and the MPC observation, and the status of the robot loop and the MPC.
 
 #### Telemetry on the Bus
 | Topic | Message | Description |
 |---|---|---|
-| `robot/state` | `humanoid_mpc_msgs.RobotStateSample` | the robot process's measured state, joint actions and contact wrenches, every telemetry period (`telemetrySinks: [bus]`) |
+| `robot/state` | `humanoid_mpc_msgs.RobotStateSample` | the robot process's measured state, joint actions and contact wrenches, every telemetry period (`telemetry_sinks: "bus"`) |
 | `viz/telemetry` | `humanoid_mpc_msgs.TelemetrySeries` | the plots' series, one message per `robot/state` sample, from the MPC node's visualization publisher |
 | `viz/scene` | `humanoid_mpc_msgs.VisualizationScene` | the robot instances (measured, terminal state, terminal target) and the markers of the plan |
 | `robot/mpc_observation` | `humanoid_mpc_msgs.MpcObservation` | the observation the MPC solves from (`mpc_observation_logger` records it to CSV) |
@@ -358,7 +441,7 @@ When focused in the MuJoCo simulation viewport, use these keyboard shortcuts and
 | **`m`** | Toggle **Center of Mass (CoM)** | Displays CoM indicator spheres for kinematic bodies / links |
 | **`i`** | Toggle **Inertia Ellipsoids** | Renders equivalent inertia ellipsoids depicting principal moments of inertia |
 | **`h`** | Toggle **Convex Hulls** | Displays computed convex hulls enclosing the link meshes |
-| **`o`** | Toggle **Center of Mass** | Whole-body CoM sphere, its vertical, and its shadow on the ground (`center_of_mass` in `simVisualizations`) |
+| **`o`** | Toggle **Center of Mass** | Whole-body CoM sphere, its vertical, and its shadow on the ground (`center_of_mass` in `sim_visualizations`) |
 | **`z`** | Toggle **ZMP** | Zero moment point of the physical ground reaction, as a disc on the ground (`zmp`) |
 | **`d`** | Toggle **DCM** | Divergent component of motion (capture point) of the measured CoM, on the ground, with its offset from the CoM's shadow (`dcm`) |
 | **`b`** | Toggle **Contact Timeline** | Barcode of planned vs ground-truth contact per contact point (`contact_timeline`) |

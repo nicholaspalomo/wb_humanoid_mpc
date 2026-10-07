@@ -20,6 +20,9 @@ exports_files([
 # The environment script every shell, CI build and launch sources; //tools/setup_env:test_setup_env pins it.
 exports_files(["setup_env.sh"])
 
+# The Makefile, whose clang-tidy targets //tools/clang_tidy:test_lint_tidy_targets runs with stand-ins for Bazel.
+exports_files(["Makefile"])
+
 # The issue templates, which //tools/dev_container:test_dev_container keeps free of ROS.
 exports_files([
     ".github/ISSUE_TEMPLATE/bug_report.md",
@@ -57,6 +60,10 @@ exports_files([
 
 # The C++ style the generated code of //tools/nproto must keep; //tools/nproto/test:test_generated_code checks it.
 exports_files([".clang-format"])
+
+# The repository's license, whose text every file's license block repeats; //tools/hooks:test_license_header checks
+# tools/hooks/license_header.py against it.
+exports_files(["LICENCE.txt"])  # NOLINT(american-spelling): the license file's name.
 
 # The enforced clang-tidy checks, which the aspect of //tools/clang_tidy reads (and fixes are formatted with
 # .clang-format), and the script that installs clang-tidy; //tools/clang_tidy and //tools/hooks:test_lint_tool_versions

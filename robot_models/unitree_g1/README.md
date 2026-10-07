@@ -1,15 +1,22 @@
 # Unitree G1
 
 The 29-DoF Unitree G1 humanoid: six-joint legs, a three-joint waist and seven-joint arms. The MPC holds the six wrist
-joints fixed (`model_settings.fixedJointNames` in `task.yaml`), so it optimizes over the remaining 23.
+joints fixed (`model_settings.fixed_joint_names` in `task.textproto`), so it optimizes over the remaining 23.
 
 This directory holds three Bazel packages:
 
 | Package | Contents |
 | --- | --- |
-| `g1_description` | the URDF and MuJoCo models in `urdf/` (the MPC uses `g1_29dof.urdf` and `g1_29dof.xml`) and the meshes; its own `README.md` is Unitree's description of the model variants |
-| `g1_centroidal_mpc` | the centroidal MPC's `config/mpc/task.yaml` and its command and controller configuration |
-| `g1_wb_mpc` | the whole-body MPC's configuration |
+| `g1_description` | the URDF and MuJoCo models in `urdf/` (the MPC uses `g1_29dof.urdf` and `g1_29dof.xml`, which declares the virtual gantry's `gantry` weld from the world to `pelvis`) and the meshes; its own `README.md` is Unitree's description of the model variants |
+| `g1_centroidal_mpc` | the centroidal MPC's configuration: `config/mpc/task.textproto`, `config/command/reference.textproto` and `config/controller/joint_pd_gains.textproto` |
+| `g1_wb_mpc` | the whole-body MPC's configuration, the same three files |
+
+The configuration files are typed textprotos, parsed strictly; `robot_models/README.md` says what each one sets, how to
+tune them and how the tuning GUI saves them. Either MPC, centroidal or whole-body, applies an edited task file's
+`RELOAD_HOT` fields (and the reference file's command limits) before its next solve; `RELOAD_START_UP` fields take
+effect at the next start. The robot process reloads the PD gains and the task file's `contact_estimator` and
+`contact_wrench_gate`. The GUI's **Save** writes both the laptop's copy and the robot's (`robot_models/README.md`,
+"Tuning").
 
 ## Running it
 
@@ -31,7 +38,7 @@ The launch files are `g1_centroidal_mpc/launch/` and `g1_wb_mpc/launch/` (`robot
 
 <!-- LINT.IfChange(acom_status) -->
 G1 has a trained Angular Center of Mass network, `AcomSirenWeightsG1.h`, registered in `AngularCenterOfMass.cpp` under
-`model_settings.robotName` `g1`. It is **NOT VALIDATED, and must stay off**: G1's centroidal `task.yaml` does not list
+`model_settings.robot_name` `g1`. It is **NOT VALIDATED, and must stay off**: G1's centroidal `task.textproto` does not list
 `com_and_acom_tracking_cost` in its `costs` (a comment there says why), and G1 has no contact planner configuration that
 would run the network as a heading model. The whole-body MPC refuses the cost whatever the robot.
 

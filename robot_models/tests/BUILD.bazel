@@ -16,8 +16,8 @@ py_test(
     ],
 )
 
-# The robot filegroups exclude the tuning GUI's backups and live copies (bazel/robot_files.bzl): none of them may reach a
-# test's runfiles.
+# The robot filegroups exclude the tuning GUI's backups and the stale live copies of the YAML configuration
+# (bazel/robot_files.bzl): none of them may reach a test's runfiles.
 py_test(
     name = "test_robot_packages_ship_no_side_files",
     size = "small",

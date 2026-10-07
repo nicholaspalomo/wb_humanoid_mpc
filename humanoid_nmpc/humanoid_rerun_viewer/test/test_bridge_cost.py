@@ -1,24 +1,53 @@
-"""What the bridge costs per message at the size of the contract, measured as process CPU time (every thread, the Rerun
-SDK's encoder and file writer included) while it writes an .rrd file.
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""Measures what the bridge costs per message at the size of the contract.
+
+The cost is process CPU time (every thread, the Rerun SDK's encoder and file writer included) while it writes an .rrd
+file.
 
 The test prints the measurements (bazel test --test_output=all) and fails only far above them, so that a slow machine
 does not make it flaky while a change that makes the bridge many times slower still fails it.
 """
 
+from collections.abc import Callable
 import os
 import shutil
 import tempfile
 import time
 import unittest
-from typing import Callable, Tuple
 
 from humanoid_mpc_msgs import telemetry_series_pb2
 
-import synthetic_messages
 from humanoid_rerun_viewer import bridge
 from humanoid_rerun_viewer import scene_contract
 from humanoid_rerun_viewer import telemetry_contract
 from humanoid_rerun_viewer import urdf_model
+import synthetic_messages
 
 # A G1-sized robot: 29 joints, the four telemetryFrames of the shipped task files, a centroidal MPC's state and input.
 JOINTS = tuple(f"joint_{index}" for index in range(29))
@@ -35,7 +64,7 @@ MAX_SCENE_CPU_S = 0.050
 
 def cpu_seconds_per_call(
     function: Callable[[int], None], count: int
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """(process CPU, wall) seconds per call of `function(index)` over `count` calls."""
     cpu_start, wall_start = time.process_time(), time.perf_counter()
     for index in range(count):
@@ -88,12 +117,10 @@ class BridgeCostTest(unittest.TestCase):
         the_bridge.flush()
         self.recording.flush()
 
-        parse_cpu, _ = cpu_seconds_per_call(
-            lambda index: telemetry_series_pb2.TelemetrySeries.FromString(
-                payloads[index]
-            ),
-            TELEMETRY_MESSAGES,
-        )
+        def parse_one(index: int) -> None:
+            telemetry_series_pb2.TelemetrySeries.FromString(payloads[index])
+
+        parse_cpu, _ = cpu_seconds_per_call(parse_one, TELEMETRY_MESSAGES)
         cpu, wall = cpu_seconds_per_call(bridge_one, TELEMETRY_MESSAGES)
         flush_start = time.process_time()
         self.recording.flush()

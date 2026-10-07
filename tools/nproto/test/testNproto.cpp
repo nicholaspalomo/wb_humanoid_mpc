@@ -30,8 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // The structs nproto generates for the test protos of this directory and their conversions: the type of every kind
 // of field, defaults, equality, round trips, presence, oneofs, maps, and the errors of FromProto().
 
-#include <gtest/gtest.h>
-
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -40,12 +38,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <optional>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <variant>
 #include <vector>
 
-#include <Eigen/Core>
-
+#include "Eigen/Core"
 #include "absl/status/status.h"
+#include "gtest/gtest.h"
 
 #include "nproto_test/other/point.nproto.pb.h"
 #include "nproto_test/other/unit.nproto.pb.h"
@@ -59,6 +58,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "tools/nproto/test/optionals.nproto.pb.h"
 #include "tools/nproto/test/outer.nproto.pb.h"
 #include "tools/nproto/test/repeated_fields.nproto.pb.h"
+#include "tools/nproto/test/retired.nproto.pb.h"
 #include "tools/nproto/test/scalars.nproto.pb.h"
 #include "tools/nproto/test/severity.nproto.pb.h"
 #include "tools/nproto/test/shadowing.nproto.pb.h"
@@ -84,25 +84,25 @@ static_assert(std::is_copy_constructible_v<RepeatedFields> && std::is_nothrow_mo
 
 static_assert(kIs<decltype(Scalars::double_value), double>);
 static_assert(kIs<decltype(Scalars::float_value), float>);
-static_assert(kIs<decltype(Scalars::int32_value), std::int32_t>);
-static_assert(kIs<decltype(Scalars::int64_value), std::int64_t>);
-static_assert(kIs<decltype(Scalars::uint32_value), std::uint32_t>);
-static_assert(kIs<decltype(Scalars::uint64_value), std::uint64_t>);
-static_assert(kIs<decltype(Scalars::sint32_value), std::int32_t>);
-static_assert(kIs<decltype(Scalars::sint64_value), std::int64_t>);
-static_assert(kIs<decltype(Scalars::fixed32_value), std::uint32_t>);
-static_assert(kIs<decltype(Scalars::fixed64_value), std::uint64_t>);
-static_assert(kIs<decltype(Scalars::sfixed32_value), std::int32_t>);
-static_assert(kIs<decltype(Scalars::sfixed64_value), std::int64_t>);
+static_assert(kIs<decltype(Scalars::int32_value), int32_t>);
+static_assert(kIs<decltype(Scalars::int64_value), int64_t>);
+static_assert(kIs<decltype(Scalars::uint32_value), uint32_t>);
+static_assert(kIs<decltype(Scalars::uint64_value), uint64_t>);
+static_assert(kIs<decltype(Scalars::sint32_value), int32_t>);
+static_assert(kIs<decltype(Scalars::sint64_value), int64_t>);
+static_assert(kIs<decltype(Scalars::fixed32_value), uint32_t>);
+static_assert(kIs<decltype(Scalars::fixed64_value), uint64_t>);
+static_assert(kIs<decltype(Scalars::sfixed32_value), int32_t>);
+static_assert(kIs<decltype(Scalars::sfixed64_value), int64_t>);
 static_assert(kIs<decltype(Scalars::bool_value), bool>);
 static_assert(kIs<decltype(Scalars::string_value), std::string>);
 static_assert(kIs<decltype(Scalars::bytes_value), std::string>);
 
 static_assert(kIs<decltype(RepeatedFields::doubles), Eigen::VectorXd>);
 static_assert(kIs<decltype(RepeatedFields::floats), Eigen::VectorXf>);
-static_assert(kIs<decltype(RepeatedFields::int32s), std::vector<std::int32_t>>);
-static_assert(kIs<decltype(RepeatedFields::uint64s), std::vector<std::uint64_t>>);
-static_assert(kIs<decltype(RepeatedFields::sfixed64s), std::vector<std::int64_t>>);
+static_assert(kIs<decltype(RepeatedFields::int32s), std::vector<int32_t>>);
+static_assert(kIs<decltype(RepeatedFields::uint64s), std::vector<uint64_t>>);
+static_assert(kIs<decltype(RepeatedFields::sfixed64s), std::vector<int64_t>>);
 static_assert(kIs<decltype(RepeatedFields::bools), std::vector<bool>>);
 static_assert(kIs<decltype(RepeatedFields::strings), std::vector<std::string>>);
 static_assert(kIs<decltype(RepeatedFields::blobs), std::vector<std::string>>);
@@ -112,12 +112,12 @@ static_assert(kIs<decltype(RepeatedFields::scalars), std::vector<Scalars>>);
 static_assert(kIs<decltype(RepeatedFields::inners), std::vector<Outer::Inner>>);
 
 static_assert(kIs<decltype(Maps::double_by_name), std::map<std::string, double>>);
-static_assert(kIs<decltype(Maps::name_by_id), std::map<std::int32_t, std::string>>);
-static_assert(kIs<decltype(Maps::scalars_by_id), std::map<std::int64_t, Scalars>>);
-static_assert(kIs<decltype(Maps::severity_by_id), std::map<std::uint32_t, Severity>>);
-static_assert(kIs<decltype(Maps::inner_by_id), std::map<std::uint64_t, Outer::Inner>>);
-static_assert(kIs<decltype(Maps::count_by_flag), std::map<bool, std::int32_t>>);
-static_assert(kIs<decltype(Maps::kind_by_code), std::map<std::int64_t, Outer::Kind>>);
+static_assert(kIs<decltype(Maps::name_by_id), std::map<int32_t, std::string>>);
+static_assert(kIs<decltype(Maps::scalars_by_id), std::map<int64_t, Scalars>>);
+static_assert(kIs<decltype(Maps::severity_by_id), std::map<uint32_t, Severity>>);
+static_assert(kIs<decltype(Maps::inner_by_id), std::map<uint64_t, Outer::Inner>>);
+static_assert(kIs<decltype(Maps::count_by_flag), std::map<bool, int32_t>>);
+static_assert(kIs<decltype(Maps::kind_by_code), std::map<int64_t, Outer::Kind>>);
 
 // Nested messages by value; nested enums as nested enum classes.
 static_assert(kIs<decltype(Outer::inner), Outer::Inner>);
@@ -132,7 +132,7 @@ static_assert(kIs<decltype(Imports::point_by_name), std::map<std::string, other:
 // A oneof is a std::variant whose index 0 means "not set"; alternatives of one type are told apart by index.
 static_assert(
     kIs<decltype(Oneofs::shape), std::variant<std::monostate, double, double, std::string, Scalars, Severity, Outer::Inner, std::string>>);
-static_assert(kIs<decltype(Oneofs::flag), std::variant<std::monostate, bool, std::int64_t>>);
+static_assert(kIs<decltype(Oneofs::flag), std::variant<std::monostate, bool, int64_t>>);
 static_assert(Oneofs::kRadiusIndex == 1 && Oneofs::kSideIndex == 2 && Oneofs::kBlobIndex == 7);
 static_assert(Oneofs::kEnabledIndex == 1 && Oneofs::kCountIndex == 2);
 
@@ -145,15 +145,19 @@ static_assert(kIs<decltype(Optionals::maybe_kind), std::optional<Outer::Kind>>);
 static_assert(kIs<decltype(Optionals::plain_double), double>);
 static_assert(kIs<decltype(Optionals::plain_scalars), Scalars>);
 static_assert(kIs<decltype(Imports::maybe_point), std::optional<other::Point>>);
-static_assert(kIs<decltype(Defaults::count), std::int32_t>);
-static_assert(kIs<decltype(Defaults::no_default), std::optional<std::int32_t>>);
+static_assert(kIs<decltype(Defaults::count), int32_t>);
+static_assert(kIs<decltype(Defaults::no_default), std::optional<int32_t>>);
 static_assert(kIs<decltype(Defaults::no_default_level), std::optional<Defaults::Level>>);
-static_assert(kIs<decltype(Defaults::required_count), std::int32_t>);
-static_assert(kIs<decltype(Editions::explicit_count), std::optional<std::int32_t>>);
-static_assert(kIs<decltype(Editions::implicit_count), std::int32_t>);
-static_assert(kIs<decltype(Editions::defaulted), std::int32_t>);
+static_assert(kIs<decltype(Defaults::required_count), int32_t>);
+static_assert(kIs<decltype(Editions::explicit_count), std::optional<int32_t>>);
+static_assert(kIs<decltype(Editions::implicit_count), int32_t>);
+static_assert(kIs<decltype(Editions::defaulted), int32_t>);
 static_assert(kIs<decltype(Editions::name), std::optional<std::string>>);
 static_assert(kIs<decltype(Editions::scalars), Scalars>);
+// A message field with (nproto.optional_message) keeps its presence.
+static_assert(kIs<decltype(Editions::maybe_scalars), std::optional<Scalars>>);
+// Retired fields are options only: the struct holds the live fields.
+static_assert(kIs<decltype(Retired::step_width), double> && kIs<decltype(Retired::block), Retired::Block>);
 
 // Members named like types: the generated code names the types fully qualified.
 static_assert(kIs<decltype(Shadowing::Scalars), Scalars>);
@@ -161,7 +165,7 @@ static_assert(kIs<decltype(Shadowing::Outer), Outer::Kind>);
 
 // Enums are scoped, 32-bit, with Google-style enumerators.
 static_assert(std::is_enum_v<Severity> && !std::is_convertible_v<Severity, int>);
-static_assert(kIs<std::underlying_type_t<Severity>, std::int32_t>);
+static_assert(kIs<std::underlying_type_t<Severity>, int32_t>);
 static_assert(static_cast<int>(Severity::kUnspecified) == 0 && static_cast<int>(Severity::kLevel10) == 10);
 static_assert(Severity::kSevere == Severity::kHigh);
 static_assert(static_cast<int>(Outer::Kind::kSwing) == 2 && static_cast<int>(other::Unit::kFoot) == 1);
@@ -193,6 +197,8 @@ using AllMessages = ::testing::Types<Conversion<Scalars, nproto_test::Scalars>,
                                      Conversion<Imports, nproto_test::Imports>,
                                      Conversion<Empty, nproto_test::Empty>,
                                      Conversion<Shadowing, nproto_test::Shadowing>,
+                                     Conversion<Retired, nproto_test::Retired>,
+                                     Conversion<Retired::Block, nproto_test::Retired_Block>,
                                      Conversion<other::Point, nproto_test::other::Point>>;
 TYPED_TEST_SUITE(RoundTripTest, AllMessages);
 
@@ -207,8 +213,8 @@ TEST(RoundTripTest, EveryOneofAlternativeRoundTrips) {
     test_support::FillWithTestValues(test_support::TestValueOptions{.seed = 2, .oneofChoice = choice}, &proto);
     Oneofs value;
     ASSERT_TRUE(FromProto(proto, &value).ok());
-    EXPECT_EQ(value.shape.index(), static_cast<std::size_t>(choice) + 1);
-    EXPECT_EQ(value.flag.index(), static_cast<std::size_t>(choice % 2) + 1);
+    EXPECT_EQ(value.shape.index(), static_cast<size_t>(choice) + 1);
+    EXPECT_EQ(value.flag.index(), static_cast<size_t>(choice % 2) + 1);
     nproto_test::Oneofs back;
     ToProto(value, &back);
     EXPECT_TRUE(ProtoEquals(proto, back)) << "alternative " << choice;
@@ -247,14 +253,16 @@ TEST(DefaultsTest, Proto2AndEditionsDefaultsAreTheMessagesDefaults) {
   EXPECT_EQ(value.blob, std::string("\001\002\377"));
   EXPECT_EQ(value.enabled, proto.enabled());
   EXPECT_EQ(value.level, Defaults::Level::kHigh);
-  EXPECT_EQ(value.smallest, std::numeric_limits<std::int64_t>::min());
+  EXPECT_EQ(value.smallest, std::numeric_limits<int64_t>::min());
   EXPECT_EQ(value.smallest, proto.smallest());
-  EXPECT_EQ(value.largest, std::numeric_limits<std::uint64_t>::max());
+  EXPECT_EQ(value.largest, std::numeric_limits<uint64_t>::max());
   EXPECT_EQ(value.largest, proto.largest());
   EXPECT_EQ(value.limit, std::numeric_limits<double>::infinity());
   EXPECT_EQ(value.floor, -std::numeric_limits<double>::infinity());
   EXPECT_EQ(value.smallest32, proto.smallest32());
   EXPECT_EQ(value.tiny, proto.tiny());
+  EXPECT_EQ(value.epsilon, proto.epsilon());
+  EXPECT_EQ(value.epsilon, 1.0e-8);
   EXPECT_FALSE(value.no_default.has_value());
   EXPECT_FALSE(value.no_default_level.has_value());
   EXPECT_EQ(value.required_count, 0);
@@ -331,8 +339,7 @@ TEST(PresenceTest, OptionalFieldsKeepPresenceBothWays) {
   proto.mutable_maybe_scalars();
   Optionals value;
   ASSERT_TRUE(FromProto(proto, &value).ok());
-  ASSERT_TRUE(value.maybe_double.has_value());
-  EXPECT_EQ(*value.maybe_double, 0.0);
+  EXPECT_EQ(value.maybe_double, std::optional<double>(0.0));
   ASSERT_TRUE(value.maybe_string.has_value());
   EXPECT_TRUE(value.maybe_scalars.has_value());
   EXPECT_FALSE(value.maybe_int32.has_value());
@@ -358,6 +365,31 @@ TEST(PresenceTest, OptionalFieldsKeepPresenceBothWays) {
   ToProto(fromEditions, &editionsBack);
   EXPECT_TRUE(editionsBack.has_explicit_count());
   EXPECT_FALSE(editionsBack.has_name());
+}
+
+TEST(PresenceTest, AnOptionalMessageFieldKeepsPresenceBothWays) {
+  nproto_test::Editions proto;
+  Editions value;
+  ASSERT_TRUE(FromProto(proto, &value).ok());
+  EXPECT_FALSE(value.maybe_scalars.has_value()) << "absent is std::nullopt, not a default struct";
+
+  // Present with every field at its default: a default struct, which is not std::nullopt.
+  proto.mutable_maybe_scalars();
+  ASSERT_TRUE(FromProto(proto, &value).ok());
+  EXPECT_TRUE(value.maybe_scalars == std::optional<Scalars>(Scalars{}));
+
+  Scalars changed;
+  changed.int32_value = 3;
+  value.maybe_scalars = changed;
+  nproto_test::Editions back;
+  ToProto(value, &back);
+  ASSERT_TRUE(back.has_maybe_scalars());
+  EXPECT_EQ(back.maybe_scalars().int32_value(), 3);
+  value.maybe_scalars.reset();
+  ToProto(value, &back);
+  EXPECT_FALSE(back.has_maybe_scalars()) << "std::nullopt clears the field";
+  // The plain message field beside it keeps no presence: ToProto() always sets it.
+  EXPECT_TRUE(back.has_scalars());
 }
 
 TEST(OneofTest, TheVariantFollowsTheSetAlternative) {

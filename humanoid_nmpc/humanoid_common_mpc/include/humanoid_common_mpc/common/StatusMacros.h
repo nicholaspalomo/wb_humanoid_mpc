@@ -37,19 +37,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define STATUS_MACROS_CONCAT_NAME_INNER(x, y) x##y
 #define STATUS_MACROS_CONCAT_NAME(x, y) STATUS_MACROS_CONCAT_NAME_INNER(x, y)
 
-#define RETURN_IF_ERROR(expr)            \
-  do {                                   \
-    const absl::Status _status = (expr); \
-    if (!_status.ok()) {                 \
-      return _status;                    \
-    }                                    \
+// Not const, so that the returned Status is moved rather than copied (performance-no-automatic-move).
+#define RETURN_IF_ERROR(expr)      \
+  do {                             \
+    absl::Status _status = (expr); \
+    if (!_status.ok()) {           \
+      return _status;              \
+    }                              \
   } while (0)
 
-#define ASSIGN_OR_RETURN_IMPL(status_var, decl, rexpr) \
-  auto status_var = (rexpr);                           \
-  if (!status_var.ok()) {                              \
-    return status_var.status();                        \
-  }                                                    \
-  decl = std::move(*status_var)
+// `status_var` is a name and `decl` a declaration, which parentheses would break; they are used bare where declared.
+#define ASSIGN_OR_RETURN_IMPL(status_var, decl, rexpr)                                   \
+  auto status_var = (rexpr); /* NOLINT(bugprone-macro-parentheses): declares the name */ \
+  if (!(status_var).ok()) {                                                              \
+    return (status_var).status();                                                        \
+  }                                                                                      \
+  decl = std::move(*(status_var)) /* NOLINT(bugprone-macro-parentheses): a declaration */
 
 #define ASSIGN_OR_RETURN(decl, rexpr) ASSIGN_OR_RETURN_IMPL(STATUS_MACROS_CONCAT_NAME(_status_or_, __COUNTER__), decl, rexpr)

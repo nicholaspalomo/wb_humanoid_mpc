@@ -46,17 +46,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
-#include <cstdio>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
-
-#include <ocs2_core/Types.h>
+#include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
+#include "absl/time/time.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_state_estimation/humanoid_state_estimator/test/AllocationCounter.h"
 #include "humanoid_state_estimator/KalmanFilter.h"
@@ -73,12 +75,12 @@ matrix_t identity(Eigen::Index dim) {
 }
 
 double elapsedMicroseconds(Clock::time_point from, Clock::time_point to) {
-  return std::chrono::duration<double, std::micro>(to - from).count();
+  return absl::ToDoubleMicroseconds(absl::FromChrono(to - from));
 }
 
 struct Phase {
   std::vector<double> microseconds;
-  std::size_t allocations = 0;
+  size_t allocations = 0;
 };
 
 struct Names {
@@ -106,13 +108,13 @@ std::vector<KalmanFilterProcessModel> makeProcessModel(const Names& names) {
                            .B_control_input = {{"imu_acceleration", 0.5 * kDt * kDt * identity(3)}}});
   process_model.push_back({.state_name = "base_velocity", .B_control_input = {{"imu_acceleration", kDt * identity(3)}}});
   for (const std::string& contact : names.contact) {
-    process_model.push_back({.state_name = contact, .Q_process_noise = 1e-8 * identity(3)});
+    process_model.push_back({.state_name = contact, .Q_process_noise = 1.0e-8 * identity(3)});
   }
   return process_model;
 }
 
 std::vector<KalmanFilterInput> makeInputs(const vector_t& acceleration) {
-  return {{.name = "imu_acceleration", .input = acceleration, .Q_input_noise = 1e-4 * identity(3)}};
+  return {{.name = "imu_acceleration", .input = acceleration, .Q_input_noise = 1.0e-4 * identity(3)}};
 }
 
 std::vector<KalmanFilterMeasurement> makeMeasurements(const Names& names,
@@ -126,20 +128,20 @@ std::vector<KalmanFilterMeasurement> makeMeasurements(const Names& names,
     measurements.push_back({.name = names.relative_position[contact],
                             .measurement = contact_positions[contact] - base_position,
                             .H_measurement_model = {{names.contact[contact], identity(3)}, {"base_position", -identity(3)}},
-                            .R_measurement_noise = 1e-6 * identity(3)});
+                            .R_measurement_noise = 1.0e-6 * identity(3)});
     measurements.push_back({.name = names.velocity[contact],
                             .measurement = base_velocity,
                             .H_measurement_model = {{"base_velocity", identity(3)}},
-                            .R_measurement_noise = 1e-4 * identity(3)});
+                            .R_measurement_noise = 1.0e-4 * identity(3)});
     measurements.push_back({.name = names.height[contact],
                             .measurement = contact_positions[contact].tail(1),
                             .H_measurement_model = {{names.contact[contact], e_z}},
-                            .R_measurement_noise = 1e-6 * identity(1)});
+                            .R_measurement_noise = 1.0e-6 * identity(1)});
   }
   return measurements;
 }
 
-void printPhase(const char* label, Phase& phase, int iterations) {
+void printPhase(absl::string_view label, Phase& phase, int iterations) {
   std::vector<double>& samples = phase.microseconds;
   std::sort(samples.begin(), samples.end());
   double sum = 0.0;
@@ -147,9 +149,9 @@ void printPhase(const char* label, Phase& phase, int iterations) {
     sum += sample;
   }
   const size_t count = samples.size();
-  std::printf("    %-8s mean %7.2f  p50 %7.2f  p99 %7.2f  p99.9 %7.2f  max %8.2f us   %6.1f allocations/tick\n", label, sum / count,
-              samples[count / 2], samples[count * 99 / 100], samples[count * 999 / 1000], samples[count - 1],
-              static_cast<double>(phase.allocations) / iterations);
+  absl::PrintF("    %-8s mean %7.2f  p50 %7.2f  p99 %7.2f  p99.9 %7.2f  max %8.2f us   %6.1f allocations/tick\n", label, sum / count,
+               samples[count / 2], samples[count * 99 / 100], samples[count * 999 / 1000], samples[count - 1],
+               static_cast<double>(phase.allocations) / iterations);
 }
 
 void run(int num_contacts, bool real_time_caller, int iterations) {
@@ -163,20 +165,21 @@ void run(int num_contacts, bool real_time_caller, int iterations) {
   const vector_t acceleration = vector_t::Zero(3);
 
   std::vector<KalmanFilterState> initial_states = {
-      {.name = "base_position", .state = base_position, .P_state_estimate = 1e-4 * identity(3)},
+      {.name = "base_position", .state = base_position, .P_state_estimate = 1.0e-4 * identity(3)},
       {.name = "base_velocity", .state = vector_t::Zero(3), .P_state_estimate = identity(3)}};
   for (int contact = 0; contact < num_contacts; ++contact) {
-    initial_states.push_back({.name = names.contact[contact], .state = contact_positions[contact], .P_state_estimate = 1e-2 * identity(3)});
+    initial_states.push_back(
+        {.name = names.contact[contact], .state = contact_positions[contact], .P_state_estimate = 1.0e-2 * identity(3)});
   }
   absl::StatusOr<std::unique_ptr<KalmanFilter>> created = KalmanFilter::Create(initial_states);
   if (!created.ok()) {
-    std::printf("Create failed: %s\n", std::string(created.status().message()).c_str());
+    absl::PrintF("Create failed: %s\n", created.status().message());
     return;
   }
   std::unique_ptr<KalmanFilter> filter = std::move(*created);
   const int measurement_dim = 7 * num_contacts;
   if (real_time_caller && !filter->reserve(/*max_input_dim=*/3, measurement_dim).ok()) {
-    std::printf("reserve failed\n");
+    absl::PrintF("reserve failed\n");
     return;
   }
 
@@ -191,7 +194,7 @@ void run(int num_contacts, bool real_time_caller, int iterations) {
   Phase correct;
   Phase read;
   Phase total;
-  for (Phase* phase : {&build, &predict, &correct, &read, &total}) {
+  for (Phase* absl_nonnull phase : {&build, &predict, &correct, &read, &total}) {
     phase->microseconds.reserve(iterations);
   }
 
@@ -201,7 +204,7 @@ void run(int num_contacts, bool real_time_caller, int iterations) {
     base_position += kDt * base_velocity;
 
     const Clock::time_point start = Clock::now();
-    std::size_t allocations = heapAllocationCount();
+    size_t allocations = heapAllocationCount();
     if (real_time_caller) {
       inputs[0].input = acceleration;
       for (int contact = 0; contact < num_contacts; ++contact) {
@@ -213,17 +216,17 @@ void run(int num_contacts, bool real_time_caller, int iterations) {
       measurements = makeMeasurements(names, contact_positions, base_position, base_velocity);
     }
     const Clock::time_point built = Clock::now();
-    const std::size_t build_allocations = heapAllocationCount() - allocations;
+    const size_t build_allocations = heapAllocationCount() - allocations;
 
     allocations = heapAllocationCount();
     const absl::Status predicted = filter->predict(process_model, inputs);
     const Clock::time_point after_predict = Clock::now();
-    const std::size_t predict_allocations = heapAllocationCount() - allocations;
+    const size_t predict_allocations = heapAllocationCount() - allocations;
 
     allocations = heapAllocationCount();
     const absl::Status corrected = filter->correct(measurements);
     const Clock::time_point after_correct = Clock::now();
-    const std::size_t correct_allocations = heapAllocationCount() - allocations;
+    const size_t correct_allocations = heapAllocationCount() - allocations;
 
     allocations = heapAllocationCount();
     bool read_ok = true;
@@ -240,10 +243,10 @@ void run(int num_contacts, bool real_time_caller, int iterations) {
       }
     }
     const Clock::time_point after_read = Clock::now();
-    const std::size_t read_allocations = heapAllocationCount() - allocations;
+    const size_t read_allocations = heapAllocationCount() - allocations;
 
     if (!predicted.ok() || !corrected.ok() || !read_ok) {
-      std::printf("step failed: %s %s\n", std::string(predicted.message()).c_str(), std::string(corrected.message()).c_str());
+      absl::PrintF("step failed: %s %s\n", predicted.message(), corrected.message());
       return;
     }
     checksum += base_position_estimate.state(0) + base_velocity_estimate.state(0);
@@ -261,14 +264,14 @@ void run(int num_contacts, bool real_time_caller, int iterations) {
     }
   }
 
-  std::printf("  %d contacts (n = %d states, M = %d measurement rows), %s caller:\n", num_contacts, 6 + 3 * num_contacts, measurement_dim,
-              real_time_caller ? "real-time" : "naive");
+  absl::PrintF("  %d contacts (n = %d states, M = %d measurement rows), %s caller:\n", num_contacts, 6 + 3 * num_contacts, measurement_dim,
+               real_time_caller ? "real-time" : "naive");
   printPhase("build", build, iterations);
   printPhase("predict", predict, iterations);
   printPhase("correct", correct, iterations);
   printPhase("read", read, iterations);
   printPhase("TOTAL", total, iterations);
-  std::printf("    (checksum %.6f; base velocity estimate x %.4f, truth 0.3000)\n\n", checksum, base_velocity_estimate.state(0));
+  absl::PrintF("    (checksum %.6f; base velocity estimate x %.4f, truth 0.3000)\n\n", checksum, base_velocity_estimate.state(0));
 }
 
 }  // namespace
@@ -276,7 +279,7 @@ void run(int num_contacts, bool real_time_caller, int iterations) {
 
 int main() {
   using ocs2::humanoid::estimation::run;
-  std::printf("KalmanFilter per-tick cost (single thread, dt = 1 ms, every contact in stance)\n\n");
+  absl::PrintF("KalmanFilter per-tick cost (single thread, dt = 1 ms, every contact in stance)\n\n");
   run(/*num_contacts=*/2, /*real_time_caller=*/false, /*iterations=*/50000);
   run(/*num_contacts=*/2, /*real_time_caller=*/true, /*iterations=*/50000);
   run(/*num_contacts=*/8, /*real_time_caller=*/false, /*iterations=*/20000);

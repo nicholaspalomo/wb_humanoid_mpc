@@ -28,20 +28,20 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <humanoid_common_mpc/pinocchio_model/pinocchioUtils.h>
+#include "humanoid_common_mpc/pinocchio_model/pinocchioUtils.h"
 
 #include <algorithm>
 #include <fstream>
 #include <string>
+#include <utility>
 #include <vector>
-
-#include <pinocchio/algorithm/center-of-mass.hpp>
-#include <pinocchio/multibody/model.hpp>
-#include "pinocchio/parsers/urdf.hpp"
 
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/parsers/urdf.hpp"
 
 namespace ocs2::humanoid {
 
@@ -65,8 +65,8 @@ absl::Status checkPinocchioJointNaming(const PinocchioInterface& pinocchioInterf
     if (mpcJointNames[i] != modelJointName) {
       return absl::InvalidArgumentError(absl::StrCat(
           "[checkPinocchioJointNaming] MPC joint ", i, " is '", mpcJointNames[i],
-          "' in ModelSettings::mpcModelJointNames (the URDF's joints without model_settings.fixedJointNames) but '", modelJointName,
-          "' in the Pinocchio model. The two were built from different URDFs or from different model_settings.fixedJointNames; "
+          "' in ModelSettings::mpcModelJointNames (the URDF's joints without model_settings.fixed_joint_names) but '", modelJointName,
+          "' in the Pinocchio model. The two were built from different URDFs or from different model_settings.fixed_joint_names; "
           "build both from the same task file and URDF."));
     }
   }
@@ -76,7 +76,7 @@ absl::Status checkPinocchioJointNaming(const PinocchioInterface& pinocchioInterf
     return absl::InvalidArgumentError(absl::StrCat(
         "[checkPinocchioJointNaming] the Pinocchio model has ", numModelJoints, " actuated joints but ModelSettings::mpcModelJointNames ",
         mpcJointNames.size(), "; the first without a counterpart is '", firstUnmatched,
-        "'. The two were built from different URDFs or from different model_settings.fixedJointNames; build both from the same task "
+        "'. The two were built from different URDFs or from different model_settings.fixed_joint_names; build both from the same task "
         "file and URDF."));
   }
   if (verbose) {
@@ -103,7 +103,7 @@ std::pair<vector_t, vector_t> readPinocchioJointLimits(const PinocchioInterface&
   vector_t lower_limits = model.lowerPositionLimit.tail(modelSettings.mpcModelJointNames.size());
   if (verbose) {
     LOG(INFO) << "Joint Name , min, max";
-    for (size_t i = 0; i < modelSettings.mpcModelJointNames.size(); i++) {
+    for (size_t i = 0; i < modelSettings.mpcModelJointNames.size(); ++i) {
       LOG(INFO) << modelSettings.mpcModelJointNames[i] << ": " << lower_limits[i] << ", " << upper_limits[i];
     }
   }
@@ -122,7 +122,7 @@ void scalePinocchioModelInertia(pinocchio::ModelTpl<scalar_t>& model, scalar_t t
     LOG(INFO) << "Target robot mass: " << targetRobotMass;
     LOG(INFO) << "Adapting robot mass by a factor of " << inertiaScaleFactor << ".";
   }
-  for (size_t i = 0; i < model.inertias.size(); i++) {
+  for (size_t i = 0; i < model.inertias.size(); ++i) {
     const pinocchio::ModelTpl<scalar_t>::Inertia inertia = model.inertias[i];
     const scalar_t scaledMass = inertia.mass() * inertiaScaleFactor;
     matrix3_t inertiaMatrix = inertia.inertia().matrix();

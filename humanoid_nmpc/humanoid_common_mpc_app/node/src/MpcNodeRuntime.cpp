@@ -30,19 +30,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/node/MpcNodeRuntime.h"
 
 #include <functional>
+#include <memory>
+#include <string>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/log/log.h"
+#include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/ThreadAffinity.h"
+#include "humanoid_common_mpc/config/OperatorPayloadChecks.h"
 #include "humanoid_common_mpc_app/node/ViewerAnnotations.h"
 #include "humanoid_common_mpc_app/node/WalkingVelocityCommandConversions.h"
+#include "humanoid_mpc_config/mpc_parameter_update.nproto.h"
+#include "humanoid_mpc_config/mpc_parameter_update.nproto.pb.h"
+#include "humanoid_mpc_config/mpc_parameter_update.pb.h"
 #include "humanoid_mpc_ipc/Topics.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
-#include "humanoid_mpc_msgs/yaml_document.pb.h"
 #include "robot_ipc/Delivery.h"
 
 namespace ocs2::humanoid::node {
@@ -83,14 +90,14 @@ absl::StatusOr<std::unique_ptr<MpcNodeRuntime>> MpcNodeRuntime::Create(std::uniq
   if (components.motionManager == nullptr) {
     return absl::InvalidArgumentError("MpcNodeRuntime: Components::motionManager is null");
   }
-  std::unique_ptr<MpcNodeRuntime> runtime(new MpcNodeRuntime(std::move(bus), std::make_shared<Counters>()));
-  RETURN_IF_ERROR(runtime->subscribeOperatorInputs(components));
+  std::unique_ptr<MpcNodeRuntime> runtime = absl::WrapUnique(new MpcNodeRuntime(std::move(bus), std::make_shared<Counters>()));
+  RETURN_IF_ERROR(runtime->subscribeOperatorInputs(components, config.robotName, config.taskFileIdentity));
 
   ipc::MpcServer::Hooks hooks;
   // On the solver thread, after the solve: the planner's targets and the command that solve started from.
   hooks.annotationsProvider = [motionManager = components.motionManager, planner = components.contactPlanningReferenceManager](
                                   const CommandData& /*command*/, const PrimalSolution& /*solution*/,
-                                  humanoid_mpc_msgs::ViewerAnnotations* annotations) {
+                                  humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations) {
     const WalkingVelocityCommand scaledCommand = motionManager->getScaledWalkingVelocityCommand();
     if (planner != nullptr) {
       const feet_array_t<TargetContactPose> poses = planner->getTargetContactPoses();
@@ -98,6 +105,7 @@ absl::StatusOr<std::unique_ptr<MpcNodeRuntime>> MpcNodeRuntime::Create(std::uniq
     } else {
       fillViewerAnnotations(/*targetContactPoses=*/nullptr, scaledCommand, annotations);
     }
+    return absl::OkStatus();
   };
   if (components.attachVisualization) {
     ASSIGN_OR_RETURN(hooks.postSolveObserver, components.attachVisualization(*runtime->bus_));
@@ -107,7 +115,7 @@ absl::StatusOr<std::unique_ptr<MpcNodeRuntime>> MpcNodeRuntime::Create(std::uniq
   serverConfig.dimensions = config.dimensions;
   serverConfig.mpcDesiredFrequency = config.mpcDesiredFrequency;
   serverConfig.resetSupervisor = config.resetSupervisor;
-  serverConfig.solverThread = config.solverThread;
+  serverConfig.solverThread = std::move(config.solverThread);
   ASSIGN_OR_RETURN(runtime->server_, ipc::MpcServer::Create(*runtime->bus_, *components.mpc, std::move(components.resetTargetTrajectories),
                                                             std::move(serverConfig), std::move(hooks)));
   return runtime;
@@ -120,7 +128,9 @@ MpcNodeRuntime::~MpcNodeRuntime() {
   stop();
 }
 
-absl::Status MpcNodeRuntime::subscribeOperatorInputs(const Components& components) {
+absl::Status MpcNodeRuntime::subscribeOperatorInputs(const Components& components,
+                                                     const std::string& robotName,
+                                                     const std::string& taskFileIdentity) {
   const std::function<void(const humanoid_mpc_msgs::WalkingVelocityCommand&)> onVelocityCommand =
       [motionManager = components.motionManager, counters = counters_](const humanoid_mpc_msgs::WalkingVelocityCommand& message) {
         counters->velocityCommandsReceived.fetch_add(1);
@@ -135,12 +145,28 @@ absl::Status MpcNodeRuntime::subscribeOperatorInputs(const Components& component
   if (!components.parameterUpdateSink) {
     return absl::OkStatus();
   }
-  const std::function<void(const humanoid_mpc_msgs::YamlDocument&)> onParameters =
-      [sink = components.parameterUpdateSink, counters = counters_](const humanoid_mpc_msgs::YamlDocument& message) {
+  const std::function<void(const humanoid_mpc_config::MpcParameterUpdate&)> onParameters =
+      [sink = components.parameterUpdateSink, counters = counters_, robotName,
+       taskFileIdentity](const humanoid_mpc_config::MpcParameterUpdate& message) {
         counters->parameterUpdatesReceived.fetch_add(1);
-        sink(message.yaml());
+        if (const absl::Status refused = checkMpcParameterUpdate(message, robotName, taskFileIdentity); !refused.ok()) {
+          counters->parameterUpdatesRejected.fetch_add(1);
+          LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
+              << "[MpcNode] Ignoring an MPC parameter update: " << refused.message() << "; nothing was applied.";
+          return;
+        }
+        mpc_config::MpcParameterUpdate update;
+        const absl::Status converted = mpc_config::FromProto(message, &update);
+        if (!converted.ok()) {
+          counters->parameterUpdatesRejected.fetch_add(1);
+          LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
+              << "[MpcNode] Ignoring an MPC parameter update that does not convert: " << converted.message();
+          return;
+        }
+        sink(update);
       };
-  return bus_->subscribe<humanoid_mpc_msgs::YamlDocument>(ipc::topics::kOperatorMpcParameters, robot::ipc::Delivery::kLatest, onParameters);
+  return bus_->subscribe<humanoid_mpc_config::MpcParameterUpdate>(ipc::topics::kOperatorMpcParameters, robot::ipc::Delivery::kLatest,
+                                                                  onParameters);
 }
 
 absl::Status MpcNodeRuntime::start() {
@@ -158,6 +184,7 @@ MpcNodeRuntime::Statistics MpcNodeRuntime::statistics() const {
   statistics.velocityCommandsReceived = counters_->velocityCommandsReceived.load();
   statistics.velocityCommandsRejected = counters_->velocityCommandsRejected.load();
   statistics.parameterUpdatesReceived = counters_->parameterUpdatesReceived.load();
+  statistics.parameterUpdatesRejected = counters_->parameterUpdatesRejected.load();
   statistics.server = server_->statistics();
   return statistics;
 }

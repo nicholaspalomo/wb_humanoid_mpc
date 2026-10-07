@@ -1,0 +1,31 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "nproto/options.proto";
+import "nproto/retired_field_options.proto";
+
+// The angular-center-of-mass weight of com_and_acom_tracking_cost (formerly the 3x3 matrix Q_acom by "(i,i)" index),
+// diagonal: `scaling` times yaw, pitch and roll, the weights of the angular center of mass's Euler ZYX angles (the
+// rows of Q_acom were yaw, pitch, roll, in that order). The weights stay in Euler angles also where the MPC's
+// orientation is a quaternion (yaw_pitch_roll.proto).
+//
+// An angle the block leaves out weighs 0, but a block that names none of yaw, pitch and roll is refused where the cost
+// is listed: the cost would weigh nothing. The weights have no default for that reason (a std::optional of the
+// struct).
+// Next ID: 5
+message AcomWeights {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::AcomWeights";
+  option (nproto.retired_field) = {
+    name: "default"
+    replacement: "name every weight: yaw, pitch and roll"
+  };
+
+  reserved 5 to max;
+
+  // The factor of yaw, pitch and roll.
+  double scaling = 1 [default = 1.0];
+  double yaw = 2;
+  double pitch = 3;
+  double roll = 4;
+}

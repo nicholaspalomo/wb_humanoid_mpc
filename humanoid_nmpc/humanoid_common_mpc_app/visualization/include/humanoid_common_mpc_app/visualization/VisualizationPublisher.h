@@ -38,19 +38,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <thread>
 #include <vector>
 
-#include <google/protobuf/message.h>
-
-#include <ocs2_mpc/CommandData.h>
-#include <ocs2_mpc/SystemObservation.h>
-#include <ocs2_oc/oc_data/PerformanceIndex.h>
-#include <ocs2_oc/oc_data/PrimalSolution.h>
-
+#include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
+#include "google/protobuf/message.h"
+#include "ocs2_mpc/CommandData.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_oc/oc_data/PerformanceIndex.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 
 #include "humanoid_common_mpc_app/visualization/PolicySnapshot.h"
 #include "humanoid_common_mpc_app/visualization/RobotStateDecoder.h"
@@ -107,7 +106,7 @@ struct VisualizationPublisherStatistics {
  * The visualization publisher of the MPC process (humanoid_nmpc/docs/distributed_runtime/README.md, "Visualization with
  * Rerun"), which replaces HumanoidVisualizer, EquivalentContactCornerForcesVisualizer and PinocchioTelemetryPublisher.
  * It publishes, through the bus, what the Rerun bridge draws:
- *   - viz/scene (SceneBuilder) at the task file's rerunSceneFrequency at most, when something new arrived;
+ *   - viz/scene (SceneBuilder) at the task file's rerun_scene_frequency at most, when something new arrived;
  *   - viz/telemetry (TelemetryBuilder), one message per robot/state sample.
  *
  * THREADS. Everything is computed on a thread of its own, start() to stop(), which runs on the time-sharing scheduler
@@ -134,9 +133,12 @@ struct VisualizationPublisherStatistics {
  */
 class VisualizationPublisher {
  public:
-  /** MpcServer::PostSolveObserver: called on the solver thread after every policy the MPC node publishes. */
+  /**
+   * MpcServer::PostSolveObserver: called on the solver thread after every policy the MPC node publishes. The publisher's
+   * observer always returns OK: it only hands the policy to the visualization thread.
+   */
   using PostSolveObserver =
-      std::function<void(const CommandData& command, const PrimalSolution& solution, const PerformanceIndex& performance)>;
+      std::function<absl::Status(const CommandData& command, const PrimalSolution& solution, const PerformanceIndex& performance)>;
 
   /** Sends one message on a topic; Bus::publish() in the MPC node. Called on the visualization thread. */
   using PublishFunction = std::function<absl::Status(absl::string_view topic, const google::protobuf::Message& message)>;
@@ -145,7 +147,7 @@ class VisualizationPublisher {
   using Statistics = VisualizationPublisherStatistics;
 
   /**
-   * Loads the task file's visualization keys (logging them), builds the scene and telemetry builders and the
+   * Loads the task file's visualization fields (logging them), builds the scene and telemetry builders and the
    * mailboxes. The thread starts with start().
    *
    * @return the errors of loadVisualizationConfig(), SceneBuilder::Create() and TelemetryBuilder::Create();
@@ -174,7 +176,9 @@ class VisualizationPublisher {
    * declares it before its runtime, so that it is destroyed after it. The attacher fails with the errors of Create() and
    * subscribeRobotState(), and with InvalidArgument for a null `publisher`.
    */
-  static BusAttacher MakeBusAttacher(VisualizationModel model, Options options, std::unique_ptr<VisualizationPublisher>* publisher);
+  static BusAttacher MakeBusAttacher(VisualizationModel model,
+                                     Options options,
+                                     std::unique_ptr<VisualizationPublisher>* absl_nullable publisher);
 
   /** Stops the thread. */
   ~VisualizationPublisher();
@@ -226,7 +230,7 @@ class VisualizationPublisher {
   /** What the bus callback reaches the publisher through, cleared by the destructor. */
   struct CallbackGuard {
     absl::Mutex mutex;
-    VisualizationPublisher* publisher ABSL_GUARDED_BY(mutex) = nullptr;
+    VisualizationPublisher* absl_nullable publisher ABSL_GUARDED_BY(mutex) = nullptr;
   };
 
   VisualizationPublisher(const VisualizationModel& model,
@@ -241,9 +245,9 @@ class VisualizationPublisher {
   void poll();
   void processRobotState(const QueuedRobotState& queued);
   void publishScene(std::chrono::nanoseconds now);
-  void publishMessage(absl::string_view topic, const google::protobuf::Message& message, std::atomic<uint64_t>* published);
-  const SystemObservation* latestObservation() const;
-  const PolicySnapshot* latestPolicy() const;
+  void publishMessage(absl::string_view topic, const google::protobuf::Message& message, std::atomic<uint64_t>* absl_nonnull published);
+  const SystemObservation* absl_nullable latestObservation() const;
+  const PolicySnapshot* absl_nullable latestPolicy() const;
 
   const VisualizationConfig config_;
   const Options options_;

@@ -37,7 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /** The settle sequence of SimFallRecovery (see its class comment). */
-enum class SettlePhase : std::int32_t {
+enum class SettlePhase : int32_t {
   kIdle = 0,        ///< no sequence running: WB_MPC is accepted
   kLifting,         ///< raising the gantry by catchLift
   kSettlingLifted,  ///< feet clear of the ground, waiting for rest at the nominal posture
@@ -49,18 +49,18 @@ enum class SettlePhase : std::int32_t {
 absl::string_view settlePhaseDescription(SettlePhase phase);
 
 /** Why SimFallRecovery reset the controller (SimFallRecovery::Cycle::cause). */
-enum class DiscontinuityCause : std::int32_t {
+enum class DiscontinuityCause : int32_t {
   kNone = 0,
   kSimulatorReset,  ///< the simulator put the robot back in its initial state (its reset epoch moved)
   kGantryLocked,    ///< the gantry was locked since the previous cycle
-  kTiltCaught,      ///< the base tilted past simMaxBaseTiltAngle and was caught on the gantry
+  kTiltCaught,      ///< the base tilted past sim_max_base_tilt_angle and was caught on the gantry
 };
 
 /**
  * The reason of a discontinuity as the log states it: "the simulator put the robot back in its initial state (reset
- * epoch 3)", "the gantry was locked", "the base tilted 1.2 rad, past simMaxBaseTiltAngle 1 rad". Allocates; not for the
- * realtime thread.
+ * epoch 3)", "the gantry was locked", "the base tilted 1.2 rad, past sim_max_base_tilt_angle 1 rad". Allocates; not for
+ * the realtime thread.
  */
-std::string discontinuityReason(DiscontinuityCause cause, std::uint64_t resetEpoch, double tilt, double maxTilt);
+std::string discontinuityReason(DiscontinuityCause cause, uint64_t resetEpoch, double tilt, double maxTilt);
 
 }  // namespace ocs2::humanoid

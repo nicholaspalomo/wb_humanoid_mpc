@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cassert>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 #include <ocs2_core/manifold/StateManifold.h>
 #include <ocs2_core/misc/LinearInterpolation.h>
@@ -43,7 +45,7 @@ namespace ocs2 {
  * (a slerp on every quaternion block). The time lookup, the treatment of repeated (event) times and the clamping outside
  * the time range are LinearInterpolation's.
  */
-inline vector_t interpolateStateTrajectory(const StateManifold* stateManifold,
+inline vector_t interpolateStateTrajectory(const StateManifold* absl_nullable stateManifold,
                                            scalar_t time,
                                            const scalar_array_t& timeTrajectory,
                                            const vector_array_t& stateTrajectory) {

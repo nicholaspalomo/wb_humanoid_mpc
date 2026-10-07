@@ -30,12 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/teleop/KeyboardVelocityCommand.h"
 
 #include <cmath>
-#include <exception>
 #include <filesystem>
-#include <optional>
 #include <string>
 #include <system_error>
-#include <utility>
 #include <vector>
 
 #include "absl/status/status.h"
@@ -43,54 +40,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
 
-#include <ocs2_core/misc/LoadData.h>
-#include <ocs2_core/misc/PropertyTree.h>
+#include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc_app/teleop/config/reference/KeyboardCommandLimitsFromConfig.h"
+#include "humanoid_mpc_config/reference_file.nproto.h"
 
 namespace ocs2::humanoid::teleop {
-namespace {
-
-absl::Status loadLimit(const PropertyTree& tree, const std::string& referenceFile, absl::string_view key, scalar_t& value) {
-  const std::optional<scalar_t> loaded = tree.getOptional<scalar_t>(key);
-  if (!loaded.has_value() || !std::isfinite(*loaded)) {
-    return absl::InvalidArgumentError(
-        absl::StrCat(referenceFile, ": `", key, "` is missing or not a number; the keyboard command needs it"));
-  }
-  value = *loaded;
-  return absl::OkStatus();
-}
-
-}  // namespace
-
 absl::StatusOr<KeyboardCommandLimits> loadKeyboardCommandLimits(const std::string& referenceFile) {
   std::error_code error;
   if (!std::filesystem::is_regular_file(referenceFile, error)) {
     return absl::NotFoundError(absl::StrCat("The reference file ", referenceFile, " does not exist"));
   }
-  PropertyTree tree;
-  try {
-    loadData::readPropertyTree(referenceFile, tree);
-  } catch (const std::exception& exception) {
-    return absl::InvalidArgumentError(absl::StrCat("The reference file ", referenceFile, " does not parse: ", exception.what()));
-  }
-  KeyboardCommandLimits limits;
-  // The keys the MPC scales the command with (TargetTrajectoriesCalculatorBase::reloadCommandLimits()).
-  // LINT.IfChange(keyboard_command_limits)
-  const std::pair<absl::string_view, scalar_t*> keys[] = {
-      {"maxDisplacementVelocityX", &limits.limits(0)},  {"maxDisplacementVelocityY", &limits.limits(1)},
-      {"maxDeltaPelvisHeight", &limits.limits(2)},      {"maxRotationVelocity", &limits.limits(3)},
-      {"defaultBaseHeight", &limits.defaultBaseHeight},
-  };
-  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/command/TargetTrajectoriesCalculatorBase.cpp:command_limits)
-  for (const std::pair<absl::string_view, scalar_t*>& key : keys) {
-    const absl::Status loaded = loadLimit(tree, referenceFile, key.first, *key.second);
-    if (!loaded.ok()) return loaded;
-  }
-  // The command is normalized by the limits: a limit of 0 would send 0 / 0.
-  for (Eigen::Index i = 0; i < limits.limits.size(); ++i) {
-    if (limits.limits(i) <= 0.0) {
-      return absl::InvalidArgumentError(
-          absl::StrCat(referenceFile, ": `", keys[i].first, ": ", limits.limits(i), "` must be positive; the command is normalized by it"));
-    }
+  ASSIGN_OR_RETURN(const mpc_config::ReferenceFile reference, loadReferenceFile(referenceFile));
+  absl::StatusOr<KeyboardCommandLimits> limits = keyboardCommandLimitsFromConfig(reference);
+  if (!limits.ok()) {
+    return withConfigFile(limits.status(), referenceFile);
   }
   return limits;
 }

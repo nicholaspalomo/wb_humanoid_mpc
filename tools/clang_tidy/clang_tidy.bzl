@@ -1,7 +1,7 @@
 """clang-tidy as a Bazel aspect (tools/clang_tidy/README.md).
 
-    bazel build --config=clang-tidy //humanoid_nmpc/...        # .clang-tidy, the enforced checks (make lint-tidy)
-    bazel build --config=clang-tidy-sweep //humanoid_nmpc/...  # sweep.clang-tidy, every candidate (make lint-tidy-sweep)
+    bazel build --config=clang-tidy //humanoid_nmpc/...      # the checks of //:.clang-tidy (make lint-tidy)
+    bazel build --config=clang-tidy-fix //humanoid_nmpc/...  # the same, with the fix-its (make lint-tidy-fix)
 
 clang-tidy parses C++ as a compiler does, so it runs only as Bazel actions: inside .bazelrc's RAM-bounded --jobs and
 tools/bazel's machine lock, never by hand (AGENTS.md, "Builds share one machine's memory").
@@ -65,15 +65,15 @@ FIRST_PARTY_HEADER_FILTER = "^(\\./)?(bazel|humanoid_nmpc|humanoid_state_estimat
 # LINT.ThenChange(//tools/clang_tidy/test_clang_tidy_config.py:header_filter)
 OWN_FILE_ONLY_HEADER_FILTER = "^$"
 
-# The compiler warnings that .clang-tidy and sweep.clang-tidy enable as `clang-diagnostic-<name>` checks. Every GCC
-# warning flag of the build is dropped (_DROPPED_FLAG_PREFIXES), so each such check needs its flag here.
+# The compiler warnings that .clang-tidy enables as `clang-diagnostic-<name>` checks. Every GCC warning flag of the
+# build is dropped (_DROPPED_FLAG_PREFIXES), so each such check needs its flag here.
 # LINT.IfChange(clang_diagnostics)
 CLANG_DIAGNOSTIC_FLAGS = [
     "-Wctad-maybe-unsupported",
     "-Wnonnull",
     "-Wnullability",
 ]
-# LINT.ThenChange(//.clang-tidy:checks, //tools/clang_tidy/sweep.clang-tidy:checks)
+# LINT.ThenChange(//.clang-tidy:checks)
 
 # GCC's warnings would become `clang-diagnostic-*` noise (and its -Werror would turn them into errors); the diagnostics
 # come from the configuration instead. The other flags are GCC-only or need what clang has not got (omp.h).
@@ -225,7 +225,7 @@ def _clang_tidy_aspect_impl(target, ctx):
     entries = []
     for file in files:
         is_header = file.extension in _HEADER_EXTENSIONS
-        prefix = "{}.{}/{}".format(ctx.label.name, ctx.attr._output_directory, file.short_path)
+        prefix = "{}.clang_tidy/{}".format(ctx.label.name, file.short_path)
         report = ctx.actions.declare_file(prefix + ".txt")
         fixes = ctx.actions.declare_file(prefix + ".yaml")
         arguments_file = ctx.actions.declare_file(prefix + ".args")
@@ -272,34 +272,26 @@ def _clang_tidy_aspect_impl(target, ctx):
         ),
     ]
 
-def _make_aspect(config, output_directory):
-    return aspect(
-        implementation = _clang_tidy_aspect_impl,
-        attr_aspects = [],
-        fragments = ["cpp"],
-        attrs = {
-            # "selftest" lints the fixtures of FIXTURE_PACKAGES; only the rules below set it.
-            "scope": attr.string(default = "repository", values = ["repository", "selftest"]),
-            "_clang_format": attr.label(default = Label("//:.clang-format"), allow_single_file = True),
-            "_config": attr.label(default = config, allow_single_file = True),
-            "_output_directory": attr.string(default = output_directory),
-            "_wrapper": attr.label(
-                default = Label("//tools/clang_tidy:run_clang_tidy.sh"),
-                allow_single_file = True,
-                executable = True,
-                cfg = "exec",
-            ),
-        },
-        toolchains = use_cc_toolchain(),
-    )
-
-# The enforced checks (//:.clang-tidy): `make lint-tidy` and CI.
-clang_tidy_aspect = _make_aspect(Label("//:.clang-tidy"), "clang_tidy")
-
-# Every candidate check (sweep.clang-tidy), while the sweep removes their findings: `make lint-tidy-sweep` and
-# `make lint-tidy-fix`. The two aspects differ only in a private attribute, so switching between them keeps the build
-# configuration, and with it the analysis cache and the generated files.
-clang_tidy_sweep_aspect = _make_aspect(Label("//tools/clang_tidy:sweep.clang-tidy"), "clang_tidy_sweep")
+# The checks of //:.clang-tidy: `make lint-tidy`, `make lint-tidy-fix` and CI. Adding it to a build keeps the build
+# configuration, so the analysis cache and the generated files are shared with plain builds.
+clang_tidy_aspect = aspect(
+    implementation = _clang_tidy_aspect_impl,
+    attr_aspects = [],
+    fragments = ["cpp"],
+    attrs = {
+        # "selftest" lints the fixtures of FIXTURE_PACKAGES; only the rules below set it.
+        "scope": attr.string(default = "repository", values = ["repository", "selftest"]),
+        "_clang_format": attr.label(default = Label("//:.clang-format"), allow_single_file = True),
+        "_config": attr.label(default = Label("//:.clang-tidy"), allow_single_file = True),
+        "_wrapper": attr.label(
+            default = Label("//tools/clang_tidy:run_clang_tidy.sh"),
+            allow_single_file = True,
+            executable = True,
+            cfg = "exec",
+        ),
+    },
+    toolchains = use_cc_toolchain(),
+)
 
 def _clang_tidy_args_impl(ctx):
     files = []
@@ -374,7 +366,7 @@ def _clang_tidy_selftest_impl(ctx):
         OutputGroupInfo(clang_tidy = depset([stamp])),
     ]
 
-# Lints the fixtures with every candidate check and fails unless each fixture's findings, deduplicated, are its
+# Lints the fixtures with the checks of //:.clang-tidy and fails unless each fixture's findings, deduplicated, are its
 # `<name>.expected` file, and unless the fix-its of the `renamed_prefix` fixture, applied all or nothing, give the golden
 # copy. Needs clang-tidy, so it is `manual` and built by `make lint-tidy`.
 clang_tidy_selftest = rule(
@@ -382,7 +374,7 @@ clang_tidy_selftest = rule(
     attrs = {
         "configs": attr.label_list(allow_files = True, doc = "Configurations whose checks and options must exist."),
         "expected": attr.label_list(allow_files = [".expected"]),
-        "fixtures": attr.label_list(aspects = [clang_tidy_sweep_aspect]),
+        "fixtures": attr.label_list(aspects = [clang_tidy_aspect]),
         "golden": attr.label_list(allow_files = True),
         "golden_prefix": attr.string(mandatory = True),
         "renamed_prefix": attr.string(mandatory = True),

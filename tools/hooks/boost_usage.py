@@ -1,10 +1,36 @@
-#!/usr/bin/env python3
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Flags Boost in the project's C++ and Bazel files, so that it cannot creep back.
 
-The project does not use Boost: ocs2::PropertyTree replaced boost::property_tree, the integrators are native ports of
-the odeint loops, and the lib/ocs2 fork is Boost-free. Boost stays installed only because Pinocchio's public headers
-include it, so the @pinocchio target in bazel/system_libs.bzl is the one target that depends on @boost and the one
-that carries Boost's configuration defines. This check flags, in code only:
+The project does not use Boost: the configuration is typed textprotos where boost::property_tree used to read it, the
+integrators are native ports of the odeint loops, and the lib/ocs2 fork is Boost-free. Boost stays installed only
+because Pinocchio's public headers include it, so the @pinocchio target in bazel/system_libs.bzl is the one target that
+depends on @boost and the one that carries Boost's configuration defines. This check flags, in code only:
 
   C++ files, lib/ocs2 included. Only the vendored CppAD headers in lib/ocs2/thirdparty/ are exempt: their disabled
   uBLAS test-vector option still names Boost.
@@ -39,13 +65,11 @@ closes nothing, is reported in its own right.
 
 import argparse
 import bisect
+from collections.abc import Iterable
 import os
 import re
-
-# test_boost_usage patches boost_usage.subprocess.run to take git away from lint_files.repository_files().
-import subprocess  # pylint: disable=unused-import
 import sys
-from typing import Iterable, List, NamedTuple, Optional, Set, Tuple
+from typing import NamedTuple
 
 from tools.hooks import check_types
 from tools.hooks import cpp_source
@@ -67,7 +91,7 @@ VENDORED_CPP_DIRS = ("lib/ocs2/thirdparty/",)
 
 # What each kind of finding says, and what to do about it: C++ code has a replacement, a Bazel file has none.
 _CPP_ADVICE = (
-    " The project does not use Boost: use the standard library, Abseil or ocs2::PropertyTree. A justified exception "
+    " The project does not use Boost: use the standard library or Abseil. A justified exception "
     "says why, with `// NOLINT(boost): <reason>` on the line (tools/hooks/boost_usage.py)."
 )
 _BAZEL_ADVICE = " A justified exception says why, with `# NOLINT(boost): <reason>` on the line (tools/hooks/boost_usage.py)."
@@ -111,7 +135,7 @@ class Violation(NamedTuple):
         return f"{self.path}:{self.line}:{self.col}: {finding.replace('{text}', self.text)}{advice}"
 
 
-def kind_of(path: str) -> Optional[str]:
+def kind_of(path: str) -> str | None:
     """The kind of file `path` (relative to the repository root) is for this check, or None when it is not checked."""
     path = path.replace(os.sep, "/")
     name = path.rsplit("/", 1)[-1]
@@ -140,7 +164,7 @@ _CPP_CODE = re.compile(
 )
 
 
-def mask_cpp(source: str) -> Tuple[str, str]:
+def mask_cpp(source: str) -> tuple[str, str]:
     """`source` with its comments blanked out, and with its comments and its string and character literals blanked out.
 
     Both have the length and the line structure of `source`, so an offset into either is an offset into `source`.
@@ -153,10 +177,8 @@ def _continues(code_line: str) -> bool:
     return code_line.rstrip(" \t\r").endswith("\\")
 
 
-def _check_cpp(
-    source: str, without_comments: str, code: str
-) -> List[Tuple[int, int, str, str]]:
-    """The (line, column, kind, text) of every Boost token in C++ `source`, given its masks (mask_cpp())."""
+def _check_cpp(without_comments: str, code: str) -> list[tuple[int, int, str, str]]:
+    """The (line, column, kind, text) of every Boost token of a C++ file, given its masks (mask_cpp())."""
     findings = []
     code_lines = code.split("\n")
     in_header_naming_directive = (
@@ -219,7 +241,7 @@ def strip_hash_comment(line: str) -> str:
     return line if start is None else line[:start] + " " * (len(line) - start)
 
 
-def _check_bazel(source: str, kind: str) -> List[Tuple[int, int, str, str]]:
+def _check_bazel(source: str, kind: str) -> list[tuple[int, int, str, str]]:
     """The (line, column, kind, text) of every Boost label and define in a Starlark or .bazelrc `source`."""
     rules = [
         (_LABEL, "label"),
@@ -251,11 +273,11 @@ def _has_reason(rest: str) -> bool:
     return re.search(r"\w", rest.split("*/", 1)[0]) is not None
 
 
-def _exempt_lines(lines: List[str]) -> Tuple[Set[int], List[Tuple[int, int, str, str]]]:
+def _exempt_lines(lines: list[str]) -> tuple[set[int], list[tuple[int, int, str, str]]]:
     """The line numbers the NOLINT(boost) markers in `lines` exempt, and the markers that are themselves wrong."""
-    exempt: Set[int] = set()
+    exempt: set[int] = set()
     problems = []
-    open_blocks: List[Tuple[int, int, bool]] = []  # line, column, has a reason
+    open_blocks: list[tuple[int, int, bool]] = []  # line, column, has a reason
     for number, line in enumerate(lines, start=1):
         for marker in _MARKER.finditer(line):
             variant = marker.group(1)
@@ -281,27 +303,35 @@ def _exempt_lines(lines: List[str]) -> Tuple[Set[int], List[Tuple[int, int, str,
     return exempt, problems
 
 
-def _raw_findings(source: str, kind: str) -> List[Tuple[int, int, str, str]]:
+def _raw_findings(source: str, kind: str) -> list[tuple[int, int, str, str]]:
     """The (line, column, kind, text) of every Boost use in `source`, a file of the given kind, before any marker."""
     if kind == CPP:
         without_comments, code = mask_cpp(source)
-        return _check_cpp(source, without_comments, code)
+        return _check_cpp(without_comments, code)
     if kind in (STARLARK, BAZELRC):
         return _check_bazel(source, kind)
     raise ValueError(f"not a kind of file this check reads: {kind!r}")
 
 
-def _comment_lines(source: str, kind: str) -> List[str]:
+def _comment_lines(source: str, kind: str) -> list[str]:
     if kind == CPP:
         without_comments, _ = mask_cpp(source)
         return cpp_source.comment_text(source, without_comments).split("\n")
     return [nolint.hash_comment_text(line) for line in source.split("\n")]
 
 
-def check_source(source: str, kind: str, path: str = "<source>") -> List[Violation]:
+def check_source(source: str, kind: str, path: str = "<source>") -> list[Violation]:
     """Every Boost use in `source`, a file of the given kind (CPP, STARLARK or BAZELRC), that no marker exempts.
 
     The markers are read from the comments alone: one in a string literal is text, not a justification.
+
+    Args:
+        source: The text of the file.
+        kind: CPP, STARLARK or BAZELRC.
+        path: The file's path, which the violations name.
+
+    Returns:
+        The violations, sorted by line and column; a malformed marker is one too.
     """
     findings = _raw_findings(source, kind)
     exempt, problems = _exempt_lines(_comment_lines(source, kind))
@@ -312,9 +342,9 @@ def check_source(source: str, kind: str, path: str = "<source>") -> List[Violati
     ]
 
 
-def check_files(paths: Iterable[str], root: str) -> List[Violation]:
+def check_files(paths: Iterable[str], root: str) -> list[Violation]:
     """Checks every file of `paths` this check reads, by its path relative to `root`; the others are skipped."""
-    violations: List[Violation] = []
+    violations: list[Violation] = []
     for path in paths:
         relative = os.path.relpath(path, root)
         kind = kind_of(relative)
@@ -325,7 +355,7 @@ def check_files(paths: Iterable[str], root: str) -> List[Violation]:
     return violations
 
 
-def repository_files(root: str) -> List[str]:
+def repository_files(root: str) -> list[str]:
     """The absolute paths of the files in the repository at `root` that this check reads.
 
     These are the files git tracks or would track, which leaves out Bazel's output trees and git-ignored files. When git
@@ -338,13 +368,19 @@ def repository_files(root: str) -> List[str]:
     ]
 
 
-def check_staged(repository: str) -> List[Violation]:
+def check_staged(repository: str) -> list[Violation]:
     """Checks the STAGED version of every file of a checked kind staged for commit - the index, not the working tree.
 
     This is what the pre-commit hook runs: it judges exactly what is about to be committed, a partial `git add -p`
     included, and only the files the commit touches, so a commit is never blocked by a file it does not change.
+
+    Args:
+        repository: The root of the git checkout.
+
+    Returns:
+        The violations of the staged files, file by file.
     """
-    violations: List[Violation] = []
+    violations: list[Violation] = []
     for path in lint_files.staged_files(repository):
         kind = kind_of(path)
         if kind is not None:
@@ -361,7 +397,7 @@ _LANGUAGE_KINDS = {
 }
 
 
-def _findings(source: str, path: str) -> List[check_types.Finding]:
+def _findings(source: str, path: str) -> list[check_types.Finding]:
     kind = kind_of(path)
     if kind is None:
         return []
@@ -385,13 +421,13 @@ CHECKS = [
         scope=lint_files.Scope.NOT_THIRDPARTY,
         check_source=_findings,
         description="the project is Boost-free: only the @pinocchio target depends on Boost (AGENTS.md).",
-        hint="Use the standard library, Abseil or ocs2::PropertyTree; a justified exception says why, with "
+        hint="Use the standard library or Abseil; a justified exception says why, with "
         "NOLINT(boost): <reason> on its line.",
     )
 ]
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "paths", nargs="*", help="C++ and Bazel files to check (others are skipped)"

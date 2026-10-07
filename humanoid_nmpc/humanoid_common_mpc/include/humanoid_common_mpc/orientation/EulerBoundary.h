@@ -40,8 +40,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /*
  * The Euler boundary: the only place in the humanoid MPCs that converts between ZYX Euler angles and the quaternion
  * base orientation (design section 4.2 of humanoid_nmpc/docs/quaternion_base_orientation/README.md). The formulation
- * never sees an Euler angle; the human-facing inputs and outputs keep them: the task.yaml tuning layout (initialState,
- * Q, Q_final), velocity and pose commands, the locomotion-heuristic seam, telemetry and display.
+ * never sees an Euler angle; the human-facing inputs and outputs keep them: the tuning layout of the task file
+ * (initial_state, state_weights, final_state_weights), velocity and pose commands, the locomotion-heuristic seam,
+ * telemetry and display.
  *
  * Conventions: Theta = (psi, theta, phi) = (yaw, pitch, roll) are ZYX Euler angles, R = R_z(psi) R_y(theta) R_x(phi); a
  * quaternion is a vector4_t of coefficients (x, y, z, w), as in orientation/BaseOrientation.h.
@@ -64,7 +65,7 @@ vector4_t quaternionFromEulerZyx(const vector3_t& eulerZyx);
  * from R_z(psi)^T R. The asin and atan2 formulas lose about 2e-16 / cos(theta) of the rotation, so at this threshold they
  * still reproduce it to about 2e-13, and below it they would lose it entirely at gimbal lock.
  */
-inline constexpr scalar_t kGimbalLockCosPitch = 1e-3;
+inline constexpr scalar_t kGimbalLockCosPitch = 1.0e-3;
 
 /**
  * Theta = (psi, theta, phi) of a unit quaternion xi, with psi, phi in (-pi, pi] and theta in [-pi/2, pi/2]:
@@ -100,9 +101,10 @@ vector3_t localAngularVelocityFromEulerZyxRates(const vector3_t& eulerZyx, const
 /******************************************************************************************************/
 
 /**
- * What one block of the Euler tuning layout - a row block of task.yaml's initialState, Q and Q_final - is in the state.
- * The tuning layout has the size of the state tangent (design decision D6), which is the Euler state of before the
- * switch, index for index; the state stores the base orientation as a quaternion, one row more.
+ * What one block of the Euler tuning layout - a block of the task file's initial_state, state_weights and
+ * final_state_weights - is in the state. The tuning layout has the size of the state tangent (design decision D6),
+ * which is the Euler state of before the switch, index for index; the state stores the base orientation as a
+ * quaternion, one row more.
  */
 enum class TuningSegmentKind {
   /** The same quantity in both, row for row: momentum, positions, joint angles, linear and joint velocities. */
@@ -149,7 +151,7 @@ size_t getTuningLayoutStateDim(const TuningLayout& layout);
 std::string describeTuningLayout(const TuningLayout& layout);
 
 /**
- * The state of a tuning-layout vector, e.g. task.yaml's initialState: kEuclidean rows are copied bit for bit, (yaw,
+ * The state of a tuning-layout vector, e.g. the task file's initial_state: kEuclidean rows are copied bit for bit, (yaw,
  * pitch, roll) become quaternionFromEulerZyx, and (w_z, w_y, w_x) become (w_x, w_y, w_z). An InvalidArgumentError,
  * naming the layout with each block and its size, when the vector does not have getTuningLayoutDim(layout) entries or a
  * rotation block does not have 3 rows.

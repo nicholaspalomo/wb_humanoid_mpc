@@ -1,8 +1,34 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Tests for message_decoding.py: decoding by type name, field paths and the printed formats."""
 
 import json
 import unittest
-from typing import Type
 
 from google.protobuf import descriptor_pb2
 from google.protobuf import descriptor_pool
@@ -10,13 +36,16 @@ from google.protobuf import json_format
 from google.protobuf import message
 from google.protobuf import message_factory
 from google.protobuf import text_format
-
-import message_decoding
+from humanoid_mpc_config import mpc_parameter_update_pb2
+from humanoid_mpc_msgs import config_file_kind_pb2
+from humanoid_mpc_msgs import config_file_save_pb2
 from humanoid_mpc_msgs import controller_type_pb2
 from humanoid_mpc_msgs import joint_targets_pb2
 from humanoid_mpc_msgs import mpc_policy_pb2
 from humanoid_mpc_msgs import mpc_solver_status_pb2
 from humanoid_mpc_msgs import mpc_status_pb2
+
+import message_decoding
 
 
 def make_policy() -> mpc_policy_pb2.MpcPolicy:
@@ -30,7 +59,7 @@ def make_policy() -> mpc_policy_pb2.MpcPolicy:
     return policy
 
 
-def make_choice_class() -> Type[message.Message]:
+def make_choice_class() -> type[message.Message]:
     """A message with a oneof and a proto3 `optional` field, which humanoid_mpc_msgs does not have (yet)."""
     file_proto = descriptor_pb2.FileDescriptorProto(
         name="test_choice.proto", package="test_choice", syntax="proto3"
@@ -69,7 +98,7 @@ def make_choice_class() -> Type[message.Message]:
     )
 
 
-def parse_text(text: str, cls: Type[message.Message]) -> message.Message:
+def parse_text(text: str, cls: type[message.Message]) -> message.Message:
     """The text parsed strictly, as the textproto it is meant to be."""
     return text_format.Parse(text, cls())
 
@@ -79,6 +108,9 @@ class ImportMessageModulesTest(unittest.TestCase):
     def test_every_message_of_every_module_resolves_by_its_full_name(self) -> None:
         modules = message_decoding.import_message_modules()
         self.assertIn("humanoid_mpc_msgs.mpc_policy_pb2", modules)
+        # The tuning GUI's payloads are configuration files (operator/mpc_parameters, operator/pd_gains).
+        self.assertIn("humanoid_mpc_config.mpc_parameter_update_pb2", modules)
+        self.assertIn("humanoid_mpc_config.joint_pd_gains_file_pb2", modules)
         self.assertTrue(all(name.endswith("_pb2") for name in modules))
         for module_name in modules:
             module = __import__(module_name, fromlist=["DESCRIPTOR"])
@@ -96,6 +128,47 @@ class DecodeTest(unittest.TestCase):
             "humanoid_mpc_msgs.MpcStatus", status.SerializeToString()
         )
         self.assertEqual(decoded, status)
+
+    def test_a_tuning_payload_decodes_and_prints(self) -> None:
+        # The configuration files the tuning GUI publishes (editions 2023, explicit presence) decode like the bus
+        # messages, and print in both formats.
+        message_decoding.import_message_modules()
+        update = mpc_parameter_update_pb2.MpcParameterUpdate()
+        update.task.contact_estimator = "robot_state"
+        update.task.contact_wrench_gate.ramp_time = 0.04
+        update.config_path = (
+            "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto"
+        )
+        decoded = message_decoding.decode(
+            "humanoid_mpc_config.MpcParameterUpdate", update.SerializeToString()
+        )
+        self.assertEqual(decoded, update)
+        self.assertIn(
+            'contact_estimator: "robot_state"',
+            message_decoding.message_to_text(decoded),
+        )
+        self.assertEqual(
+            message_decoding.message_to_python(decoded)["task"]["contact_estimator"],
+            "robot_state",
+        )
+
+    def test_a_saved_file_decodes_with_its_text(self) -> None:
+        # The GUI's Save of a file for the robot's copy (operator/config_save) carries the file's text.
+        message_decoding.import_message_modules()
+        save = config_file_save_pb2.ConfigFileSave(
+            kind=config_file_kind_pb2.CONFIG_FILE_KIND_JOINT_PD_GAINS,
+            config_path="robot_models/unitree_g1/g1_wb_mpc/config/controller/joint_pd_gains.textproto",
+            text="default_gains { kp: 100.0 }\n",
+            sequence=7,
+        )
+        decoded = message_decoding.decode(
+            "humanoid_mpc_msgs.ConfigFileSave", save.SerializeToString()
+        )
+        self.assertEqual(decoded, save)
+        self.assertEqual(
+            message_decoding.message_to_python(decoded)["kind"],
+            "CONFIG_FILE_KIND_JOINT_PD_GAINS",
+        )
 
     def test_an_unknown_type_name_raises(self) -> None:
         with self.assertRaises(message_decoding.UnknownMessageTypeError):

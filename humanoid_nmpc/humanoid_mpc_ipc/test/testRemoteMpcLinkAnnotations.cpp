@@ -31,18 +31,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // patches and the scaled walking command), handed to one consumer of the robot process by RemoteMpcLink::takeAnnotations():
 // those of the newest accepted policy, once each, and none of a policy the link drops.
 
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <memory>
 
+#include "absl/base/nullability.h"
 #include "absl/log/check.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-
-#include <ocs2_mpc/CommandData.h>
-#include <ocs2_oc/oc_data/PrimalSolution.h>
+#include "gtest/gtest.h"
+#include "ocs2_mpc/CommandData.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
 #include "humanoid_mpc_ipc/MpcServer.h"
@@ -75,11 +75,11 @@ TEST(RemoteMpcLinkAnnotations, TheNewestAcceptedPolicysAnnotationsAreTakenOnce) 
   std::atomic<int> solves{0};
   MpcServer::Hooks hooks;
   hooks.annotationsProvider = [&](const CommandData& /*command*/, const PrimalSolution& /*solution*/,
-                                  humanoid_mpc_msgs::ViewerAnnotations* annotations) {
+                                  humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations) {
     const int solve = solves.fetch_add(1) + 1;
     annotations->clear_target_contact_patches();
     for (int contact = 0; contact < 2; ++contact) {
-      humanoid_mpc_msgs::TargetContactPatch* patch = annotations->add_target_contact_patches();
+      humanoid_mpc_msgs::TargetContactPatch* absl_nonnull patch = annotations->add_target_contact_patches();
       patch->set_valid(true);
       patch->set_kind(contact == 0 ? humanoid_mpc_msgs::TargetContactPatch::KIND_NEXT_SWING
                                    : humanoid_mpc_msgs::TargetContactPatch::KIND_STANCE);
@@ -88,6 +88,7 @@ TEST(RemoteMpcLinkAnnotations, TheNewestAcceptedPolicysAnnotationsAreTakenOnce) 
     }
     annotations->set_scaled_velocity_x(static_cast<double>(solve));
     annotations->set_scaled_yaw_rate(-0.3);
+    return absl::OkStatus();
   };
   MpcServer::Config serverConfig;
   serverConfig.dimensions = modelDimensions();

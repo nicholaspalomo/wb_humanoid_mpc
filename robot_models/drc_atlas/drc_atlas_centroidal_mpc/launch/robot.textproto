@@ -16,8 +16,8 @@
 variables { name: "bin_dir" value: ".bazel/bin" }
 variables { name: "robot_dir" value: "robot_models/drc_atlas" }
 variables { name: "config_dir" value: "{robot_dir}/drc_atlas_centroidal_mpc/config" }
-variables { name: "task_file" value: "{config_dir}/mpc/task.yaml" }
-variables { name: "reference_file" value: "{config_dir}/command/reference.yaml" }
+variables { name: "task_file" value: "{config_dir}/mpc/task.textproto" }
+variables { name: "reference_file" value: "{config_dir}/command/reference.textproto" }
 variables { name: "urdf_file" value: "{robot_dir}/drc_atlas_description/urdf/atlas.urdf" }
 variables { name: "mjcf_file" value: "{robot_dir}/drc_atlas_description/urdf/atlas.xml" }
 variables { name: "network_file" value: "config/ipc/network.textproto" }
@@ -30,6 +30,12 @@ variables { name: "realtime_priority" value: "80" }
 # Cores of the realtime thread and of the backend's threads: default, none, or a list such as 4,5.
 variables { name: "realtime_cores" value: "default" }
 variables { name: "backend_cores" value: "default" }
+# The persistent copies of the configuration, where the GUI's saves go and the robot reads its files from (seeded from
+# the files above); empty = read them in place. The robot images set it (humanoid_nmpc/humanoid_common_mpc_app/robot/
+# README.md, "The configuration store").
+variables { name: "config_store_dir" value: "" }
+# When a stored copy is replaced by the bundled file: when_bundle_changes, every_start or never.
+variables { name: "config_seed" value: "when_bundle_changes" }
 # LINT.ThenChange(//docker-compose.robot.yaml:robot_environment, //tools/deploy/README.md:robot_environment)
 
 processes {
@@ -47,7 +53,9 @@ processes {
     "--headless={headless}",
     "--realtime_priority={realtime_priority}",
     "--realtime_cores={realtime_cores}",
-    "--backend_cores={backend_cores}"
+    "--backend_cores={backend_cores}",
+    "--config_store_dir={config_store_dir}",
+    "--config_seed={config_seed}"
   ]
   required: true
 }

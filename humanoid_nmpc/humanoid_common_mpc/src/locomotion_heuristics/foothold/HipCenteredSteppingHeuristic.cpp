@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/locomotion_heuristics/foothold/HipCenteredSteppingHeuristic.h"
 
 #include <cmath>
+#include <string>
 
 #include "absl/strings/str_cat.h"
 
@@ -65,7 +66,7 @@ vector2_t HipCenteredSteppingHeuristic::offset(const FootholdHeuristicContext& c
 std::string HipCenteredSteppingHeuristic::describe() const {
   return absl::StrCat("hip_centered_stepping: foot under the hip at (", parameters_.longitudinalScale, " * x_hip, ",
                       parameters_.lateralScale, " * y_hip) of the measured base; left hip = (",
-                      hipPositionInBaseFrame_[CONTACT_LEFT_INDEX].x(), ", ", hipPositionInBaseFrame_[CONTACT_LEFT_INDEX].y(), ") m");
+                      hipPositionInBaseFrame_[kContactLeftIndex].x(), ", ", hipPositionInBaseFrame_[kContactLeftIndex].y(), ") m");
 }
 
 }  // namespace ocs2::humanoid

@@ -25,7 +25,6 @@ ccache
 
 # The libraries bazel/system_libs.bzl wraps.
 libeigen3-dev
-libyaml-cpp-dev
 liburdfdom-dev
 liburdfdom-headers-dev
 libtinyxml2-dev

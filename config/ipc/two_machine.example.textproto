@@ -10,7 +10,7 @@
 #
 # Every node binds every interface of its machine (bind_host "0.0.0.0"), so it is reachable whatever interface the link
 # uses, and the other processes connect to its `host`. Each machine must accept TCP connections on the ports of its
-# own nodes from the other one: the robot on 5600, the laptop on 5610-5621. The bus uses the range 5600-5629, e.g.
+# own nodes from the other one: the robot on 5600, the laptop on 5610-5622. The bus uses the range 5600-5629, e.g.
 #
 #   sudo ufw allow from <laptop address> to any port 5600:5629 proto tcp    # on the robot
 #   sudo ufw allow from <robot address> to any port 5600:5629 proto tcp     # on the laptop
@@ -23,4 +23,5 @@ nodes { name: "robot"     host: "192.168.1.10"  port: 5600  bind_host: "0.0.0.0"
 nodes { name: "mpc"       host: "192.168.1.20"  port: 5610  bind_host: "0.0.0.0" }  # the laptop: the MPC node
 nodes { name: "operator"  host: "192.168.1.20"  port: 5620  bind_host: "0.0.0.0" }  # the laptop: the remote_control GUI
 nodes { name: "teleop"    host: "192.168.1.20"  port: 5621  bind_host: "0.0.0.0" }  # the laptop: teleoperation
+nodes { name: "config_push"  host: "192.168.1.20"  port: 5622  bind_host: "0.0.0.0" }  # the laptop: push_robot_config
 # LINT.ThenChange(//config/ipc/network.textproto:localhost_nodes)

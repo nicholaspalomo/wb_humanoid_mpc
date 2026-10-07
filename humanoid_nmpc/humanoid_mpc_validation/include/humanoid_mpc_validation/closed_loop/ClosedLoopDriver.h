@@ -29,7 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <array>
 #include <memory>
@@ -37,40 +37,42 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <Eigen/Core>
-
-#include <mujoco_sim_interface/MujocoSimInterface.h>
-#include <ocs2_mpc/SystemObservation.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-#include <ocs2_sqp/SqpMpc.h>
-#include <robot_model/ContactEstimatorRegistry.h>
-#include <robot_model/RobotDescription.h>
-#include <robot_model/RobotJointAction.h>
-#include <robot_model/RobotState.h>
-
+#include "Eigen/Core"
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "ocs2_sqp/SqpMpc.h"
 
 #include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/config/robot/ControllerSideSettingsFromConfig.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "humanoid_common_mpc/mrt/MpcLink.h"
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
-#include "humanoid_common_mpc_app/robot/ControllerSideSettings.h"
 #include "humanoid_common_mpc_app/robot/RobotController.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
 #include "humanoid_common_mpc_app/robot/TaskFileWatcher.h"
+#include "humanoid_mpc_validation/closed_loop/DriverSettingsFromConfig.h"
 #include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
+#include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "robot_model/ContactEstimatorRegistry.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotJointAction.h"
+#include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid::validation {
 
 /** How a driver builds its MPC. */
 struct ClosedLoopDriverOptions {
-  /// Overrides the task file's sqp.nThreads; the determinism test uses 1, because with more threads the order in which
-  /// the per-thread cost sums are added varies and the solves are not reproducible bit for bit.
+  /// Overrides the task file's multiple_shooting.n_threads. The determinism test uses 1: the SQP's per-thread performance sums
+  /// follow the thread schedule and only steer the line search's comparisons, and one thread keeps even those bits fixed. Runs
+  /// with the configured threads repeat bit for bit on the same CppAD libraries (humanoid_mpc_validation/README.md, "Runs are
+  /// reproducible").
   std::optional<size_t> solverThreads;
 };
 
@@ -100,10 +102,10 @@ struct InitialStateGap {
  *    the SQP MPC with the reference manager and the synchronized modules, the target trajectories calculator and the
  *    procedural motion manager behind the velocity command;
  *  - the robot process's controller as the formulation's robot binary builds it (CentroidalMpcRobotMain.cpp,
- *    WBMpcRobotMain.cpp): the MRT joint controller configured from the task file's robot-process keys
+ *    WBMpcRobotMain.cpp): the MRT joint controller configured from the task file's robot-process settings
  *    (loadRobotProcessSettings()), behind the RobotController the robot process drives (MrtRobotController, with the
- *    binary's CycleInputOrder), and the controller-side keys of the task file watched and applied as the robot process
- *    applies them;
+ *    binary's CycleInputOrder), and the controller-side settings of the task file watched and applied as the robot
+ *    process applies them;
  *  - in place of the bus between the two, an InProcessMpcLink that runs no solver thread (Execution::kCaller): the
  *    runner calls its solver iterations (solve()) on the simulation's clock;
  *  - the GUI's command path: a WalkingVelocityCommand message, applied to the motion manager by the MPC node's own
@@ -123,13 +125,13 @@ class ClosedLoopDriver {
   ClosedLoopDriver& operator=(const ClosedLoopDriver&) = delete;
 
   const RobotConfiguration& configuration() const { return configuration_; }
-  /** The robot process's keys of the task file (loadRobotProcessSettings()), as the robot binaries read them. */
+  /** The robot process's settings of the task file (loadRobotProcessSettings()), as the robot binaries read them. */
   const RobotProcessSettings& settings() const { return settings_; }
   const robot::model::RobotDescription& robotDescription() const { return *robotDescription_; }
   /** The joints of the MPC model, as indices of robotDescription(). */
   const std::vector<robot::joint_index_t>& mpcJointIndices() const { return mpcJointIndices_; }
 
-  /** [Hz] The task file's mpcDesiredFrequency and mrtDesiredFrequency. */
+  /** [Hz] The task file's mpc.mpc_desired_frequency and mpc.mrt_desired_frequency. */
   double mpcFrequency() const { return mpcFrequency_; }
   double mrtFrequency() const { return mrtFrequency_; }
   /** The SQP's threads, after ClosedLoopDriverOptions::solverThreads. */
@@ -141,7 +143,7 @@ class ClosedLoopDriver {
 
   /**
    * The simulator of the robot binary, headless: the MujocoSimConfig of its mujoco backend (MujocoRobotBackend::makeConfig())
-   * for the scene, the initial state, the contact frames and the simulator keys of the task file. The gantry starts
+   * for the scene, the initial state, the contact frames and the simulator settings of the task file. The gantry starts
    * locked at the initial height. The viewer's target contact patches are left out: there is no viewer.
    */
   absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> simulatorConfig() const;
@@ -154,10 +156,13 @@ class ClosedLoopDriver {
    * solve reads it. A message the node refuses (a value that is not finite) is logged and changes nothing.
    */
   void setGuiVelocityCommand(const Eigen::Vector4d& message);
-  /** maxDisplacementVelocityX, maxDisplacementVelocityY and maxRotationVelocity of reference.yaml. */
-  const Eigen::Vector3d& commandLimits() const { return commandLimits_; }
-  /** [m] defaultBaseHeight of reference.yaml, the pelvis height the GUI's slider sends. */
-  double defaultPelvisHeight() const { return defaultPelvisHeight_; }
+  /**
+   * max_displacement_velocity_x, max_displacement_velocity_y and max_rotation_velocity of the reference file
+   * (GuiCommandScaling::commandLimits).
+   */
+  const Eigen::Vector3d& commandLimits() const { return guiCommandScaling_.commandLimits; }
+  /** [m] default_base_height of the reference file, the pelvis height the GUI's slider sends. */
+  double defaultPelvisHeight() const { return guiCommandScaling_.defaultPelvisHeight; }
   /** The velocity reference of the last solve: (forward, lateral, yaw rate) after the command filter and the ramps. */
   Eigen::Vector3d referenceVelocity() const;
   /** [m] The world height of the base a command with `pelvisHeight` asks for. */
@@ -192,7 +197,9 @@ class ClosedLoopDriver {
 
   /**
    * Installs the task file's contact estimator, as RobotProcess::Create() does: the backend's estimators (cheater_sim,
-   * reading `sim`'s ground truth) registered next to the built-in ones. InvalidArgument for a name nobody registered.
+   * reading `sim`'s ground truth) registered next to the built-in ones. InvalidArgument for a name nobody registered,
+   * for an estimator that does not report one flag per contact point (checkContactEstimator()), and for a controller
+   * built for another robot than `sim`'s (checkControllerRobot()).
    */
   absl::Status connectSimulator(const robot::mujoco_sim_interface::MujocoSimInterface& sim);
 
@@ -204,10 +211,12 @@ class ClosedLoopDriver {
   void startMpc(const robot::model::RobotState& robotState);
 
   /**
-   * The controller-side keys of the task file (`contactEstimator`, `contact_wrench_gate`), re-read when the file has
-   * changed and applied as RobotProcess::applyControllerSettings() applies them. The robot process checks the file once
-   * a second of wall time; the runner calls this every control cycle with the simulation time and the file is checked
-   * once a second of it.
+   * The controller-side settings of the task file (contact_estimator, contact_wrench_gate), re-read typed when the file
+   * has changed (controllerSideSettingsFromConfig()) and applied as the robot process applies them
+   * (RobotProcess::applyControllerSettings()): the file is the whole file (humanoid_nmpc/humanoid_mpc_config/README.md, "Live updates"), so
+   * a file without a contact_wrench_gate block sets the instantaneous gate and one without a contact_estimator the schema's default
+   * (wholeFileContactWrenchGate()). The robot process checks the file once a second of wall time; the runner calls this every control cycle
+   * with the simulation time and the file is checked once a second of it.
    */
   void applyControllerSideSettings(double time);
 
@@ -237,7 +246,11 @@ class ClosedLoopDriver {
                                 const PinocchioInterface& pinocchioInterface,
                                 const vector_t& initialMpcState);
 
-  /** The procedural motion manager behind the velocity command, with `calculator` building its targets. */
+  /**
+   * The procedural motion manager behind the velocity command, with `calculator` building its targets, and the GUI's
+   * command scaling (commandLimits(), defaultPelvisHeight()) of the reference file: InvalidArgument naming the file for
+   * a scaling guiCommandScalingFromConfig() refuses.
+   */
   absl::Status initializeCommandPath(std::unique_ptr<TargetTrajectoriesCalculatorBase> calculator,
                                      std::shared_ptr<SwitchedModelReferenceManager> referenceManager,
                                      const MpcRobotModelBase<scalar_t>& commandModel);
@@ -255,18 +268,17 @@ class ClosedLoopDriver {
   RobotProcessSettings settings_;
   std::unique_ptr<robot::model::RobotDescription> robotDescription_;
   std::vector<robot::joint_index_t> mpcJointIndices_;
-  const ModelSettings* modelSettings_ = nullptr;  ///< the interface's, which the derived driver owns
+  const ModelSettings* absl_nullable modelSettings_ = nullptr;  ///< the interface's, which the derived driver owns
   double mpcFrequency_ = 0.0;
   double mrtFrequency_ = 0.0;
   size_t solverThreads_ = 0;
   vector_t initialMpcState_;
-  std::optional<robot::model::RobotState> initialRobotState_;
+  std::unique_ptr<const robot::model::RobotState> initialRobotState_;  ///< set by initializeShared(), as robotDescription_
 
   std::unique_ptr<SqpMpc> mpc_;
   std::unique_ptr<TargetTrajectoriesCalculatorBase> calculator_;
   std::shared_ptr<ProceduralMpcMotionManager> motionManager_;
-  Eigen::Vector3d commandLimits_ = Eigen::Vector3d::Ones();
-  double defaultPelvisHeight_ = 0.0;
+  GuiCommandScaling guiCommandScaling_;
 
   std::unique_ptr<MpcRobotModelBase<scalar_t>> measurementModel_;
   std::unique_ptr<PinocchioInterface> measurementPinocchio_;
@@ -274,14 +286,16 @@ class ClosedLoopDriver {
 
   // The robot process's controller (made by the derived driver) and the link it owns, which this driver solves.
   std::unique_ptr<RobotController> robotController_;
-  InProcessMpcLink* mpcLink_ = nullptr;
+  InProcessMpcLink* absl_nullable mpcLink_ = nullptr;
   bool mpcStarted_ = false;
 
-  // The controller-side keys of the task file (applyControllerSideSettings()).
+  // The controller-side settings of the task file (applyControllerSideSettings()).
   robot::model::ContactEstimatorRegistry contactEstimators_;
   std::string contactEstimatorName_;  ///< canonical name of the estimator the controller holds
+  /** The simulator's state when it was connected: every estimator is asked once on it before it is installed. */
+  std::optional<robot::model::RobotState> estimatorProbeState_;
   std::unique_ptr<TaskFileWatcher> taskFileWatcher_;
-  std::optional<ControllerSideSettings> pendingControllerSideSettings_;
+  std::optional<ControllerSideConfig> pendingControllerSideSettings_;  ///< read from a changed file, not applied yet
   double nextTaskFileCheckTime_ = 0.0;
 };
 

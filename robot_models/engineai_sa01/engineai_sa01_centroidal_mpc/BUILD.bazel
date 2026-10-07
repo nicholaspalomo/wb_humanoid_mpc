@@ -1,4 +1,5 @@
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 load("//bazel:robot_files.bzl", "ROBOT_FILE_EXCLUDES")
 # engineai_sa01_centroidal_mpc - EngineAI SA01 robot centroidal MPC configuration and tests
 
@@ -22,24 +23,20 @@ filegroup(
 cc_binary(
     name = "test_pinocchio_model",
     srcs = ["test/testPinocchioModel.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     data = [
         ":engineai_sa01_centroidal_mpc",
         "//robot_models/engineai_sa01/engineai_sa01_description",
     ],
     deps = [
         "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//humanoid_nmpc/humanoid_centroidal_mpc",
         "//lib/ocs2:ocs2_pinocchio_interface",
         "//lib/ocs2:ocs2_centroidal_model",
         "//lib/ocs2:ocs2_core",
         "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/base:nullability",
         "@eigen",
         "@pinocchio",
         "@urdf",
@@ -47,5 +44,8 @@ cc_binary(
         "@abseil-cpp//absl/log:log",
         "@abseil-cpp//absl/log:globals",
         "@abseil-cpp//absl/log:initialize",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:str_format",
+        "@abseil-cpp//absl/strings:string_view",
     ],
 )

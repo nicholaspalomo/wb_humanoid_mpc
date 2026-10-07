@@ -29,13 +29,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/MujocoRobotBackend.h"
 
+#include <array>
+#include <memory>
 #include <utility>
+#include <vector>
 
+#include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 
-#include <humanoid_common_mpc/common/ThreadAffinity.h>
-#include <mujoco_sim_interface/CheaterSimContactEstimator.h>
+#include "humanoid_common_mpc/common/ThreadAffinity.h"
+#include "mujoco_sim_interface/CheaterSimContactEstimator.h"
+#include "mujoco_sim_interface/Projectile.h"
 
 namespace ocs2::humanoid {
 
@@ -69,18 +74,26 @@ absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> MujocoRobotBackend:
   return config;
 }
 
+absl::Status MujocoRobotBackend::checkOptions(const RobotBackendOptions& options) {
+  if (const absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> config = makeConfig(options); !config.ok()) {
+    return config.status();
+  }
+  if (options.simulator.projectile.empty()) return absl::OkStatus();
+  return robot::mujoco_sim_interface::projectileFromName(options.simulator.projectile).status();
+}
+
 absl::StatusOr<std::unique_ptr<MujocoRobotBackend>> MujocoRobotBackend::Create(const RobotBackendOptions& options) {
   absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> config = makeConfig(options);
   if (!config.ok()) {
     return config.status();
   }
-  std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface> simulator;
-  try {
-    simulator = std::make_unique<robot::mujoco_sim_interface::MujocoSimInterface>(*config, options.urdfFile);
-  } catch (const std::exception& error) {
-    return absl::InvalidArgumentError(absl::StrCat("the MuJoCo simulator did not start on ", options.mjcfFile, ": ", error.what()));
+  absl::StatusOr<std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface>> simulator =
+      robot::mujoco_sim_interface::MujocoSimInterface::Create(*config, options.urdfFile);
+  if (!simulator.ok()) {
+    return absl::Status(simulator.status().code(),
+                        absl::StrCat("the MuJoCo simulator did not start on ", options.mjcfFile, ": ", simulator.status().message()));
   }
-  return std::unique_ptr<MujocoRobotBackend>(new MujocoRobotBackend(std::move(simulator)));
+  return absl::WrapUnique(new MujocoRobotBackend(*std::move(simulator)));
 }
 
 MujocoRobotBackend::MujocoRobotBackend(std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface> simulator)
@@ -104,8 +117,8 @@ absl::Status MujocoRobotBackend::start(const std::vector<int>& cores) {
   return absl::OkStatus();
 }
 
-void MujocoRobotBackend::readMeasuredContactForces(std::array<vector3_t, N_CONTACTS>& forces) {
-  static_assert(N_CONTACTS == 2, "the simulator has a force sensor in each of two feet");
+void MujocoRobotBackend::readMeasuredContactForces(std::array<vector3_t, kNumContacts>& forces) {
+  static_assert(kNumContacts == 2, "the simulator has a force sensor in each of two feet");
   simulator_->takeMeasuredFootForces(forces[0], forces[1]);
 }
 

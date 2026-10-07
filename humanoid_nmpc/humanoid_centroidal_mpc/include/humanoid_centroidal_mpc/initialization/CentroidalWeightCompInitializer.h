@@ -30,16 +30,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_centroidal_model/CentroidalModelInfo.h>
-#include <ocs2_core/initialization/Initializer.h>
-#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
+#include "absl/base/nullability.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_core/initialization/Initializer.h"
 
+#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
 
-// This class is used to initialize the input policy
-
+/**
+ * The solver's initial guess of the inputs: the contact wrenches that carry the robot's weight on the feet the
+ * reference manager has in contact (weightCompensatingInput), and the state held, with its normalized momentum kept or
+ * zeroed. Not thread-safe; the solver clones it per worker.
+ */
 class CentroidalWeightCompInitializer final : public Initializer {
  public:
   /*
@@ -54,16 +58,20 @@ class CentroidalWeightCompInitializer final : public Initializer {
                                   bool extendNormalizedMomentum);
 
   ~CentroidalWeightCompInitializer() override = default;
-  CentroidalWeightCompInitializer* clone() const override;
+  CentroidalWeightCompInitializer* absl_nonnull clone() const override;
+  // Copied only by clone(), whose copy constructor is private; never assigned or moved.
+  CentroidalWeightCompInitializer& operator=(const CentroidalWeightCompInitializer&) = delete;
+  CentroidalWeightCompInitializer(CentroidalWeightCompInitializer&&) = delete;
+  CentroidalWeightCompInitializer& operator=(CentroidalWeightCompInitializer&&) = delete;
 
   void compute(scalar_t time, const vector_t& state, scalar_t nextTime, vector_t& input, vector_t& nextState) override;
 
  private:
   CentroidalWeightCompInitializer(const CentroidalWeightCompInitializer& rhs);
 
-  const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
+  const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModelPtr_;
   const CentroidalModelInfo info_;
-  const SwitchedModelReferenceManager* referenceManagerPtr_;
+  const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
   const bool extendNormalizedMomentum_;
 };
 

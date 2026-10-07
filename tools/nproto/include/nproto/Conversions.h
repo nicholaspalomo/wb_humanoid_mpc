@@ -58,12 +58,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <variant>
 #include <vector>
 
-#include <Eigen/Core>
-
+#include "Eigen/Core"
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-
 #include "google/protobuf/map.h"
 #include "google/protobuf/repeated_field.h"
 #include "google/protobuf/repeated_ptr_field.h"
@@ -75,7 +74,7 @@ namespace nproto::internal {
 // ---------------------------------------------------------------------------------------------------------------------
 
 /** The error of FromProto() for an enum number that `enumName` does not define: "7 is not a value of <enumName>". */
-absl::Status UnknownEnumValueError(std::int32_t number, absl::string_view enumName);
+absl::Status UnknownEnumValueError(int32_t number, absl::string_view enumName);
 
 /**
  * `status` from converting the field `field`, with the field in front of the path its message names:
@@ -102,26 +101,30 @@ std::string FormatKey(Integer key) {
 // argument-dependent lookup in the namespace of its struct).
 // ---------------------------------------------------------------------------------------------------------------------
 
+// The helpers pass their output parameter on to the generated ToProto() / FromProto(), whose output parameters are
+// `absl_nonnull` too.
+// LINT.IfChange(output_parameters)
 template <typename T>
-absl::Status ValueFromProto(const T& proto, T* value) {
+absl::Status ValueFromProto(const T& proto, T* absl_nonnull value) {
   *value = proto;
   return absl::OkStatus();
 }
 
 template <typename Proto, typename Value>
-absl::Status ValueFromProto(const Proto& proto, Value* value) {
+absl::Status ValueFromProto(const Proto& proto, Value* absl_nonnull value) {
   return FromProto(proto, value);
 }
 
 template <typename T>
-void ValueToProto(const T& value, T* proto) {
+void ValueToProto(const T& value, T* absl_nonnull proto) {
   *proto = value;
 }
 
 template <typename Value, typename Proto>
-void ValueToProto(const Value& value, Proto* proto) {
+void ValueToProto(const Value& value, Proto* absl_nonnull proto) {
   ToProto(value, proto);
 }
+// LINT.ThenChange(//tools/nproto/nproto_generator.py:output_parameters)
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Repeated fields
@@ -129,7 +132,7 @@ void ValueToProto(const Value& value, Proto* proto) {
 
 /** Resizes `field` to `size`; removed elements stay allocated, cleared, and Add() hands them out again. */
 template <typename T>
-void ResizeRepeatedPtrField(int size, google::protobuf::RepeatedPtrField<T>* field) {
+void ResizeRepeatedPtrField(int size, google::protobuf::RepeatedPtrField<T>* absl_nonnull field) {
   while (field->size() > size) {
     field->RemoveLast();
   }
@@ -140,37 +143,37 @@ void ResizeRepeatedPtrField(int size, google::protobuf::RepeatedPtrField<T>* fie
 
 /** repeated double / float -> Eigen::VectorXd / VectorXf. */
 template <typename Scalar>
-void VectorFromProto(const google::protobuf::RepeatedField<Scalar>& proto, Eigen::Matrix<Scalar, Eigen::Dynamic, 1>* value) {
+void VectorFromProto(const google::protobuf::RepeatedField<Scalar>& proto, Eigen::Matrix<Scalar, Eigen::Dynamic, 1>* absl_nonnull value) {
   value->resize(proto.size());
   std::copy(proto.begin(), proto.end(), value->data());
 }
 
 template <typename Scalar>
-void VectorToProto(const Eigen::Matrix<Scalar, Eigen::Dynamic, 1>& value, google::protobuf::RepeatedField<Scalar>* proto) {
+void VectorToProto(const Eigen::Matrix<Scalar, Eigen::Dynamic, 1>& value, google::protobuf::RepeatedField<Scalar>* absl_nonnull proto) {
   proto->Assign(value.data(), value.data() + value.size());
 }
 
 /** Other repeated scalars (integers, bool) -> std::vector. */
 template <typename T>
-void ScalarsFromProto(const google::protobuf::RepeatedField<T>& proto, std::vector<T>* value) {
+void ScalarsFromProto(const google::protobuf::RepeatedField<T>& proto, std::vector<T>* absl_nonnull value) {
   value->assign(proto.begin(), proto.end());
 }
 
 template <typename T>
-void ScalarsToProto(const std::vector<T>& value, google::protobuf::RepeatedField<T>* proto) {
+void ScalarsToProto(const std::vector<T>& value, google::protobuf::RepeatedField<T>* absl_nonnull proto) {
   proto->Assign(value.begin(), value.end());
 }
 
 /** repeated string / bytes -> std::vector<std::string>. */
-void StringsFromProto(const google::protobuf::RepeatedPtrField<std::string>& proto, std::vector<std::string>* value);
-void StringsToProto(const std::vector<std::string>& value, google::protobuf::RepeatedPtrField<std::string>* proto);
+void StringsFromProto(const google::protobuf::RepeatedPtrField<std::string>& proto, std::vector<std::string>* absl_nonnull value);
+void StringsToProto(const std::vector<std::string>& value, google::protobuf::RepeatedPtrField<std::string>* absl_nonnull proto);
 
 /** repeated enum (a RepeatedField<int> in protobuf's C++ code) -> std::vector of the enum class. */
 template <typename ProtoEnum, typename Enum>
-absl::Status EnumsFromProto(const google::protobuf::RepeatedField<int>& proto, std::vector<Enum>* value) {
-  value->resize(static_cast<std::size_t>(proto.size()));
+absl::Status EnumsFromProto(const google::protobuf::RepeatedField<int>& proto, std::vector<Enum>* absl_nonnull value) {
+  value->resize(static_cast<size_t>(proto.size()));
   for (int index = 0; index < proto.size(); ++index) {
-    const absl::Status status = FromProto(static_cast<ProtoEnum>(proto.Get(index)), &(*value)[static_cast<std::size_t>(index)]);
+    const absl::Status status = FromProto(static_cast<ProtoEnum>(proto.Get(index)), &(*value)[static_cast<size_t>(index)]);
     if (!status.ok()) {
       return AnnotateElement(index, status);
     }
@@ -179,7 +182,7 @@ absl::Status EnumsFromProto(const google::protobuf::RepeatedField<int>& proto, s
 }
 
 template <typename Enum>
-void EnumsToProto(const std::vector<Enum>& value, google::protobuf::RepeatedField<int>* proto) {
+void EnumsToProto(const std::vector<Enum>& value, google::protobuf::RepeatedField<int>* absl_nonnull proto) {
   proto->Clear();
   for (const Enum element : value) {
     proto->Add(static_cast<int>(element));
@@ -188,10 +191,10 @@ void EnumsToProto(const std::vector<Enum>& value, google::protobuf::RepeatedFiel
 
 /** repeated messages -> std::vector of their structs. */
 template <typename Proto, typename Struct>
-absl::Status MessagesFromProto(const google::protobuf::RepeatedPtrField<Proto>& proto, std::vector<Struct>* value) {
-  value->resize(static_cast<std::size_t>(proto.size()));
+absl::Status MessagesFromProto(const google::protobuf::RepeatedPtrField<Proto>& proto, std::vector<Struct>* absl_nonnull value) {
+  value->resize(static_cast<size_t>(proto.size()));
   for (int index = 0; index < proto.size(); ++index) {
-    const absl::Status status = FromProto(proto.Get(index), &(*value)[static_cast<std::size_t>(index)]);
+    const absl::Status status = FromProto(proto.Get(index), &(*value)[static_cast<size_t>(index)]);
     if (!status.ok()) {
       return AnnotateElement(index, status);
     }
@@ -200,9 +203,9 @@ absl::Status MessagesFromProto(const google::protobuf::RepeatedPtrField<Proto>& 
 }
 
 template <typename Struct, typename Proto>
-void MessagesToProto(const std::vector<Struct>& value, google::protobuf::RepeatedPtrField<Proto>* proto) {
+void MessagesToProto(const std::vector<Struct>& value, google::protobuf::RepeatedPtrField<Proto>* absl_nonnull proto) {
   ResizeRepeatedPtrField(static_cast<int>(value.size()), proto);
-  for (std::size_t index = 0; index < value.size(); ++index) {
+  for (size_t index = 0; index < value.size(); ++index) {
     ToProto(value[index], proto->Mutable(static_cast<int>(index)));
   }
 }
@@ -213,7 +216,7 @@ void MessagesToProto(const std::vector<Struct>& value, google::protobuf::Repeate
 
 /** map<K, V> -> std::map<K, V or its struct>, in key order. */
 template <typename Key, typename Proto, typename Value>
-absl::Status MapFromProto(const google::protobuf::Map<Key, Proto>& proto, std::map<Key, Value>* value) {
+absl::Status MapFromProto(const google::protobuf::Map<Key, Proto>& proto, std::map<Key, Value>* absl_nonnull value) {
   bool sameKeys = proto.size() == value->size();
   for (typename google::protobuf::Map<Key, Proto>::const_iterator entry = proto.begin(); sameKeys && entry != proto.end(); ++entry) {
     sameKeys = value->find(entry->first) != value->end();
@@ -232,7 +235,7 @@ absl::Status MapFromProto(const google::protobuf::Map<Key, Proto>& proto, std::m
 }
 
 template <typename Key, typename Value, typename Proto>
-void MapToProto(const std::map<Key, Value>& value, google::protobuf::Map<Key, Proto>* proto) {
+void MapToProto(const std::map<Key, Value>& value, google::protobuf::Map<Key, Proto>* absl_nonnull proto) {
   bool sameKeys = proto->size() == value.size();
   for (typename std::map<Key, Value>::const_iterator entry = value.begin(); sameKeys && entry != value.end(); ++entry) {
     sameKeys = proto->find(entry->first) != proto->end();
@@ -241,7 +244,7 @@ void MapToProto(const std::map<Key, Value>& value, google::protobuf::Map<Key, Pr
     proto->clear();
   }
   for (typename std::map<Key, Value>::const_iterator entry = value.begin(); entry != value.end(); ++entry) {
-    Proto* const target = sameKeys ? &proto->find(entry->first)->second : &(*proto)[entry->first];
+    Proto* absl_nonnull const target = sameKeys ? &proto->find(entry->first)->second : &(*proto)[entry->first];
     ValueToProto(entry->second, target);
   }
 }
@@ -252,7 +255,7 @@ void MapToProto(const std::map<Key, Value>& value, google::protobuf::Map<Key, Pr
 
 /** An optional scalar or string: `present` is the message's has_<field>(). */
 template <typename T>
-void CopyOptionalFromProto(bool present, const T& proto, std::optional<T>* value) {
+void CopyOptionalFromProto(bool present, const T& proto, std::optional<T>* absl_nonnull value) {
   if (!present) {
     value->reset();
   } else if (value->has_value()) {
@@ -264,7 +267,7 @@ void CopyOptionalFromProto(bool present, const T& proto, std::optional<T>* value
 
 /** An optional enum or message. */
 template <typename Proto, typename Value>
-absl::Status ConvertOptionalFromProto(bool present, const Proto& proto, std::optional<Value>* value) {
+absl::Status ConvertOptionalFromProto(bool present, const Proto& proto, std::optional<Value>* absl_nonnull value) {
   if (!present) {
     value->reset();
     return absl::OkStatus();
@@ -276,8 +279,8 @@ absl::Status ConvertOptionalFromProto(bool present, const Proto& proto, std::opt
 }
 
 /** The scalar or string alternative `Index` of a oneof's std::variant. */
-template <std::size_t Index, typename Proto, typename Variant>
-void CopyAlternativeFromProto(const Proto& proto, Variant* value) {
+template <size_t Index, typename Proto, typename Variant>
+void CopyAlternativeFromProto(const Proto& proto, Variant* absl_nonnull value) {
   if (value->index() != Index) {
     value->template emplace<Index>();
   }
@@ -285,8 +288,8 @@ void CopyAlternativeFromProto(const Proto& proto, Variant* value) {
 }
 
 /** The enum or message alternative `Index` of a oneof's std::variant. */
-template <std::size_t Index, typename Proto, typename Variant>
-absl::Status ConvertAlternativeFromProto(const Proto& proto, Variant* value) {
+template <size_t Index, typename Proto, typename Variant>
+absl::Status ConvertAlternativeFromProto(const Proto& proto, Variant* absl_nonnull value) {
   if (value->index() != Index) {
     value->template emplace<Index>();
   }

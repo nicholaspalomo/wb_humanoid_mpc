@@ -32,36 +32,49 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <iostream>
+#include <memory>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
+#include "absl/base/nullability.h"
+#include "absl/container/flat_hash_map.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 
 namespace ocs2::humanoid {
 
+/**
+ * The robot model the MPC is formulated on, read from the task file's `model_settings` block and the URDF: the active
+ * (MPC) joints and their mapping to the full model, the contacts, the swing-foot constraint gains, the contact-implicit
+ * weights and the ground.
+ *
+ * Build it with Create(). It is a plain value that the MPC interfaces, robot models and terms read after construction;
+ * nothing mutates it then, so concurrent reads are safe.
+ */
 class ModelSettings {
  public:
   struct FootConstraintConfig {
-    scalar_t positionErrorGain_z{1.0};
-    scalar_t orientationErrorGain{1.0};
-    scalar_t linearVelocityErrorGain_z{1.0};
-    scalar_t linearVelocityErrorGain_xy{1.0};
-    scalar_t angularVelocityErrorGain{1.0};
-    scalar_t linearAccelerationErrorGain_z{1.0};
-    scalar_t linearAccelerationErrorGain_xy{1.0};
-    scalar_t angularAccelerationErrorGain{1.0};
-    scalar_t softConstraintWeight{10.0};
+    scalar_t positionErrorGain_z = 1.0;
+    scalar_t orientationErrorGain = 1.0;
+    scalar_t linearVelocityErrorGain_z = 1.0;
+    scalar_t linearVelocityErrorGain_xy = 1.0;
+    scalar_t angularVelocityErrorGain = 1.0;
+    scalar_t linearAccelerationErrorGain_z = 1.0;
+    scalar_t linearAccelerationErrorGain_xy = 1.0;
+    scalar_t angularAccelerationErrorGain = 1.0;
+    scalar_t softConstraintWeight = 10.0;
     /**
      * Weight of the SOFT `normal_velocity` term, when it is listed in soft_constraints.
      *
      * The residual is the same row the hard constraint imposed,
      *     r = v_z - zdot_ref(t) - positionErrorGain_z * (z_ref(t) - z),
      * so this one weight buys the swing-foot vertical servo as a cost. That matters because the two channels the hard
-     * row combined are otherwise split across task_space_foot_cost_weights.pos_z and .lin_velocity_z, which are faded
+     * row combined are otherwise split across task_space_foot_cost.weights.pos_z and .lin_velocity_z, which are faded
      * differently (only the velocity rows of the foot cost are scaled by the impact-proximity factor) and so cannot
      * reproduce the servo at any pair of values.
      *
@@ -71,14 +84,17 @@ class ModelSettings {
      * leg-joint regularization that holds the swing leg in its standing crouch. Sweep it; the shipped value is a
      * starting point, not a tuned one.
      */
-    scalar_t normalVelocitySoftConstraintWeight{500.0};
-    bool constrainOrientation{true};  // When true, constraint is 6D (position+orientation); when false, 3D (position-only)
+    scalar_t normalVelocitySoftConstraintWeight = 500.0;
+    // The rows of the stance constraint, which the file selects by name (model_settings.foot_constraint.stance_constraint,
+    // stanceConstraintNames()): "position" is constrainOrientation false, "position_and_tilt" true with the yaw rate
+    // false, "position_and_orientation" both true.
+    bool constrainOrientation = true;  // When true, constraint is 6D (position+orientation); when false, 3D (position-only)
     // The orientation error with respect to the ground plane only measures the tilt of the foot normal, so a 6D
     // constraint built from it leaves the rotation about the contact normal free and the last row is identically zero.
     // Setting this adds that rate to the plane-normal row, which stops a stance foot pivoting on the spot. It is off by
     // default because it removes one input degree of freedom per stance foot from a controller that was tuned without
-    // it; enable it and re-check the yaw behavior.
-    bool constrainYawRateAboutContactNormal{false};
+    // it; select "position_and_orientation" and re-check the yaw behavior.
+    bool constrainYawRateAboutContactNormal = false;
   };
 
   /**
@@ -96,7 +112,7 @@ class ModelSettings {
    * formulation on its own before the planner is enabled on top of it.
    */
   struct NominalFootholdConfig {
-    scalar_t stepWidth{0.0};  // [m] lateral distance between the feet; 0 disables the nominal reference
+    scalar_t stepWidth = 0.0;  // [m] lateral distance between the feet; 0 disables the nominal reference
   };
 
   /**
@@ -107,21 +123,21 @@ class ModelSettings {
    */
   struct ContactImplicitConfig {
     // Both residuals are normalized before they are penalized - (f_n / f_ref)(h / h_ref) and (f_n / f_ref)(v / v_ref) -
-    // so these two weights are dimensionless and comparable with each other - but NOT with task_space_foot_cost_weights,
+    // so these two weights are dimensionless and comparable with each other - but NOT with task_space_foot_cost,
     // whose residuals are in meters (humanoid_nmpc/docs/contact_implicit_mpc/README.md, section 4: pos_z is priced at
     // 0.5 * pos_z * heightReference^2 against 0.5 * complementarityWeight, and the two break even at a swing-foot load of
     // f_n / f_ref = heightReference * sqrt(pos_z / complementarityWeight)).
     // Each is the cost of the worst configuration its term can describe: a foot at the reference height, or sliding at
     // the reference speed, while carrying the reference force. See the class comment on ContactComplementarityConstraint
     // for why the un-normalized products could not be weighted sensibly at all.
-    scalar_t complementarityWeight{100.0};
+    scalar_t complementarityWeight = 100.0;
     // What holds a loaded foot still, in place of the mode-scheduled stance constraint.
-    scalar_t slipWeight{100.0};
+    scalar_t slipWeight = 100.0;
     // The references the two residuals are measured in. The force reference is not here: it is the robot's own weight,
     // taken from the model, because a value that has to agree with the URDF should not be maintained by hand.
-    scalar_t heightReference{0.08};          // [m] normally the swing apex, swing_trajectory_config.swingHeight
-    scalar_t velocityReference{0.3};         // [m/s] a sliding speed that would already be a failure
-    scalar_t angularVelocityReference{1.0};  // [rad/s] a pivot rate that would already be a failure
+    scalar_t heightReference = 0.08;          // [m] normally the swing apex, swing_trajectory_config.swingHeight
+    scalar_t velocityReference = 0.3;         // [m/s] a sliding speed that would already be a failure
+    scalar_t angularVelocityReference = 1.0;  // [rad/s] a pivot rate that would already be a failure
     /**
      * Weight of the one-sided quadratic hinge on h >= 0: the penalty is `penetrationWeight * h^2 / 2` below the ground
      * and exactly zero on or above it.
@@ -136,7 +152,7 @@ class ModelSettings {
      * complementarity residual that no weight could tune away. The hinge is zero in value and in
      * gradient at h = 0, so it has no such equilibrium: it does nothing at all until the foot is actually below ground.
      */
-    scalar_t penetrationWeight{5.0e4};
+    scalar_t penetrationWeight = 5.0e4;
     /**
      * [m] The length scale over which the gap - the height of the lowest point of the footprint - is smoothed.
      *
@@ -150,66 +166,77 @@ class ModelSettings {
      * penetration under full body weight (the bias attenuated by C / (C + k * penetrationWeight), k the corners that are
      * down) - the price of a residual the SQP solver can linearize consistently.
      */
-    scalar_t gapSmoothing{1.0e-3};
+    scalar_t gapSmoothing = 1.0e-3;
     // Where the ground is, is NOT here: it is ModelSettings::terrainHeight, so that the complementarity conditions and
     // the swing trajectories cannot disagree about it.
-    // Every field above is a key of the task file's `contact_implicit` block, listed in contactImplicitKeys().
+    // Every field above is a field of the task file's `contact_implicit` block, listed in contactImplicitKeys().
   };
 
   /** The task-file block ContactImplicitConfig is read from. */
   static constexpr absl::string_view kContactImplicitBlock = "contact_implicit";
 
   /**
-   * One key of the task file's `contact_implicit` block: its name inside the block, the field of ContactImplicitConfig
-   * it sets, and whether it is a penalty weight - finite and non-negative, where zero switches its term off - or a
-   * divisor of the residuals, which has to be finite and positive.
+   * One field of the task file's `contact_implicit` block (humanoid_mpc_config.ContactImplicitConfig): its name, the
+   * field of ContactImplicitConfig it sets, and whether it is a penalty weight - finite and non-negative, where zero
+   * switches its term off - or a divisor of the residuals, which has to be finite and positive.
    */
   struct ContactImplicitKey {
-    absl::string_view name;
-    scalar_t ContactImplicitConfig::*field;
+    // NOLINTNEXTLINE(totw-view-member): every field name is a string literal of the constexpr table in ModelSettings.cpp.
+    absl::string_view fieldName;
+    scalar_t ContactImplicitConfig::*absl_nonnull field;
     bool isWeight;
   };
 
   /**
-   * Every key of the `contact_implicit` block: the one list that ModelSettings loads the block with,
-   * validateContactImplicitConfig() checks it against, and MpcParameterUpdaterModule hot-reloads it from, so that no
-   * two of them can read different keys. A key the block carries that is not on this list - a renamed or misspelled
-   * one - is refused by checkContactImplicitBlockKeys() at start-up and on a hot reload instead of being skipped in
-   * silence. ModelSettings.cpp holds the list, tied to the task files with LINT, and static_asserts that it names every
-   * field of ContactImplicitConfig.
+   * Every field of the `contact_implicit` block: the one list that validateContactImplicitConfig() checks the block
+   * against and MpcParameterUpdaterModule hot-reloads it from, so that the two cannot read different fields.
+   * ModelSettings.cpp holds the list and static_asserts that it names every field of ContactImplicitConfig.
    */
   static absl::Span<const ContactImplicitKey> contactImplicitKeys();
 
-  ModelSettings(const std::string& configFile, const std::string& urdfFile, const std::string& mpcName, bool verbose = false);
-
-  /** The task-file key an MPC interface reads its verbosity from. */
-  static constexpr absl::string_view kInterfaceVerboseKey = "interface.verbose";
+  /**
+   * The settings of the task file at `configFile` (loadTaskFile()) and the URDF `urdfFile`, by the typed Create() below;
+   * `mpcName` keys the CppAD model folder. The path form of a root of the MPC's configuration.
+   *
+   * @return loadTaskFile()'s error for a file that cannot be read or does not parse (InvalidArgument naming the file,
+   *         line and column), and the typed Create()'s errors, prefixed with the file.
+   */
+  static absl::StatusOr<ModelSettings> Create(const std::string& configFile,
+                                              const std::string& urdfFile,
+                                              const std::string& mpcName,
+                                              bool verbose = false);
 
   /**
-   * The task file's `interface.verbose`: whether an MPC interface built from it logs its settings as it loads them.
+   * The settings of the typed task file `taskFile` (its model_settings, nominal_foothold, terrain_height and
+   * contact_implicit) and the URDF `urdfFile`; `mpcName` keys the CppAD model folder.
    *
-   * The interfaces' Create() reads it before it constructs the interface, which passes it on to the constructor above,
-   * so that the settings banner follows the flag. They used to pass the string literal "true", which converts to the
-   * bool true, so every start-up printed the banner whatever the file said.
+   * Defined in humanoid_common_mpc/config/model/ModelSettingsFromConfig.cpp, with the other conversions of the typed
+   * task file's model and formulation.
    *
-   * @return false when the file does not carry the key; InvalidArgument naming `interface.verbose` when its value is not
-   *         a bool (true or false); NotFound when the file cannot be read.
+   * @return InvalidArgument naming the URDF when it cannot be read, when every joint of the URDF is fixed, or naming
+   *         model_settings.arm_joint_names when it names a joint that is not an active MPC joint.
    */
-  static absl::StatusOr<bool> loadInterfaceVerbose(absl::string_view configFile);
+  static absl::StatusOr<ModelSettings> Create(const mpc_config::TaskFile& taskFile,
+                                              const std::string& urdfFile,
+                                              const std::string& mpcName,
+                                              bool verbose);
 
-  ModelSettings() = delete;
-
+  // Movable, so that Create() can return one and an MPC interface can take it over; not copyable, because a copy is
+  // never what a reader of the settings wants.
   ModelSettings(const ModelSettings&) = delete;
+  ModelSettings& operator=(const ModelSettings&) = delete;
+  ModelSettings(ModelSettings&&) = default;
+  ModelSettings& operator=(ModelSettings&&) = default;
+  ~ModelSettings() = default;
 
- public:
   std::string robotName;
 
   bool verboseCppAd = true;
   bool recompileLibrariesCppAd = true;
-  // cppad_code_gen/cppad_<mpcName><robotName>, relative to the working directory. Derived, never read from the task
-  // file: the centroidal MPC appends the key of its contact input parameterization, so that a library compiled for one
-  // input dimension or basis is never loaded for another (CentroidalMpcInterface::keyCppAdModelFolder).
-  std::string modelFolderCppAd = "build/cppad_autocode_gen";
+  // cppad_code_gen/cppad_<mpcName><robotName>, relative to the working directory. Derived by Create(), never read from
+  // the task file: the centroidal MPC appends the key of its contact input parameterization, so that a library compiled
+  // for one input dimension or basis is never loaded for another (CentroidalMpcInterface::keyCppAdModelFolder).
+  std::string modelFolderCppAd;
 
   scalar_t phaseTransitionStanceTime = 0.0;
 
@@ -223,38 +250,34 @@ class ModelSettings {
 
   std::vector<std::string> mpcModelJointNames;      // Active joints (all joints except the fixed ones)
   std::vector<size_t> mpcModelToFullJointsIndices;  // an Array of indices mapping the active joints to the full joints
-  std::unordered_map<std::string, size_t> jointIndexMap;
+  absl::flat_hash_map<std::string, size_t> jointIndexMap;
   std::vector<std::string> contactNames;  // containing all 3Dof and 6Dof contacts
 
   // The formulation choices are not flags here. Each is selected by name, and read - and refused, with a message that
   // names the key to change - by the interface that builds the problem, where a Status can be returned:
-  //  - the contact input parameterization is the top-level key `contactInputParameterization`
-  //    (ContactInputParameterization.h), read by CentroidalMpcInterface, which also keys modelFolderCppAd by it;
-  //  - where the mode schedule and the footholds come from is the top-level key `contactScheduleSource`
-  //    (MpcFormulationConfig.h, loadContactScheduleSource()), which refuses the retired `useContactPlanning` boolean;
+  //  - the contact input parameterization is the top-level field `contact_input_parameterization`
+  //    (ContactInputParameterization.h, contactInputParameterizationFromConfig()), read by CentroidalMpcInterface,
+  //    which also keys modelFolderCppAd by it;
+  //  - where the mode schedule and the footholds come from is the top-level field `contact_schedule_source`
+  //    (MpcFormulationConfig.h, contactScheduleSourceFromConfig());
   //  - CoM + ACoM tracking and the DCM terminal cost are the costs `com_and_acom_tracking_cost` and `dcm_terminal_cost`
-  //    of the task file's `costs` list (MpcFormulationConfig.h), and loadMpcFormulationTasks() refuses the retired
-  //    `useComAndAcomTracking` and `useDcmTerminalCost` booleans.
+  //    of the task file's `costs` list (MpcFormulationConfig.h, mpcFormulationTasksFromConfig()).
+  // The retired booleans these replaced are refused by the strict parser, with what replaced them.
 
-  size_t mpc_joint_dim;
-  size_t full_joint_dim;
+  size_t mpc_joint_dim = 0;
+  size_t full_joint_dim = 0;
 
   // The four joints the procedural arm swing of SwitchedModelReferenceManager drives, named by
-  // model_settings.armJointNames in the task file. A legs-only robot such as the EngineAI SA01 has no such joints and
+  // model_settings.arm_joint_names in the task file. A legs-only robot such as the EngineAI SA01 has no such joints and
   // simply omits the block; hasArmSwingJoints is then false, the four indices below are meaningless, and the arm
   // swing is never enabled. When the block IS present every name must resolve to a joint of the MPC model - a
   // misspelled or fixed-out joint still fails loudly at load time.
-  std::string j_l_shoulder_y_name;
-  std::string j_r_shoulder_y_name;
-  std::string j_l_elbow_y_name;
-  std::string j_r_elbow_y_name;
-
   bool hasArmSwingJoints = false;
 
-  size_t j_l_shoulder_y_index;
-  size_t j_r_shoulder_y_index;
-  size_t j_l_elbow_y_index;
-  size_t j_r_elbow_y_index;
+  size_t j_l_shoulder_y_index = 0;
+  size_t j_r_shoulder_y_index = 0;
+  size_t j_l_elbow_y_index = 0;
+  size_t j_r_elbow_y_index = 0;
 
   FootConstraintConfig footConstraintConfig;
   ContactImplicitConfig contactImplicitConfig;
@@ -278,7 +301,13 @@ class ModelSettings {
    * here as a named selection (a registry resolving e.g. `fixed` / `from_contacts`), not as a second constant
    * somewhere else.
    */
-  scalar_t terrainHeight{0.0};
+  scalar_t terrainHeight = 0.0;
+
+ private:
+  ModelSettings() = default;
+
+  /** Appends the URDF's joints to fullJointNames, in its order (Create()); throws what Pinocchio's URDF parser throws. */
+  void loadFullJointNames(const std::string& urdfFile, bool verbose);
 };
 
 }  // namespace ocs2::humanoid

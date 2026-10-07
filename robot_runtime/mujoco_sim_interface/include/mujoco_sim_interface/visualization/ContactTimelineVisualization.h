@@ -29,8 +29,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <string>
 #include <vector>
 
+#include "mujoco_sim_interface/MujocoUtils.h"
 #include "mujoco_sim_interface/visualization/MujocoVisualization.h"
 
 namespace robot::mujoco_sim_interface {
@@ -45,6 +47,9 @@ class ContactTimelineVisualization final : public MujocoVisualization {
   std::string description() const override { return "barcode of planned vs ground-truth contact per contact point"; }
   char hotkey() const override { return 'b'; }
   void renderOverlay(const VisualizationFrame& frame) override;
+
+  /** Label of the time-axis tick `secondsAgo` seconds before now: "now", then "-1 s", "-2 s", ... */
+  static std::string tickLabel(int secondsAgo);
 
  private:
   std::vector<ContactTimelineSample> scratch_;

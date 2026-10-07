@@ -27,8 +27,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
@@ -46,11 +44,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_replace.h"
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
 #include "humanoid_common_mpc_app/node/WalkingVelocityCommandConversions.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
-
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopScenario.h"
 #include "humanoid_mpc_validation/closed_loop/MetricBands.h"
 #include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
@@ -68,7 +66,7 @@ namespace ocs2::humanoid::validation {
 namespace {
 
 /** The integral of a command component over a scenario, by the rectangle rule on a fine grid. */
-double integrate(const ClosedLoopScenario& scenario, int component, double step = 1e-3) {
+double integrate(const ClosedLoopScenario& scenario, int component, double step = 1.0e-3) {
   double sum = 0.0;
   for (double t = 0.5 * step; t < getCommandDuration(scenario); t += step) sum += commandAt(scenario, t)(component) * step;
   return sum;
@@ -94,7 +92,7 @@ TEST(ClosedLoopScenarios, TheCommandsAreWhatSection4Point5Asks) {
 
   const ClosedLoopScenario walk = *findClosedLoopScenario("walk_0p5");
   EXPECT_EQ(commandAt(walk, /*timeSinceStart=*/7.0), Eigen::Vector3d(0.5, 0.0, 0.0));
-  EXPECT_NEAR(integrate(walk, /*component=*/0), 0.5 * 15.0, 1e-6) << "15 s at 0.5 m/s";
+  EXPECT_NEAR(integrate(walk, /*component=*/0), 0.5 * 15.0, 1.0e-6) << "15 s at 0.5 m/s";
 
   const ClosedLoopScenario lateral = *findClosedLoopScenario("lateral_0p2");
   EXPECT_EQ(commandAt(lateral, /*timeSinceStart=*/1.0), Eigen::Vector3d(0.0, 0.2, 0.0));
@@ -107,12 +105,12 @@ TEST(ClosedLoopScenarios, TheCommandsAreWhatSection4Point5Asks) {
     heading += piece.duration * piece.yawRate;
     peakHeading = std::max(peakHeading, heading);
   }
-  EXPECT_NEAR(peakHeading, 4.0 * M_PI, 1e-12);
-  EXPECT_NEAR(heading, 0.0, 1e-12);
+  EXPECT_NEAR(peakHeading, 4.0 * M_PI, 1.0e-12);
+  EXPECT_NEAR(heading, 0.0, 1.0e-12);
   EXPECT_EQ(turn.segments[0].forwardVelocity, 0.0) << "in place";
 
   const ClosedLoopScenario fastTurn = *findClosedLoopScenario("turn_1radps");
-  EXPECT_NEAR(integrate(fastTurn, /*component=*/2), 12.6, 1e-6);
+  EXPECT_NEAR(integrate(fastTurn, /*component=*/2), 12.6, 1.0e-6);
 
   const ClosedLoopScenario arc = *findClosedLoopScenario("arc");
   EXPECT_EQ(commandAt(arc, /*timeSinceStart=*/3.0), Eigen::Vector3d(0.3, 0.0, 0.3));
@@ -137,9 +135,9 @@ TEST(GuiVelocityCommand, TheSticksScaleBackToTheCommandAndSaturateAtTheirStops) 
   const GuiVelocityCommand within = toGuiVelocityCommand(Eigen::Vector3d(0.5, 0.2, -0.5), limits, /*pelvisHeight=*/0.8952);
   EXPECT_FALSE(within.saturated);
   // What ProceduralMpcMotionManager::scaleWalkingVelocityCommand gives back.
-  EXPECT_NEAR(within.message(0) * limits(0), 0.5, 1e-15);
-  EXPECT_NEAR(within.message(1) * limits(1), 0.2, 1e-15);
-  EXPECT_NEAR(within.message(3) * limits(2), -0.5, 1e-15);
+  EXPECT_NEAR(within.message(0) * limits(0), 0.5, 1.0e-15);
+  EXPECT_NEAR(within.message(1) * limits(1), 0.2, 1.0e-15);
+  EXPECT_NEAR(within.message(3) * limits(2), -0.5, 1.0e-15);
   EXPECT_EQ(within.message(2), 0.8952);
 
   const GuiVelocityCommand beyond = toGuiVelocityCommand(Eigen::Vector3d(0.0, 0.3, 0.0), limits, /*pelvisHeight=*/0.8952);
@@ -157,7 +155,7 @@ TEST(GuiVelocityCommand, TheClampIsTheOneTheMpcNodeAppliesToAReceivedMessage) {
   // operator/walking_velocity_command, inside, at and beyond every range: one clamp, node::clampWalkingVelocityCommand().
   const std::vector<Eigen::Vector4d> messages = {
       Eigen::Vector4d(0.3, -0.2, 0.8, 0.1),  Eigen::Vector4d(1.0, -1.0, 0.2, 1.0),  Eigen::Vector4d(-1.0, 1.0, 1.0, -1.0),
-      Eigen::Vector4d(2.0, -3.0, 0.05, 1.5), Eigen::Vector4d(-7.0, 4.0, 1.7, -2.5), Eigen::Vector4d(1e-12 + 1.0, 0.0, 0.2 - 1e-12, 0.0),
+      Eigen::Vector4d(2.0, -3.0, 0.05, 1.5), Eigen::Vector4d(-7.0, 4.0, 1.7, -2.5), Eigen::Vector4d(1.0e-12 + 1.0, 0.0, 0.2 - 1.0e-12, 0.0),
   };
   for (const Eigen::Vector4d& message : messages) {
     humanoid_mpc_msgs::WalkingVelocityCommand proto;
@@ -194,7 +192,7 @@ TEST(RobotConfigurations, TheFiveConfigurationsNameTheirFiles) {
 
 /**
  * The variables of the launch file at `path` (tools/launch/proto/launch_file.proto), each written on a line of its own as
- * `variables { name: "<name>" value: "<value>" }`, with the references to other variables ("{config_dir}/mpc/task.yaml")
+ * `variables { name: "<name>" value: "<value>" }`, with the references to other variables ("{config_dir}/mpc/task.textproto")
  * substituted. Empty when the file cannot be read.
  */
 absl::flat_hash_map<std::string, std::string> launchFileVariables(const std::string& path) {
@@ -225,7 +223,7 @@ TEST(RobotConfigurations, TheFilesAreTheOnesTheRobotsLaunchFilesName) {
   // The robot process reads launch/robot.textproto's files and the MPC node launch/mpc.textproto's; the runner, which
   // stands in for both, must run on the same ones.
   for (const RobotConfiguration& configuration : robotConfigurations()) {
-    // <package>/config/mpc/task.yaml: the launch files are <package>/launch/.
+    // <package>/config/mpc/task.textproto: the launch files are <package>/launch/.
     const std::filesystem::path package = std::filesystem::path(configuration.taskFile).parent_path().parent_path().parent_path();
     const absl::flat_hash_map<std::string, std::string> robot = launchFileVariables((package / "launch/robot.textproto").string());
     const absl::flat_hash_map<std::string, std::string> mpc = launchFileVariables((package / "launch/mpc.textproto").string());
@@ -257,12 +255,12 @@ TEST(RobotConfigurations, TheLaunchFileReaderSubstitutesTheVariables) {
     out << "# a comment\n"
         << "variables { name: \"root\" value: \"robot_models/x\" }\n"
         << "variables { name: \"config\" value: \"{root}/config\" }\n"
-        << "variables { name: \"task\" value: \"{config}/mpc/{root}.yaml\" }\n";
+        << "variables { name: \"task\" value: \"{config}/mpc/{root}.textproto\" }\n";
   }
   const absl::flat_hash_map<std::string, std::string> variables = launchFileVariables(file.string());
   ASSERT_EQ(variables.size(), 3u);
   EXPECT_EQ(variables.at("config"), "robot_models/x/config");
-  EXPECT_EQ(variables.at("task"), "robot_models/x/config/mpc/robot_models/x.yaml");
+  EXPECT_EQ(variables.at("task"), "robot_models/x/config/mpc/robot_models/x.textproto");
   EXPECT_TRUE(launchFileVariables((std::filesystem::path(::testing::TempDir()) / "missing.textproto").string()).empty());
 }
 
@@ -326,9 +324,9 @@ TEST(MetricBands, SurvivalMustBeEqualOrBetter) {
 TEST(MetricBands, TheQuaternionNormMustStayBelowItsBound) {
   const JsonValue baseline = metricsDocument({});
   JsonValue candidate = baseline;
-  candidate.set("quaternion_norm", JsonValue::object()).set("max_deviation", JsonValue::number(1e-8));
+  candidate.set("quaternion_norm", JsonValue::object()).set("max_deviation", JsonValue::number(1.0e-8));
   EXPECT_EQ(compareClosedLoopMetrics(candidate, baseline, BandOptions()).size(), 1u);
-  candidate.set("quaternion_norm", JsonValue::object()).set("max_deviation", JsonValue::number(1e-12));
+  candidate.set("quaternion_norm", JsonValue::object()).set("max_deviation", JsonValue::number(1.0e-12));
   EXPECT_TRUE(compareClosedLoopMetrics(candidate, baseline, BandOptions()).empty());
 }
 
@@ -337,14 +335,14 @@ TEST(ClosedLoopScenarios, TheCommandedHeadingPeakIsTheLargestTurnTheCommandsInte
     // The running integral of the yaw rate, on a fine grid, peaks where the segments' sums do.
     double heading = 0.0;
     double peak = 0.0;
-    const double step = 1e-3;
+    const double step = 1.0e-3;
     for (double t = 0.5 * step; t < getCommandDuration(scenario); t += step) {
       heading += commandAt(scenario, t)(2) * step;
       peak = std::max(peak, heading);
     }
-    EXPECT_NEAR(getCommandedHeadingPeak(scenario), peak, 1e-2) << scenario.name;
+    EXPECT_NEAR(getCommandedHeadingPeak(scenario), peak, 1.0e-2) << scenario.name;
   }
-  EXPECT_NEAR(getCommandedHeadingPeak(*findClosedLoopScenario("turn_in_place_720")), 4.0 * M_PI, 1e-9);
+  EXPECT_NEAR(getCommandedHeadingPeak(*findClosedLoopScenario("turn_in_place_720")), 4.0 * M_PI, 1.0e-9);
   EXPECT_EQ(getCommandedHeadingPeak(*findClosedLoopScenario("walk_0p5")), 0.0);
 }
 
@@ -408,7 +406,7 @@ JsonValue turningDocument(double yawRateError, double headingPeak, double rotati
 /** The same, of a run on a quaternion base orientation (its quaternion norm is recorded). */
 JsonValue quaternionTurningDocument(double yawRateError, double headingPeak, double rotationGap) {
   JsonValue document = turningDocument(yawRateError, headingPeak, rotationGap);
-  document.set("quaternion_norm", JsonValue::object()).set("max_deviation", JsonValue::number(1e-12));
+  document.set("quaternion_norm", JsonValue::object()).set("max_deviation", JsonValue::number(1.0e-12));
   return document;
 }
 
@@ -491,7 +489,7 @@ TEST(HeadingCrossings, ARunWithAGapSpikeOrAShorterTurnFails) {
  */
 std::vector<std::pair<double, double>> eulerWrap(double time) {
   std::vector<std::pair<double, double>> gaps;
-  for (int solve = 0; solve <= 10; ++solve) gaps.emplace_back(time + 0.01 * solve, 2.0 * M_PI + 1e-3 - 0.428 * solve);
+  for (int solve = 0; solve <= 10; ++solve) gaps.emplace_back(time + 0.01 * solve, 2.0 * M_PI + 1.0e-3 - 0.428 * solve);
   return gaps;
 }
 
@@ -500,7 +498,7 @@ TEST(HeadingCrossings, AnEulerRunMayWrapOnlyWhereItsEulerBaselineWrapped) {
   // main-line rerun of M0, or M1 and M2 against M1).
   const GoldenFile baselineSeries = turningSeries(/*duration=*/15.0, /*rate=*/0.5, /*referenceRate=*/0.5);
   const JsonValue wrappedBaseline = turningDocument(/*yawRateError=*/0.1, /*headingPeak=*/7.5, /*rotationGap=*/2.0 * M_PI);
-  const double wrap = 2.0 * M_PI + 1e-3;
+  const double wrap = 2.0 * M_PI + 1.0e-3;
   const GoldenFile wrappingSeries = withSolveRotationGaps(baselineSeries, /*duration=*/15.0, eulerWrap(/*time=*/2.0 * M_PI));
   const JsonValue wrappedEulerRun = turningDocument(/*yawRateError=*/0.1, /*headingPeak=*/7.5, /*rotationGap=*/wrap);
   const std::vector<std::string> euler =
@@ -524,7 +522,7 @@ TEST(HeadingCrossings, AnEulerRunMaySpikeOnlyAtItsOwnWrapsAndByNoMoreThanAWrap) 
   const GoldenFile baselineSeries = turningSeries(/*duration=*/15.0, /*rate=*/0.5, /*referenceRate=*/0.5);
   const JsonValue wrappedBaseline = turningDocument(/*yawRateError=*/0.1, /*headingPeak=*/7.5, /*rotationGap=*/2.0 * M_PI);
   const double crossing = 2.0 * M_PI;
-  const double wrap = 2.0 * M_PI + 1e-3;
+  const double wrap = 2.0 * M_PI + 1.0e-3;
   // The violations of an Euler candidate turning as `candidateSeries` with the per-solve gaps `spikes`, its document's
   // maximum the largest of them.
   const std::function<std::vector<std::string>(const GoldenFile&, const std::vector<std::pair<double, double>>&)> violationsOf =

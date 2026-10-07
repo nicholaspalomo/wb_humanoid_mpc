@@ -32,26 +32,43 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <atomic>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 
-#include <ocs2_core/reference/TargetTrajectories.h>
-#include <ocs2_mpc/SystemObservation.h>
+#include "absl/status/status.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/SystemObservation.h"
 
-#include <humanoid_common_mpc/common/ModelSettings.h>
-#include <humanoid_common_mpc/common/Types.h>
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
 
 namespace ocs2::humanoid {
 
+/**
+ * Turns operator commands - a walking velocity or a target base pose - into the TargetTrajectories the MPC tracks, within
+ * the command limits and reference defaults of the reference file.
+ *
+ * The formulations derive from it and build the state and input trajectories. The command limits are atomics, so that
+ * applyCommandLimits() may run on the solver thread while targets are built on the command thread; the members document
+ * which functions are thread-safe.
+ */
 class TargetTrajectoriesCalculatorBase {
  public:
-  TargetTrajectoriesCalculatorBase(const std::string& referenceFile,
-
+  /**
+   * The calculator of the command limits and reference defaults `referenceSettings` (referenceSettingsFromConfig() of the
+   * robot's reference file, so already checked) and the nominal joint posture `defaultJointState`
+   * (defaultJointStateFromConfig(), one entry per joint of `mpcRobotModel`).
+   */
+  TargetTrajectoriesCalculatorBase(const ReferenceSettings& referenceSettings,
+                                   const vector_t& defaultJointState,
                                    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                    scalar_t mpcHorizon);
 
   TargetTrajectoriesCalculatorBase(const TargetTrajectoriesCalculatorBase& rhs) = delete;
+  TargetTrajectoriesCalculatorBase& operator=(const TargetTrajectoriesCalculatorBase&) = delete;
 
   virtual ~TargetTrajectoriesCalculatorBase() = default;
 
@@ -65,15 +82,16 @@ class TargetTrajectoriesCalculatorBase {
   virtual void reset();
 
   /**
-   * Re-reads the command limits and reference defaults from `referenceFile` (the scalars this class loads at
-   * construction, not the nominal joint posture, which the joint targets path owns).
+   * Applies the command limits and reference defaults of `referenceSettings` (the scalars this class is constructed with,
+   * not the nominal joint posture, which the joint targets path owns): on a hot reload of the reference file, which
+   * replaces every one of them.
    *
-   * Called by the parameter updater when reference.yaml changes on disk, i.e. from the solver thread, while the
+   * Called by the parameter updater when the reference file changes on disk, i.e. from the solver thread, while the
    * command path reads these values from the subscription thread. They are therefore atomics: each is an independent
    * scalar, so a reload that lands between two reads can only mix an old limit with a new one, which is what a slider
    * drag looks like anyway.
    */
-  void reloadCommandLimits(const std::string& referenceFile);
+  void applyCommandLimits(const ReferenceSettings& referenceSettings);
 
   /**
    * Where the ground under the commanded base height comes from. `defaultBaseHeight` and a commanded pelvis height are
@@ -81,11 +99,11 @@ class TargetTrajectoriesCalculatorBase {
    * so every base height a command produces is written at that height above getTerrainHeight() - see
    * commandedBaseHeight(). A base height taken from the measured state is already a world height and is left alone.
    *
-   * Without a source the ground is the task file's top-level `terrainHeight` (ModelSettings::terrainHeight of the model
+   * Without a source the ground is the task file's top-level `terrain_height` (ModelSettings::terrainHeight of the model
    * this calculator was built with), which is all a command node running outside the MPC can know. A calculator that
    * runs inside the MPC - the one ProceduralMpcMotionManager calls every solve - must be handed
    * SwitchedModelReferenceManager::getAppliedTerrainHeight: the ground the reference manager applied in this very
-   * solve, so that a target built after a hot reload of `terrainHeight` stands on the new ground while the manager
+   * solve, so that a target built after a hot reload of `terrain_height` stands on the new ground while the manager
    * moves the target already in use by the change, exactly once (SwitchedModelReferenceManager::adaptToCurrentGroundHeight).
    * getTerrainHeight() would not do: a reload landing between the manager's run and the target being built would then
    * be applied twice. Thread-safe.
@@ -105,9 +123,8 @@ class TargetTrajectoriesCalculatorBase {
   static constexpr scalar_t kMinCommandedPelvisHeight = 0.1;
 
   void setTargetDisplacementVelocity(scalar_t targetDisplacementVelocity) { targetDisplacementVelocity_ = targetDisplacementVelocity; }
-  /** [rad/s] the yaw rate a pose command turns at; reloadCommandLimits() resets it to reference.yaml's targetRotationVelocity. */
+  /** [rad/s] the yaw rate a pose command turns at; a reload of the reference file resets it to its target_rotation_velocity. */
   void setTargetRotationVelocity(scalar_t targetRotationVelocity) { targetRotationVelocity_ = targetRotationVelocity; }
-  void setTargetJointState(const vector_t targetJointState);
 
   /**
    * Converts command line to TargetTrajectories.
@@ -139,7 +156,7 @@ class TargetTrajectoriesCalculatorBase {
    *
    * The filter state lives on the instance, so two calculators (or two tests) never share a hidden global.
    */
-  vector4_t filterAndTransformVelCommandToLocal(const vector4_t& commandedVelLocal, const scalar_t& currentEulerZ, scalar_t filterAlpha);
+  vector4_t filterAndTransformVelCommandToLocal(const vector4_t& commandedVelLocal, scalar_t currentEulerZ, scalar_t filterAlpha);
 
   /**
    * `currentPose` moved on by `averageVel` (x, y, yaw rate) for `deltaT`, at the world base height `baseHeight`
@@ -147,7 +164,8 @@ class TargetTrajectoriesCalculatorBase {
    */
   vector6_t integrateTargetBasePose(const vector6_t& currentPose, const vector3_t& averageVel, scalar_t baseHeight, scalar_t deltaT) const;
 
-  const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
+  /** The calculator's own clone of the model it was built with: owned, so destroyed with the calculator. */
+  const std::unique_ptr<const MpcRobotModelBase<scalar_t>> mpcRobotModelPtr_;
 
   // For pose control mode
   std::atomic<scalar_t> targetDisplacementVelocity_;

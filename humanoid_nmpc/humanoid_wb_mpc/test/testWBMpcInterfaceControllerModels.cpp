@@ -27,15 +27,20 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
-#include <gtest/gtest.h>
-
+#include <algorithm>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "absl/status/statusor.h"
+#include "gtest/gtest.h"
 
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_mpc_config/reference_file.nproto.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
+#include "humanoid_mpc_config/xyz.nproto.h"
 #include "humanoid_wb_mpc/WBMpcInterface.h"
 
 /*
@@ -46,9 +51,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-constexpr const char* kTask = "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml";
-constexpr const char* kUrdf = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf";
-constexpr const char* kReference = "robot_models/unitree_g1/g1_wb_mpc/config/command/reference.yaml";
+constexpr char kTask[] = "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto";
+constexpr char kUrdf[] = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf";
+constexpr char kReference[] = "robot_models/unitree_g1/g1_wb_mpc/config/command/reference.textproto";
 
 TEST(WBMpcInterfaceControllerModels, BuildsTheControllersModelsAndNoProblem) {
   absl::StatusOr<std::unique_ptr<WBMpcInterface>> created = WBMpcInterface::CreateControllerModels(kTask, kUrdf, kReference);
@@ -61,11 +66,53 @@ TEST(WBMpcInterfaceControllerModels, BuildsTheControllersModelsAndNoProblem) {
   EXPECT_GT(interface.mpcSettings().mrtDesiredFrequency_, 0.0) << "the solver settings are read: the control rate";
 }
 
+TEST(WBMpcInterfaceControllerModels, TheTypedFilesBuildWhatTheirPathsBuild) {
+  // The path form loads the files and builds the typed form, so the two agree on everything the controller reads.
+  const absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(kTask);
+  ASSERT_TRUE(task.ok()) << task.status();
+  const absl::StatusOr<mpc_config::ReferenceFile> reference = loadReferenceFile(kReference);
+  ASSERT_TRUE(reference.ok()) << reference.status();
+  const absl::StatusOr<std::unique_ptr<WBMpcInterface>> typed = WBMpcInterface::CreateControllerModels(*task, kUrdf, *reference);
+  ASSERT_TRUE(typed.ok()) << typed.status();
+  const absl::StatusOr<std::unique_ptr<WBMpcInterface>> byPath = WBMpcInterface::CreateControllerModels(kTask, kUrdf, kReference);
+  ASSERT_TRUE(byPath.ok()) << byPath.status();
+  EXPECT_TRUE((*typed)->getInitialState() == (*byPath)->getInitialState());
+  EXPECT_EQ((*typed)->modelSettings().mpcModelJointNames, (*byPath)->modelSettings().mpcModelJointNames);
+  EXPECT_EQ((*typed)->mpcSettings().mrtDesiredFrequency_, (*byPath)->mpcSettings().mrtDesiredFrequency_);
+  EXPECT_EQ((*typed)->sqpSettings().dt, (*byPath)->sqpSettings().dt);
+  EXPECT_EQ((*typed)->rolloutSettings().timeStep, (*byPath)->rolloutSettings().timeStep);
+}
+
+TEST(WBMpcInterfaceControllerModels, TheInitialStateIsTheFilesByName) {
+  // The whole-body state is base pose, joint positions, base velocities, joint velocities: the initial state's base
+  // height and a joint position land where the robot model reads them.
+  const absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(kTask);
+  ASSERT_TRUE(task.ok()) << task.status();
+  mpc_config::TaskFile raised = *task;
+  mpc_config::Xyz basePosition = raised.initial_state.base_position.value_or(mpc_config::Xyz{});
+  basePosition.z = 1.25;
+  raised.initial_state.base_position = basePosition;
+  ASSERT_FALSE(raised.initial_state.joint_positions.empty());
+  raised.initial_state.joint_positions.front().value = 0.375;
+  const std::string joint = raised.initial_state.joint_positions.front().joint;
+  const absl::StatusOr<mpc_config::ReferenceFile> reference = loadReferenceFile(kReference);
+  ASSERT_TRUE(reference.ok()) << reference.status();
+  const absl::StatusOr<std::unique_ptr<WBMpcInterface>> created = WBMpcInterface::CreateControllerModels(raised, kUrdf, *reference);
+  ASSERT_TRUE(created.ok()) << created.status();
+  const WBAccelMpcRobotModel<scalar_t>& model = (*created)->getMpcRobotModel();
+  const vector_t& state = (*created)->getInitialState();
+  EXPECT_EQ(model.getBasePose(state)(2), 1.25);
+  const std::vector<std::string>& joints = (*created)->modelSettings().mpcModelJointNames;
+  const std::vector<std::string>::const_iterator found = std::find(joints.begin(), joints.end(), joint);
+  ASSERT_NE(found, joints.end()) << joint;
+  EXPECT_EQ(model.getJointAngles(state)(found - joints.begin()), 0.375) << joint;
+}
+
 TEST(WBMpcInterfaceControllerModels, RefusesAMissingFileByName) {
   const absl::StatusOr<std::unique_ptr<WBMpcInterface>> created =
-      WBMpcInterface::CreateControllerModels("no/such/task.yaml", kUrdf, kReference);
+      WBMpcInterface::CreateControllerModels("no/such/task.textproto", kUrdf, kReference);
   EXPECT_EQ(created.status().code(), absl::StatusCode::kNotFound);
-  EXPECT_NE(created.status().message().find("no/such/task.yaml"), std::string::npos);
+  EXPECT_NE(created.status().message().find("no/such/task.textproto"), std::string::npos);
 }
 
 }  // namespace

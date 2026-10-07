@@ -7,7 +7,7 @@ import "humanoid_mpc_msgs/vector3.proto";
 import "humanoid_mpc_msgs/wrench.proto";
 import "nproto/options.proto";
 
-// Topic robot/state, at the task file's telemetryFrequency.
+// Topic robot/state, at the task file's telemetry_frequency.
 // Next ID: 18
 message RobotStateSample {
   option (nproto.generate_struct) = "ocs2::humanoid::msgs::RobotStateSample";

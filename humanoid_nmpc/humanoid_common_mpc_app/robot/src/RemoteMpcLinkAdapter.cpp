@@ -29,15 +29,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/RemoteMpcLinkAdapter.h"
 
+#include <memory>
 #include <utility>
+
+#include "absl/memory/memory.h"
 
 namespace ocs2::humanoid {
 
 absl::StatusOr<std::unique_ptr<RemoteMpcLinkAdapter>> RemoteMpcLinkAdapter::Create(robot::ipc::Bus& bus,
                                                                                    ipc::RemoteMpcLink::Config config,
                                                                                    MpcResetSupervisor::Config supervisorConfig) {
-  std::unique_ptr<RemoteMpcLinkAdapter> adapter(new RemoteMpcLinkAdapter(supervisorConfig));
-  absl::StatusOr<std::unique_ptr<ipc::RemoteMpcLink>> link = ipc::RemoteMpcLink::Create(bus, adapter->resetSupervisor(), std::move(config));
+  std::unique_ptr<RemoteMpcLinkAdapter> adapter = absl::WrapUnique(new RemoteMpcLinkAdapter(supervisorConfig));
+  absl::StatusOr<std::unique_ptr<ipc::RemoteMpcLink>> link = ipc::RemoteMpcLink::Create(bus, adapter->resetSupervisor(), config);
   if (!link.ok()) {
     return link.status();
   }
@@ -60,7 +63,7 @@ void RemoteMpcLinkAdapter::start(const SystemObservation& initialObservation) {
 MpcLinkFactory handOverMpcLink(std::unique_ptr<MpcLink> link) {
   // std::function needs a copyable callable, and the link is handed over once: a shared slot holds it until then.
   std::shared_ptr<std::unique_ptr<MpcLink>> slot = std::make_shared<std::unique_ptr<MpcLink>>(std::move(link));
-  return [slot](MpcLink::ResetTargetFunction /*resetTarget*/) -> std::unique_ptr<MpcLink> { return std::move(*slot); };
+  return [slot](const MpcLink::ResetTargetFunction& /*resetTarget*/) -> std::unique_ptr<MpcLink> { return std::move(*slot); };
 }
 
 }  // namespace ocs2::humanoid

@@ -27,21 +27,23 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
-#include <mujoco/mujoco.h>
 #include <algorithm>
 #include <cmath>
-
 #include <fstream>
 #include <memory>
+#include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
+
+#include "absl/base/nullability.h"
+#include "absl/status/statusor.h"
+#include "gtest/gtest.h"
+#include "mujoco/mujoco.h"
 
 #include "mujoco_sim_interface/MujocoUtils.h"
 
-using namespace robot::mujoco_sim_interface;
-
+namespace robot::mujoco_sim_interface {
 namespace {
 
 // A floating "robot" (pelvis with two hinged feet, the left foot with a hinged toe) over a plane, plus a crate that is
@@ -51,7 +53,7 @@ namespace {
 //   left sole bottom  z = 0.5 - 0.432 - 0.05 = +0.018 (in the air)
 //   left toe bottom   z = 0.5 - 0.432 - 0.02 - 0.05 = -0.002 (touching)
 //   right sole bottom z = 0.5 - 0.200 - 0.05 = +0.250 (in the air)
-constexpr const char* kScene = R"(
+constexpr char kScene[] = R"(
 <mujoco>
   <option timestep="0.001" gravity="0 0 -9.81"/>
   <worldbody>
@@ -82,7 +84,7 @@ constexpr const char* kScene = R"(
 </mujoco>
 )";
 
-constexpr const char* kUrdf = R"(
+constexpr char kUrdf[] = R"(
 <robot name="test_robot">
   <link name="pelvis"/>
   <link name="l_foot"/>
@@ -108,7 +110,7 @@ constexpr const char* kUrdf = R"(
 </robot>
 )";
 
-std::string writeTempFile(const std::string& name, const char* content) {
+std::string writeTempFile(const std::string& name, const char* absl_nonnull content) {
   const std::string path = testing::TempDir() + "/" + name;
   std::ofstream out(path);
   out << content;
@@ -116,6 +118,8 @@ std::string writeTempFile(const std::string& name, const char* content) {
 }
 
 struct Scene {
+  Scene(const Scene&) = delete;
+  Scene& operator=(const Scene&) = delete;
   Scene() {
     char error[1000] = "";
     model = mj_loadXML(writeTempFile("contact_scene.xml", kScene).c_str(), /*vfs=*/nullptr, error, sizeof(error));
@@ -127,12 +131,10 @@ struct Scene {
     mj_deleteData(data);
     mj_deleteModel(model);
   }
-  int body(const char* name) const { return mj_name2id(model, mjOBJ_BODY, name); }
-  mjModel* model{nullptr};
-  mjData* data{nullptr};
+  int body(const char* absl_nonnull name) const { return mj_name2id(model, mjOBJ_BODY, name); }
+  mjModel* absl_nullable model = nullptr;
+  mjData* absl_nullable data = nullptr;
 };
-
-}  // namespace
 
 TEST(MujocoContactUtils, GroundTruthMaskFollowsTheContactForcesOfTheSubtree) {
   Scene scene;
@@ -143,7 +145,7 @@ TEST(MujocoContactUtils, GroundTruthMaskFollowsTheContactForcesOfTheSubtree) {
   // Only the left toe touches the floor: it belongs to the left foot's subtree, so the left foot counts as touching.
   EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet, /*forceThreshold=*/1.0), 0b01u);
   // The threshold is a normal-force threshold.
-  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet, /*forceThreshold=*/1e9), 0u);
+  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet, /*forceThreshold=*/1.0e9), 0u);
 
   // Bring the right sole down to the same 2 mm penetration as the left toe (the body offset is changed in the model).
   // Both contacts then ask for the same separation and share the load; a much deeper contact on one side would drive
@@ -190,8 +192,9 @@ TEST(MujocoContactUtils, ResolvesContactFramesThroughFixedJointsOnly) {
   Scene scene;
   const std::string urdf = writeTempFile("contact_robot.urdf", kUrdf);
   std::vector<std::string> errors;
-  const std::vector<int> ids = resolveContactBodies(
-      scene.model, urdf, {"foot_l_contact", "foot_r_contact", "l_foot", "unmodeled_link", "no_such_frame"}, {}, &errors);
+  const std::vector<int> ids =
+      resolveContactBodies(scene.model, urdf, {"foot_l_contact", "foot_r_contact", "l_foot", "unmodeled_link", "no_such_frame"},
+                           /*contactParentJointNames=*/{}, &errors);
   ASSERT_EQ(ids.size(), 5u);
   EXPECT_EQ(ids[0], scene.body("l_foot")) << "a fixed-joint child frame resolves to its parent body";
   EXPECT_EQ(ids[1], scene.body("r_foot"));
@@ -205,7 +208,8 @@ TEST(MujocoContactUtils, ResolvesContactFramesThroughFixedJointsOnly) {
 
   // Without a readable URDF only direct body names resolve.
   errors.clear();
-  const std::vector<int> noUrdf = resolveContactBodies(scene.model, "/nonexistent.urdf", {"l_foot", "foot_l_contact"}, {}, &errors);
+  const std::vector<int> noUrdf =
+      resolveContactBodies(scene.model, "/nonexistent.urdf", {"l_foot", "foot_l_contact"}, /*contactParentJointNames=*/{}, &errors);
   EXPECT_EQ(noUrdf[0], scene.body("l_foot"));
   EXPECT_EQ(noUrdf[1], -1);
   ASSERT_EQ(errors.size(), 1u);
@@ -261,8 +265,8 @@ TEST(MujocoContactUtils, TimelineKeepsAWindowAndClearsOnReset) {
   }
   ASSERT_FALSE(timeline.samples().empty());
   EXPECT_DOUBLE_EQ(timeline.samples().back().time, 10.0);
-  EXPECT_GE(timeline.samples().front().time, 8.0 - 1e-12) << "samples older than the window are dropped";
-  EXPECT_LE(timeline.samples().front().time, 8.1 + 1e-12);
+  EXPECT_GE(timeline.samples().front().time, 8.0 - 1.0e-12) << "samples older than the window are dropped";
+  EXPECT_LE(timeline.samples().front().time, 8.1 + 1.0e-12);
   EXPECT_TRUE(timeline.samples().back().targetKnown);
 
   // The simulation was reset: time runs backwards, the history is cleared.
@@ -284,20 +288,20 @@ TEST(MujocoContactUtils, CentroidalStateIsTheRootSubtreesCenterOfMassAndVelocity
   const RobotCentroidalState resting = robotCentroidalState(scene.model, scene.data);
   ASSERT_TRUE(resting.valid);
   EXPECT_EQ(resting.rootBodyId, pelvis) << "the first body on a free joint, not the crate";
-  EXPECT_NEAR(resting.mass, scene.model->body_subtreemass[pelvis], 1e-12);
-  EXPECT_NEAR(resting.mass, 10.0 + 1.0 + 0.01 + 0.1 + 1.0, 1e-9);
+  EXPECT_NEAR(resting.mass, scene.model->body_subtreemass[pelvis], 1.0e-12);
+  EXPECT_NEAR(resting.mass, 10.0 + 1.0 + 0.01 + 0.1 + 1.0, 1.0e-9);
   for (int axis = 0; axis < 3; ++axis) {
-    EXPECT_NEAR(resting.com[axis], scene.data->subtree_com[3 * pelvis + axis], 1e-12);
-    EXPECT_NEAR(resting.comVelocity[axis], 0.0, 1e-12);
+    EXPECT_NEAR(resting.com[axis], scene.data->subtree_com[3 * pelvis + axis], 1.0e-12);
+    EXPECT_NEAR(resting.comVelocity[axis], 0.0, 1.0e-12);
   }
   // The whole robot translating at 1 m/s along x: so does its center of mass.
   scene.data->qvel[0] = 1.0;
   mj_forward(scene.model, scene.data);
   const RobotCentroidalState moving = robotCentroidalState(scene.model, scene.data);
   ASSERT_TRUE(moving.valid);
-  EXPECT_NEAR(moving.comVelocity[0], 1.0, 1e-9);
-  EXPECT_NEAR(moving.comVelocity[1], 0.0, 1e-9);
-  EXPECT_NEAR(moving.comVelocity[2], 0.0, 1e-9);
+  EXPECT_NEAR(moving.comVelocity[0], 1.0, 1.0e-9);
+  EXPECT_NEAR(moving.comVelocity[1], 0.0, 1.0e-9);
+  EXPECT_NEAR(moving.comVelocity[2], 0.0, 1.0e-9);
   EXPECT_FALSE(robotCentroidalState(/*model=*/nullptr, scene.data).valid);
 }
 
@@ -309,8 +313,8 @@ TEST(MujocoContactUtils, GroundReactionZmpSitsUnderTheOnlyGroundContact) {
   ASSERT_TRUE(reaction.valid);
   EXPECT_GT(reaction.force[2], 0.0) << "the floor pushes the robot up";
   // The center of pressure lies in the convex hull of the ground contact points (the corners of the toe box).
-  double lo[2] = {1e9, 1e9};
-  double hi[2] = {-1e9, -1e9};
+  double lo[2] = {1.0e9, 1.0e9};
+  double hi[2] = {-1.0e9, -1.0e9};
   int groundContacts = 0;
   for (int c = 0; c < scene.data->ncon; ++c) {
     const mjContact& contact = scene.data->contact[c];
@@ -325,8 +329,8 @@ TEST(MujocoContactUtils, GroundReactionZmpSitsUnderTheOnlyGroundContact) {
   }
   ASSERT_GT(groundContacts, 0);
   for (int axis = 0; axis < 2; ++axis) {
-    EXPECT_GE(reaction.zmp[axis], lo[axis] - 1e-6);
-    EXPECT_LE(reaction.zmp[axis], hi[axis] + 1e-6);
+    EXPECT_GE(reaction.zmp[axis], lo[axis] - 1.0e-6);
+    EXPECT_LE(reaction.zmp[axis], hi[axis] + 1.0e-6);
   }
   EXPECT_NEAR(reaction.zmp[0], 0.14, 0.05) << "under the toe";
   EXPECT_NEAR(reaction.zmp[1], 0.2, 0.06) << "under the toe";
@@ -341,9 +345,74 @@ TEST(MujocoContactUtils, DivergentComponentOfMotionIsTheComPlusVelocityOverOmega
   double dcm[2];
   divergentComponentOfMotion(com, velocity, com[2], /*gravity=*/9.81, dcm);
   const double omega = std::sqrt(9.81 / 0.85);
-  EXPECT_NEAR(dcm[0], 1.0 + 0.34 / omega, 1e-12);
-  EXPECT_NEAR(dcm[1], 2.0 - 0.17 / omega, 1e-12);
+  EXPECT_NEAR(dcm[0], 1.0 + 0.34 / omega, 1.0e-12);
+  EXPECT_NEAR(dcm[1], 2.0 - 0.17 / omega, 1.0e-12);
   // The height is clamped so that a CoM on the ground does not blow the DCM up.
   divergentComponentOfMotion(com, velocity, /*height=*/0.0, /*gravity=*/9.81, dcm);
-  EXPECT_NEAR(dcm[0], 1.0 + 0.34 / std::sqrt(9.81 / 0.05), 1e-12);
+  EXPECT_NEAR(dcm[0], 1.0 + 0.34 / std::sqrt(9.81 / 0.05), 1.0e-12);
 }
+
+/** One free-floating ball: a model with a joint, whose references a test can corrupt. */
+constexpr char kBallScene[] = R"(
+<mujoco>
+  <worldbody>
+    <body name="ball" pos="0 0 1">
+      <freejoint/>
+      <geom type="sphere" size="0.1" mass="1"/>
+    </body>
+  </worldbody>
+</mujoco>
+)";
+
+MjModelPtr compileBallScene() {
+  char error[1000] = "";
+  const MjSpecPtr spec(mj_parseXMLString(kBallScene, /*vfs=*/nullptr, error, sizeof(error)));
+  if (spec == nullptr) throw std::runtime_error(std::string("mj_parseXMLString: ") + error);
+  return MjModelPtr(mj_compile(spec.get(), /*vfs=*/nullptr));
+}
+
+TEST(MujocoUtils, MakeMjDataOwnsTheDataOfTheModel) {
+  // The null branch of makeMjData has no test: MuJoCo aborts by itself when it cannot allocate, and mj_makeData
+  // validates nothing a test could corrupt (an out-of-range jnt_dofadr still yields data).
+  const MjModelPtr model = compileBallScene();
+  ASSERT_NE(model, nullptr);
+  const absl::StatusOr<MjDataPtr> data = makeMjData(model.get());
+  ASSERT_TRUE(data.ok()) << data.status();
+  ASSERT_NE(*data, nullptr);
+  // A fresh state of the model: its initial configuration, at rest.
+  EXPECT_EQ((*data)->qpos[2], model->qpos0[2]);
+  EXPECT_EQ((*data)->qvel[0], 0.0);
+}
+
+TEST(MujocoUtils, MjStateCopiesAreDeepAndMovesHandTheDataOver) {
+  const MjModelPtr model = compileBallScene();
+  ASSERT_NE(model, nullptr);
+  MjState original(model.get());
+  ASSERT_NE(original.data, nullptr);
+  original.data->qpos[0] = 1.5;
+  original.timestamp = 7;
+
+  MjState copy(original);
+  ASSERT_NE(copy.data, nullptr);
+  EXPECT_NE(copy.data, original.data) << "a copy owns an mjData of its own";
+  EXPECT_EQ(copy.data->qpos[0], 1.5);
+  EXPECT_EQ(copy.timestamp, 7);
+  copy.data->qpos[0] = 2.5;
+  EXPECT_EQ(original.data->qpos[0], 1.5) << "writing the copy leaves the original alone";
+
+  MjState assigned(model.get());
+  assigned = original;
+  ASSERT_NE(assigned.data, nullptr);
+  EXPECT_NE(assigned.data, original.data);
+  EXPECT_EQ(assigned.data->qpos[0], 1.5);
+
+  mjData* absl_nonnull const handedOver = copy.data;
+  const MjState moved(std::move(copy));
+  EXPECT_EQ(moved.data, handedOver);
+  EXPECT_EQ(moved.data->qpos[0], 2.5);
+  EXPECT_EQ(copy.data, nullptr);   // NOLINT(bugprone-use-after-move): the moved-from state is what is tested.
+  EXPECT_EQ(copy.model, nullptr);  // NOLINT(bugprone-use-after-move): the moved-from state is what is tested.
+}
+
+}  // namespace
+}  // namespace robot::mujoco_sim_interface

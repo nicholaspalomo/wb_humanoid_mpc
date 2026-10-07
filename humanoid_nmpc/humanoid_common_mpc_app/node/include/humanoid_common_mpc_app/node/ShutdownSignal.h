@@ -42,11 +42,8 @@ namespace ocs2::humanoid::node {
 /** Installs the handlers of SIGINT and SIGTERM. Idempotent; call it before starting any thread. */
 void installShutdownSignalHandlers();
 
-/** True once SIGINT or SIGTERM has arrived since installShutdownSignalHandlers() (or requestShutdown()). */
+/** True once SIGINT or SIGTERM has arrived since installShutdownSignalHandlers(). */
 bool shutdownRequested();
-
-/** Asks for the shutdown as a signal would, e.g. from a thread that has failed. */
-void requestShutdown();
 
 /** Returns once shutdownRequested(), checking every `pollPeriod`. */
 void waitForShutdown(absl::Duration pollPeriod = absl::Milliseconds(50));

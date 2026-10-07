@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Where the bridge's recording goes, selected by name (--rerun_sink): the registry of Rerun sinks.
 
 - spawn: start the native viewer (the rerun binary of the rerun-sdk wheel) and stream to it.
@@ -13,9 +40,9 @@ itself still waits up to about 5 s for a viewer before it returns and keeps retr
 A new sink is added to SINKS and nowhere else.
 """
 
+from collections.abc import Callable
 import dataclasses
 import os
-from typing import Callable, Dict, Optional, Tuple
 
 import rerun as rr
 import rerun.blueprint as rrb
@@ -53,10 +80,11 @@ class SinkOptions:
 SinkFunction = Callable[[rr.RecordingStream, rrb.Blueprint, SinkOptions], str]
 
 
-def viewer_executable() -> Optional[str]:
+def viewer_executable() -> str | None:
     """The native viewer of the rerun-sdk wheel (rerun_cli/rerun), or None to let Rerun search PATH."""
     try:
-        import rerun_cli  # pylint: disable=import-outside-toplevel
+        # pylint: disable-next=import-outside-toplevel  # An optional wheel: without it Rerun searches PATH.
+        import rerun_cli
     except ImportError:
         return None
     candidate = os.path.join(os.path.dirname(rerun_cli.__file__), "rerun")
@@ -88,6 +116,7 @@ def _connect(
 def _serve_web(
     recording: rr.RecordingStream, blueprint: rrb.Blueprint, options: SinkOptions
 ) -> str:
+    """The serve_web sink: the recording over gRPC, and the web viewer that shows it over HTTP."""
     grpc_url = recording.serve_grpc(
         grpc_port=options.grpc_port,
         server_memory_limit=options.server_memory_limit,
@@ -114,7 +143,7 @@ def _save(
 
 
 # LINT.IfChange(sink_names)
-SINKS: Dict[str, SinkFunction] = {
+SINKS: dict[str, SinkFunction] = {
     "spawn": _spawn,
     "connect": _connect,
     "serve_web": _serve_web,
@@ -124,7 +153,7 @@ SINKS: Dict[str, SinkFunction] = {
 DEFAULT_SINK = "spawn"
 
 
-def sink_names() -> Tuple[str, ...]:
+def sink_names() -> tuple[str, ...]:
     return tuple(SINKS)
 
 
@@ -134,7 +163,16 @@ def attach_sink(
     blueprint: rrb.Blueprint,
     options: SinkOptions,
 ) -> str:
-    """Sends `recording` to the sink `name` with `blueprint` as its layout; returns what it did, for the log.
+    """Sends `recording` to the sink `name` with `blueprint` as its layout.
+
+    Args:
+        name: the sink, a key of SINKS.
+        recording: what to send.
+        blueprint: the layout, sent as the active and the default one.
+        options: the sink's options; each sink reads the ones it needs.
+
+    Returns:
+        What the sink did, for the log.
 
     Raises:
         ValueError: an unknown sink name (the message lists the valid ones), or a sink option it needs is missing.

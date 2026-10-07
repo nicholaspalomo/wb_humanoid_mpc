@@ -1,5 +1,33 @@
-"""Tests for tools/bazel, the Bazelisk wrapper that makes the compiling commands of every Bazel on the machine take
-turns. Two builds in two containers, each sized to the whole machine by .bazelrc, once crashed a 30 GB workstation.
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""Tests for tools/bazel, the Bazelisk wrapper that makes the compiling commands of every Bazel on the machine take turns.
+
+Two builds in two containers, each sized to the whole machine by .bazelrc, once crashed a 30 GB workstation.
 """
 
 import os
@@ -11,6 +39,7 @@ import unittest
 
 
 def _runfile(relative_path):
+    """A repository file, from the Bazel runfiles when run by Bazel and from the source tree otherwise."""
     roots = []
     if "TEST_SRCDIR" in os.environ:
         roots += [
@@ -41,9 +70,10 @@ exit "${FAKE_STATUS:-0}"
 
 class BazelMachineLockTest(unittest.TestCase):
     def setUp(self):
+        # pylint: disable-next=consider-using-with  # tearDown() deletes it.
         self.directory = tempfile.TemporaryDirectory()
         self.real = os.path.join(self.directory.name, "real_bazel")
-        with open(self.real, "w") as f:
+        with open(self.real, "w", encoding="utf-8") as f:
             f.write(FAKE_BAZEL)
         os.chmod(self.real, os.stat(self.real).st_mode | stat.S_IXUSR)
         self.log = os.path.join(self.directory.name, "log")
@@ -72,8 +102,8 @@ class BazelMachineLockTest(unittest.TestCase):
         )
 
     def intervals(self):
-        events = {}
-        with open(self.log) as f:
+        events: dict[str, dict[str, float]] = {}
+        with open(self.log, encoding="utf-8") as f:
             for line in f:
                 kind, stamp, *command = line.split()
                 events.setdefault(" ".join(command), {})[kind] = float(stamp)
@@ -110,6 +140,7 @@ class BazelMachineLockTest(unittest.TestCase):
                     capture_output=True,
                     text=True,
                     timeout=30,
+                    check=False,
                 )
                 self.assertEqual(result.returncode, 0)
                 self.assertNotIn("another Bazel build", result.stderr)
@@ -136,6 +167,7 @@ class BazelMachineLockTest(unittest.TestCase):
             capture_output=True,
             text=True,
             timeout=30,
+            check=False,
         )
         self.assertLess(time.monotonic() - began, 5.0)
         self.assertNotIn("another Bazel build", result.stderr)
@@ -148,6 +180,7 @@ class BazelMachineLockTest(unittest.TestCase):
                     env=self.environment(FAKE_STATUS="3"),
                     capture_output=True,
                     timeout=30,
+                    check=False,
                 )
                 self.assertEqual(result.returncode, 3)
 
@@ -158,7 +191,7 @@ class BazelMachineLockTest(unittest.TestCase):
         # the wrapper ever reads it again, and the counter must stay untouched.
         depth_file = os.path.join(self.directory.name, "depth")
         bash_env = os.path.join(self.directory.name, "bash_env.sh")
-        with open(bash_env, "w") as f:
+        with open(bash_env, "w", encoding="utf-8") as f:
             f.write(
                 'depth=$(cat "%s" 2>/dev/null || echo 0)\n'
                 'echo $((depth + 1)) > "%s"\n'
@@ -179,7 +212,11 @@ class BazelMachineLockTest(unittest.TestCase):
         environment = self.environment()
         del environment["BAZEL_REAL"]
         result = subprocess.run(
-            [WRAPPER, "build", "//a"], env=environment, capture_output=True, text=True
+            [WRAPPER, "build", "//a"],
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("BAZEL_REAL", result.stderr)
@@ -189,12 +226,13 @@ class ShellInitTest(unittest.TestCase):
     """.devcontainer/shell_init.sh is BASH_ENV in the dev container: every bash there sources it, scripts included."""
 
     def setUp(self):
+        # pylint: disable-next=consider-using-with  # tearDown() deletes it.
         self.directory = tempfile.TemporaryDirectory()
         bin_directory = os.path.join(self.directory.name, "bin")
         os.mkdir(bin_directory)
         self.calls = os.path.join(self.directory.name, "bazel_calls")
         fake = os.path.join(bin_directory, "bazel")
-        with open(fake, "w") as f:
+        with open(fake, "w", encoding="utf-8") as f:
             f.write('#!/bin/sh\necho "$*" >> "%s"\n' % self.calls)
         os.chmod(fake, os.stat(fake).st_mode | stat.S_IXUSR)
         self.path = bin_directory + ":" + os.environ.get("PATH", "/usr/bin:/bin")
@@ -203,6 +241,7 @@ class ShellInitTest(unittest.TestCase):
         self.directory.cleanup()
 
     def bazel_calls(self, bash_flags, **extra):
+        """The `bazel` calls a bash with `bash_flags` makes while it sources shell_init.sh, in their order."""
         environment = {"PATH": self.path, "HOME": self.directory.name}
         environment.update(extra)
         subprocess.run(
@@ -210,10 +249,11 @@ class ShellInitTest(unittest.TestCase):
             env=environment,
             capture_output=True,
             timeout=60,
+            check=False,
         )
         if not os.path.exists(self.calls):
             return []
-        with open(self.calls) as f:
+        with open(self.calls, encoding="utf-8") as f:
             calls = f.read().splitlines()
         os.remove(self.calls)
         return calls
@@ -230,10 +270,13 @@ class ShellInitTest(unittest.TestCase):
 
 
 class ShellInitCheckoutTest(unittest.TestCase):
-    """shell_init.sh sources the setup_env.sh of the checkout the shell starts in, so that every worktree of the
-    repository is set up by its own script."""
+    """shell_init.sh sources the setup_env.sh of the checkout the shell starts in.
+
+    So every worktree of the repository is set up by its own script.
+    """
 
     def setUp(self):
+        # pylint: disable-next=consider-using-with  # The cleanup deletes it.
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.directory = directory.name
@@ -241,12 +284,14 @@ class ShellInitCheckoutTest(unittest.TestCase):
     def make_checkout(self, name):
         checkout = os.path.join(self.directory, name)
         os.makedirs(os.path.join(checkout, "some", "package"))
-        open(os.path.join(checkout, "MODULE.bazel"), "w").close()
-        with open(os.path.join(checkout, "setup_env.sh"), "w") as f:
+        with open(os.path.join(checkout, "MODULE.bazel"), "w", encoding="utf-8"):
+            pass  # An empty MODULE.bazel marks the checkout's root.
+        with open(os.path.join(checkout, "setup_env.sh"), "w", encoding="utf-8") as f:
             f.write('export WB_SOURCED_FROM="%s"\n' % name)
         return checkout
 
     def sourced_from(self, working_directory):
+        """`<checkout>|<directory>`: the checkout whose setup_env.sh a shell in `working_directory` sourced, and $PWD."""
         result = subprocess.run(
             [
                 "bash",
@@ -259,6 +304,7 @@ class ShellInitCheckoutTest(unittest.TestCase):
             capture_output=True,
             text=True,
             timeout=60,
+            check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout
@@ -274,7 +320,7 @@ class ShellInitCheckoutTest(unittest.TestCase):
     def test_a_directory_with_a_setup_script_but_no_module_is_not_a_checkout(self):
         stray = os.path.join(self.directory, "stray")
         os.makedirs(stray)
-        with open(os.path.join(stray, "setup_env.sh"), "w") as f:
+        with open(os.path.join(stray, "setup_env.sh"), "w", encoding="utf-8") as f:
             f.write('export WB_SOURCED_FROM="stray"\n')
         self.assertNotIn("stray|", self.sourced_from(stray))
 

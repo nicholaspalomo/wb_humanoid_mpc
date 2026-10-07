@@ -1,4 +1,30 @@
-#!/usr/bin/env python3
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Checks, and can fix, the `// Next ID: N` comment and the `reserved N to max;` line every protobuf message carries.
 
 Every `message` in a .proto file is preceded by a comment naming the next free field number, and opens by reserving
@@ -35,10 +61,11 @@ than the largest one in use is fine - a field was deleted, and its number must n
 """
 
 import argparse
+from collections.abc import Iterable
 import os
 import re
 import sys
-from typing import Iterable, List, NamedTuple, Optional, Tuple
+from typing import NamedTuple
 
 from tools.hooks import check_types
 from tools.hooks import lint_files
@@ -77,19 +104,19 @@ class MessageInfo(NamedTuple):
     name: str
     line: int  # 1-based line of the `message` keyword
     # Every number the message uses (fields, reserved, extensions), except the opening `reserved N to max`.
-    numbers: Tuple[int, ...]
+    numbers: tuple[int, ...]
     largest_label: str  # what uses the largest number, for the error message
     brace_line: int  # 1-based line of the message's opening '{'
     # N of the opening `reserved N to max;` and the line of that statement; None when the message opens otherwise.
-    top_reservation: Optional[int]
-    top_reservation_line: Optional[int]
+    top_reservation: int | None
+    top_reservation_line: int | None
     # Line of the last `option` statement the body opens with (before anything else); None when it opens otherwise.
-    leading_option_line: Optional[int]
+    leading_option_line: int | None
 
 
-def tokenize(source: str) -> List[Token]:
+def tokenize(source: str) -> list[Token]:
     """Splits a .proto source into tokens, dropping comments and keeping string literals whole."""
-    tokens: List[Token] = []
+    tokens: list[Token] = []
     line = 1
     i = 0
     n = len(source)
@@ -128,20 +155,26 @@ def tokenize(source: str) -> List[Token]:
     return tokens
 
 
-def _parse_number(text: str) -> Optional[int]:
+def _parse_number(text: str) -> int | None:
     try:
         return int(text, 0)
     except ValueError:
         return None
 
 
-def _range_numbers(statement: List[Token]) -> List[int]:
+def _range_numbers(statement: list[Token]) -> list[int]:
     """The numbers of a `reserved` or `extensions` statement: `1, 3 to 5, 9 to max` -> [1, 5, 9]; names are ignored.
 
     Only the largest number of a range matters for the check; `to max` closes the message for good, so it counts as the
     start of the range (nothing can follow it anyway).
+
+    Args:
+        statement: The tokens of the statement after its keyword, up to the `;`.
+
+    Returns:
+        One number per single number or range, in the order of the statement.
     """
-    numbers: List[int] = []
+    numbers: list[int] = []
     for index, token in enumerate(statement):
         value = _parse_number(token.text)
         if value is None:
@@ -160,7 +193,22 @@ def _range_numbers(statement: List[Token]) -> List[int]:
     return numbers
 
 
-def _field_number(statement: List[Token]) -> Optional[Tuple[int, str]]:
+def _is_aggregate_value(head: list[str]) -> bool:
+    """Whether a `{` after the tokens `head` of a statement opens an aggregate value rather than a body.
+
+    `option (nproto.retired_field) = { name: "x" ... };` and a field's `[(tuning) = { unit: "m" }]` keep their statement
+    going after the `}`: the option is still a leading option, and the field keeps its number.
+
+    Args:
+      head: The texts of the statement's tokens before the `{`.
+
+    Returns:
+      True when the `{` follows an `=` or a `:` of the statement.
+    """
+    return bool(head) and head[-1] in ("=", ":")
+
+
+def _field_number(statement: list[Token]) -> tuple[int, str] | None:
     """(number, field name) of a field statement `[label] type name = N [options]`, or None for anything else."""
     texts = [t.text for t in statement]
     if not texts or texts[0] in ("option", "reserved", "extensions", "extend"):
@@ -177,30 +225,34 @@ def _field_number(statement: List[Token]) -> Optional[Tuple[int, str]]:
     return number, name
 
 
-def parse_messages(source: str) -> List[MessageInfo]:
+def parse_messages(source: str) -> list[MessageInfo]:
     """Every message of a .proto source, nested ones included, with the numbers it uses."""
     tokens = tokenize(source)
-    messages: List[MessageInfo] = []
+    messages: list[MessageInfo] = []
 
     def parse_block(start: int, kind: str, name: str, line: int) -> int:
         """Parses the body of a block opened at tokens[start - 1] == '{'; returns the index after its '}'."""
-        numbers: List[int] = []
-        labels: List[str] = []
-        statement: List[Token] = []
+        numbers: list[int] = []
+        labels: list[str] = []
+        statement: list[Token] = []
         first_item_seen = False
-        top_reservation: Optional[int] = None
-        top_reservation_line: Optional[int] = None
-        leading_option_line: Optional[int] = None
+        top_reservation: int | None = None
+        top_reservation_line: int | None = None
+        leading_option_line: int | None = None
         i = start
         while i < len(tokens):
             text = tokens[i].text
             if text == "}":
                 break
             if text == "{":
-                first_item_seen = True
                 head = [t.text for t in statement]
+                if _is_aggregate_value(head):
+                    # `option (x) = { ... };` or a field's `[(x) = { ... }]`: a value inside the statement, which goes on.
+                    i = skip_block(i + 1)
+                    continue
+                first_item_seen = True
                 # A nested block: a message or enum declaration, a oneof (its fields belong to this message), a proto2
-                # group (a field that opens a message of its own), or an aggregate option value.
+                # group (a field that opens a message of its own), or another block.
                 if len(head) >= 2 and head[0] in (
                     "message",
                     "enum",
@@ -271,7 +323,7 @@ def parse_messages(source: str) -> List[MessageInfo]:
             )
         return i + 1
 
-    def collect(statement: List[Token], numbers: List[int], labels: List[str]) -> None:
+    def collect(statement: list[Token], numbers: list[int], labels: list[str]) -> None:
         if not statement:
             return
         head = statement[0].text
@@ -285,15 +337,16 @@ def parse_messages(source: str) -> List[MessageInfo]:
             numbers.append(field[0])
             labels.append(f"field {field[1]} = {field[0]}")
 
-    def parse_oneof(start: int) -> Tuple[int, List[int], List[str]]:
-        numbers: List[int] = []
-        labels: List[str] = []
-        statement: List[Token] = []
+    def parse_oneof(start: int) -> tuple[int, list[int], list[str]]:
+        numbers: list[int] = []
+        labels: list[str] = []
+        statement: list[Token] = []
         i = start
         while i < len(tokens) and tokens[i].text != "}":
             if tokens[i].text == "{":
                 i = skip_block(i + 1)
-                statement = []
+                if not _is_aggregate_value([t.text for t in statement]):
+                    statement = []
                 continue
             if tokens[i].text == ";":
                 collect(statement, numbers, labels)
@@ -322,10 +375,10 @@ def _next_free(message: MessageInfo) -> int:
     return (max(message.numbers) if message.numbers else 0) + 1
 
 
-def check_source(source: str, path: str = "<string>") -> List[Violation]:
+def check_source(source: str, path: str = "<string>") -> list[Violation]:
     """Every message of `source` whose `// Next ID:` comment or opening `reserved N to max;` is missing or stale."""
     lines = source.splitlines()
-    violations: List[Violation] = []
+    violations: list[Violation] = []
     for message in parse_messages(source):
         next_free = _next_free(message)
         above = lines[message.line - 2] if message.line >= 2 else ""
@@ -364,7 +417,7 @@ def check_source(source: str, path: str = "<string>") -> List[Violation]:
 
 def _check_top_reservation(
     path: str, message: MessageInfo, next_id: int
-) -> List[Violation]:
+) -> list[Violation]:
     """The message must open with `reserved <next_id> to max;`."""
     if message.top_reservation is None:
         return [
@@ -394,6 +447,12 @@ def fix_source(source: str) -> str:
 
     A comment that already names a number above every number in use is kept (a field was deleted), and the
     reservation follows it.
+
+    Args:
+        source: The text of a .proto file.
+
+    Returns:
+        The fixed text; `source` itself when it needs no fix.
     """
     lines = source.splitlines(keepends=True)
     # Bottom-up, so inserting a line does not move the messages still to be fixed; within a message the reservation
@@ -453,17 +512,17 @@ def fix_source(source: str) -> str:
     return "".join(lines)
 
 
-def check_files(paths: Iterable[str], root: str) -> List[Violation]:
-    violations: List[Violation] = []
+def check_files(paths: Iterable[str], root: str) -> list[Violation]:
+    violations: list[Violation] = []
     for path in paths:
         with open(path, encoding="utf-8") as f:
             violations += check_source(f.read(), os.path.relpath(path, root))
     return violations
 
 
-def fix_files(paths: Iterable[str]) -> List[str]:
+def fix_files(paths: Iterable[str]) -> list[str]:
     """Fixes the files in place; returns the ones that changed."""
-    changed: List[str] = []
+    changed: list[str] = []
     for path in paths:
         with open(path, encoding="utf-8") as f:
             source = f.read()
@@ -475,16 +534,16 @@ def fix_files(paths: Iterable[str]) -> List[str]:
     return changed
 
 
-def check_staged(repository: str) -> List[Violation]:
+def check_staged(repository: str) -> list[Violation]:
     """Checks the STAGED version of every .proto file staged for commit, as the pre-commit hook needs."""
-    violations: List[Violation] = []
+    violations: list[Violation] = []
     for path in lint_files.staged_files(repository):
         if path.endswith(PROTO_EXTENSION):
             violations += check_source(lint_files.staged_source(repository, path), path)
     return violations
 
 
-def _findings(source: str, path: str) -> List[check_types.Finding]:
+def _findings(source: str, path: str) -> list[check_types.Finding]:
     return [
         check_types.Finding(
             path, v.line, 1, NAME, f"message {v.message_name}: {v.text}"
@@ -512,7 +571,7 @@ CHECKS = [
 ]
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("paths", nargs="*", help=".proto files")
     parser.add_argument(

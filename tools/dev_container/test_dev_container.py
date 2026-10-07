@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Pins what the ROS-free dev container, its image and CI's copy of its setup provide.
 
 The processes talk over ZeroMQ + Protocol Buffers and draw with Rerun (humanoid_nmpc/docs/distributed_runtime), so the
@@ -18,7 +45,6 @@ import subprocess
 import tempfile
 import types
 import unittest
-from typing import Dict, List, Tuple
 from unittest import mock
 
 
@@ -36,7 +62,7 @@ def _runfile(relative_path: str) -> str:
 
 
 def _read(relative_path: str) -> str:
-    with open(_runfile(relative_path)) as f:
+    with open(_runfile(relative_path), encoding="utf-8") as f:
         return f.read()
 
 
@@ -47,7 +73,7 @@ def _without_comment_lines(text: str) -> str:
     )
 
 
-def _installed_packages(text: str) -> List[str]:
+def _installed_packages(text: str) -> list[str]:
     """The arguments of every `apt-get install` in a script, Dockerfile or workflow, without options or versions."""
     joined = _without_comment_lines(text).replace("\\\n", " ")
     packages = []
@@ -60,7 +86,7 @@ def _installed_packages(text: str) -> List[str]:
     return packages
 
 
-def _dependency_list() -> List[str]:
+def _dependency_list() -> list[str]:
     return [
         line.strip()
         for line in _without_comment_lines(_read("dependencies.txt")).splitlines()
@@ -142,8 +168,7 @@ class BaseImageTest(unittest.TestCase):
             r"^    container: (\S+)$", _read(".github/workflows/build_test.yml"), re.M
         )
         emulator = re.search(r'^CI_IMAGE="(\S+)"$', _read("tools/ci_local.sh"), re.M)
-        for match in (image, workflow, emulator):
-            self.assertIsNotNone(match)
+        assert image is not None and workflow is not None and emulator is not None
         self.assertRegex(image.group(1), r"^ubuntu:\d+\.\d+$")
         self.assertEqual(workflow.group(1), image.group(1))
         self.assertEqual(emulator.group(1), image.group(1))
@@ -206,7 +231,7 @@ class PinocchioTest(unittest.TestCase):
         version = re.search(r'^PINOCCHIO_VERSION="(\d+\.\d+\.\d+)"$', self.script, re.M)
         self.assertIsNotNone(version, "PINOCCHIO_VERSION is not a full x.y.z release")
         packages = re.search(r'^PINOCCHIO_PACKAGES="([^"]+)"$', self.script, re.M)
-        self.assertIsNotNone(packages)
+        assert packages is not None
         self.assertEqual(
             sorted(re.sub(r"py\d+", "pyXY", p) for p in packages.group(1).split()),
             [
@@ -223,7 +248,7 @@ class PinocchioTest(unittest.TestCase):
         fingerprint = re.search(
             r'^ROBOTPKG_KEY_FINGERPRINT="([0-9A-F]+)"$', self.script, re.M
         )
-        self.assertIsNotNone(fingerprint)
+        assert fingerprint is not None
         self.assertEqual(
             len(fingerprint.group(1)), 40, "not a full OpenPGP v4 fingerprint"
         )
@@ -246,7 +271,7 @@ class PinocchioTest(unittest.TestCase):
 
     def test_the_python_path_is_the_python_the_bindings_are_built_for(self):
         python = re.search(r"robotpkg-py(\d)(\d+)-pinocchio", self.script)
-        self.assertIsNotNone(python)
+        assert python is not None
         site_packages = (
             "/opt/openrobots/lib/python%s.%s/site-packages" % python.groups()
         )
@@ -255,13 +280,14 @@ class PinocchioTest(unittest.TestCase):
         self.assertIn("export PYTHONPATH=%s" % site_packages, self.emulator)
 
 
-def _dockerfile_robotpkg_environment() -> Dict[str, str]:
+def _dockerfile_robotpkg_environment() -> dict[str, str]:
     """NAME -> the directory the image's robotpkg ENV puts first on it."""
     block = re.search(
         r"# LINT\.IfChange\(robotpkg_environment\)\n(.*?)# LINT\.ThenChange",
         _read("docker/Dockerfile"),
         re.S,
     )
+    assert block is not None, "docker/Dockerfile has no robotpkg_environment block"
     return dict(re.findall(r'(\w+)="([^":$]+)', block.group(1)))
 
 
@@ -274,7 +300,9 @@ class EnvironmentTest(unittest.TestCase):
         )
         workflow = _read(".github/workflows/build_test.yml")
         ci = dict(re.findall(r'echo "(\w+)=(\S+)" >> "\$GITHUB_ENV"', workflow))
-        ci["PATH"] = re.search(r'echo "(\S+)" >> "\$GITHUB_PATH"', workflow).group(1)
+        path = re.search(r'echo "(\S+)" >> "\$GITHUB_PATH"', workflow)
+        assert path is not None, "the workflow puts nothing on GITHUB_PATH"
+        ci["PATH"] = path.group(1)
         self.assertEqual(ci, image)
         emulator = dict(
             re.findall(r"^\s*export (\w+)=([^:\s]+)", _read("tools/ci_local.sh"), re.M)
@@ -336,9 +364,9 @@ class SystemPackagesTest(unittest.TestCase):
         )
 
 
-def _published_ports(compose: str) -> Dict[int, int]:
+def _published_ports(compose: str) -> dict[int, int]:
     """Container port -> host port of every `ports:` entry of a compose file, ranges expanded."""
-    published = {}
+    published: dict[int, int] = {}
     for host_first, host_last, first, last in re.findall(
         r'^\s+- "(\d+)(?:-(\d+))?:(\d+)(?:-(\d+))?(?:/(?:tcp|udp))?"$', compose, re.M
     ):
@@ -359,8 +387,10 @@ def _devcontainer() -> dict:
 
 
 class HostNetworkTest(unittest.TestCase):
-    """On Linux the dev container runs on the host's network, so the bus reaches other containers and machines at the
-    network file's addresses; docker-compose.bridge.yaml is the Docker Desktop override that publishes the ports.
+    """On Linux the dev container runs on the host's network, so the bus reaches other containers and machines.
+
+    They are reached at the network file's addresses; docker-compose.bridge.yaml is the Docker Desktop override that
+    publishes the ports.
     """
 
     def test_the_dev_container_uses_the_host_network_and_publishes_nothing(self):
@@ -419,7 +449,7 @@ class DisplayTest(unittest.TestCase):
         display = re.search(
             r'^VNC_DISPLAY="\$\{VNC_DISPLAY:-(:\d+)\}"$', start_vnc, re.M
         )
-        self.assertIsNotNone(display)
+        assert display is not None
         self.assertEqual(len(re.findall(r"\bXvfb \$\{display\}", start_vnc)), 1)
         self.assertIn('DISPLAY: "%s"' % display.group(1), _read("docker-compose.yaml"))
         self.assertEqual(_devcontainer()["containerEnv"]["DISPLAY"], display.group(1))
@@ -429,7 +459,10 @@ class DisplayTest(unittest.TestCase):
         for argument in ("plotjuggler", "main"):
             with self.subTest(argument=argument):
                 result = subprocess.run(
-                    ["bash", script, argument], capture_output=True, text=True
+                    ["bash", script, argument],
+                    capture_output=True,
+                    text=True,
+                    check=False,
                 )
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertIn("usage:", result.stderr)
@@ -451,12 +484,13 @@ def _load_openbox_layout() -> types.ModuleType:
     spec = importlib.util.spec_from_file_location(
         "openbox_layout", _runfile(".devcontainer/openbox_layout.py")
     )
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-Rectangle = Tuple[int, int, int, int]
+Rectangle = tuple[int, int, int, int]
 
 
 def _overlap(a: Rectangle, b: Rectangle) -> bool:
@@ -469,7 +503,7 @@ class OpenboxLayoutTest(unittest.TestCase):
     def setUp(self):
         self.layout = _load_openbox_layout()
 
-    def _panes(self, width: int, height: int) -> Dict[str, Rectangle]:
+    def _panes(self, width: int, height: int) -> dict[str, Rectangle]:
         g = self.layout.layout(width, height)
         return {
             "viewer": (0, 0, g["left_w"], g["viewer_h"]),
@@ -521,11 +555,12 @@ class OpenboxLayoutTest(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertEqual(self.layout.parse_resolution(value), default)
 
-    def _run_main(self, rc_xml: str, resolution: str = "1920x1080") -> Tuple[int, str]:
+    def _run_main(self, rc_xml: str, resolution: str = "1920x1080") -> tuple[int, str]:
+        """Runs openbox_layout.main() on `rc_xml` in a scratch HOME; its exit status and the rewritten rc.xml."""
         with tempfile.TemporaryDirectory() as home:
             rc_path = os.path.join(home, ".config", "openbox", "rc.xml")
             os.makedirs(os.path.dirname(rc_path))
-            with open(rc_path, "w") as f:
+            with open(rc_path, "w", encoding="utf-8") as f:
                 f.write(rc_xml)
             output = io.StringIO()
             with mock.patch.dict(os.environ, {"HOME": home, "RESOLUTION": resolution}):
@@ -533,7 +568,7 @@ class OpenboxLayoutTest(unittest.TestCase):
                     output
                 ):
                     status = self.layout.main()
-            with open(rc_path) as f:
+            with open(rc_path, encoding="utf-8") as f:
                 return status, f.read()
 
     def test_main_adds_the_rules_to_the_applications_section(self):

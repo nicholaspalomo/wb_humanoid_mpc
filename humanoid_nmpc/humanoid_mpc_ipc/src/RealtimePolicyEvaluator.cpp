@@ -30,17 +30,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_ipc/RealtimePolicyEvaluator.h"
 
 #include <cstddef>
-#include <typeinfo>
 #include <vector>
 
-#include <Eigen/Core>
+#include "Eigen/Core"
+#include "absl/base/nullability.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/control/ControllerBase.h"
+#include "ocs2_core/control/FeedforwardController.h"
+#include "ocs2_core/control/LinearController.h"
+#include "ocs2_core/misc/LinearInterpolation.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 
-#include <ocs2_core/Types.h>
-#include <ocs2_core/control/ControllerBase.h>
-#include <ocs2_core/control/FeedforwardController.h>
-#include <ocs2_core/control/LinearController.h>
-#include <ocs2_core/misc/LinearInterpolation.h>
-#include <ocs2_oc/oc_data/PrimalSolution.h>
+#include "humanoid_mpc_ipc/PolicyControllers.h"
 
 namespace ocs2::humanoid::ipc {
 namespace {
@@ -65,7 +66,7 @@ template <typename Data, typename Allocator, typename Result>
 void interpolateInto(const index_alpha_t& segment, const std::vector<Data, Allocator>& nodes, Result& result) {
   if (nodes.size() > 1) {
     const scalar_t alpha = segment.second;
-    result = alpha * nodes[segment.first] + (scalar_t(1.0) - alpha) * nodes[segment.first + 1];
+    result = alpha * nodes[segment.first] + (1.0 - alpha) * nodes[segment.first + 1];
   } else {
     result = nodes[0];
   }
@@ -92,15 +93,14 @@ RealtimePolicyEvaluator::Outcome RealtimePolicyEvaluator::evaluate(
     return Outcome::kMismatchedPolicy;
   }
 
-  // The exact types: a class derived from either may compute its input otherwise.
-  const ControllerBase* controller = policy.controllerPtr_.get();
-  const FeedforwardController* feedforward = nullptr;
-  const LinearController* linear = nullptr;
-  if (controller != nullptr && typeid(*controller) == typeid(FeedforwardController)) {
-    feedforward = static_cast<const FeedforwardController*>(controller);
-  } else if (controller != nullptr && typeid(*controller) == typeid(LinearController)) {
-    linear = static_cast<const LinearController*>(controller);
-  } else {
+  // The exact types (PolicyControllers.h): a controller of another type may compute its input otherwise.
+  const ControllerBase* absl_nullable controller = policy.controllerPtr_.get();
+  if (controller == nullptr) {
+    return Outcome::kUnsupportedController;
+  }
+  const FeedforwardController* absl_nullable feedforward = asFeedforwardController(*controller);
+  const LinearController* absl_nullable linear = feedforward == nullptr ? asLinearController(*controller) : nullptr;
+  if (feedforward == nullptr && linear == nullptr) {
     return Outcome::kUnsupportedController;
   }
 

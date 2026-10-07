@@ -27,39 +27,41 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <array>
 #include <atomic>
 #include <chrono>
-#include <fstream>
 #include <functional>
 #include <memory>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "absl/status/statusor.h"
 #include "absl/synchronization/notification.h"
+#include "gtest/gtest.h"
 
-#include <mujoco_sim_interface/MujocoSimInterface.h>
-#include <robot_model/ContactEstimator.h>
-#include <robot_model/ContactEstimatorRegistry.h>
-#include <robot_model/RobotDescription.h>
-#include <robot_model/RobotJointAction.h>
-#include <robot_model/RobotState.h>
-
+#include "humanoid_common_mpc/config/OperatorPayloadChecks.h"
 #include "humanoid_common_mpc_app/robot/FsmStateMailbox.h"
 #include "humanoid_common_mpc_app/robot/JointNamesByIndex.h"
 #include "humanoid_common_mpc_app/robot/OperatorCommandMailbox.h"
 #include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
 #include "humanoid_common_mpc_app/robot/RealtimeLoopRunner.h"
 #include "humanoid_common_mpc_app/robot/TelemetrySampler.h"
+#include "humanoid_mpc_config/mpc_parameter_update.pb.h"
+#include "humanoid_mpc_config/task_file.pb.h"
+#include "humanoid_mpc_msgs/dodgeball_throw.pb.h"
 #include "humanoid_mpc_msgs/fsm_command.pb.h"
 #include "humanoid_mpc_msgs/joint_targets.pb.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
-#include "humanoid_mpc_msgs/yaml_document.pb.h"
+#include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/RobotTestSupport.h"
+#include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "nproto/Textproto.h"
+#include "robot_model/ContactEstimator.h"
+#include "robot_model/ContactEstimatorRegistry.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotJointAction.h"
+#include "robot_model/RobotState.h"
 #include "robot_runtime/robot_realtime/test/AllocationCounter.h"
 
 /*
@@ -71,7 +73,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-constexpr const char* kAtlasUrdf = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
+constexpr char kAtlasUrdf[] = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
 
 /** An estimator whose construction waits until it is released: the communication thread holding the mailbox's lock. */
 class GatedEstimator final : public robot::model::ContactEstimator {
@@ -95,7 +97,7 @@ void onAnotherThread(Handlers handlers) {
 }
 
 TEST(RobotRealtimeAllocations, TheOperatorMailboxHandsEverythingOverWithoutAllocating) {
-  const robot::model::RobotDescription description(kAtlasUrdf);
+  const robot::model::RobotDescription description = robot_test::atlasDescription();
   robot::model::ContactEstimatorRegistry registry;
   absl::StatusOr<std::unique_ptr<OperatorCommandMailbox>> created = OperatorCommandMailbox::Create(mailboxConfig(description), registry);
   ASSERT_TRUE(created.ok()) << created.status();
@@ -120,18 +122,17 @@ TEST(RobotRealtimeAllocations, TheOperatorMailboxHandsEverythingOverWithoutAlloc
       humanoid_mpc_msgs::WalkingVelocityCommand walk;
       walk.set_desired_pelvis_height(0.9);
       mailbox.onWalkingVelocityCommand(walk);
-      humanoid_mpc_msgs::YamlDocument parameters;
-      parameters.set_yaml(round % 2 == 0 ? "contactEstimator: always_in_contact\ncontact_wrench_gate:\n  rampTime: 0.04\n"
-                                         : "contactEstimator: robot_state\n");
+      humanoid_mpc_config::MpcParameterUpdate parameters;
+      parameters.mutable_task()->set_contact_estimator(round % 2 == 0 ? "always_in_contact" : "robot_state");
+      if (round % 2 == 0) parameters.mutable_task()->mutable_contact_wrench_gate()->set_ramp_time(0.04);
+      parameters.set_schema_fingerprint(mpcParameterUpdateSchemaFingerprint());
       mailbox.onMpcParameters(parameters);
-      std::ifstream payload("humanoid_nmpc/humanoid_common_mpc_app/robot/test/data/dodgeball_payload.yaml");
-      std::stringstream text;
-      text << payload.rdbuf();
-      humanoid_mpc_msgs::YamlDocument dodgeball;
-      dodgeball.set_yaml(text.str());
-      mailbox.onDodgeballThrow(dodgeball);
+      const absl::StatusOr<humanoid_mpc_msgs::DodgeballThrow> dodgeball = nproto::ParseTextprotoFile<humanoid_mpc_msgs::DodgeballThrow>(
+          "humanoid_nmpc/humanoid_common_mpc_app/robot/test/data/dodgeball_throw.textproto");
+      ASSERT_TRUE(dodgeball.ok()) << dodgeball.status();
+      mailbox.onDodgeballThrow(*dodgeball);
     });
-    const std::size_t before = robot::realtime::heapAllocationCountOnThisThread();
+    const size_t before = robot::realtime::heapAllocationCountOnThisThread();
     const bool tookCommand = mailbox.takeFsmCommand(command);
     const bool tookPosture = mailbox.takeNominalPosture(nominal);
     const bool tookThrow = mailbox.takeDodgeballThrow(throwCommand);
@@ -141,16 +142,16 @@ TEST(RobotRealtimeAllocations, TheOperatorMailboxHandsEverythingOverWithoutAlloc
       tookSettings = true;
       if (update.hasContactEstimator && update.contactEstimatorName != estimatorName) estimatorName.assign(update.contactEstimatorName);
     });
-    const std::size_t allocations = robot::realtime::heapAllocationCountOnThisThread() - before;
+    const size_t allocations = robot::realtime::heapAllocationCountOnThisThread() - before;
     EXPECT_TRUE(tookCommand && tookPosture && tookThrow && height.has_value() && tookSettings) << "round " << round;
     EXPECT_EQ(allocations, 0u) << "round " << round;
   }
-  EXPECT_NEAR(nominal.front(), 0.2, 1e-12);
+  EXPECT_NEAR(nominal.front(), 0.2, 1.0e-12);
   EXPECT_EQ(estimatorName, "always_in_contact");
 }
 
 TEST(RobotRealtimeAllocations, TheRealtimeSideNeverWaitsForTheCommunicationThreadsLock) {
-  const robot::model::RobotDescription description(kAtlasUrdf);
+  const robot::model::RobotDescription description = robot_test::atlasDescription();
   robot::model::ContactEstimatorRegistry registry;
   absl::Notification building;
   absl::Notification release;
@@ -186,7 +187,7 @@ TEST(RobotRealtimeAllocations, TheEventLogAndTheFsmStatePostWithoutAllocating) {
   msgs::FsmState taken;
   states.write("GRAVITY_COMP", /*gantryLocked=*/true, /*controllerResets=*/0, /*mpcHealthy=*/true);
   states.take(taken);
-  const std::size_t before = robot::realtime::heapAllocationCountOnThisThread();
+  const size_t before = robot::realtime::heapAllocationCountOnThisThread();
   for (int i = 0; i < 10; ++i) {
     log.post(RealtimeEventCode::kTorquesEnabled, /*detail=*/0, "ENABLE_TORQUES");
     states.write(i % 2 == 0 ? "WB_MPC" : "GRAVITY_COMP", /*gantryLocked=*/i % 3 == 0, /*controllerResets=*/static_cast<uint64_t>(i),
@@ -197,7 +198,7 @@ TEST(RobotRealtimeAllocations, TheEventLogAndTheFsmStatePostWithoutAllocating) {
 }
 
 TEST(RobotRealtimeAllocations, TheTelemetrySamplerTakesSamplesWithoutAllocating) {
-  const robot::model::RobotDescription description(kAtlasUrdf);
+  const robot::model::RobotDescription description = robot_test::atlasDescription();
   TelemetrySampler::Config config;
   config.jointNames = jointNamesByIndex(description);
   config.decimation = 1;
@@ -206,17 +207,17 @@ TEST(RobotRealtimeAllocations, TheTelemetrySamplerTakesSamplesWithoutAllocating)
   robot::model::RobotState state(description);
   robot::model::RobotJointAction action(description);
   const contact_flag_t flags{true, false};
-  const std::array<vector3_t, N_CONTACTS> forces{vector3_t(1.0, 2.0, 3.0), vector3_t::Zero()};
+  const std::array<vector3_t, kNumContacts> forces{vector3_t(1.0, 2.0, 3.0), vector3_t::Zero()};
 
   // The first round warms nothing up: the slots are built with their shape at construction.
   for (int round = 0; round < 3; ++round) {
-    const std::size_t before = robot::realtime::heapAllocationCountOnThisThread();
+    const size_t before = robot::realtime::heapAllocationCountOnThisThread();
     for (int i = 0; i < 4; ++i) sampler.sample(state, action, "WB_MPC", flags, forces);
     EXPECT_EQ(robot::realtime::heapAllocationCountOnThisThread() - before, 0u) << "round " << round;
     onAnotherThread([&]() { sampler.drain([](const msgs::RobotStateSample&) {}); });
   }
   // A full ring drops and counts, still without allocating.
-  const std::size_t before = robot::realtime::heapAllocationCountOnThisThread();
+  const size_t before = robot::realtime::heapAllocationCountOnThisThread();
   for (int i = 0; i < 20; ++i) sampler.sample(state, action, "JOINT_PD", flags, forces);
   EXPECT_EQ(robot::realtime::heapAllocationCountOnThisThread() - before, 0u);
   EXPECT_EQ(sampler.dropped(), 12u);
@@ -228,8 +229,8 @@ TEST(RobotRealtimeAllocations, TheLoopRunnerAllocatesNothingBetweenCycles) {
   config.reportingWindow = std::chrono::milliseconds(20);
   RealtimeLoopRunner runner(config);
   std::atomic<int> cycles{0};
-  std::atomic<std::size_t> atCycle10{0};
-  std::atomic<std::size_t> atCycle100{0};
+  std::atomic<size_t> atCycle10{0};
+  std::atomic<size_t> atCycle100{0};
   ASSERT_TRUE(runner
                   .start([&]() {
                     const int cycle = cycles.fetch_add(1);
@@ -250,7 +251,10 @@ TEST(RobotRealtimeAllocations, TheBackendHandOverAllocatesNothingAndTakesNoLock)
   config.scenePath = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml";
   config.headless = true;
   config.gantryHold = "weld_constraint";
-  robot::mujoco_sim_interface::MujocoSimInterface sim(config, kAtlasUrdf);
+  absl::StatusOr<std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface>> created =
+      robot::mujoco_sim_interface::MujocoSimInterface::Create(config, kAtlasUrdf);
+  ASSERT_TRUE(created.ok()) << created.status();
+  robot::mujoco_sim_interface::MujocoSimInterface& sim = **created;
   sim.initSim();
   sim.startSim();
   vector3_t left = vector3_t::Zero();
@@ -269,7 +273,7 @@ TEST(RobotRealtimeAllocations, TheBackendHandOverAllocatesNothingAndTakesNoLock)
     std::this_thread::sleep_for(std::chrono::microseconds(500));
   };
   for (int index = 0; index < 10; ++index) cycle(index);
-  const std::size_t before = robot::realtime::heapAllocationCountOnThisThread();
+  const size_t before = robot::realtime::heapAllocationCountOnThisThread();
   for (int index = 0; index < 50; ++index) cycle(index);
   EXPECT_EQ(robot::realtime::heapAllocationCountOnThisThread() - before, 0u);
   EXPECT_GT(sim.getRobotState().getTime(), 0.0) << "the physics thread published its states";

@@ -28,20 +28,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 // Pinocchio forward declarations must be included first.
-#include <pinocchio/fwd.hpp>
+#include "pinocchio/fwd.hpp"
 
 #include "humanoid_common_mpc_app/visualization/TelemetryBuilder.h"
 
 #include <algorithm>
+#include <memory>
 #include <string>
 #include <vector>
 
-#include <pinocchio/algorithm/frames.hpp>
-#include <pinocchio/algorithm/kinematics.hpp>
-
+#include "absl/base/nullability.h"
+#include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/kinematics.hpp"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc_app/visualization/EulerAngles.h"
@@ -75,8 +77,8 @@ constexpr size_t kJointEffortMeasured = 4;
 constexpr size_t kJointEffortTarget = 5;
 
 // The generalized coordinates the "Generalized Coordinates (Pinocchio)" panels plot: base_z, base_pitch, base_roll.
-constexpr std::array<size_t, 3> kGeneralizedBaseDofs = {BASE_POS_Z_INDEX, BASE_TRANSLATION_DIM + BASE_ROT_PITCH_INDEX,
-                                                        BASE_TRANSLATION_DIM + BASE_ROT_ROLL_INDEX};
+constexpr std::array<size_t, 3> kGeneralizedBaseDofs = {kBasePosZIndex, kBaseTranslationDim + kBaseRotPitchIndex,
+                                                        kBaseTranslationDim + kBaseRotRollIndex};
 
 /** "<prefix>0", "<prefix>1", ...: one name per component of a vector of `size`. */
 std::vector<std::string> indexedNames(absl::string_view prefix, size_t size) {
@@ -102,18 +104,18 @@ TelemetryBuilder::TelemetryBuilder(const VisualizationModel& model, const Visual
 absl::StatusOr<std::unique_ptr<TelemetryBuilder>> TelemetryBuilder::Create(const VisualizationModel& model,
                                                                            const VisualizationConfig& config) {
   RETURN_IF_ERROR(checkVisualizationModel(model));
-  std::unique_ptr<TelemetryBuilder> builder(new TelemetryBuilder(model, config));
+  std::unique_ptr<TelemetryBuilder> builder = absl::WrapUnique(new TelemetryBuilder(model, config));
   RETURN_IF_ERROR(builder->initialize(config));
   return builder;
 }
 
 int TelemetryBuilder::addGroup(const std::string& path, const std::vector<std::string>& names) {
-  humanoid_mpc_msgs::ScalarGroup* group = series_.add_groups();
+  humanoid_mpc_msgs::ScalarGroup* absl_nonnull group = series_.add_groups();
   group->set_path(path);
   for (const std::string& name : names) {
     group->add_names(name);
   }
-  group->mutable_values()->Resize(static_cast<int>(names.size()), /*value=*/0.0);
+  group->mutable_values()->resize(static_cast<int>(names.size()), /*value=*/0.0);
   groupValues_.push_back(group->mutable_values());
   return static_cast<int>(groupValues_.size()) - 1;
 }
@@ -121,7 +123,7 @@ int TelemetryBuilder::addGroup(const std::string& path, const std::vector<std::s
 void TelemetryBuilder::setValues(int group, const vector_t& vector) {
   // The layout is fixed at construction; a vector of another size (which the model's dimensions rule out) neither
   // overruns the group nor leaves stale values in it.
-  google::protobuf::RepeatedField<double>* groupValues = groupValues_[static_cast<size_t>(group)];
+  google::protobuf::RepeatedField<double>* absl_nonnull groupValues = groupValues_[static_cast<size_t>(group)];
   const Eigen::Index size = std::min<Eigen::Index>(vector.size(), groupValues->size());
   std::copy(vector.data(), vector.data() + size, groupValues->mutable_data());
   std::fill(groupValues->mutable_data() + size, groupValues->mutable_data() + groupValues->size(), 0.0);
@@ -129,11 +131,11 @@ void TelemetryBuilder::setValues(int group, const vector_t& vector) {
 
 absl::Status TelemetryBuilder::initialize(const VisualizationConfig& config) {
   const Model& model = pinocchioInterface_.getModel();
-  if (modelSettings_.contactNames.size() < N_CONTACTS) {
+  if (modelSettings_.contactNames.size() < kNumContacts) {
     return absl::InvalidArgumentError(
-        absl::StrCat("the model settings name ", modelSettings_.contactNames.size(), " contacts; the telemetry needs ", N_CONTACTS, "."));
+        absl::StrCat("the model settings name ", modelSettings_.contactNames.size(), " contacts; the telemetry needs ", kNumContacts, "."));
   }
-  for (size_t contact = 0; contact < N_CONTACTS; ++contact) {
+  for (size_t contact = 0; contact < kNumContacts; ++contact) {
     if (!model.existFrame(modelSettings_.contactNames[contact])) {
       return absl::InvalidArgumentError(
           absl::StrCat("the contact frame '", modelSettings_.contactNames[contact], "' is not a frame of the MPC's robot model."));
@@ -150,11 +152,11 @@ absl::Status TelemetryBuilder::initialize(const VisualizationConfig& config) {
   const std::vector<std::string> twistNames = {"linear_x", "linear_y", "linear_z", "angular_x", "angular_y", "angular_z"};
   const std::vector<std::string> wrenchNames = {"force_x", "force_y", "force_z", "torque_x", "torque_y", "torque_z"};
   const std::vector<std::string> forceNames = {"force_x", "force_y", "force_z"};
-  const std::array<const char*, 3> axes = {"x", "y", "z"};
-  const std::array<const char*, 3> angles = {"roll", "pitch", "yaw"};
-  const std::array<const char*, N_CONTACTS> sides = {"left", "right"};
-  const std::array<const char*, 3> sources = {"measured", "reference", "plan"};
-  const std::array<const char*, 4> frameKinds = {"pose", "twist", "acceleration", "wrench"};
+  const std::array<const char* absl_nonnull, 3> axes = {"x", "y", "z"};
+  const std::array<const char* absl_nonnull, 3> angles = {"roll", "pitch", "yaw"};
+  const std::array<const char* absl_nonnull, kNumContacts> sides = {"left", "right"};
+  const std::array<const char* absl_nonnull, 3> sources = {"measured", "reference", "plan"};
+  const std::array<const char* absl_nonnull, 4> frameKinds = {"pose", "twist", "acceleration", "wrench"};
 
   for (size_t axis = 0; axis < 3; ++axis) {
     basePosition_[axis] = addGroup(absl::StrCat("base_pose/position_", axes[axis]), measuredReference);
@@ -168,10 +170,10 @@ absl::Status TelemetryBuilder::initialize(const VisualizationConfig& config) {
   for (size_t axis = 0; axis < 3; ++axis) {
     baseAngularVelocity_[axis] = addGroup(absl::StrCat("base_twist/angular_", axes[axis]), measuredReference);
   }
-  for (size_t contact = 0; contact < N_CONTACTS; ++contact) {
+  for (size_t contact = 0; contact < kNumContacts; ++contact) {
     normalForce_[contact] = addGroup(absl::StrCat("contact_forces/", sides[contact], "_normal"), mpcMeasured);
   }
-  for (size_t contact = 0; contact < N_CONTACTS; ++contact) {
+  for (size_t contact = 0; contact < kNumContacts; ++contact) {
     tangentialForce_[contact] = addGroup(absl::StrCat("contact_forces/", sides[contact], "_tangential"), tangential);
   }
   generalizedBaseCoordinate_ = {addGroup("generalized_base/position_z", measuredReference),
@@ -180,10 +182,10 @@ absl::Status TelemetryBuilder::initialize(const VisualizationConfig& config) {
   generalizedBaseVelocity_ = {addGroup("generalized_base/velocity_z", measuredReference),
                               addGroup("generalized_base/pitch_rate", measuredReference),
                               addGroup("generalized_base/roll_rate", measuredReference)};
-  for (size_t contact = 0; contact < N_CONTACTS; ++contact) {
+  for (size_t contact = 0; contact < kNumContacts; ++contact) {
     footAcceleration_[contact] = addGroup(absl::StrCat("foot_kinematics/", sides[contact], "_acceleration_z"), measuredReference);
   }
-  for (size_t contact = 0; contact < N_CONTACTS; ++contact) {
+  for (size_t contact = 0; contact < kNumContacts; ++contact) {
     footVelocity_[contact] = addGroup(absl::StrCat("foot_kinematics/", sides[contact], "_velocity_z"), measuredReference);
   }
 
@@ -202,7 +204,7 @@ absl::Status TelemetryBuilder::initialize(const VisualizationConfig& config) {
   for (size_t source = 0; source < 2; ++source) {
     dofForces_[source] = addGroup(absl::StrCat("dofs/force/", sources[source]), dofNames);
   }
-  for (size_t contact = 0; contact < N_CONTACTS; ++contact) {
+  for (size_t contact = 0; contact < kNumContacts; ++contact) {
     contactWrenchMpc_[contact] = addGroup(absl::StrCat("contact_wrenches/", sides[contact], "/mpc"), wrenchNames);
     contactWrenchMeasured_[contact] = addGroup(absl::StrCat("contact_wrenches/", sides[contact], "/measured"), forceNames);
   }
@@ -213,15 +215,15 @@ absl::Status TelemetryBuilder::initialize(const VisualizationConfig& config) {
   for (const std::string& frame : config.telemetryFrames) {
     if (!model.existFrame(frame)) {
       return absl::InvalidArgumentError(
-          absl::StrCat(kTelemetryFramesKey, " names the frame '", frame, "', which the MPC's robot model does not have."));
+          absl::StrCat(kTelemetryFramesField, " names the frame '", frame, "', which the MPC's robot model does not have."));
     }
-    FrameGroups groups{model.getFrameId(frame), -1, {}};
-    for (size_t contact = 0; contact < N_CONTACTS; ++contact) {
+    FrameGroups groups{.frame = model.getFrameId(frame), .contact = -1, .groups = {}};
+    for (size_t contact = 0; contact < kNumContacts; ++contact) {
       if (modelSettings_.contactNames[contact] == frame) {
         groups.contact = static_cast<int>(contact);
       }
     }
-    const std::array<const std::vector<std::string>*, 4> kindNames = {&poseNames, &twistNames, &twistNames, &wrenchNames};
+    const std::array<const std::vector<std::string>* absl_nonnull, 4> kindNames = {&poseNames, &twistNames, &twistNames, &wrenchNames};
     for (size_t kind = 0; kind < frameKinds.size(); ++kind) {
       for (size_t source = 0; source < sources.size(); ++source) {
         groups.groups[kind][source] =
@@ -256,13 +258,13 @@ vector_t TelemetryBuilder::generalizedVelocities(const vector_t& state, const ve
   return robotModel_->getGeneralizedVelocities(state, input);
 }
 
-void TelemetryBuilder::updateKinematics(Source* source) {
+void TelemetryBuilder::updateKinematics(Source* absl_nonnull source) {
   const Model& model = pinocchioInterface_.getModel();
   pinocchio::forwardKinematics(model, *source->data, source->q, source->v, source->a);
   pinocchio::updateFramePlacements(model, *source->data);
 }
 
-void TelemetryBuilder::computeReference(const DecodedRobotState& measured, const PolicySnapshot* policy) {
+void TelemetryBuilder::computeReference(const DecodedRobotState& measured, const PolicySnapshot* absl_nullable policy) {
   Source& reference = sources_[kReference];
   const size_t stateDim = robotModel_->getStateDim();
   const size_t inputDim = robotModel_->getInputDim();
@@ -292,7 +294,7 @@ void TelemetryBuilder::computeReference(const DecodedRobotState& measured, const
     return;
   }
   reference.v = generalizedVelocities(state, input);
-  for (size_t contact = 0; contact < N_CONTACTS; ++contact) {
+  for (size_t contact = 0; contact < kNumContacts; ++contact) {
     reference.contactWrenches[contact] = robotModel_->getContactWrenchInWorldFrame(state, input, contact);
   }
   const scalar_array_t& times = policy->target.timeTrajectory;
@@ -309,7 +311,7 @@ void TelemetryBuilder::computeReference(const DecodedRobotState& measured, const
   }
 }
 
-void TelemetryBuilder::computePlan(const DecodedRobotState& measured, const PolicySnapshot* policy) {
+void TelemetryBuilder::computePlan(const DecodedRobotState& measured, const PolicySnapshot* absl_nullable policy) {
   Source& plan = sources_[kPlan];
   plan.contactWrenches = makeFeetArray<vector6_t>(vector6_t::Zero());
   plan.v.setZero();
@@ -324,7 +326,7 @@ void TelemetryBuilder::computePlan(const DecodedRobotState& measured, const Poli
   samplePlan(*policy, time, &state, &input);
   plan.q = robotModel_->getGeneralizedCoordinates(state);
   plan.v = generalizedVelocities(state, input);
-  for (size_t contact = 0; contact < N_CONTACTS; ++contact) {
+  for (size_t contact = 0; contact < kNumContacts; ++contact) {
     plan.contactWrenches[contact] = robotModel_->getContactWrenchInWorldFrame(state, input, contact);
   }
   const scalar_t earlier = std::max(time - kAccelerationHalfInterval, policy->time.front());
@@ -341,13 +343,13 @@ void TelemetryBuilder::computePlan(const DecodedRobotState& measured, const Poli
 }
 
 const humanoid_mpc_msgs::TelemetrySeries& TelemetryBuilder::build(const DecodedRobotState& measured,
-                                                                  const SystemObservation* observation,
-                                                                  const PolicySnapshot* policy) {
+                                                                  const SystemObservation* absl_nullable observation,
+                                                                  const PolicySnapshot* absl_nullable policy) {
   const Model& model = pinocchioInterface_.getModel();
   const size_t stateDim = robotModel_->getStateDim();
   const size_t inputDim = robotModel_->getInputDim();
   const bool hasObservation = observation != nullptr && static_cast<size_t>(observation->state.size()) == stateDim;
-  const PolicySnapshot* plan = policy != nullptr && isConsistentPlan(*policy, stateDim, inputDim) ? policy : nullptr;
+  const PolicySnapshot* absl_nullable plan = policy != nullptr && isConsistentPlan(*policy, stateDim, inputDim) ? policy : nullptr;
   const scalar_t time = measured.time;
   series_.set_time(time);
 
@@ -376,44 +378,44 @@ const humanoid_mpc_msgs::TelemetrySeries& TelemetryBuilder::build(const DecodedR
   // Panel groups.
   const vector3_t measuredRollPitchYaw(measured.baseEulerAnglesZyx(2), measured.baseEulerAnglesZyx(1), measured.baseEulerAnglesZyx(0));
   for (size_t axis = 0; axis < 3; ++axis) {
-    double* position = values(basePosition_[axis]);
+    double* absl_nonnull position = values(basePosition_[axis]);
     position[0] = measured.basePosition[axis];
     position[1] = referenceBasePosition_[axis];
-    double* angle = values(baseRollPitchYaw_[axis]);
+    double* absl_nonnull angle = values(baseRollPitchYaw_[axis]);
     angle[0] = measuredRollPitchYaw[axis];
     angle[1] = referenceRollPitchYaw_[axis];
-    double* linear = values(baseLinearVelocity_[axis]);
+    double* absl_nonnull linear = values(baseLinearVelocity_[axis]);
     linear[0] = measured.baseLinearVelocity[axis];
     linear[1] = referenceBaseLinearVelocity_[axis];
-    double* angular = values(baseAngularVelocity_[axis]);
+    double* absl_nonnull angular = values(baseAngularVelocity_[axis]);
     angular[0] = measured.baseAngularVelocity[axis];
     // The target trajectories carry no base angular velocity.
     angular[1] = 0.0;
   }
-  for (size_t contact = 0; contact < N_CONTACTS; ++contact) {
+  for (size_t contact = 0; contact < kNumContacts; ++contact) {
     const vector6_t& mpc = planSource.contactWrenches[contact];
     const vector6_t& sensor = measured.measuredContactWrenches[contact];
-    double* normal = values(normalForce_[contact]);
-    normal[0] = mpc[WRENCH_FORCE_Z_INDEX];
-    normal[1] = sensor[WRENCH_FORCE_Z_INDEX];
-    double* tangentialForce = values(tangentialForce_[contact]);
-    tangentialForce[0] = mpc[WRENCH_FORCE_X_INDEX];
-    tangentialForce[1] = sensor[WRENCH_FORCE_X_INDEX];
-    tangentialForce[2] = mpc[WRENCH_FORCE_Y_INDEX];
-    tangentialForce[3] = sensor[WRENCH_FORCE_Y_INDEX];
+    double* absl_nonnull normal = values(normalForce_[contact]);
+    normal[0] = mpc[kWrenchForceZIndex];
+    normal[1] = sensor[kWrenchForceZIndex];
+    double* absl_nonnull tangentialForce = values(tangentialForce_[contact]);
+    tangentialForce[0] = mpc[kWrenchForceXIndex];
+    tangentialForce[1] = sensor[kWrenchForceXIndex];
+    tangentialForce[2] = mpc[kWrenchForceYIndex];
+    tangentialForce[3] = sensor[kWrenchForceYIndex];
   }
   for (size_t dof = 0; dof < kGeneralizedBaseDofs.size(); ++dof) {
-    double* coordinate = values(generalizedBaseCoordinate_[dof]);
+    double* absl_nonnull coordinate = values(generalizedBaseCoordinate_[dof]);
     coordinate[0] = measuredSource.q[kGeneralizedBaseDofs[dof]];
     coordinate[1] = referenceSource.q[kGeneralizedBaseDofs[dof]];
-    double* velocity = values(generalizedBaseVelocity_[dof]);
+    double* absl_nonnull velocity = values(generalizedBaseVelocity_[dof]);
     velocity[0] = measuredSource.v[kGeneralizedBaseDofs[dof]];
     velocity[1] = referenceSource.v[kGeneralizedBaseDofs[dof]];
   }
-  for (size_t contact = 0; contact < N_CONTACTS; ++contact) {
+  for (size_t contact = 0; contact < kNumContacts; ++contact) {
     const pinocchio::FrameIndex frame = contactFrames_[contact];
-    double* acceleration = values(footAcceleration_[contact]);
-    double* velocity = values(footVelocity_[contact]);
+    double* absl_nonnull acceleration = values(footAcceleration_[contact]);
+    double* absl_nonnull velocity = values(footVelocity_[contact]);
     for (const size_t source : {kMeasured, kReference}) {
       const Data& data = *sources_[source].data;
       acceleration[source] = pinocchio::getFrameClassicalAcceleration(model, data, frame, pinocchio::LOCAL_WORLD_ALIGNED).linear().z();
@@ -434,19 +436,19 @@ const humanoid_mpc_msgs::TelemetrySeries& TelemetryBuilder::build(const DecodedR
   }
   setValues(dofForces_[kMeasured], measured.generalizedForces);
   // The reference force of a joint is the feed-forward effort of the action applied; the base's is zero.
-  double* referenceForce = values(dofForces_[kReference]);
-  std::fill(referenceForce, referenceForce + FLOATING_BASE_DIM, 0.0);
+  double* absl_nonnull referenceForce = values(dofForces_[kReference]);
+  std::fill(referenceForce, referenceForce + kFloatingBaseDim, 0.0);
   for (size_t joint = 0; joint < modelSettings_.mpc_joint_dim; ++joint) {
     const size_t fullJoint = modelSettings_.mpcModelToFullJointsIndices[joint];
-    referenceForce[JOINT_COORDINATE_OFFSET + joint] =
+    referenceForce[kJointCoordinateOffset + joint] =
         fullJoint < static_cast<size_t>(measured.jointFeedForwardEfforts.size()) ? measured.jointFeedForwardEfforts[fullJoint] : 0.0;
   }
-  for (size_t contact = 0; contact < N_CONTACTS; ++contact) {
+  for (size_t contact = 0; contact < kNumContacts; ++contact) {
     setValues(contactWrenchMpc_[contact], planSource.contactWrenches[contact]);
     setValues(contactWrenchMeasured_[contact], measured.measuredContactWrenches[contact].head<3>());
   }
-  double* observationState = values(observationState_);
-  double* observationInput = values(observationInput_);
+  double* absl_nonnull observationState = values(observationState_);
+  double* absl_nonnull observationInput = values(observationInput_);
   std::fill(observationState, observationState + stateDim, 0.0);
   std::fill(observationInput, observationInput + inputDim, 0.0);
   values(observationMode_)[0] = 0.0;
@@ -466,7 +468,7 @@ const humanoid_mpc_msgs::TelemetrySeries& TelemetryBuilder::build(const DecodedR
       const Data& data = *sources_[source].data;
       const pinocchio::SE3Tpl<scalar_t>& placement = data.oMf[frame.frame];
       const vector3_t rollPitchYaw = rollPitchYawFromRotation(placement.rotation());
-      double* pose = values(frame.groups[kPose][source]);
+      double* absl_nonnull pose = values(frame.groups[kPose][source]);
       for (size_t axis = 0; axis < 3; ++axis) {
         pose[axis] = placement.translation()[axis];
         pose[3 + axis] = rollPitchYaw[axis];

@@ -32,21 +32,22 @@ Run it from the repository root as a module:
 
     python3 -m tools.hooks.lint_code                       # everything (make lint)
     python3 -m tools.hooks.lint_code --git-staged          # the files staged for commit (the pre-commit hook)
-    python3 -m tools.hooks.lint_code --only no-auto,boost  # some checks or steps only, pending ones included
+    python3 -m tools.hooks.lint_code --only no-auto,boost  # some checks or steps only
     python3 -m tools.hooks.lint_code --paths robot_runtime --only pointer-nullability --summary
     python3 -m tools.hooks.lint_code --fix --only float-literal --paths humanoid_nmpc/humanoid_wb_mpc
 
 The steps, in order: IFTTT directives; trailing whitespace and EOF newlines; clang-format; black; isort; the token
 checks of the registry (tools/hooks/checks.py: argument comments, Boost, spelling, the protobuf layout, NOLINT markers,
 ...); cpplint (CPPLINT.cfg); pylint on sources and on tests (.pylintrc); mypy on sources and on tests (mypy.ini). Every
-step runs, then the linter fails if any did, so one run shows every finding. Checks and steps that still have findings
-in the tree are PENDING (tools/hooks/checks.py) and run only when --only names them.
+step runs, then the linter fails if any did, so one run shows every finding. Every check and step is enforced; --only
+and --paths narrow a run while you work.
 
 cpplint, pylint and mypy take turns through a lint lock (.lint_machine.lock in the checkout): one run of them needs
 about 1.5 GB next to a build that is already sized to the machine (AGENTS.md "Builds share one machine's memory"). A
 second run waits and says why. The token checks take no lock. Those tools come from the pinned, hashed lock
-tools/hooks/lint_requirements_lock.txt (the dev image's /opt/wb-lint venv, CI's format job); a missing or different
-version is an error when CI=true and otherwise a warning that skips the step.
+tools/hooks/lint_requirements_lock.txt (the dev image's /opt/wb-lint venv, CI's format job), black too, and clang-format
+is the major version docker/Dockerfile installs; a missing or different version is an error when CI=true and otherwise a
+warning that skips the step, so that no run passes on a formatter that formats differently.
 """
 
 import argparse
@@ -57,6 +58,7 @@ import configparser
 import contextlib
 import dataclasses
 import fcntl
+import functools
 import os
 import re
 import shutil
@@ -75,7 +77,9 @@ LINT_LOCK_ENVIRONMENT = "WB_LINT_MACHINE_LOCK"
 # LINT.ThenChange(//.gitignore:lint_lock, //AGENTS.md:style_commands)
 
 LOCK_FILE = "tools/hooks/lint_requirements_lock.txt"
-CPPLINT_CONFIG = "CPPLINT.cfg"
+# The image's clang-format major version (`ARG CLANG_FORMAT_VERSION`), which CI's format job installs too.
+DOCKERFILE = "docker/Dockerfile"
+_CLANG_FORMAT_PIN = re.compile(r"^ARG CLANG_FORMAT_VERSION=(\d+)\s*$", re.MULTILINE)
 PYLINT_CONFIG = ".pylintrc"
 MYPY_CONFIG = "mypy.ini"
 ISORT_CONFIG = ".isort.cfg"
@@ -203,12 +207,29 @@ def pinned_versions(root: str) -> dict[str, str]:
     return pins
 
 
+def pinned_version(root: str, tool: str) -> str | None:
+    """The version `tool` must have: the lock's pin, or for clang-format the image's major version (DOCKERFILE)."""
+    if tool == "clang-format":
+        path = os.path.join(root, DOCKERFILE)
+        if not os.path.isfile(path):
+            return None
+        with open(path, encoding="utf-8") as f:
+            match = _CLANG_FORMAT_PIN.search(f.read())
+        return match.group(1) if match else None
+    return pinned_versions(root).get(tool)
+
+
 _VERSION_PATTERNS = {
     "cpplint": re.compile(r"^cpplint\s+(\S+)", re.MULTILINE),
     "pylint": re.compile(r"^pylint\s+(\S+)", re.MULTILINE),
     "mypy": re.compile(r"^mypy\s+(\S+)", re.MULTILINE),
     "isort": re.compile(r"VERSION\s+(\S+)"),
+    "black": re.compile(r"^black,?\s+(\S+)", re.MULTILINE),
+    # The major version only: the image pins clang-format by its major version (DOCKERFILE).
+    "clang-format": re.compile(r"clang-format version (\d+)\."),
 }
+# What to do about a clang-format of another version than the image's.
+_INSTALL_CLANG_FORMAT = "rebuild the dev container, or install the image's clang-format with 'sudo sh docker/install_llvm_tools.sh format'"
 
 
 def installed_version(tool: str) -> str | None:
@@ -230,20 +251,32 @@ def installed_version(tool: str) -> str | None:
     return match.group(1) if match else None
 
 
-def _tool_problem(context: Context, tool: str) -> Result | None:
-    """None when `tool` is installed at the version of the lock; otherwise the result of a step that cannot run it."""
-    pinned = pinned_versions(context.root).get(tool)
+def tool_problem(root: str, tool: str) -> str | None:
+    """None when `tool` is installed at its pinned version (pinned_version()); otherwise what is wrong."""
+    pinned = pinned_version(root, tool)
     installed = installed_version(tool)
     if installed is not None and installed == pinned:
         return None
+    pin = (
+        f"{DOCKERFILE} pins clang-format {pinned}"
+        if tool == "clang-format"
+        else f"the lock pins {tool}=={pinned}"
+    )
     if installed is None:
-        problem = f"{tool} is not installed (the lock pins {tool}=={pinned})"
-    else:
-        problem = f"{tool} {installed} is installed, but the lock pins {tool}=={pinned}"
+        return f"{tool} is not installed ({pin})"
+    return f"{tool} {installed} is installed, but {pin}"
+
+
+def _tool_problem(context: Context, tool: str) -> Result | None:
+    """None when `tool` is installed at its pinned version; otherwise the result of a step that cannot run it."""
+    problem = tool_problem(context.root, tool)
+    if problem is None:
+        return None
+    remedy = _INSTALL_CLANG_FORMAT if tool == "clang-format" else _REBUILD
     if context.ci:
-        return Result("failed", [f"❌ {problem}."], hint=_REBUILD)
+        return Result("failed", [f"❌ {problem}."], hint=remedy)
     return Result(
-        "skipped", [f"⚠️ Warning: {problem}; skipping {tool}. To run it, {_REBUILD}."]
+        "skipped", [f"⚠️ Warning: {problem}; skipping {tool}. To run it, {remedy}."]
     )
 
 
@@ -349,10 +382,9 @@ def _run_clang_format(context: Context) -> Result:
     files = _cpp_files(context)
     if not files:
         return _passed()
-    if shutil.which("clang-format") is None:
-        return Result(
-            "skipped", ["⚠️ Warning: clang-format not found, skipping C++ format lint."]
-        )
+    problem = _tool_problem(context, "clang-format")
+    if problem:
+        return problem
     result = subprocess.run(
         ["clang-format", "--dry-run", "--Werror", *files],
         cwd=context.root,
@@ -374,10 +406,9 @@ def _run_black(context: Context) -> Result:
     files = _python_files(context)
     if not files:
         return _passed()
-    if shutil.which("black") is None:
-        return Result(
-            "skipped", ["⚠️ Warning: black not found, skipping Python format lint."]
-        )
+    problem = _tool_problem(context, "black")
+    if problem:
+        return problem
     result = subprocess.run(
         ["black", "--check", *files],
         cwd=context.root,
@@ -477,15 +508,25 @@ _CPPLINT_LINE = re.compile(
     r"^(?P<path>.+?):(?P<line>\d+):\s+(?P<message>.*?)\s+\[(?P<category>[^\]]+)\]\s+\[\d\]$"
 )
 _UNKNOWN_NOLINT = re.compile(r"^Unknown NOLINT error category: (?P<category>\S+)$")
+_NOT_IN_A_NOLINT_BLOCK = "Not in a NOLINT block"
+# The end of a block of the repository's checks or of clang-tidy's: categories without the slash of cpplint's own.
+_FOREIGN_NOLINT_END = re.compile(r"\bNOLINTEND\((?P<categories>[^)/]+)\)")
 
 
-def filter_cpplint_output(output: str) -> list[str]:
+def filter_cpplint_output(
+    output: str, source_line: Callable[[str, int], str] | None = None
+) -> list[str]:
     """cpplint's findings, without its complaints about NOLINT markers for the repository's own checks.
 
-    cpplint reports `NOLINT(argument-comment)` as an unknown category; markers for other unknown names still fail.
+    cpplint reports `NOLINT(argument-comment)` as an unknown category, and the `NOLINTEND(exceptions)` or
+    `NOLINTEND(misc-use-internal-linkage)` of a block it never opened (it opens blocks of its own categories only) as
+    "Not in a NOLINT block"; neither is a finding. Markers for other unknown names still fail, and so does the end of a
+    block that names a cpplint category.
 
     Args:
       output: What cpplint printed.
+      source_line: The text of line `line` (from 1) of the file at `path`, as cpplint names it, to tell the end of such
+        a block; None keeps every "Not in a NOLINT block".
 
     Returns:
       One `path:line: message [category]` line per finding.
@@ -497,6 +538,14 @@ def filter_cpplint_output(output: str) -> list[str]:
             continue
         unknown = _UNKNOWN_NOLINT.match(match.group("message"))
         if unknown and unknown.group("category") in checks.names():
+            continue
+        if (
+            match.group("message") == _NOT_IN_A_NOLINT_BLOCK
+            and source_line is not None
+            and _FOREIGN_NOLINT_END.search(
+                source_line(match.group("path"), int(match.group("line")))
+            )
+        ):
             continue
         lines.append(
             f"{match.group('path')}:{match.group('line')}: {match.group('message')} [{match.group('category')}]"
@@ -529,8 +578,21 @@ def _run_cpplint(context: Context) -> Result:
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=CPPLINT_PROCESSES) as pool:
         outputs = list(pool.map(run_chunk, _chunks(files, CPPLINT_PROCESSES)))
+
+    @functools.lru_cache(maxsize=None)
+    def file_lines(path: str) -> tuple[str, ...]:
+        try:
+            with open(os.path.join(context.root, path), encoding="utf-8") as source:
+                return tuple(source.read().splitlines())
+        except OSError:
+            return ()
+
+    def source_line(path: str, number: int) -> str:
+        content = file_lines(path)
+        return content[number - 1] if 0 < number <= len(content) else ""
+
     lines = sorted(
-        filter_cpplint_output("\n".join(outputs)),
+        filter_cpplint_output("\n".join(outputs), source_line),
         key=lambda line: (line.split(":", 1)[0], int(line.split(":")[1])),
     )
     if not lines:
@@ -623,59 +685,30 @@ def _mypy(context: Context, files: list[str], extra: list[str]) -> Result:
     )
 
 
-# What a per-module section of mypy.ini may set: it only relaxes the global options, for a module still being swept.
-_MYPY_SECTION_OPTIONS = {
-    "ignore_errors": "true",
-    "disallow_untyped_defs": "false",
-    "disallow_incomplete_defs": "false",
-}
-
-
-def _module_exists(root: str, module: str) -> bool:
-    """True when `module` (a mypy section name, `pkg.*` included) is a file or package below a Python root."""
-    parts = module.removesuffix(".*").split(".")
-    for base in [root] + [
-        os.path.join(root, r) for r in lint_files.python_import_roots(root)
-    ]:
-        candidate = os.path.join(base, *parts)
-        if os.path.isfile(candidate + ".py") or os.path.isdir(candidate):
-            return True
-    return False
-
-
 def mypy_config_problems(root: str) -> list[str]:
-    """The per-module sections of mypy.ini that name no module, or that set more than they may (_MYPY_SECTION_OPTIONS).
+    """The per-module sections of mypy.ini: there are none, because every module is held to the global options.
 
-    mypy's own warn_unused_configs cannot be used: it needs non-incremental runs and misfires on partial file lists.
+    A section would relax them for one module (ignore_errors, disallow_untyped_defs = False, ...), which is a baseline
+    of findings by another name. A justified exception is one line's `# type: ignore[<code>]` with its reason.
 
     Args:
       root: The repository root.
 
     Returns:
-      One message per problem.
+      One message per section.
     """
     parser = configparser.ConfigParser()
     parser.read(os.path.join(root, MYPY_CONFIG), encoding="utf-8")
-    problems = []
-    for section in parser.sections():
-        if not section.startswith("mypy-"):
-            continue
-        module = section[len("mypy-") :]
-        if not _module_exists(root, module):
-            problems.append(
-                f"{MYPY_CONFIG}: [{section}] names no module of the repository: delete the section."
-            )
-        for key, value in parser.items(section):
-            if _MYPY_SECTION_OPTIONS.get(key) != value.strip().lower():
-                problems.append(
-                    f"{MYPY_CONFIG}: [{section}] sets {key} = {value}: a module section only relaxes "
-                    f"({', '.join(f'{k} = {v}' for k, v in _MYPY_SECTION_OPTIONS.items())})."
-                )
-    return problems
+    return [
+        f"{MYPY_CONFIG}: [{section}] sets options for one module, and every module is held to the global ones: "
+        "delete the section and fix what it hid, or mark one line `# type: ignore[<code>]  # <reason>`."
+        for section in parser.sections()
+        if section.startswith("mypy-")
+    ]
 
 
 def _run_mypy_sources(context: Context) -> Result:
-    """Runs mypy over the Python sources, after checking that mypy.ini's module sections are sound."""
+    """Runs mypy over the Python sources, after checking that mypy.ini has no per-module sections."""
     problems = mypy_config_problems(context.root)
     result = _mypy(context, _python_sources(context), [])
     if not problems:
@@ -683,7 +716,7 @@ def _run_mypy_sources(context: Context) -> Result:
     return Result(
         "failed",
         problems + result.lines,
-        hint=result.hint or "Fix the module sections of mypy.ini.",
+        hint=result.hint or "Delete the per-module sections of mypy.ini.",
     )
 
 
@@ -770,10 +803,9 @@ def _select_files(root: str, staged: bool, paths: Sequence[str]) -> list[str]:
 
 
 def _parse_only(only: str | None) -> tuple[frozenset[str], frozenset[str]]:
-    """The registry checks and steps --only names; with no --only, every enforced check and step."""
+    """The registry checks and steps --only names; with no --only, every check and step."""
     if not only:
-        steps = frozenset(step for step in STEP_NAMES if step not in checks.PENDING)
-        return checks.enforced(), steps
+        return checks.names(), STEP_NAMES
     requested = frozenset(name.strip() for name in only.split(",") if name.strip())
     unknown = requested - checks.names() - STEP_NAMES
     if unknown:
@@ -786,7 +818,7 @@ def _parse_only(only: str | None) -> tuple[frozenset[str], frozenset[str]]:
     if selected:
         steps |= {"token-checks"}
     if "token-checks" in requested and not selected:
-        selected = checks.enforced()
+        selected = checks.names()
     return selected, steps
 
 
@@ -849,7 +881,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--only",
-        help="comma-separated names of checks (tools/hooks/checks.py) or steps to run, pending ones included",
+        help="comma-separated names of checks (tools/hooks/checks.py) or steps to run",
     )
     parser.add_argument(
         "--paths", nargs="+", default=[], help="lint only files under these paths"

@@ -105,10 +105,10 @@ std::chrono::duration<scalar_t> MpcResetSupervisor::onSolveResult(const absl::St
   }
   const scalar_t exponent = static_cast<scalar_t>(failures - config_.maxConsecutiveFailures);
   const scalar_t interval = std::min(config_.initialRetryInterval * std::pow(2.0, exponent), config_.maxRetryInterval);
-  return std::chrono::duration<scalar_t>(std::max(interval, scalar_t(0.0)));
+  return std::chrono::duration<scalar_t>(std::max(interval, 0.0));
 }
 
-void MpcResetSupervisor::waitBeforeRetry(std::chrono::duration<scalar_t> duration, const std::function<bool()>& stop) {
+void MpcResetSupervisor::waitBeforeRetry(std::chrono::duration<scalar_t> duration, const std::function<bool()>& stop) const {
   const std::chrono::steady_clock::time_point deadline =
       std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::steady_clock::duration>(duration);
   while (std::chrono::steady_clock::now() < deadline) {

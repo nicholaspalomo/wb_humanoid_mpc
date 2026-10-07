@@ -1,12 +1,39 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Synthetic viz/scene and viz/telemetry messages that follow the contracts, and a small URDF package, for the tests.
 
 full_telemetry() is also a reference for a producer: it fills every group of telemetry_contract for a robot.
 """
 
+from collections.abc import Iterable, Sequence
 import math
 import os
 import struct
-from typing import Iterable, List, Sequence, Tuple
 
 from humanoid_mpc_msgs import arrows_pb2
 from humanoid_mpc_msgs import line_strips_pb2
@@ -32,7 +59,7 @@ def robot_dependent_names(
     dofs: Sequence[str] = DOFS,
     state_dim: int = STATE_DIM,
     input_dim: int = INPUT_DIM,
-) -> Tuple[str, ...]:
+) -> tuple[str, ...]:
     """The names a producer gives a robot-dependent group, by its names rule."""
     if group.names_rule == telemetry_contract.JOINT_NAMES_RULE:
         return tuple(joints)
@@ -142,8 +169,17 @@ def write_binary_stl(path: str) -> None:
 
 
 def sample_urdf_text(package: str = SAMPLE_PACKAGE) -> str:
-    """A five-link URDF: an upper-case .STL mesh with a scale and an origin, a named and an inline material, a box, a
-    cylinder and a sphere, a .dae with an .stl twin, and a link without visuals."""
+    """Writes a five-link URDF that covers what the bridge reads.
+
+    It has an upper-case .STL mesh with a scale and an origin, a named and an inline material, a box, a cylinder and a
+    sphere, a .dae with an .stl twin, and a link without visuals.
+
+    Args:
+        package: the package its mesh URIs name.
+
+    Returns:
+        The URDF document.
+    """
     return f"""<?xml version="1.0"?>
 <robot name="sample_robot">
   <material name="steel"><color rgba="0.5 0.5 0.6 1"/></material>
@@ -179,8 +215,15 @@ def sample_urdf_text(package: str = SAMPLE_PACKAGE) -> str:
 
 
 def write_sample_package(directory: str, package: str = SAMPLE_PACKAGE) -> str:
-    """Writes <directory>/<package>/{urdf/test.urdf, meshes/base.STL, meshes/foot.dae, meshes/foot.stl}; returns the
-    URDF's path."""
+    """Writes <directory>/<package>/{urdf/test.urdf, meshes/base.STL, meshes/foot.dae, meshes/foot.stl}.
+
+    Args:
+        directory: where the package goes.
+        package: the package's name.
+
+    Returns:
+        The URDF's path.
+    """
     root = os.path.join(directory, package)
     os.makedirs(os.path.join(root, "urdf"), exist_ok=True)
     os.makedirs(os.path.join(root, "meshes"), exist_ok=True)
@@ -194,5 +237,5 @@ def write_sample_package(directory: str, package: str = SAMPLE_PACKAGE) -> str:
     return urdf_path
 
 
-def link_names_with_visuals() -> List[str]:
+def link_names_with_visuals() -> list[str]:
     return ["base_link", "thigh", "shin", "foot"]

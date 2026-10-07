@@ -40,8 +40,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //
 // A binary of its own, because the allocation counter replaces malloc for the whole process.
 
-#include <gtest/gtest.h>
-
 #include <array>
 #include <cstddef>
 #include <iostream>
@@ -53,14 +51,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-
-#include <ocs2_core/Types.h>
-#include <ocs2_core/control/ControllerType.h>
-#include <ocs2_core/reference/TargetTrajectories.h>
-#include <ocs2_mpc/CommandData.h>
-#include <ocs2_mpc/MRT_BASE.h>
-#include <ocs2_oc/oc_data/PerformanceIndex.h>
-#include <ocs2_oc/oc_data/PrimalSolution.h>
+#include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/control/ControllerType.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/CommandData.h"
+#include "ocs2_mpc/MRT_BASE.h"
+#include "ocs2_oc/oc_data/PerformanceIndex.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
 #include "humanoid_mpc_ipc/MpcServer.h"

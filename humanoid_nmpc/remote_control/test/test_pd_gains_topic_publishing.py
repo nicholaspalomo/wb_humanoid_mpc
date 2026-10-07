@@ -1,470 +1,292 @@
-"""****************************************************************************
-Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
+"""The Joint PD Gains tab on the bus: a change is published as the whole edited file, and only Save writes it.
 
-* Redistributions of source code must retain the above copyright notice, this
-  list of conditions and the following disclaimer.
-
-* Redistributions in binary form must reproduce the above copyright notice,
-  this list of conditions and the following disclaimer in the documentation
-  and/or other materials provided with the distribution.
-
-* Neither the name of the copyright holder nor the names of its
-  contributors may be used to endorse or promote products derived from
-  this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-****************************************************************************"""
-
-"""
-Tests for the bus-based PD gains publishing pipeline.
-
-Verifies the decoupling between real-time PD gain updates (a YamlDocument on operator/pd_gains) and explicit YAML
-file saves (via the "Save to YAML" button). The tests give the tab the GUI's publisher over a bus that records, and
-assert on the messages that would have gone out.
+The tab is given the GUI's publisher of operator/pd_gains over a bus that records, so the tests assert on the
+humanoid_mpc_config.JointPdGainsFile that would have gone out. The tab works on a copy of the DRC Atlas file. The
+widget tests need a display; the schema checks do not.
 """
 
 import os
 import shutil
 import tempfile
+import tkinter as tk
+from typing import Any
 import unittest
 
-import yaml
+from humanoid_mpc_config import joint_pd_gains_file_pb2
 
 from humanoid_mpc_ipc import topics
-from humanoid_mpc_msgs import yaml_document_pb2
-from operator_test_support import RecordingPublisher, repo_path, requires_display
-from remote_control.tk_app.yaml_editor_utils import load_yaml_safe
+import nproto_textproto
+import operator_test_support
+from remote_control.tk_app import joint_pd_tab
+from remote_control.tk_app import slider_row
+
+KNEE_KP = "joint_gains[joint=l_leg_kny].kp"
+DEFAULT_KD = "default_gains.kd"
 
 
-@requires_display
+class TestTheSchemaTheTabReliesOn(unittest.TestCase):
+    def test_the_scale_buttons_name_fields_of_both_gain_messages(self):
+        for message in (
+            joint_pd_gains_file_pb2.JointPdGainsFile.Gains,
+            joint_pd_gains_file_pb2.JointPdGainsFile.JointGains,
+        ):
+            with self.subTest(message=message.DESCRIPTOR.full_name):
+                self.assertIn(joint_pd_tab.KP_FIELD, message.DESCRIPTOR.fields_by_name)
+                self.assertIn(joint_pd_tab.KD_FIELD, message.DESCRIPTOR.fields_by_name)
+
+    def test_joints_are_grouped_by_limb(self):
+        self.assertEqual(joint_pd_tab.classify_joint_section("l_leg_kny"), "Left Leg")
+        self.assertEqual(
+            joint_pd_tab.classify_joint_section("back_bkz"), "Torso & Spine"
+        )
+        self.assertEqual(joint_pd_tab.classify_joint_section("gripper"), "Other Joints")
+
+
+@operator_test_support.requires_display
 class TestPdGainsTopicPublishing(unittest.TestCase):
-    """Test suite verifying that JointPdGainsTab publishes slider values to a
-    topic without modifying joint_pd_gains.yaml on disk."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.atlas_pd_gains_file = repo_path(
-            "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/controller/joint_pd_gains.yaml"
-        )
-
     def setUp(self):
+        self.root = tk.Tk()
+        self.root.withdraw()
+        self.addCleanup(self.root.destroy)
         self.tmpdir = tempfile.mkdtemp()
-        self.tmp_pd_file = os.path.join(self.tmpdir, "joint_pd_gains.yaml")
-        shutil.copy2(self.atlas_pd_gains_file, self.tmp_pd_file)
-        self.mock_publisher = RecordingPublisher(topics.OPERATOR_PD_GAINS)
-        # Snapshot file content to detect unintended writes
-        with open(self.tmp_pd_file, "r") as f:
-            self.original_content = f.read()
-        self.original_mtime = os.path.getmtime(self.tmp_pd_file)
-
-    def tearDown(self):
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def _create_tab(self, root):
-        """Create JointPdGainsTab with a mock publisher."""
-        from remote_control.tk_app.joint_pd_tab import JointPdGainsTab
-
-        tab = JointPdGainsTab(
-            root,
-            pd_gains_file=self.tmp_pd_file,
-            enable_online_tuning=True,
-            param_publisher=self.mock_publisher,
+        self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
+        self.gains_file = os.path.join(
+            operator_test_support.copy_config(
+                operator_test_support.ATLAS_CONFIG, self.tmpdir
+            ),
+            "controller",
+            "joint_pd_gains.textproto",
         )
-        return tab
+        self.original = self._read()
+        self.publisher = operator_test_support.RecordingPublisher(
+            topics.OPERATOR_PD_GAINS
+        )
 
-    def _file_was_modified(self):
-        """Check if joint_pd_gains.yaml on disk was modified since setUp."""
-        with open(self.tmp_pd_file, "r") as f:
-            current_content = f.read()
-        return current_content != self.original_content
+    def _read(self) -> str:
+        with open(self.gains_file, encoding="utf-8", newline="") as handle:
+            return handle.read()
 
-    # ──────────────────────────────────────────────────────────
-    #  1. Slider changes publish to topic, NOT to YAML
-    # ──────────────────────────────────────────────────────────
-    def test_slider_change_publishes_to_topic(self):
-        """Moving a slider should trigger a publish to the mock publisher."""
-        import tkinter as tk
+    def _tab(self, **kwargs: Any) -> joint_pd_tab.JointPdGainsTab:
+        options: dict[str, Any] = {
+            "enable_online_tuning": True,
+            "param_publisher": self.publisher,
+        }
+        options.update(kwargs)
+        return joint_pd_tab.JointPdGainsTab(
+            self.root, pd_gains_file=self.gains_file, **options
+        )
 
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root)
+    def _slider(
+        self, tab: joint_pd_tab.JointPdGainsTab, path: str
+    ) -> slider_row.SliderRow:
+        row = tab.slider_rows[path]
+        assert isinstance(row, slider_row.SliderRow), path
+        return row
 
-            # Find the first slider and change it
-            key = list(tab.slider_rows.keys())[0]
-            row = tab.slider_rows[key]
-            original = row.get_value()
-            row.set_value(original * 1.5)
-
-            # Directly call the publish method (bypasses debounce timer)
-            tab._publish_to_topic()
-
-            self.assertGreater(
-                self.mock_publisher.publish_count,
-                0,
-                "Expected at least one publish after slider change",
-            )
-        finally:
-            root.destroy()
-
-    def test_slider_change_does_not_modify_yaml(self):
-        """Moving a slider and publishing should NOT modify joint_pd_gains.yaml on disk."""
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root)
-
-            # Change a slider value
-            key = list(tab.slider_rows.keys())[0]
-            row = tab.slider_rows[key]
-            row.set_value(row.get_value() * 2.0)
-
-            # Trigger the publish path (not auto-save)
-            tab._publish_to_topic()
-
-            # Verify YAML was NOT modified
-            self.assertFalse(
-                self._file_was_modified(),
-                "joint_pd_gains.yaml should NOT be modified by slider changes — "
-                "only the topic should be used",
-            )
-        finally:
-            root.destroy()
-
-    # ──────────────────────────────────────────────────────────
-    #  2. "Save to YAML" writes to file
-    # ──────────────────────────────────────────────────────────
-    def test_save_to_yaml_writes_file(self):
-        """Clicking 'Save to YAML' should write slider values to joint_pd_gains.yaml."""
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root)
-
-            # Change a slider
-            key = list(tab.slider_rows.keys())[0]
-            row = tab.slider_rows[key]
-            row.set_value(row.get_value() * 2.0)
-
-            # Explicit save
-            tab.save_to_yaml()
-
-            self.assertTrue(
-                self._file_was_modified(),
-                "joint_pd_gains.yaml SHOULD be modified after 'Save to YAML'",
-            )
-        finally:
-            root.destroy()
-
-    def test_save_updates_default_values(self):
-        """save_to_yaml should update slider defaults so modified highlights clear."""
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root)
-
-            key = list(tab.slider_rows.keys())[0]
-            row = tab.slider_rows[key]
-            new_val = row.get_value() * 2.0
-            row.set_value(new_val)
-
-            tab.save_to_yaml()
-
-            # The default should now be the new value
-            self.assertAlmostEqual(
-                row.default_value,
-                new_val,
-                places=3,
-                msg="Default value should be updated after save_to_yaml",
-            )
-        finally:
-            root.destroy()
-
-    # ──────────────────────────────────────────────────────────
-    #  3. "Reset All" restores defaults without modifying file
-    # ──────────────────────────────────────────────────────────
-    def test_reset_all_restores_default_values(self):
-        """Reset All should snap sliders back to default values."""
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root)
-
-            key = list(tab.slider_rows.keys())[0]
-            row = tab.slider_rows[key]
-            original_val = row.default_value
-            row.set_value(original_val * 3.0)
-
-            tab.reset_all_defaults()
-
-            self.assertAlmostEqual(
-                row.get_value(),
-                original_val,
-                places=3,
-                msg="Slider should be restored to default after Reset All",
-            )
-        finally:
-            root.destroy()
-
-    def test_reset_all_does_not_modify_yaml(self):
-        """Reset All should NOT modify joint_pd_gains.yaml."""
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root)
-
-            key = list(tab.slider_rows.keys())[0]
-            row = tab.slider_rows[key]
-            row.set_value(row.get_value() * 3.0)
-
-            tab.reset_all_defaults()
-
-            self.assertFalse(
-                self._file_was_modified(),
-                "Reset All should NOT write to joint_pd_gains.yaml",
-            )
-        finally:
-            root.destroy()
-
-    # ──────────────────────────────────────────────────────────
-    #  4. _build_yaml_with_slider_values correctness
-    # ──────────────────────────────────────────────────────────
-    def test_build_yaml_contains_slider_values(self):
-        """The YAML string builder should reflect current slider values."""
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root)
-
-            # Set a known distinctive value on the first slider
-            key = list(tab.slider_rows.keys())[0]
-            row = tab.slider_rows[key]
-            distinctive_val = 999.123
-            row.set_value(distinctive_val)
-
-            yaml_str = tab._build_yaml_with_slider_values()
-
-            self.assertIn(
-                "999.123",
-                yaml_str,
-                "Built YAML string should contain the distinctive slider value",
-            )
-        finally:
-            root.destroy()
-
-    def test_build_yaml_preserves_original_structure(self):
-        """The YAML string should preserve comments and structure from original file."""
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root)
-
-            yaml_str = tab._build_yaml_with_slider_values()
-
-            # Should contain original YAML structural elements
-            self.assertIn(
-                "default_gains:",
-                yaml_str,
-                "YAML string should contain 'default_gains:' section",
-            )
-            self.assertIn(
-                "joint_gains:",
-                yaml_str,
-                "YAML string should contain 'joint_gains:' section",
-            )
-        finally:
-            root.destroy()
-
-    def test_build_yaml_returns_empty_without_file(self):
-        """_build_yaml_with_slider_values should return '' if no pd_gains_file.
-
-        Without a file the tab falls back to the first robot preset, a path relative to the repository root, so the
-        test runs in an empty working directory where no preset can be found (its outcome must not depend on where
-        pytest is launched from)."""
-        import tkinter as tk
-        from remote_control.tk_app.joint_pd_tab import JointPdGainsTab
-
-        root = tk.Tk()
-        root.withdraw()
-        previous_cwd = os.getcwd()
-        os.chdir(self.tmpdir)
-        try:
-            tab = JointPdGainsTab(
-                root,
-                pd_gains_file=None,
-                enable_online_tuning=True,
-                param_publisher=self.mock_publisher,
-            )
-            self.assertIsNone(
-                tab.pd_gains_file, "no file and no reachable preset: nothing loaded"
-            )
-            result = tab._build_yaml_with_slider_values()
-            self.assertEqual(
-                result, "", "Should return empty string with no pd_gains_file"
-            )
-        finally:
-            os.chdir(previous_cwd)
-            root.destroy()
-
-    # ──────────────────────────────────────────────────────────
-    #  5. No-publisher graceful degradation
-    # ──────────────────────────────────────────────────────────
-    def test_publish_without_publisher_does_not_crash(self):
-        """If param_publisher is None, _publish_to_topic should be a no-op."""
-        import tkinter as tk
-        from remote_control.tk_app.joint_pd_tab import JointPdGainsTab
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = JointPdGainsTab(
-                root,
-                pd_gains_file=self.tmp_pd_file,
-                enable_online_tuning=True,
-                param_publisher=None,  # No publisher
-            )
-
-            # Change a slider and try to publish — should not raise
-            if tab.slider_rows:
-                key = list(tab.slider_rows.keys())[0]
-                tab.slider_rows[key].set_value(42.0)
-            tab._publish_to_topic()  # Should be a silent no-op
-        finally:
-            root.destroy()
-
-    # ──────────────────────────────────────────────────────────
-    #  6. Published YAML is parseable by load_yaml_safe
-    # ──────────────────────────────────────────────────────────
-    def test_published_yaml_is_parseable(self):
-        """The YAML string sent via topic should be parseable back to a dict."""
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root)
-
-            # Change a slider and publish
-            key = list(tab.slider_rows.keys())[0]
-            row = tab.slider_rows[key]
-            row.set_value(row.get_value() * 1.5)
-            tab._publish_to_topic()
-
-            # The published message should be parseable YAML
-            self.assertGreater(self.mock_publisher.publish_count, 0)
-            yaml_str = self.mock_publisher.last_yaml
-
-            # Write to temp file and parse (same as C++ side does)
-            tmp_parse = os.path.join(self.tmpdir, "parse_test.yaml")
-            with open(tmp_parse, "w") as f:
-                f.write(yaml_str)
-            parsed = load_yaml_safe(tmp_parse)
-
-            self.assertIn(
-                "default_gains",
-                parsed,
-                "Parsed YAML should contain 'default_gains' section",
-            )
-            self.assertIn(
-                "joint_gains",
-                parsed,
-                "Parsed YAML should contain 'joint_gains' section",
-            )
-        finally:
-            root.destroy()
-
-    # ──────────────────────────────────────────────────────────
-    #  7. Debounce replaces pending publishes
-    # ──────────────────────────────────────────────────────────
-    def test_debounce_replaces_pending(self):
-        """Multiple rapid slider changes should only schedule one publish."""
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root)
-
-            key = list(tab.slider_rows.keys())[0]
-            row = tab.slider_rows[key]
-
-            # Simulate 5 rapid slider moves
-            for i in range(5):
-                row.set_value(row.get_value() + 1.0)
-                tab._on_any_slider_change(key, row.get_value())
-
-            # Only one pending after() should be active
-            self.assertIsNotNone(
-                tab._debounce_publish_id,
-                "A debounce timer should be pending after rapid slider moves",
-            )
-
-            # Cancel it to avoid interference
+    def _flush(self, tab: joint_pd_tab.JointPdGainsTab) -> None:
+        if tab._debounce_publish_id is not None:
             tab.after_cancel(tab._debounce_publish_id)
-            tab._debounce_publish_id = None
-        finally:
-            root.destroy()
+        tab._publish_to_topic()
 
-    def test_the_message_is_a_yaml_document_with_the_file_and_the_sliders(self):
-        """What goes on operator/pd_gains is a YamlDocument carrying exactly the YAML text the tab builds."""
-        import tkinter as tk
+    def _published(self) -> joint_pd_gains_file_pb2.JointPdGainsFile:
+        message = self.publisher.last_message
+        assert isinstance(message, joint_pd_gains_file_pb2.JointPdGainsFile), message
+        return message
 
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            tab = self._create_tab(root)
-            key = list(tab.slider_rows.keys())[0]
-            row = tab.slider_rows[key]
-            row.set_value(row.get_value() * 1.5)
-            tab._publish_to_topic()
+    def test_every_gain_has_a_row_and_no_torque_limit_does(self):
+        tab = self._tab()
+        assert tab.gains is not None
+        self.assertEqual(
+            set(tab.slider_rows), {spec.path for spec in tab.gains.rendered()}
+        )
+        self.assertIn(KNEE_KP, tab.slider_rows)
+        self.assertIn(DEFAULT_KD, tab.slider_rows)
+        self.assertFalse(any(path.endswith("torque_limit") for path in tab.slider_rows))
 
-            self.assertEqual(self.mock_publisher.publish_count, 1)
-            message = self.mock_publisher.last_message
-            self.assertIsInstance(message, yaml_document_pb2.YamlDocument)
-            self.assertEqual(
-                self.mock_publisher.bus.published[0][0], topics.OPERATOR_PD_GAINS
+    def test_a_change_publishes_the_file_and_writes_nothing(self):
+        tab = self._tab()
+        row = self._slider(tab, KNEE_KP)
+        row.set_value(row.get_value() * 1.5)
+        self._flush(tab)
+        published = self._published()
+        expected = nproto_textproto.load_textproto(
+            self.gains_file, joint_pd_gains_file_pb2.JointPdGainsFile
+        )
+        next(
+            entry for entry in expected.joint_gains if entry.joint == "l_leg_kny"
+        ).kp = row.get_value()
+        self.assertEqual(published, expected)
+        self.assertEqual(self._read(), self.original)
+
+    def test_save_writes_the_change_and_keeps_every_other_line(self):
+        tab = self._tab()
+        row = self._slider(tab, KNEE_KP)
+        row.set_value(row.get_value() + 10.0)
+        self.assertTrue(tab.save())
+        changed = [
+            after
+            for before, after in zip(
+                self.original.splitlines(), self._read().splitlines()
             )
-            self.assertEqual(message.yaml, tab._build_yaml_with_slider_values())
-            # The file's document, with the slider's value in it.
-            published = yaml.safe_load(message.yaml)
-            self.assertEqual(set(published), set(load_yaml_safe(self.tmp_pd_file)))
-            node = published
-            for part in key.split("."):
-                node = node[part.strip("\"'")]
-            # Written with six significant digits (yaml_editor_utils._format_yaml_scalar).
-            self.assertAlmostEqual(
-                float(node),
-                row.get_value(),
-                delta=1e-5 * max(1.0, abs(row.get_value())),
-            )
-        finally:
-            root.destroy()
+            if before != after
+        ]
+        self.assertEqual(len(changed), 1, changed)
+        self.assertIn('joint: "l_leg_kny"', changed[0])
+        self.assertTrue(os.path.exists(self.gains_file + ".bak"))
+        self.assertFalse(row.is_modified())
+
+    def test_the_scale_buttons_scale_every_kp_from_its_saved_value(self):
+        tab = self._tab()
+        assert tab.gains is not None
+        saved = {
+            path: tab.gains.saved_value(path)
+            for path in tab.slider_rows
+            if path.endswith("." + joint_pd_tab.KP_FIELD)
+        }
+        tab._scale_all(joint_pd_tab.KP_FIELD, 0.5)
+        for path, value in saved.items():
+            self.assertAlmostEqual(tab.slider_rows[path].get_value(), value * 0.5)
+        kd = self._slider(tab, DEFAULT_KD)
+        self.assertFalse(kd.is_modified())
+        self._flush(tab)
+        published = self._published()
+        self.assertAlmostEqual(
+            published.default_gains.kp, saved["default_gains.kp"] * 0.5
+        )
+
+    def test_a_joint_that_inherits_a_gain_keeps_inheriting_it_through_the_scale_buttons(
+        self,
+    ):
+        with open(self.gains_file, "a", encoding="utf-8") as handle:
+            # A joint the file gives only its kd: its kp is default_gains', which the schema allows.
+            handle.write('joint_gains { joint: "inheriting_joint" kd: 12.0 }\n')
+        tab = self._tab()
+        assert tab.gains is not None
+        inherited = "joint_gains[joint=inheriting_joint].kp"
+        self.assertIsNone(tab.gains.saved_value(inherited))
+        default_kp = tab.gains.saved_value("default_gains.kp")
+        tab._scale_all(joint_pd_tab.KP_FIELD, 1.0)
+        tab._scale_all(joint_pd_tab.KP_FIELD, 2.0)
+        self.assertNotIn(inherited, tab.gains.changes())
+        self.assertFalse(tab.slider_rows[inherited].has_value())
+        self._flush(tab)
+        published = self._published()
+        entry = next(
+            entry
+            for entry in published.joint_gains
+            if entry.joint == "inheriting_joint"
+        )
+        self.assertFalse(entry.HasField("kp"))
+        self.assertEqual(entry.kd, 12.0)
+        self.assertAlmostEqual(published.default_gains.kp, default_kp * 2.0)
+
+    def test_reload_drops_the_changes_and_publishes_the_file(self):
+        tab = self._tab()
+        row = self._slider(tab, KNEE_KP)
+        row.set_value(row.get_value() * 2.0)
+        self._flush(tab)
+        self.assertNotEqual(
+            self._published(),
+            nproto_textproto.load_textproto(
+                self.gains_file, joint_pd_gains_file_pb2.JointPdGainsFile
+            ),
+        )
+        tab.reload_file()
+        # The robot runs what it was last sent; Reload sends the file, so that it runs what the rows show.
+        self.assertEqual(
+            self._published(),
+            nproto_textproto.load_textproto(
+                self.gains_file, joint_pd_gains_file_pb2.JointPdGainsFile
+            ),
+        )
+        self.assertEqual(self._read(), self.original)
+
+    def test_leaving_an_untouched_gain_box_changes_nothing(self):
+        tab = self._tab()
+        assert tab.gains is not None
+        for row in tab.slider_rows.values():
+            if isinstance(row, slider_row.SliderRow):
+                row._on_entry_submit()  # what <FocusOut> calls
+                row.reset_to_default()
+        self.assertEqual(tab.gains.changes(), {})
+        self._flush(tab)
+        self.assertEqual(
+            self._published(),
+            nproto_textproto.load_textproto(
+                self.gains_file, joint_pd_gains_file_pb2.JointPdGainsFile
+            ),
+        )
+
+    def test_reset_all_returns_to_the_file(self):
+        tab = self._tab()
+        row = self._slider(tab, KNEE_KP)
+        original = row.get_value()
+        row.set_value(original * 2.0)
+        tab.reset_all_defaults()
+        self.assertEqual(row.get_value(), original)
+        self._flush(tab)
+        self.assertEqual(
+            self._published(),
+            nproto_textproto.load_textproto(
+                self.gains_file, joint_pd_gains_file_pb2.JointPdGainsFile
+            ),
+        )
+        self.assertEqual(self._read(), self.original)
+
+    def test_without_a_publisher_or_online_tuning_nothing_is_sent(self):
+        tab = self._tab(param_publisher=None)
+        self._slider(tab, KNEE_KP).set_value(1.0)
+        self._flush(tab)
+        locked = self._tab(enable_online_tuning=False)
+        locked._publish_to_topic()
+        self.assertEqual(self.publisher.publish_count, 0)
+        self.assertFalse(locked.save())
+
+    def test_rapid_changes_publish_once(self):
+        tab = self._tab()
+        row = self._slider(tab, KNEE_KP)
+        for step in range(5):
+            row.set_value(row.get_value() + step)
+        self.assertIsNotNone(tab._debounce_publish_id)
+        self._flush(tab)
+        self.assertEqual(self.publisher.publish_count, 1)
+
+    def test_the_rows_are_grouped_by_limb_with_the_default_gains_first(self):
+        tab = self._tab()
+        shown = [
+            section
+            for section, frame in tab.section_frames.items()
+            if frame.winfo_children()
+        ]
+        self.assertEqual(shown[0], joint_pd_tab.DEFAULT_GAINS_SECTION)
+        self.assertIn("Left Leg", shown)
 
 
 if __name__ == "__main__":

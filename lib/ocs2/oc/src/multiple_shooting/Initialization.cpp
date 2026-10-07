@@ -29,12 +29,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_oc/multiple_shooting/Initialization.h"
 
+#include "absl/base/nullability.h"
+
 namespace ocs2 {
 namespace multiple_shooting {
 
-void initializeStateInputTrajectories(const vector_t& initState, const std::vector<AnnotatedTime>& timeDiscretization,
-                                      const PrimalSolution& primalSolution, Initializer& initializer, vector_array_t& stateTrajectory,
-                                      vector_array_t& inputTrajectory, const StateManifold* stateManifold) {
+void initializeStateInputTrajectories(const vector_t& initState,
+                                      const std::vector<AnnotatedTime>& timeDiscretization,
+                                      const PrimalSolution& primalSolution,
+                                      Initializer& initializer,
+                                      vector_array_t& stateTrajectory,
+                                      vector_array_t& inputTrajectory,
+                                      const StateManifold* absl_nullable stateManifold) {
   const int N = static_cast<int>(timeDiscretization.size()) - 1;  // // size of the input trajectory
   stateTrajectory.clear();
   stateTrajectory.reserve(N + 1);

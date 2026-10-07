@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "absl/flags/declare.h"
 #include "absl/status/statusor.h"
@@ -48,13 +49,15 @@ ABSL_DECLARE_FLAG(std::string, realtime_cores);
 ABSL_DECLARE_FLAG(std::string, backend_cores);
 ABSL_DECLARE_FLAG(std::string, mpc_link);
 ABSL_DECLARE_FLAG(bool, headless);
+ABSL_DECLARE_FLAG(std::string, config_store_dir);
+ABSL_DECLARE_FLAG(std::string, config_seed);
 
 namespace ocs2::humanoid {
 
 /**
  * The robot binary's options from its flags, checked: the files exist, the core lists parse, the realtime priority is
- * 0-99, the retired --mpc_link is not given. `defaultRealtimeCores` and `defaultBackendCores` are what `default` stands
- * for.
+ * 0-99, the retired --mpc_link is not given, --config_seed names a seed policy. `defaultRealtimeCores` and `defaultBackendCores` are what
+ * `default` stands for.
  */
 absl::StatusOr<RobotAppOptions> robotAppOptionsFromFlags(const std::vector<int>& defaultRealtimeCores,
                                                          const std::vector<int>& defaultBackendCores);

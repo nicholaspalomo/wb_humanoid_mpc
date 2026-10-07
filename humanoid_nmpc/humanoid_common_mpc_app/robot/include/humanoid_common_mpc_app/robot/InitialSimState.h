@@ -29,17 +29,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <humanoid_common_mpc/common/ModelSettings.h>
-#include <humanoid_common_mpc/common/MpcRobotModelBase.h>
-#include <humanoid_common_mpc/common/Types.h>
-#include <robot_model/RobotDescription.h>
-#include <robot_model/RobotState.h>
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid {
 
 /**
  * The robot state a simulation starts from: the base pose and the joint angles of the MPC's initial state (the task
- * file's initialState), every other joint at zero.
+ * file's initial_state), every other joint at zero.
  * @param robotDescription Robot description parsed from URDF.
  * @param modelSettings Model settings containing mpcModelJointNames.
  * @param mpcRobotModel MPC robot model for kinematics and base state extraction.

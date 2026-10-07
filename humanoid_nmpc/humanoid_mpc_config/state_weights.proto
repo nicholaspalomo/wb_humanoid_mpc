@@ -1,0 +1,52 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/joint_value.proto";
+import "humanoid_mpc_config/xyz.proto";
+import "humanoid_mpc_config/yaw_pitch_roll.proto";
+import "nproto/options.proto";
+import "nproto/retired_field_options.proto";
+
+// A diagonal state weight addressed by name (the task file's state_weights and final_state_weights, formerly the
+// matrices Q and Q_final by "(i,i)" index). The weight of a state coordinate is `scaling` times its entry,
+// an entry a block leaves out is 0, and no coordinate is weighed against another: the matrix is diagonal.
+//
+// The blocks follow the state of each MPC (StateInputWeightsFromConfig.h of humanoid_common_mpc/config/weights/):
+//
+//   centroidal   normalized_linear_momentum, normalized_angular_momentum, base_position, base_orientation,
+//                joint_positions
+//   whole body   base_position, base_orientation, joint_positions, base_linear_velocity, base_angular_velocity,
+//                joint_velocities
+//
+// Each MPC requires every block of its state (`{}` is a block of zeros) and each of its joints exactly once in each of
+// its joint lists, in any order. It refuses a block of the other MPC's state, a fixed joint and a name its model does
+// not have, so that changing the fixed joints can no longer shift every weight silently. The orientation weights stay
+// in Euler angles also where the MPC's orientation is a quaternion (yaw_pitch_roll.proto).
+// Next ID: 10
+message StateWeights {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::StateWeights";
+  option (nproto.retired_field) = {
+    name: "default"
+    replacement: "name every weight: an entry a block leaves out is 0, and off the diagonal there is none"
+  };
+
+  reserved 10 to max;
+
+  // The factor of every entry below.
+  double scaling = 1 [default = 1.0];
+  // Centroidal MPC: the linear and the angular momentum of the robot about its center of mass, each divided by the
+  // robot's mass (h_com / m, L / m).
+  Xyz normalized_linear_momentum = 2 [(nproto.optional_message) = true];
+  Xyz normalized_angular_momentum = 3 [(nproto.optional_message) = true];
+  // Both MPCs: the position of the floating base in the world frame and its orientation, Euler ZYX.
+  Xyz base_position = 4 [(nproto.optional_message) = true];
+  YawPitchRoll base_orientation = 5 [(nproto.optional_message) = true];
+  // Both MPCs: the joint positions, by joint name.
+  repeated JointValue joint_positions = 6;
+  // Whole-body MPC: the linear velocity of the floating base, the rates of its Euler ZYX angles and the joint
+  // velocities, by joint name.
+  Xyz base_linear_velocity = 7 [(nproto.optional_message) = true];
+  YawPitchRoll base_angular_velocity = 8 [(nproto.optional_message) = true];
+  repeated JointValue joint_velocities = 9;
+}

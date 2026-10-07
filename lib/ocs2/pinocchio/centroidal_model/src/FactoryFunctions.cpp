@@ -34,7 +34,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pinocchio/algorithm/center-of-mass.hpp>
 #include <pinocchio/algorithm/centroidal.hpp>
 
-#include <ocs2_core/misc/LoadData.h>
 #include <ocs2_pinocchio_interface/urdf.h>
 
 namespace ocs2 {
@@ -124,25 +123,6 @@ CentroidalModelInfo createCentroidalModelInfo(const PinocchioInterface& interfac
   }
 
   return info;
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-CentroidalModelType loadCentroidalType(const std::string& configFilePath, const std::string& fieldName) {
-  PropertyTree pt;
-  loadData::readPropertyTree(configFilePath, pt);
-  const size_t type = pt.get<size_t>(fieldName);
-  return static_cast<CentroidalModelType>(type);
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-vector_t loadDefaultJointState(size_t numJointState, const std::string& configFilePath, const std::string& fieldName) {
-  vector_t defaultJoints(numJointState);
-  ocs2::loadData::loadEigenMatrix(configFilePath, fieldName, defaultJoints);
-  return defaultJoints;
 }
 
 }  // namespace centroidal_model

@@ -31,17 +31,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // node keeps its outgoing policy, allocates only while the message grows. A test binary of its own, because the
 // allocation counter replaces malloc for the whole process.
 
-#include <gtest/gtest.h>
-
 #include <array>
 #include <cstddef>
 #include <random>
 #include <string>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
-
-#include <ocs2_core/Types.h>
-#include <ocs2_core/control/ControllerType.h>
+#include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/control/ControllerType.h"
 
 #include "humanoid_mpc_ipc/MpcMessageConversions.h"
 #include "humanoid_mpc_msgs/mpc_policy.pb.h"
@@ -65,12 +64,13 @@ struct Policy {
 };
 
 Policy randomPolicy(std::mt19937& generator, const PolicyShape& shape) {
-  return {test_data::randomCommandData(generator, shape.stateDim, shape.inputDim, /*targetNodes=*/3),
-          test_data::randomPrimalSolution(generator, shape), test_data::randomPerformanceIndex(generator)};
+  return {.commandData = test_data::randomCommandData(generator, shape.stateDim, shape.inputDim, /*targetNodes=*/3),
+          .primalSolution = test_data::randomPrimalSolution(generator, shape),
+          .performanceIndex = test_data::randomPerformanceIndex(generator)};
 }
 
 // The heap allocations of encoding `policy` into `message`.
-size_t allocationsOfEncoding(const Policy& policy, humanoid_mpc_msgs::MpcPolicy* message) {
+size_t allocationsOfEncoding(const Policy& policy, humanoid_mpc_msgs::MpcPolicy* absl_nonnull message) {
   const size_t before = heapAllocationCount();
   const absl::Status status = policyToProto(policy.commandData, policy.primalSolution, policy.performanceIndex, message);
   const size_t allocations = heapAllocationCount() - before;

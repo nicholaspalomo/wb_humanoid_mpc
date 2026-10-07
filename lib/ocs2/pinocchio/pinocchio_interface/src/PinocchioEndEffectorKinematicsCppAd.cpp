@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <pinocchio/fwd.hpp>  // forward declarations must be included first.
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h>
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
 
@@ -187,7 +189,7 @@ PinocchioEndEffectorKinematicsCppAd::PinocchioEndEffectorKinematicsCppAd(const P
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-PinocchioEndEffectorKinematicsCppAd* PinocchioEndEffectorKinematicsCppAd::clone() const {
+PinocchioEndEffectorKinematicsCppAd* absl_nonnull PinocchioEndEffectorKinematicsCppAd::clone() const {
   return new PinocchioEndEffectorKinematicsCppAd(*this);
 }
 

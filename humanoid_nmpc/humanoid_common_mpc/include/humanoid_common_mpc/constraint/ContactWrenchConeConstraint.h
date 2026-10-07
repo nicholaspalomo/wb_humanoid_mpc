@@ -31,13 +31,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 #include <string>
+#include <utility>
 
-#include <ocs2_core/constraint/StateInputConstraint.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -158,39 +159,30 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
   /** The offsets a non-gated cone drops, so that a caller can state what it asked for. */
   static Config withoutLoadedFootOffsets(Config config);
 
-  /** The task-file block a Config is read from; see loadConfig(). */
-  static constexpr absl::string_view kConfigBlock = "contacts.contactWrenchConeSoftConstraint";
+  /** The task-file block a Config is converted from (contactWrenchConeConfigFromConfig()); the refusals name its fields. */
+  static constexpr absl::string_view kConfigField = "contacts.contact_wrench_cone_soft_constraint";
 
   /**
    * OkStatus when every value of `config` is in range: numBasisVectors at least 3 (the facets of the friction pyramid),
    * frictionCoefficient finite and positive, torsionalFrictionCoefficient, minNormalForce and gripperForce finite and
-   * non-negative, and patchOffset finite. Otherwise InvalidArgument naming the kConfigBlock key to change and the value
-   * it holds. loadConfig(), Create() and ContactWrenchConeBasisMatrix::Create() all check through this one function;
-   * buildLocalWrenchConeRows() and the constructor CHECK it, for the callers that bypass all three.
+   * non-negative, and patchOffset finite. Otherwise InvalidArgument naming the field of kConfigField to change and the
+   * value it holds. contactWrenchConeConfigFromConfig(), Create() and ContactWrenchConeBasisMatrix::Create() all check
+   * through this one function; buildLocalWrenchConeRows() and the constructor CHECK it, for the callers that bypass all
+   * three.
    */
   static absl::Status validateConfig(const Config& config);
 
-  /**
-   * Reads the ground of the contact wrench cone - frictionCoefficient, torsionalFrictionCoefficient, minNormalForce,
-   * gripperForce and numBasisVectors - from the task file's kConfigBlock. That one block is the ground of the whole-body
-   * constraints, and every consumer reads it through this function: this term in wrench mode, the generators of the
-   * basis-vector parameterization, and the friction and torsion bounds the online contact planner derives. Every key is
-   * required. A missing one used to leave the library default of Config (mu 0.7, minNormalForce 5 N) in place without
-   * a word, which on a robot that configures its friction elsewhere was a different ground from the one in its file.
-   *
-   * @return InvalidArgument naming the contacts.contactWrenchConeSoftConstraint.<key> that is missing, not a number or
-   *         out of range; NotFound when the file cannot be read.
-   */
-  static absl::StatusOr<Config> loadConfig(const std::string& taskFile, bool verbose = false);
-
   ~ContactWrenchConeConstraint() override = default;
+  ContactWrenchConeConstraint& operator=(const ContactWrenchConeConstraint&) = delete;
+  ContactWrenchConeConstraint(ContactWrenchConeConstraint&&) = delete;
+  ContactWrenchConeConstraint& operator=(ContactWrenchConeConstraint&&) = delete;
   ContactWrenchConeConstraint(const ContactWrenchConeConstraint& other);
-  ContactWrenchConeConstraint* clone() const override { return new ContactWrenchConeConstraint(*this); }
+  ContactWrenchConeConstraint* absl_nonnull clone() const override { return new ContactWrenchConeConstraint(*this); }
 
   bool isActive(scalar_t time) const override;
   void setActive(bool isActive) override { isActive_ = isActive; }
   bool getActive() const override { return isActive_; }
-  size_t getNumConstraints(scalar_t time) const override { return numConstraints_; }
+  size_t getNumConstraints(scalar_t /*time*/) const override { return numConstraints_; }
 
   const Config& getConfig() const { return config_; }
 
@@ -215,16 +207,16 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
  private:
   void initializeLocalConstraintMatrix();
 
-  const SwitchedModelReferenceManager* referenceManagerPtr_;
-  const PinocchioInterface* pinocchioInterfacePtr_;
+  const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
+  const PinocchioInterface* absl_nonnull pinocchioInterfacePtr_;
   // Borrowed, like the two pointers above. It used to hold a clone() in this raw pointer, which nothing deleted, so
   // every construction and every per-thread copy of the problem leaked a whole robot model.
-  const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
+  const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModelPtr_;
   const ContactRectangle contactRectangle_;
   const size_t contactPointIndex_;
   const Config config_;
 
-  size_t numConstraints_;
+  size_t numConstraints_ = 0;
   bool isActive_ = true;
   // Fixed by the formulation at load time rather than tuned, so it is const and the parallel solve reads it without
   // synchronization. It has to survive the copy the SQP solver makes of the whole problem per worker thread.

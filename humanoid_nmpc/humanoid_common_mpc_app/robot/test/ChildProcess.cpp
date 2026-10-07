@@ -27,7 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include "humanoid_common_mpc_app/robot/test_support/ChildProcess.h"
+#include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/ChildProcess.h"
 
 #include <signal.h>
 #include <spawn.h>
@@ -37,16 +37,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/log/check.h"
 
-#include "humanoid_common_mpc_app/robot/test_support/LoopbackNetwork.h"
+#include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/LoopbackNetwork.h"
 
 namespace ocs2::humanoid::test_support {
 
 ChildProcess::ChildProcess(const std::vector<std::string>& arguments) {
   CHECK(!arguments.empty()) << "a process needs a program";
   name_ = arguments.front();
-  std::vector<char*> argv;
+  std::vector<char* absl_nullable> argv;  // null-terminated, as posix_spawn() takes it
   for (const std::string& argument : arguments) argv.push_back(const_cast<char*>(argument.c_str()));
   argv.push_back(nullptr);
   CHECK_EQ(::posix_spawn(&pid_, argv[0], /*file_actions=*/nullptr, /*attrp=*/nullptr, argv.data(), environ), 0) << "cannot start " << name_;
@@ -71,7 +72,8 @@ bool ChildProcess::running() {
 
 int ChildProcess::terminate(absl::Duration timeout) {
   if (running()) ::kill(pid_, SIGTERM);
-  if (!waitFor([&]() { return !running(); }, timeout)) return -1;
+  const bool exited = waitFor([this]() { return !running(); }, timeout);
+  if (!exited) return -1;
   return WIFEXITED(status_) ? WEXITSTATUS(status_) : 128 + WTERMSIG(status_);
 }
 

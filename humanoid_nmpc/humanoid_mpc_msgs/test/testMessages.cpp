@@ -1,3 +1,32 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
 // The C++ code generated from the humanoid_mpc_msgs protos compiles, round-trips through the protobuf runtime it links,
 // and travels over ZeroMQ in the bus's three-frame layout (topic, full type name, serialized message; see
 // humanoid_nmpc/docs/distributed_runtime/README.md).
@@ -6,8 +35,9 @@
 #include <string>
 #include <vector>
 
-#include <gtest/gtest.h>
-#include <zmq.hpp>
+#include "absl/base/nullability.h"
+#include "gtest/gtest.h"
+#include "zmq.hpp"  // NOLINT(build/include_subdir): cppzmq installs its header in no directory
 
 #include "humanoid_mpc_msgs/controller_type.pb.h"
 #include "humanoid_mpc_msgs/mpc_observation.pb.h"
@@ -34,7 +64,7 @@ MpcPolicy makePolicy() {
   policy.mutable_target_trajectories()->add_time(1.25);
   for (size_t node = 0; node < kTimeNodes; ++node) {
     policy.add_time_trajectory(1.25 + 0.01 * static_cast<double>(node));
-    Vector* state = policy.add_state_trajectory();
+    Vector* absl_nonnull state = policy.add_state_trajectory();
     for (size_t i = 0; i < kStateDim; ++i) {
       state->add_data(static_cast<double>(node * kStateDim + i));
     }
@@ -47,7 +77,7 @@ MpcPolicy makePolicy() {
   policy.mutable_mode_schedule()->add_mode_sequence(1);
   policy.set_controller_type(CONTROLLER_TYPE_LINEAR);
   policy.mutable_performance()->set_merit(10.0);
-  TargetContactPatch* patch = policy.mutable_annotations()->add_target_contact_patches();
+  TargetContactPatch* absl_nonnull patch = policy.mutable_annotations()->add_target_contact_patches();
   patch->set_valid(true);
   patch->set_kind(TargetContactPatch::KIND_NEXT_SWING);
   return policy;

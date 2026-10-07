@@ -30,6 +30,7 @@ load("@protobuf//bazel/private:bazel_cc_proto_library.bzl", "cc_proto_aspect")  
 load("@rules_cc//cc:find_cc_toolchain.bzl", "find_cc_toolchain", "use_cc_toolchain")
 load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 
 NprotoInfo = provider(
     doc = "The nproto code of a proto_library and of every proto_library it depends on.",
@@ -48,11 +49,10 @@ CONVERSIONS_HEADER_SUFFIX = ".nproto.pb.h"
 CONVERSIONS_SOURCE_SUFFIX = ".nproto.pb.cc"
 # LINT.ThenChange(//tools/nproto/nproto_generator.py:generated_suffixes)
 
-# The generated code is warning-free under these, which the repository's packages compile with; -Werror keeps it so.
-# (No -Wpedantic: Abseil's int128.h, which absl/status pulls in, warns under it.)
-_COPTS = [
-    "-Wall",
-    "-Wextra",
+# The generated code compiles with the flags of every first-party target, and -Werror keeps it warning-free under them.
+# The Abseil and protobuf headers it includes are system headers (.bazelrc's external_include_paths), so they warn about
+# nothing; the struct headers are held to the same flags on their own (//tools/nproto/test:test_struct_headers).
+_COPTS = FIRST_PARTY_COPTS + [
     "-Werror",
 ]
 

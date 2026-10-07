@@ -28,33 +28,36 @@
 """Tests for lint_code.py: the step runner, --only / --paths / --fix / --summary, the tool versions and the lint lock."""
 
 import contextlib
+import dataclasses
 import io
 import multiprocessing
+from multiprocessing import synchronize
 import os
 import tempfile
 import time
+from typing import Any
 import unittest
 from unittest import mock
 
 from tools.hooks import check_test_support
 from tools.hooks import checks
+from tools.hooks import format_code
 from tools.hooks import lint_code
 
 _BRITISH = "the centre\n"  # NOLINT(american-spelling): the British spelling is the test's input
 
 
-def _context(root: str, files: list[str], **overrides: object) -> lint_code.Context:
-    values: dict[str, object] = {
-        "root": root,
-        "files": files,
-        "staged": False,
-        "selected": checks.enforced(),
-        "steps": frozenset({"token-checks"}),
-        "summary": False,
-        "ci": False,
-    }
-    values.update(overrides)
-    return lint_code.Context(**values)  # type: ignore[arg-type]
+def _context(root: str, files: list[str], **overrides: Any) -> lint_code.Context:
+    context = lint_code.Context(
+        root=root,
+        files=files,
+        staged=False,
+        selected=checks.names(),
+        steps=frozenset({"token-checks"}),
+        summary=False,
+        ci=False,
+    )
+    return dataclasses.replace(context, **overrides)
 
 
 class StepsTest(unittest.TestCase):
@@ -110,10 +113,10 @@ class StepsTest(unittest.TestCase):
 
 
 class OnlyTest(unittest.TestCase):
-    def test_by_default_every_enforced_check_and_step(self):
+    def test_by_default_every_check_and_step(self):
         selected, steps = lint_code._parse_only(None)
-        self.assertEqual(selected, checks.enforced())
-        self.assertEqual(steps & checks.PENDING, frozenset())
+        self.assertEqual(selected, checks.names())
+        self.assertEqual(steps, lint_code.STEP_NAMES)
         self.assertIn("token-checks", steps)
         self.assertIn("cpplint", steps)
 
@@ -124,10 +127,17 @@ class OnlyTest(unittest.TestCase):
         selected, steps = lint_code._parse_only("cpplint")
         self.assertEqual((selected, steps), (frozenset(), frozenset({"cpplint"})))
 
-    def test_a_pending_check_runs_when_named(self):
-        for name in checks.PENDING & checks.names():
-            selected, _ = lint_code._parse_only(name)
-            self.assertEqual(selected, frozenset({name}))
+    def test_each_check_runs_alone_when_named(self):
+        for name in checks.names():
+            with self.subTest(check=name):
+                selected, steps = lint_code._parse_only(name)
+                self.assertEqual(selected, frozenset({name}))
+                self.assertEqual(steps, frozenset({"token-checks"}))
+
+    def test_the_token_checks_step_alone_runs_every_check(self):
+        selected, steps = lint_code._parse_only("token-checks")
+        self.assertEqual(selected, checks.names())
+        self.assertEqual(steps, frozenset({"token-checks"}))
 
     def test_an_unknown_name(self):
         with self.assertRaisesRegex(ValueError, "unknown check or step no-such"):
@@ -237,6 +247,32 @@ class CpplintOutputTest(unittest.TestCase):
             ],
         )
 
+    def test_the_ends_of_blocks_of_other_tools_are_not_findings(self):
+        source = {
+            ("a.cpp", 5): "// NOLINTEND(exceptions)",
+            ("a.cpp", 8): "  // NOLINTEND(misc-use-internal-linkage, exceptions)",
+            ("a.cpp", 11): "// NOLINTEND",
+            ("a.cpp", 14): "// NOLINTEND(runtime/int)",
+        }
+        output = (
+            "a.cpp:5:  Not in a NOLINT block  [readability/nolint] [5]\n"
+            "a.cpp:8:  Not in a NOLINT block  [readability/nolint] [5]\n"
+            "a.cpp:11:  Not in a NOLINT block  [readability/nolint] [5]\n"
+            "a.cpp:14:  Not in a NOLINT block  [readability/nolint] [5]\n"
+        )
+        kept = [
+            "a.cpp:11: Not in a NOLINT block [readability/nolint]",
+            "a.cpp:14: Not in a NOLINT block [readability/nolint]",
+        ]
+        self.assertEqual(
+            lint_code.filter_cpplint_output(
+                output, lambda path, line: source.get((path, line), "")
+            ),
+            kept,
+        )
+        # Without the source every complaint is kept.
+        self.assertEqual(len(lint_code.filter_cpplint_output(output)), 4)
+
 
 class ToolVersionTest(unittest.TestCase):
     def setUp(self):
@@ -296,50 +332,173 @@ class ToolVersionTest(unittest.TestCase):
             self.assertIsNone(lint_code.installed_version("pylint"))
 
 
-def _hold_lock(path: str, held: object, release: object) -> None:
+def write_fake_tool(
+    directory: str, name: str, version_line: str, status: int = 0
+) -> None:
+    """An executable `name` in `directory` that prints `version_line` for --version and otherwise exits `status`."""
+    path = os.path.join(directory, name)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(
+            "#!/bin/sh\n"
+            f'if [ "$1" = "--version" ]; then echo "{version_line}"; exit 0; fi\n'
+            f"echo 'formatted' >&2\nexit {status}\n"
+        )
+    os.chmod(path, 0o755)
+
+
+class FormatterVersionTest(unittest.TestCase):
+    """clang-format and black run only at the versions the image and the lock pin, with fake tools on PATH."""
+
+    def setUp(self):
+        # pylint: disable-next=consider-using-with  # tearDown() deletes it.
+        self.directory = tempfile.TemporaryDirectory()
+        self.root = os.path.join(self.directory.name, "repo")
+        self.bin = os.path.join(self.directory.name, "bin")
+        os.makedirs(os.path.join(self.root, "tools/hooks"))
+        os.makedirs(os.path.join(self.root, "docker"))
+        os.makedirs(self.bin)
+        with open(
+            os.path.join(self.root, lint_code.DOCKERFILE), "w", encoding="utf-8"
+        ) as f:
+            f.write("FROM ubuntu:24.04\nARG CLANG_FORMAT_VERSION=18\n")
+        with open(
+            os.path.join(self.root, lint_code.LOCK_FILE), "w", encoding="utf-8"
+        ) as f:
+            f.write("black==24.2.0 \\\n    --hash=sha256:abc\n")
+        with open(os.path.join(self.root, "a.cpp"), "w", encoding="utf-8") as f:
+            f.write("int x;\n")
+        with open(os.path.join(self.root, "a.py"), "w", encoding="utf-8") as f:
+            f.write("x = 1\n")
+        self.path = mock.patch.dict(os.environ, {"PATH": self.bin})
+        self.path.start()
+
+    def tearDown(self):
+        self.path.stop()
+        self.directory.cleanup()
+
+    def test_the_pins(self):
+        self.assertEqual(lint_code.pinned_version(self.root, "clang-format"), "18")
+        self.assertEqual(lint_code.pinned_version(self.root, "black"), "24.2.0")
+
+    def test_the_versions_are_read_from_the_tools(self):
+        write_fake_tool(
+            self.bin, "clang-format", "Ubuntu clang-format version 18.1.8 (++2024)"
+        )
+        write_fake_tool(self.bin, "black", "black, 24.2.0 (compiled: no)")
+        self.assertEqual(lint_code.installed_version("clang-format"), "18")
+        self.assertEqual(lint_code.installed_version("black"), "24.2.0")
+
+    def test_a_missing_or_other_formatter_fails_in_ci_and_is_skipped_otherwise(self):
+        write_fake_tool(self.bin, "clang-format", "clang-format version 17.0.6")
+        for step, files in (
+            (lint_code._run_clang_format, ["a.cpp"]),
+            (lint_code._run_black, ["a.py"]),
+        ):
+            with self.subTest(step=step.__name__):
+                local = step(_context(self.root, files))
+                self.assertEqual(local.status, "skipped", local.lines)
+                ci = step(_context(self.root, files, ci=True))
+                self.assertEqual(ci.status, "failed", ci.lines)
+        self.assertIn(
+            "clang-format 17 is installed",
+            lint_code._run_clang_format(_context(self.root, ["a.cpp"])).lines[0],
+        )
+        self.assertIn(
+            "black is not installed",
+            lint_code._run_black(_context(self.root, ["a.py"])).lines[0],
+        )
+
+    def test_the_pinned_formatters_run(self):
+        write_fake_tool(self.bin, "clang-format", "clang-format version 18.1.8")
+        write_fake_tool(self.bin, "black", "black, 24.2.0 (compiled: no)")
+        self.assertEqual(
+            lint_code._run_clang_format(_context(self.root, ["a.cpp"], ci=True)).status,
+            "passed",
+        )
+        self.assertEqual(
+            lint_code._run_black(_context(self.root, ["a.py"], ci=True)).status,
+            "passed",
+        )
+        write_fake_tool(
+            self.bin, "clang-format", "clang-format version 18.1.8", status=1
+        )
+        self.assertEqual(
+            lint_code._run_clang_format(_context(self.root, ["a.cpp"], ci=True)).status,
+            "failed",
+        )
+
+    def test_format_code_skips_another_version_and_reports_a_failure(self):
+        write_fake_tool(self.bin, "clang-format", "clang-format version 17.0.6")
+        skipped = format_code._run_formatter(["clang-format", "-i", "a.cpp"], self.root)
+        self.assertIsNone(skipped.error)
+        self.assertIn("clang-format 17 is installed", skipped.warning or "")
+        missing = format_code._run_formatter(["black", "--quiet", "a.py"], self.root)
+        self.assertIn("black is not installed", missing.warning or "")
+        write_fake_tool(
+            self.bin, "clang-format", "clang-format version 18.1.8", status=2
+        )
+        failed = format_code._run_formatter(["clang-format", "-i", "a.cpp"], self.root)
+        self.assertIsNone(failed.warning)
+        self.assertIn("failed with status 2", failed.error or "")
+        write_fake_tool(self.bin, "clang-format", "clang-format version 18.1.8")
+        self.assertEqual(
+            format_code._run_formatter(["clang-format", "-i", "a.cpp"], self.root),
+            format_code.FormatterOutcome(),
+        )
+
+
+def _hold_lock(path: str, held: synchronize.Event, release: synchronize.Event) -> None:
     with mock.patch.dict(os.environ, {lint_code.LINT_LOCK_ENVIRONMENT: path}):
         with lint_code.lint_lock("/unused"):
-            held.set()  # type: ignore[attr-defined]
-            release.wait(30)  # type: ignore[attr-defined]
+            held.set()
+            release.wait(30)
 
 
 class MypyConfigTest(unittest.TestCase):
-    def test_module_sections_name_modules_and_only_relax(self):
+    def _problems(self, config: str) -> list[str]:
         with tempfile.TemporaryDirectory() as root:
-            os.makedirs(os.path.join(root, "pkg"))
-            with open(
-                os.path.join(root, "pkg", "BUILD.bazel"), "w", encoding="utf-8"
-            ) as f:
-                f.write('py_library(name = "a", imports = ["."])\n')
-            for path in ("pkg/known.py", "tools/hooks/checks.py"):
-                os.makedirs(os.path.dirname(os.path.join(root, path)), exist_ok=True)
-                with open(os.path.join(root, path), "w", encoding="utf-8") as f:
-                    f.write("")
             with open(
                 os.path.join(root, lint_code.MYPY_CONFIG), "w", encoding="utf-8"
             ) as f:
-                f.write(
-                    "[mypy]\nstrict_equality = True\n"
-                    "[mypy-known]\nignore_errors = True\n"
-                    "[mypy-tools.hooks.checks]\ndisallow_untyped_defs = False\n"
-                    "[mypy-gone]\nignore_errors = True\n"
-                )
-            with mock.patch.object(
-                lint_code.lint_files.subprocess, "run", side_effect=OSError("no git")
-            ):
-                problems = lint_code.mypy_config_problems(root)
-            self.assertEqual(len(problems), 1, problems)
-            self.assertIn("[mypy-gone]", problems[0])
+                f.write(config)
+            return lint_code.mypy_config_problems(root)
+
+    def test_the_global_section_alone_is_sound(self):
+        self.assertEqual(
+            self._problems(
+                "[mypy]\nstrict_equality = True\nignore_missing_imports = True\n"
+            ),
+            [],
+        )
+
+    def test_every_module_section_is_a_problem(self):
+        # Every module is held to the global options: a section that relaxes them is a baseline by another name, and
+        # one that names no module is dead.
+        problems = self._problems(
+            "[mypy]\nstrict_equality = True\n"
+            "[mypy-known]\nignore_errors = True\n"
+            "[mypy-tools.hooks.checks]\ndisallow_untyped_defs = False\n"
+            "[mypy-strict.*]\nwarn_return_any = True\n"
+        )
+        self.assertEqual(len(problems), 3, problems)
+        for section, problem in zip(
+            ("[mypy-known]", "[mypy-tools.hooks.checks]", "[mypy-strict.*]"), problems
+        ):
+            self.assertIn(section, problem)
+            self.assertIn("type: ignore[<code>]", problem)
+
+    def test_the_mypy_step_fails_on_a_module_section(self):
+        with tempfile.TemporaryDirectory() as root:
             with open(
                 os.path.join(root, lint_code.MYPY_CONFIG), "w", encoding="utf-8"
             ) as f:
-                f.write("[mypy-known]\nstrict_equality = False\n")
+                f.write("[mypy]\n[mypy-known]\nignore_errors = True\n")
             with mock.patch.object(
-                lint_code.lint_files.subprocess, "run", side_effect=OSError("no git")
+                lint_code, "_mypy", return_value=lint_code.Result("passed")
             ):
-                problems = lint_code.mypy_config_problems(root)
-            self.assertEqual(len(problems), 1)
-            self.assertIn("only relaxes", problems[0])
+                result = lint_code._run_mypy_sources(_context(root, []))
+        self.assertEqual(result.status, "failed")
+        self.assertIn("[mypy-known]", "\n".join(result.lines))
 
 
 class LintLockTest(unittest.TestCase):
@@ -397,9 +556,9 @@ class LintLockTest(unittest.TestCase):
             self.assertEqual(output.getvalue(), "")
 
 
-def _release_later(release: object) -> None:
+def _release_later(release: synchronize.Event) -> None:
     time.sleep(0.5)
-    release.set()  # type: ignore[attr-defined]
+    release.set()
 
 
 if __name__ == "__main__":

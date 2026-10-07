@@ -29,9 +29,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <mujoco/mujoco.h>
-
 #include <string>
+
+#include "absl/base/nullability.h"
+#include "mujoco/mujoco.h"
 
 #include "mujoco_sim_interface/MujocoUtils.h"
 
@@ -41,23 +42,24 @@ class MujocoSimInterface;
 
 /**
  * Everything a visualization may read or draw into during one frame of the viewer. Owned by the renderer; the pointers
- * are valid for the duration of the frame only. All hooks run on the render thread.
+ * are valid for the duration of the frame only. All hooks run on the render thread. Every pointer may be null (a
+ * default-constructed or partial frame, as in the tests), so a hook checks the ones it reads.
  */
 struct VisualizationFrame {
-  const MujocoSimInterface* sim{nullptr};  // simulator (model, config, data published by the control thread)
-  const MjState* state{nullptr};           // copy of the physics state the frame is drawn from (mj_forward has run on it)
-  mjvOption* options{nullptr};             // MuJoCo visualization flags of the viewer
-  mjvScene* scene{nullptr};                // abstract scene; addSceneGeoms appends decor geoms here
-  const mjrContext* context{nullptr};      // GPU context, for text and 2D overlays
-  mjrRect viewport{0, 0, 0, 0};            // framebuffer rectangle in pixels, origin bottom-left
-  double renderFps{0.0};
-  double elapsedRealTime{0.0};  // [s] wall-clock time since the viewer started
+  const MujocoSimInterface* absl_nullable sim{nullptr};  // simulator (model, config, data published by the control thread)
+  const MjState* absl_nullable state{nullptr};           // copy of the physics state the frame is drawn from (mj_forward has run on it)
+  mjvOption* absl_nullable options{nullptr};             // MuJoCo visualization flags of the viewer
+  mjvScene* absl_nullable scene{nullptr};                // abstract scene; addSceneGeoms appends decor geoms here
+  const mjrContext* absl_nullable context{nullptr};      // GPU context, for text and 2D overlays
+  mjrRect viewport{0, 0, 0, 0};                          // framebuffer rectangle in pixels, origin bottom-left
+  double renderFps = 0.0;
+  double elapsedRealTime = 0.0;  // [s] wall-clock time since the viewer started
 };
 
 /**
  * One marker or overlay of the MuJoCo viewer: contact force arrows, the contact timeline, the target contact patches,
  * ... Every visualization is a class of its own, registered under a name in VisualizationRegistry.h; the task file lists
- * the names to enable (`simVisualizations`) and the hotkey, if the class declares one, toggles it in the viewer.
+ * the names to enable (`sim_visualizations`) and the hotkey, if the class declares one, toggles it in the viewer.
  *
  * The renderer calls the three hooks once per frame in this order:
  *  1. beforeSceneUpdate(): before mjv_updateScene, called whether the visualization is enabled or not, so that a
@@ -85,7 +87,7 @@ class MujocoVisualization {
   void toggle() { enabled_ = !enabled_; }
 
  private:
-  bool enabled_{true};
+  bool enabled_ = true;
 };
 
 }  // namespace robot::mujoco_sim_interface

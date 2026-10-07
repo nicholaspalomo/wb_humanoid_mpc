@@ -47,6 +47,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/integration/Integrator.h>
 #include <ocs2_core/integration/Observer.h>
 #include <ocs2_core/integration/OdeBase.h>
@@ -226,9 +228,9 @@ void expectClose(scalar_t actual, scalar_t expected, const std::string& what) {
 }
 
 struct GoldenRow {
-  const char* problem;
+  const char* absl_nonnull problem;
   IntegratorType type;
-  const char* label;
+  const char* absl_nonnull label;
   size_t observations;
   size_t evaluations;
   scalar_t timeSum;
@@ -542,7 +544,7 @@ TEST(Integrators, integrateConstObservesEveryMultipleOfTheStepUpToTheFinalTime) 
 
 TEST(Integrators, integrateAdaptiveStartsAtTheInitialStateAndEndsExactlyAtTheFinalTime) {
   for (IntegratorType type : kOdeintTypes) {
-    for (const char* label : {"adaptive 1e-6/1e-3", "adaptive backward"}) {
+    for (const char* absl_nonnull label : {"adaptive 1e-6/1e-3", "adaptive backward"}) {
       const Case c = testCase(label);
       const Problem p = problem("vanDerPol1");
       const std::unique_ptr<IntegratorBase> integrator = newIntegrator(type);
@@ -577,7 +579,7 @@ TEST(Integrators, integrateAdaptiveOfOde45MeetsTheTolerance) {
 
 TEST(Integrators, integrateTimesObservesExactlyTheRequestedTimes) {
   for (IntegratorType type : kOdeintTypes) {
-    for (const char* label : {"times irregular", "times duplicates", "times backward"}) {
+    for (const char* absl_nonnull label : {"times irregular", "times duplicates", "times backward"}) {
       const Case c = testCase(label);
       const Trajectory trajectory = integrate(type, "forced", label);
       ASSERT_EQ(trajectory.times.size(), c.times.size()) << integrator_type::toString(type) << " " << label;
@@ -602,7 +604,7 @@ TEST(Integrators, integrateTimesObservesExactlyTheRequestedTimes) {
 
 TEST(Integrators, anIntegratorObjectCarriesNothingFromOneIntegrationToTheNext) {
   for (IntegratorType type : kOdeintTypes) {
-    for (const char* label : {"const 0..2 dt0.01", "adaptive 1e-6/1e-3", "times irregular"}) {
+    for (const char* absl_nonnull label : {"const 0..2 dt0.01", "adaptive 1e-6/1e-3", "times irregular"}) {
       const std::unique_ptr<IntegratorBase> integrator = newIntegrator(type);
       const Trajectory first = integrate(*integrator, problem("coupled13"), testCase(label));
       const Trajectory second = integrate(*integrator, problem("coupled13"), testCase(label));
@@ -618,7 +620,7 @@ TEST(Integrators, anIntegratorObjectCarriesNothingFromOneIntegrationToTheNext) {
 
 TEST(Integrators, theMaximumNumberOfFunctionCallsEndsTheIntegration) {
   for (IntegratorType type : kOdeintTypes) {
-    for (const char* label : {"const 0..2 dt0.01", "adaptive 1e-6/1e-3", "times uniform dt0.01"}) {
+    for (const char* absl_nonnull label : {"const 0..2 dt0.01", "adaptive 1e-6/1e-3", "times uniform dt0.01"}) {
       const std::unique_ptr<IntegratorBase> integrator = newIntegrator(type);
       try {
         integrate(*integrator, problem("vanDerPol1"), testCase(label), /*maxNumSteps=*/57);
@@ -698,7 +700,7 @@ TEST(Integrators, integratorTypesParseTheirNamesAndRefuseRemovedOnes) {
   EXPECT_EQ(static_cast<int>(IntegratorType::MODIFIED_MIDPOINT), 5);
   EXPECT_EQ(static_cast<int>(IntegratorType::RK4), 6);
 
-  for (const char* removed : {"ADAMS_BASHFORTH", "BULIRSCH_STOER", "RK5_VARIABLE", "ADAMS_BASHFORTH_MOULTON", "ode45", ""}) {
+  for (const char* absl_nonnull removed : {"ADAMS_BASHFORTH", "BULIRSCH_STOER", "RK5_VARIABLE", "ADAMS_BASHFORTH_MOULTON", "ode45", ""}) {
     try {
       integrator_type::fromString(removed);
       ADD_FAILURE() << removed << " was accepted";

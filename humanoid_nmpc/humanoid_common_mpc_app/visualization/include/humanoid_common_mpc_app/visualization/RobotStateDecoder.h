@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -101,7 +102,7 @@ class RobotStateDecoder {
    *         joint positions or velocities are missing, or when the base orientation is not a unit quaternion up to
    *         rounding; `state` is then unspecified.
    */
-  absl::Status decode(const msgs::RobotStateSample& sample, DecodedRobotState* state);
+  absl::Status decode(const msgs::RobotStateSample& sample, DecodedRobotState* absl_nonnull state);
 
  private:
   void updateJointIndices(const std::vector<std::string>& sampleJointNames);

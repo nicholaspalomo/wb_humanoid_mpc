@@ -45,7 +45,7 @@ namespace ocs2 {
 // LINT.IfChange(integrator_types)
 enum class IntegratorType { EULER = 0, ODE45 = 1, ODE45_OCS2 = 2, MODIFIED_MIDPOINT = 5, RK4 = 6 };
 // clang-format off
-// LINT.ThenChange(//lib/ocs2/core/src/integration/Integrator.cpp:integrator_names, //lib/ocs2/core/src/integration/Integrator.cpp:integrator_factory)
+// LINT.ThenChange(//lib/ocs2/core/src/integration/Integrator.cpp:integrator_names, //lib/ocs2/core/src/integration/Integrator.cpp:integrator_factory, //humanoid_nmpc/humanoid_common_mpc/src/config/solver/SolverSettingsFromConfig.cpp:rollout_integrators)
 // clang-format on
 
 namespace integrator_type {

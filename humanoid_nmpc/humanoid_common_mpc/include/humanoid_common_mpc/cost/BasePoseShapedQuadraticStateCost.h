@@ -29,7 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_core/cost/QuadraticStateCost.h>
+#include "absl/base/nullability.h"
+#include "ocs2_core/cost/QuadraticStateCost.h"
 
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
@@ -54,14 +55,17 @@ class BasePoseShapedQuadraticStateCost final : public QuadraticStateCost {
  public:
   BasePoseShapedQuadraticStateCost(matrix_t Q, const SwitchedModelReferenceManager& referenceManager);
   ~BasePoseShapedQuadraticStateCost() override = default;
-  BasePoseShapedQuadraticStateCost* clone() const override { return new BasePoseShapedQuadraticStateCost(*this); }
+  BasePoseShapedQuadraticStateCost& operator=(const BasePoseShapedQuadraticStateCost&) = delete;
+  BasePoseShapedQuadraticStateCost(BasePoseShapedQuadraticStateCost&&) = delete;
+  BasePoseShapedQuadraticStateCost& operator=(BasePoseShapedQuadraticStateCost&&) = delete;
+  BasePoseShapedQuadraticStateCost* absl_nonnull clone() const override { return new BasePoseShapedQuadraticStateCost(*this); }
 
  protected:
   BasePoseShapedQuadraticStateCost(const BasePoseShapedQuadraticStateCost& other) = default;
   vector_t getStateDeviation(scalar_t time, const vector_t& state, const TargetTrajectories& targetTrajectories) const override;
 
  private:
-  const SwitchedModelReferenceManager* referenceManagerPtr_;
+  const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
 };
 
 }  // namespace ocs2::humanoid

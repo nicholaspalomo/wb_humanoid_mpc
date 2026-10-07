@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -26,7 +30,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <string>
+#include <utility>
 #include <vector>
+
+#include "absl/base/nullability.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
@@ -46,12 +55,14 @@ namespace ocs2::humanoid {
 /**
  * The contact planner's optimal control problem as a set of named terms, the analog of ocs2::OptimalControlProblem.
  *
- * The collections are filled by ContactPlanningTermFactory::buildProblem() from the term lists of the configuration
+ * The collections are filled by ContactPlanningTermFactory::buildProblemStatus() from the term lists of the configuration
  * (or by hand, in the same order the factory would use). finalize() then composes the variable layout from the model
  * blocks, checks that every term finds the blocks it needs, binds the terms to the layout and configures them.
  * assemble() writes the OCP-QP of one plan, node by node and term by term in collection order, and the logic side
  * (propagate, assignmentCost) is what MixedIntegerOcpQp calls on the binaries. configure() is the hot-reload path:
  * every term re-reads its parameter block; the term lists themselves are the factory's business (re-assembly).
+ *
+ * Not thread-safe while it is being filled, finalized or configured; the const methods may then run concurrently.
  */
 class ContactPlanningProblem {
  public:
@@ -64,17 +75,18 @@ class ContactPlanningProblem {
 
   /**
    * Composes the layout from the model blocks, checks the required blocks of every term, binds and configures every
-   * term. Throws std::invalid_argument on a missing block or a bad parameter. Must be called before assemble().
+   * term. A model that does not start with the LIP and foothold blocks, or a term whose block is missing, is an
+   * InvalidArgument naming it, and leaves the problem unfinalized. Must succeed before configure() and assemble().
    */
-  void finalize(const ContactPlanningConfig& config);
+  absl::Status finalize(const ContactPlanningConfig& config);
   bool isFinalized() const { return finalized_; }
   const Layout& layout() const { return layout_; }
 
-  /** Re-reads every term's parameter block (hot reload of the values; the lists stay). */
-  void configure(const ContactPlanningConfig& config);
+  /** Re-reads every term's parameter block (hot reload of the values; the lists stay); FailedPrecondition before finalize(). */
+  absl::Status configure(const ContactPlanningConfig& config);
 
-  /** Builds the OCP-QP of one plan from the context: N running stages and the terminal node. */
-  OcpQpProblem assemble(const ContactPlanningContext& ctx) const;
+  /** Builds the OCP-QP of one plan from the context: N running stages and the terminal node; FailedPrecondition before finalize(). */
+  absl::StatusOr<OcpQpProblem> assemble(const ContactPlanningContext& ctx) const;
 
   /** The binaries of every node, in branching order (time order, then the blocks' order). */
   std::vector<MiqpBinaryVariable> binaryVariables(int numNodes) const;
@@ -92,11 +104,11 @@ class ContactPlanningProblem {
   /** Fills the plan's trajectories from the incumbent through the model blocks. */
   void decode(const ContactPlanningContext& ctx, const MiqpResult& result, ContactPlan& plan) const;
 
-  /** Number of general rows a running node and the terminal node carry, from the terms' node sets. */
-  std::pair<int, int> countRows(const ContactPlanningContext& ctx) const;
+  /** Number of general rows a running node and the terminal node carry, from the terms' node sets; assemble()'s errors. */
+  absl::StatusOr<std::pair<int, int>> countRows(const ContactPlanningContext& ctx) const;
 
   /** The start-up print: the layout, every collection with its terms and their one-line descriptions. */
-  std::string summary(const ContactPlanningContext* ctx = nullptr) const;
+  std::string summary(const ContactPlanningContext* absl_nullable ctx = nullptr) const;
 
  private:
   Layout layout_;

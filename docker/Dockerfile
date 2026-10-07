@@ -42,11 +42,12 @@ ARG CLANG_FORMAT_VERSION=18
 # LINT.ThenChange(//.github/workflows/format_test.yml:formatter_versions, //docker/install_llvm_tools.sh:llvm_versions)
 # LINT.IfChange(clang_tidy_version)
 ARG CLANG_TIDY_VERSION=21
+ARG CLANG_TIDY_PACKAGE_VERSION=1:21.1.8~++20251221032922+2078da43e25a-1~exp1~20251221153059.70
 # LINT.ThenChange(//tools/clang_tidy/run_clang_tidy.sh:clang_tidy_version, //docker/install_llvm_tools.sh:llvm_versions)
 
 COPY docker/install_llvm_tools.sh /tmp/install_llvm_tools.sh
 RUN CLANG_FORMAT_VERSION="${CLANG_FORMAT_VERSION}" CLANG_TIDY_VERSION="${CLANG_TIDY_VERSION}" \
-        sh /tmp/install_llvm_tools.sh all && \
+        CLANG_TIDY_PACKAGE_VERSION="${CLANG_TIDY_PACKAGE_VERSION}" sh /tmp/install_llvm_tools.sh all && \
     rm -rf /var/lib/apt/lists/* /tmp/install_llvm_tools.sh
 
 # Pinocchio, coal and eigenpy from robotpkg into /opt/openrobots. The script says why, and why Boost is on the system

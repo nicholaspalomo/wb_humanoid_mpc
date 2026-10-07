@@ -62,7 +62,6 @@ configuration:
 | `ContactPlannerModule` | the snapshot waiting for the worker and the throttle. The planner's own state (`ContactPlannerInterface::reset()`: its warm start, its previous plan) is reset by the thread that plans, at the first snapshot of the new plan epoch; a snapshot of an older epoch is not planned from |
 | `ProceduralMpcMotionManager` | the gait (`stance`), the gait-change hold-off, the acceleration ramp; then its reset hook, which resets the target calculator |
 | `TargetTrajectoriesCalculatorBase` / `CentroidalMpcTargetTrajectoriesCalculator` | the velocity filter; the joint-state filter and its clock, so that the joint target starts again from the joints the robot has at the reset, however late it comes (it used to decay over the whole time since the filter's clock was last set, and jumped to the nominal joints) |
-| `GaitScheduleUpdater` | a gait received but not yet inserted |
 | `MRT_BASE` | the policy waiting in the buffer (the policy in use is replaced by the control thread with the first policy of the new epoch) |
 
 The operator's current command and the limits are inputs, not state, and are kept. The contact planner's drop counters
@@ -90,7 +89,7 @@ whatever solves: the MPC node behind the remote link in every simulation and on 
 <!-- LINT.IfChange(controller_reset_events) -->
 | Event | Reset | Until a policy of the new epoch is in use |
 | --- | --- | --- |
-| Entry into `WB_MPC` from a passive mode | yes, from the observation at that moment | the passive mode's action is held (JOINT_PD for ZERO_TORQUE), then ramped into the MPC action over `mpcEntryBlendTime` (0: at once) |
+| Entry into `WB_MPC` from a passive mode | yes, from the observation at that moment | the passive mode's action is held (JOINT_PD for ZERO_TORQUE), then ramped into the MPC action over `mpc_entry_blend_time` (0: at once) |
 | A discontinuity reported by the sim loop (`requestMpcResetAndHold()`) | yes | held, as above |
 | The observation clock running backwards | yes, one | held, as above; the SAFETY decay keeps the time it has decayed for |
 | Gantry unlocked (`requestMpcReset()`) | yes | the policy in use carries the robot |
@@ -119,15 +118,15 @@ process with the MuJoCo backend, after the operator's commands:
                      ▼                                                    ▼
   resetEpoch() moved?  ── yes ──▶ discontinuity (the simulator reset the robot; it also locked the gantry)
   locked, was unlocked? ── yes ──▶ discontinuity (LOCK_GANTRY)
-  unlocked, tilt > simMaxBaseTiltAngle? ── yes ──▶ lockGantry(), discontinuity (the tilt catch)
+  unlocked, tilt > sim_max_base_tilt_angle? ── yes ──▶ lockGantry(), discontinuity (the tilt catch)
   unlocked, was locked? ── yes ──▶ gantryUnlocked
                      │
    discontinuity ──▶ JOINT_PD (torques on), the loop calls requestMpcResetAndHold() and publishControllerReset(), which
                      counts the reset in the FSM state it publishes (the remote control re-centers its joysticks on
                      every counted reset, every new lock and every transition into a passive mode)
-   caught after a fall, simGantryCatchLift > 0 ──▶ settle sequence:
+   caught after a fall, sim_gantry_catch_lift > 0 ──▶ settle sequence:
 
-        lift the gantry by simGantryCatchLift ──▶ wait until at rest ──▶ lower to the height of the catch ──▶ wait until at rest
+        lift the gantry by sim_gantry_catch_lift ──▶ wait until at rest ──▶ lower to the height of the catch ──▶ wait until at rest
         (0.25 m/s)                                (tilt < 0.05 rad, base < 0.05 m/s and 0.2 rad/s, the MPC joints within 0.15 rad
                                                    of the nominal posture, for 0.5 s; a 5 s timeout moves on with a warning)
 
@@ -140,14 +139,14 @@ feet stay loaded where they landed. The entry into `WB_MPC` then resets the MPC 
 nominal posture. The operator's `LOCK_GANTRY` of a robot that did not fall is a discontinuity without a sequence;
 unlocking the gantry ends a sequence.
 
-Task keys (`config/mpc/task.yaml`, simulation only, read by the robot process for its MuJoCo backend):
+Task file fields (`config/mpc/task.textproto`, simulation only, read by the robot process for its MuJoCo backend):
 
 <!-- LINT.IfChange(sim_fall_recovery_keys) -->
-| Key | Meaning |
+| Field | Meaning |
 | --- | --- |
-| `simMaxBaseTiltAngle` | [rad] tilt past which the robot is caught; 0 disables the catch |
-| `simGantryCatchLift` | [m] how far the gantry lifts a caught robot to settle it; 0 skips the sequence and accepts WB_MPC at once. Every robot ships 0.15. |
-<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotProcessSettings.cpp:sim_fall_recovery_keys) -->
+| `sim_max_base_tilt_angle` | [rad] tilt past which the robot is caught; 0 disables the catch |
+| `sim_gantry_catch_lift` | [m] how far the gantry lifts a caught robot to settle it; 0 skips the sequence and accepts WB_MPC at once. Every robot ships 0.15. |
+<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_file.proto:sim_fall_recovery_keys) -->
 
 Rest is judged on joint positions, not joint velocities: with the shipped DRC Atlas JOINT_PD gains an unloaded ankle
 chatters at the simulator's step rate (the damping gain exceeds the explicit-integration limit 2 I / dt of a free foot),
@@ -182,7 +181,7 @@ the gantry. Its reset target has two knots and carries the weight on both feet.
 | --- | --- |
 | `//lib/ocs2:test_mpc_reset` | `MPC_BASE::reset()` resets the reference manager and every module before the solver, `resetSolver()` the solver alone; a policy solved before a reset is never swapped in after it; a stalled MPC is a failure a reset cures |
 | `//humanoid_nmpc/humanoid_common_mpc:testMpcResetSupervisor` | the reset hand-over and its two kinds, the escalation from solver to full resets, the back-off, one error per failure episode, the clock check |
-| `//humanoid_nmpc/humanoid_common_mpc:testGaitScheduleReset` | a reset gait schedule answers as a fresh one; the gait updater's first-event guard; a gait received before a reset is dropped |
+| `//humanoid_nmpc/humanoid_common_mpc:testGaitScheduleReset` | a reset gait schedule answers as a fresh one; the gait update's first-event guard |
 | `//humanoid_nmpc/humanoid_centroidal_mpc:testMpcResetState` | a reset reference stack answers exactly as a fresh one (gait schedule and contact planner); a rewound clock does not hold the robot standing; lift-off positions do not survive; per-instance gait thresholds; plan epochs; the target calculator's filters, and a joint target that starts from the current joints after a late reset |
 | `//humanoid_nmpc/humanoid_centroidal_mpc:testMrtJointControllerReset` | ZERO_TORQUE requests no reset; one divergence reset per policy; the back-off holds JOINT_PD and logs one error; a rewound clock is one reset and the hand-over completes; after a fall the first policy is planned from the held robot on a stance schedule |
 | `//humanoid_nmpc/humanoid_centroidal_mpc:testFootYawResidual` | parity with the old residual, finite generated derivatives at a yaw of exactly zero (and none for the old residual), the swing-foot cost at the reset pose |

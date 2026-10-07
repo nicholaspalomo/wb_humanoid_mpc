@@ -99,8 +99,8 @@ register_toolchains("//tools/python:python_proto_toolchain")
 # ==============================================================================
 # System Library Repositories (non-bzlmod)
 # ==============================================================================
-# bazel/system_libs.bzl wraps the libraries the dev image installs (docker/Dockerfile, dependencies.txt): Eigen,
-# yaml-cpp, GLFW, GLEW and urdfdom from Ubuntu, Pinocchio from robotpkg in /opt/openrobots
+# bazel/system_libs.bzl wraps the libraries the dev image installs (docker/Dockerfile, dependencies.txt): Eigen, GLFW,
+# GLEW and urdfdom from Ubuntu, Pinocchio from robotpkg in /opt/openrobots
 # (docker/install_robotpkg.sh), and builds blasfeo and hpipm from source.
 #
 # @boost is registered by the same extension but deliberately not imported here: only @pinocchio, a repository of that
@@ -117,6 +117,5 @@ use_repo(
     "urdf",
     "blasfeo",
     "hpipm",
-    "yaml_cpp",
 )
 # LINT.ThenChange(//bazel/system_libs.bzl:system_repositories)

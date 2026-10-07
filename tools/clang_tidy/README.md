@@ -5,31 +5,39 @@ runs only as Bazel actions, inside `.bazelrc`'s RAM-bounded `--jobs` and `tools/
 "Builds share one machine's memory"). Never run `clang-tidy`, `clang`, `run-clang-tidy` or a `compile_commands.json`
 loop by hand.
 
-| Command | Configuration | What it does |
-|---|---|---|
-| `make lint-tidy [PKG=//humanoid_nmpc/...]` | `//:.clang-tidy`, the enforced checks | Lints, runs the self-test, prints the findings and fails on any. CI's build job runs it after the tests. |
-| `make lint-tidy-sweep [PKG=...] [PATHS="dir ..."] [SUMMARY=1]` | `sweep.clang-tidy`, every candidate check | The same with the checks not yet enforced. `PATHS` keeps the findings in those directories, and `SUMMARY=1` adds counts per check and per package. |
-| `make lint-tidy-fix CHECKS='<glob>' [PKG=...] [PATHS=...]` | `sweep.clang-tidy` | Applies the fix-its of the matching checks and clang-formats the edited files. Build afterwards. |
+| Command | What it does |
+|---|---|
+| `make lint-tidy [PKG=//humanoid_nmpc/...]` | Lints with the checks of `//:.clang-tidy`, runs the self-test, prints the findings and fails on any. CI's build job runs it after the tests. |
+| `make lint-tidy-fix CHECKS='<glob>' [PKG=...] [PATHS=...]` | Applies the fix-its of the matching checks and clang-formats the edited files. Build afterwards. |
+
+`.clang-tidy` is the only configuration, and every check in it is enforced: there is no list of checks still being
+adopted and no baseline of findings (`tools/hooks/test_lint_enforcement.py`). To see where the findings of a run are,
+keep its build event file and ask the collector for counts, or for the findings of some directories only:
+
+```bash
+make lint-tidy PKG=//humanoid_nmpc/humanoid_wb_mpc/... CLANG_TIDY_BEP=.bazel/wb_mpc_tidy.json
+python3 -m tools.clang_tidy.clang_tidy_report .bazel/wb_mpc_tidy.json --summary --paths humanoid_nmpc/humanoid_wb_mpc
+```
 
 clang-tidy 21 comes from apt.llvm.org (`docker/install_llvm_tools.sh tidy`); the dev image and CI's build job install it
 with that script. `run_clang_tidy.sh` pins the major version, so a different clang-tidy is an error that says to rebuild
 the dev container.
 
-The rules are in `AGENTS.md` ("Style guides" and the sections after it), and each check in the configurations names the
+The rules are in `AGENTS.md` ("Style guides" and the sections after it), and each check in the configuration names the
 Google C++ Style Guide section (`G:`) or the Abseil tip (`ToTW #`) it enforces. The token-level checks that need no
 compiler are in `tools/hooks` (`tools/hooks/README.md`).
 
-**Cost.** A cold run over `//...` is about 850 actions: on a 32 GB workstation (7 jobs) about 16 minutes with
-`.clang-tidy` and 32 with `sweep.clang-tidy`, about twice that on CI's 4 jobs. The results are cached like any action,
-so a re-run lints only the files whose inputs changed, and an unchanged tree takes seconds. A configuration file is an
-input of every action of its aspect: any edit to `.clang-tidy` or `sweep.clang-tidy`, a comment included, re-lints the
-whole tree.
+**Cost.** A cold run over `//...` is about 875 actions: on a 32 GB workstation (7 jobs) about 33 minutes, and about
+twice that on CI's 4 jobs. The results are cached like any action, so a re-run lints only the files whose inputs
+changed, and an unchanged tree takes seconds. The configuration file is an input of every action of the aspect: any
+edit to `.clang-tidy`, a comment included, re-lints the whole tree.
 
 ## How it works
 
-`clang_tidy.bzl` defines two aspects that differ only in their configuration file: `clang_tidy_aspect` and
-`clang_tidy_sweep_aspect`. Switching between them, or adding either to a build, keeps the build configuration, so the
-analysis cache and the generated headers are shared with ordinary builds.
+`clang_tidy.bzl` defines one aspect, `clang_tidy_aspect`, which reads `//:.clang-tidy`. Adding it to a build keeps the
+build configuration, so the analysis cache and the generated headers are shared with ordinary builds. `make lint-tidy`
+builds its `clang_tidy` output group (`--config=clang-tidy`), and `make lint-tidy-fix` also its fix-its
+(`--config=clang-tidy-fix`).
 
 The aspect does not propagate: `//...` already names every first-party target, and no external repository is
 visited. For each `cc_library`, `cc_binary` and `cc_test` outside `lib/`, `tools/ifttt-lint/` and `testdata/` it runs
@@ -65,7 +73,9 @@ fix the code, it is a portability bug.
 
 `clang_tidy_report.py` reads the reports of exactly this build from the build event file. It makes the paths
 repository-relative and prints each finding once: a header's finding is reported by the header's own action and by
-every `.cpp` that includes it.
+every `.cpp` that includes it. The report runs after the build has released the machine lock, so each `make` run
+writes its own build event file (`.bazel/clang_tidy_bep.<pid>.json`, deleted afterwards) and a run that starts
+meanwhile cannot overwrite it; `CLANG_TIDY_BEP=<path>` keeps the file (`test_lint_tidy_targets.py`).
 
 **Applying fix-its.** `clang_tidy_apply.py` deduplicates replacements and applies each diagnostic all or nothing:
 
@@ -76,14 +86,12 @@ every `.cpp` that includes it.
 
 It lists every diagnostic it left alone, for a manual fix.
 
-## The rollout
+## Adding a check
 
-`sweep.clang-tidy` lists every candidate check. `//:.clang-tidy` lists the ones with no finding left in the tree, with
-the same options. A check moves from the sweep to `.clang-tidy` in the change that fixes its last finding. When none is
-left, `sweep.clang-tidy`, `clang_tidy_sweep_aspect`, the `clang-tidy-sweep` configuration and `make lint-tidy-sweep`
-are deleted, and `clang-tidy-fix` uses `clang_tidy_aspect`.
-
-`test_clang_tidy_config.py` keeps the checks that contradict this repository's rules out of both files, for example
+Add the check to `.clang-tidy` with the guide section or tip it enforces, fix every finding it reports in the same
+change (`make lint-tidy-fix CHECKS=<check>` where it has fix-its), and list it in `AGENTS.md`. A check that cannot be
+enabled with its findings fixed stays out of the file, with a comment that says why (`misc-include-cleaner` is one).
+`test_clang_tidy_config.py` keeps the checks that contradict this repository's rules out, for example
 `modernize-use-auto` and `readability-implicit-bool-conversion`.
 
 To silence one finding, write `// NOLINT(<check>): <reason>` on its line, or `NOLINTNEXTLINE(<check>): <reason>` on the
@@ -96,19 +104,26 @@ line above. A marker without a reason is itself a lint error (`tools/hooks/nolin
 | `test_clang_tidy_config.py` | no | `bazel test //...` |
 | `test_clang_tidy_aspect.py` | no | `bazel test //...` |
 | `test_clang_tidy_report.py` | no | `bazel test //...` |
+| `test_lint_tidy_targets.py` | no | `bazel test //...` |
 | `//tools/clang_tidy:selftest` | yes | `make lint-tidy` |
 
-- **`test_clang_tidy_config.py`** checks the configurations: each check is listed once, sorted and with a comment;
-  findings are errors; the forbidden checks are absent; the enforced checks are a subset of the sweep with the same
-  options. It also checks that the header filter covers every directory with first-party C++ and nothing else.
+- **`test_clang_tidy_config.py`** checks the configuration: each check is listed once, sorted and with a comment;
+  findings are errors; the forbidden checks are absent. It also checks that the header filter covers every directory
+  with first-party C++ and nothing else.
 - **`test_clang_tidy_aspect.py`** reads the arguments the aspect writes for each fixture file (the `clang_tidy_args`
   rule) and pins the command line.
 - **`test_clang_tidy_report.py`** tests the collector and the fix applier on synthetic reports, fix-its and build event
   files.
-- **`//tools/clang_tidy:selftest`** is `manual`. It lints `testdata/` with every candidate check. It fails unless each
-  fixture's deduplicated findings are its `<name>.expected` file, unless the rename fixture's fix-its give the golden
-  copy `testdata/renamed/`, and unless `clang-tidy --verify-config` accepts both configurations. `testdata/renamed/` is
-  a `cc_library` in `//...`, so every build proves that the applied fixes compile.
+- **`test_lint_tidy_targets.py`** runs the Makefile's `lint-tidy` and `lint-tidy-fix` recipes with stand-ins for Bazel
+  and the collector: each run reads the build event file its own build wrote, two runs use different files, and a
+  failure of either step fails the target.
+- **`//tools/clang_tidy:selftest`** is `manual`. It lints `testdata/` with the checks of `//:.clang-tidy`. It fails
+  unless each fixture's deduplicated findings are its `<name>.expected` file, unless the rename fixture's fix-its give
+  the golden copy `testdata/renamed/`, and unless `clang-tidy --verify-config` accepts the configuration.
+  `testdata/renamed/` is a `cc_library` in `//...`, so every build proves that the applied fixes compile. The
+  `nullability` fixture proves that Abseil's `absl_nonnull` / `absl_nullable` reach clang: it expects a
+  `clang-diagnostic-nonnull` and a `clang-diagnostic-nullability`, so a clang-tidy or an Abseil that expanded the macros
+  to nothing would fail the self-test instead of passing every file silently.
 
 Every linter skips `testdata/`: the aspect outside the self-test (`excluded_packages`), and cpplint and the token checks
 of `tools/hooks` (`lint_files.FIXTURE_DIRS`).

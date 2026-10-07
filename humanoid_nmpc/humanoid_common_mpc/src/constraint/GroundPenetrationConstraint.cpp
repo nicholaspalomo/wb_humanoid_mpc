@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -43,13 +47,13 @@ GroundPenetrationConstraint::GroundPenetrationConstraint(const GroundPenetration
       numPoints_(rhs.numPoints_),
       terrainHeight_(rhs.terrainHeight_) {}
 
-vector_t GroundPenetrationConstraint::getValue(scalar_t time, const vector_t& state, const PreComputation& preComp) const {
+vector_t GroundPenetrationConstraint::getValue(scalar_t /*time*/, const vector_t& state, const PreComputation& /*preComp*/) const {
   return cornerHeightsPtr_->getHeights(state).array() - terrainHeight_;
 }
 
-VectorFunctionLinearApproximation GroundPenetrationConstraint::getLinearApproximation(scalar_t time,
+VectorFunctionLinearApproximation GroundPenetrationConstraint::getLinearApproximation(scalar_t /*time*/,
                                                                                       const vector_t& state,
-                                                                                      const PreComputation& preComp) const {
+                                                                                      const PreComputation& /*preComp*/) const {
   VectorFunctionLinearApproximation approximation;
   approximation.f = cornerHeightsPtr_->getHeights(state).array() - terrainHeight_;
   approximation.dfdx = cornerHeightsPtr_->getHeightsJacobian(state);

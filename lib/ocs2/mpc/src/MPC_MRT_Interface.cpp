@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/control/LinearController.h>
 #include <ocs2_core/control/ManifoldLinearController.h>
 
+#include "absl/base/nullability.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
@@ -189,11 +190,11 @@ void MPC_MRT_Interface::copyToBuffer(const SystemObservation& mpcInitObservation
 /******************************************************************************************************/
 matrix_t MPC_MRT_Interface::getLinearFeedbackGain(scalar_t time) {
   // On a state manifold the gain acts on the tangent: u = u* + K (x (-) xbar).
-  if (const ManifoldLinearController* manifoldController =
+  if (const ManifoldLinearController* absl_nullable manifoldController =
           dynamic_cast<const ManifoldLinearController*>(this->getPolicy().controllerPtr_.get())) {
     return manifoldController->getFeedbackGain(time);
   }
-  auto controller = dynamic_cast<LinearController*>(this->getPolicy().controllerPtr_.get());
+  LinearController* absl_nullable controller = dynamic_cast<LinearController*>(this->getPolicy().controllerPtr_.get());
   if (controller == nullptr) {
     throw std::runtime_error("[MPC_MRT_Interface::getLinearFeedbackGain] Feedback gains only available with linear controller!");
   }

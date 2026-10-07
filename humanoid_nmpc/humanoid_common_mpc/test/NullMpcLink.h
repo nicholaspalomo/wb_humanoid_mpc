@@ -31,7 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 
-#include <ocs2_mpc/MRT_BASE.h>
+#include "ocs2_mpc/MRT_BASE.h"
 
 #include "humanoid_common_mpc/mrt/MpcLink.h"
 
@@ -51,7 +51,7 @@ class NullMpcLink final : public MpcLink {
 
   /** A factory for the controllers' constructors. */
   static MpcLinkFactory factory() {
-    return [](MpcLink::ResetTargetFunction /*resetTarget*/) { return std::make_unique<NullMpcLink>(); };
+    return [](const MpcLink::ResetTargetFunction& /*resetTarget*/) { return std::make_unique<NullMpcLink>(); };
   }
 
  private:

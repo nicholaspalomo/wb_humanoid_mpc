@@ -28,18 +28,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 // nproto's textproto helpers: a configuration file that matches its schema parses, and one that does not is an error
-// naming the file, the line and the column.
-
-#include <gtest/gtest.h>
+// naming the file, the line and the column; retired fields and a file of another message are answered from the schema.
+// tools/nproto/test/test_nproto_textproto.py feeds the Python parser the same inputs and expects the same answers.
 
 #include <cstdlib>
 #include <fstream>
 #include <string>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "gtest/gtest.h"
 
 #include "nproto/Textproto.h"
 #include "tools/nproto/test/ProtoTestValues.h"
@@ -47,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "tools/nproto/test/maps.pb.h"
 #include "tools/nproto/test/oneofs.nproto.pb.h"
 #include "tools/nproto/test/repeated_fields.pb.h"
+#include "tools/nproto/test/retired.pb.h"
 #include "tools/nproto/test/scalars.nproto.pb.h"
 
 namespace nproto::test {
@@ -56,7 +58,7 @@ namespace {
 constexpr char kScalarsFile[] = "tools/nproto/test/testdata/scalars.textproto";
 
 std::string temporaryFile(const std::string& name, const std::string& contents) {
-  const char* directory = std::getenv("TEST_TMPDIR");
+  const char* absl_nullable directory = std::getenv("TEST_TMPDIR");
   const std::string path = absl::StrCat(directory != nullptr ? directory : "/tmp", "/", name);
   std::ofstream file(path);
   file << contents;
@@ -93,7 +95,7 @@ TEST(TextprotoTest, AnUnknownFieldIsAnErrorWithItsLineAndColumn) {
   expectInvalid(proto.status(), "doubel_value");
   // The position is the field name's also inside a message, after comments, and at the end of the text.
   expectInvalid(ParseTextproto<nproto_test::Oneofs>("# A comment.\nscalars { int32_value: 1 bogus: 2 }\n", "nested.textproto").status(),
-                "nested.textproto:2:26: Message type \"nproto_test.Scalars\" has no field named \"bogus\".");
+                R"(nested.textproto:2:26: Message type "nproto_test.Scalars" has no field named "bogus".)");
   expectInvalid(ParseTextproto<nproto_test::Scalars>("int32_value: 1\nbogus", "end.textproto").status(), "end.textproto:2:1: ");
   expectInvalid(ParseTextproto<nproto_test::Oneofs>("scalars {\n  bogus {}\n}\n", "message.textproto").status(), "message.textproto:2:3: ");
 }
@@ -119,6 +121,57 @@ TEST(TextprotoTest, OtherMistakesAreErrorsToo) {
   expectInvalid(ParseTextproto<nproto_test::Defaults>("count: 1\n", "required.textproto").status(), "required_count");
   // A field number instead of a name.
   expectInvalid(ParseTextproto<nproto_test::Scalars>("3: 1\n", "number.textproto").status(), "number.textproto:1:");
+}
+
+TEST(RetiredFieldTest, ARetiredNameIsAnsweredWithItsReplacement) {
+  const absl::StatusOr<nproto_test::Retired> retired =
+      ParseTextproto<nproto_test::Retired>("switches: \"a\"\nuse_old_switch: true\n", "retired.textproto");
+  EXPECT_EQ(retired.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(retired.status().message(), "retired.textproto:2:1: 'use_old_switch' is retired: list old_switch under switches");
+}
+
+TEST(RetiredFieldTest, EverySpellingOfTheNameHitsAndThePositionIsKept) {
+  // camelCase of a snake_case entry, and snake_case of a camelCase entry.
+  expectInvalid(ParseTextproto<nproto_test::Retired>("  useOldSwitch: 1\n", "camel.textproto").status(),
+                "camel.textproto:1:3: 'useOldSwitch' is retired: list old_switch under switches");
+  expectInvalid(ParseTextproto<nproto_test::Retired>("step_width: 0.1 legacy_gain: 2\n", "snake.textproto").status(),
+                "snake.textproto:1:17: 'legacy_gain' is retired: set block.gain instead");
+}
+
+TEST(RetiredFieldTest, AnUnknownNameKeepsThePlainError) {
+  const absl::StatusOr<nproto_test::Retired> retired = ParseTextproto<nproto_test::Retired>("bogus: 1\n", "plain.textproto");
+  EXPECT_EQ(retired.status().message(), R"(plain.textproto:1:1: Message type "nproto_test.Retired" has no field named "bogus".)");
+}
+
+TEST(RetiredFieldTest, ASnakeCasedFieldIsSuggested) {
+  const absl::StatusOr<nproto_test::Retired> retired = ParseTextproto<nproto_test::Retired>("stepWidth: 0.2\n", "suggest.textproto");
+  EXPECT_EQ(retired.status().message(),
+            R"(suggest.textproto:1:1: Message type "nproto_test.Retired" has no field named "stepWidth". Did you mean "step_width"?)");
+}
+
+TEST(RetiredFieldTest, TheLayoutHintEndsEveryUnknownFieldOfItsMessage) {
+  const absl::StatusOr<nproto_test::Retired> retired =
+      ParseTextproto<nproto_test::Retired>("block {\n  flat_gain: 1\n}\n", "layout.textproto");
+  EXPECT_EQ(retired.status().message(), R"(layout.textproto:2:3: Message type "nproto_test.Retired.Block" has no field named "flat_gain". )"
+                                        "(the flat keys moved into block, tools/nproto/README.md)");
+}
+
+TEST(HeaderTest, AFileOfAnotherMessageIsRefused) {
+  const std::string text = "# proto-file: tools/nproto/test/scalars.proto\n# proto-message: nproto_test.Scalars\n\nint32_value: 1\n";
+  const absl::StatusOr<nproto_test::Oneofs> wrong = ParseTextproto<nproto_test::Oneofs>(text, "scalars.textproto");
+  EXPECT_EQ(wrong.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(wrong.status().message(),
+            "scalars.textproto:2:1: scalars.textproto is a nproto_test.Scalars (its '# proto-message:' header), not a nproto_test.Oneofs");
+  // The message the header names parses, and so does a file without a header.
+  EXPECT_TRUE(ParseTextproto<nproto_test::Scalars>(text, "scalars.textproto").ok());
+  EXPECT_TRUE(ParseTextproto<nproto_test::Oneofs>("radius: 1\n", "no_header.textproto").ok());
+}
+
+TEST(HeaderTest, OnlyTheLeadingCommentBlockIsTheHeader) {
+  // After the first field, a comment that looks like a header is a comment.
+  const absl::StatusOr<nproto_test::Oneofs> later =
+      ParseTextproto<nproto_test::Oneofs>("# A comment.\n\nradius: 1\n# proto-message: nproto_test.Scalars\n", "later.textproto");
+  EXPECT_TRUE(later.ok()) << later.status();
 }
 
 TEST(TextprotoTest, AMissingFileIsNotFound) {

@@ -40,48 +40,39 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid::visualization {
 
-// The keys of the robot's task file (config/mpc/task.yaml) the visualization publisher reads. Every key is optional.
-// LINT.IfChange(visualization_task_keys)
+// The fields of the robot's task file (config/mpc/task.textproto, humanoid_mpc_config.TaskFile) the visualization
+// publisher reads, as its messages name them. Every field is optional.
+// LINT.IfChange(visualization_task_fields)
 /** [Hz] How often viz/scene is published at most: a positive number. */
-inline constexpr absl::string_view kRerunSceneFrequencyKey = "rerunSceneFrequency";
+inline constexpr absl::string_view kRerunSceneFrequencyField = "rerun_scene_frequency";
 /** The frames of the frames/<kind>/<frame>/<source> telemetry groups: a list of frame names. */
-inline constexpr absl::string_view kTelemetryFramesKey = "telemetryFrames";
+inline constexpr absl::string_view kTelemetryFramesField = "telemetry_frames";
 /** The frames whose planned paths world/plan/end_effectors draws, one line strip each: a list of frame names. */
-inline constexpr absl::string_view kRerunPlanFramesKey = "rerunPlanFrames";
-// clang-format off
-// LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:visualization_keys, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:visualization_keys, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml:visualization_keys, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml:visualization_keys, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.yaml:visualization_keys, //humanoid_nmpc/humanoid_common_mpc_app/visualization/README.md:task_keys)
-// clang-format on
+inline constexpr absl::string_view kRerunPlanFramesField = "rerun_plan_frames";
+// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_file.proto:visualization_task_keys)
 
-/** [Hz] rerunSceneFrequency when the task file does not set it. */
+/** [Hz] rerun_scene_frequency when the task file does not set it. */
 inline constexpr scalar_t kDefaultRerunSceneFrequency = 30.0;
 
 /** What the visualization publisher takes from the task file. */
 struct VisualizationConfig {
-  /** [Hz] The most viz/scene messages per second (rerunSceneFrequency). */
+  /** [Hz] The most viz/scene messages per second (rerun_scene_frequency). */
   scalar_t sceneFrequency = kDefaultRerunSceneFrequency;
-  /** True when the task file does not set rerunSceneFrequency and the default applies. */
+  /** True when the task file does not set rerun_scene_frequency and the default applies. */
   bool sceneFrequencyIsDefault = true;
-  /** The frames of the frame telemetry groups (telemetryFrames); the contact frames when the file lists none. */
+  /** The frames of the frame telemetry groups (telemetry_frames); the contact frames when the file lists none. */
   std::vector<std::string> telemetryFrames;
-  /** The frames whose planned paths are drawn (rerunPlanFrames); the contact frames when the file lists none. */
+  /** The frames whose planned paths are drawn (rerun_plan_frames); the contact frames when the file lists none. */
   std::vector<std::string> planFrames;
 };
 
 /**
- * Reads the visualization keys from the YAML text of a task file. A key the text does not carry takes its default.
+ * What the visualization publisher takes from the task file `taskFile` (a robot's config/mpc/task.textproto, read
+ * strictly: loadTaskFile(), then visualizationConfigFromConfig() over the contact frames of `modelSettings`).
  *
- * @param yamlText The task file's contents.
- * @param source Names the text in error messages, usually the file's path.
- * @param modelSettings The robot's model settings: their contact frames are the default frame lists.
- * @return InvalidArgument naming the source and the key when the text does not parse, when rerunSceneFrequency is not
- *         a positive finite number, or when a frame list is not a list of distinct names made of letters, digits, '_',
- *         '-' and '.' (the characters of an entity path of the Rerun bridge).
+ * @return The errors of loadTaskFile(), which name the file, the line and the column, and those of
+ *         visualizationConfigFromConfig() prefixed with the file.
  */
-absl::StatusOr<VisualizationConfig> parseVisualizationConfig(absl::string_view yamlText,
-                                                             absl::string_view source,
-                                                             const ModelSettings& modelSettings);
-
-/** parseVisualizationConfig() of the file at `taskFile`; NotFound when it cannot be read. */
 absl::StatusOr<VisualizationConfig> loadVisualizationConfig(const std::string& taskFile, const ModelSettings& modelSettings);
 
 /** One line for the start-up log: the scene rate (and whether it is the default) and the frame lists. */

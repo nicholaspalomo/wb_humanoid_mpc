@@ -27,20 +27,19 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include "humanoid_common_mpc/orientation/BaseOrientation.h"
-
-#include <gtest/gtest.h>
-
 #include <functional>
 #include <memory>
 #include <random>
 #include <string>
+#include <utility>
 #include <vector>
-
-#include <ocs2_core/automatic_differentiation/CppAdInterface.h>
 
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
+#include "ocs2_core/automatic_differentiation/CppAdInterface.h"
+
+#include "humanoid_common_mpc/orientation/BaseOrientation.h"
 
 /*
  * Step 5 of humanoid_nmpc/docs/quaternion_base_orientation/README.md: the two pieces of quaternion algebra the
@@ -68,11 +67,11 @@ constexpr Eigen::Index kAngularVelocityDim = 3;
 constexpr Eigen::Index kVariableDim = kQuaternionDim + kAngularVelocityDim;
 
 /** Generated code (-O3 -ffast-math) against the double-precision overloads. */
-constexpr scalar_t kValueTolerance = 1e-13;
-constexpr scalar_t kFiniteDifferenceStep = 1e-6;
+constexpr scalar_t kValueTolerance = 1.0e-13;
+constexpr scalar_t kFiniteDifferenceStep = 1.0e-6;
 /** Below epsilon, so the finite differences at the zero quaternion stay on the branch they check. */
-constexpr scalar_t kSmallFiniteDifferenceStep = 1e-9;
-constexpr scalar_t kFiniteDifferenceTolerance = 1e-8;
+constexpr scalar_t kSmallFiniteDifferenceStep = 1.0e-9;
+constexpr scalar_t kFiniteDifferenceTolerance = 1.0e-8;
 
 /** Fixed weights that reduce the outputs to two, so that CppADCodeGen generates the Jacobian in reverse mode. */
 vector4_t normalizedWeights() {
@@ -226,7 +225,7 @@ std::vector<vector_t> evaluationPoints() {
 /** The zero quaternion and one below epsilon, where n_safe = 1 is constant. */
 std::vector<vector_t> pointsBelowTheGuard() {
   return {variables(vector4_t(vector4_t::Zero()), vector3_t(0.4, -0.9, 1.3)),
-          variables(vector4_t(1e-7 * vector4_t(0.3, -0.5, 0.1, 0.8)), vector3_t(-1.1, 0.2, 0.6))};
+          variables(vector4_t(1.0e-7 * vector4_t(0.3, -0.5, 0.1, 0.8)), vector3_t(-1.1, 0.2, 0.6))};
 }
 
 TEST(BaseOrientationCppAd, TapesRecordNoComparisonBetweenVariables) {

@@ -32,22 +32,43 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 #include <string>
+#include <vector>
 
+#include "absl/base/nullability.h"
+
+#include "humanoid_common_mpc/HumanoidPreComputation.h"
 #include "humanoid_wb_mpc/constraint/EndEffectorDynamicsLinearAccConstraint.h"
-
-#include <humanoid_common_mpc/HumanoidPreComputation.h>
 
 namespace ocs2::humanoid {
 
-/** Callback for caching and reference update */
+/**
+ * The pre-computation of the whole-body MPC: on a constraint request it updates the Pinocchio kinematics at the node and
+ * derives, per foot, the coefficients of the swing foot's normal-motion constraint (SwingLegVerticalConstraintCppAd)
+ * from the swing trajectory planner and its own gains, and the rotation of each contact frame. The gains start as the
+ * model settings' and are retuned per copy (setSwingFootGains(), setNormalVelocityPositionErrorGain()), because the
+ * model settings are shared by every worker thread's copy. Not thread-safe; the solver clones one per worker thread.
+ */
 class WBMpcPreComputation : public HumanoidPreComputation {
  public:
+  /**
+   * The gains of the swing foot's normal-motion constraint besides the position gain (the base's
+   * getNormalVelocityPositionErrorGain()): model_settings.foot_constraint.linear_velocity_error_gain_z and
+   * linear_acceleration_error_gain_z.
+   */
+  struct SwingFootGains {
+    scalar_t linearVelocityErrorGainZ = 0.0;
+    scalar_t linearAccelerationErrorGainZ = 0.0;
+  };
+
   WBMpcPreComputation(PinocchioInterface pinocchioInterface,
                       const SwingTrajectoryPlanner& swingTrajectoryPlanner,
                       const MpcRobotModelBase<scalar_t>& mpcRobotModel);
   ~WBMpcPreComputation() override = default;
+  WBMpcPreComputation& operator=(const WBMpcPreComputation&) = delete;
+  WBMpcPreComputation(WBMpcPreComputation&&) = delete;
+  WBMpcPreComputation& operator=(WBMpcPreComputation&&) = delete;
 
-  WBMpcPreComputation* clone() const override;
+  WBMpcPreComputation* absl_nonnull clone() const override;
 
   void request(RequestSet request, scalar_t t, const vector_t& x, const vector_t& u) override;
 
@@ -55,10 +76,20 @@ class WBMpcPreComputation : public HumanoidPreComputation {
     return eeNormalAccConConfigs_;
   }
 
+  /** Retunes the swing foot's velocity and acceleration gains from the next request on; for the parameter updater. */
+  void setSwingFootGains(const SwingFootGains& gains) { swingFootGains_ = gains; }
+  /** Returns the swing foot's velocity and acceleration gains in use. */
+  const SwingFootGains& getSwingFootGains() const { return swingFootGains_; }
+
  private:
   WBMpcPreComputation(const WBMpcPreComputation& rhs);
 
-  std::vector<EndEffectorDynamicsLinearAccConstraint ::Config> eeNormalAccConConfigs_;
+  /** Returns the coefficients of the normal-motion constraint of the swing foot `footIndex` at time `t`. */
+  EndEffectorDynamicsLinearAccConstraint::Config normalAccelerationConstraintConfig(size_t footIndex, scalar_t t) const;
+
+  std::vector<EndEffectorDynamicsLinearAccConstraint::Config> eeNormalAccConConfigs_;
+  // Seeded from the model settings at construction and carried by every copy; see setSwingFootGains().
+  SwingFootGains swingFootGains_;
 };
 
 }  // namespace ocs2::humanoid

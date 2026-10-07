@@ -1,31 +1,29 @@
-"""****************************************************************************
-Copyright (c) 2026, Nicholas Palomo. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-* Redistributions of source code must retain the above copyright notice, this
-  list of conditions and the following disclaimer.
-
-* Redistributions in binary form must reproduce the above copyright notice,
-  this list of conditions and the following disclaimer in the documentation
-  and/or other materials provided with the distribution.
-
-* Neither the name of the copyright holder nor the names of its
-  contributors may be used to endorse or promote products derived from
-  this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-****************************************************************************"""
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """The GUI's "Open Rerun viewer" button: starts the Rerun bridge, which opens the native Rerun viewer.
 
@@ -38,13 +36,13 @@ compete with the operator's own builds for the machine's memory (AGENTS.md).
 Free of Tk, so that test/test_rerun_viewer.py covers it headless.
 """
 
+from collections.abc import Callable
 import ctypes
 import dataclasses
 import logging
 import os
 import signal
 import subprocess
-from typing import Callable, List, Optional
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -63,13 +61,15 @@ STOP_GRACE_PERIOD = 2.0
 _PR_SET_PDEATHSIG = 1
 
 
-def _parent_death_signal() -> Optional[Callable[[], None]]:
+def _parent_death_signal() -> Callable[[], None] | None:
     """A preexec_fn for the bridge: the kernel sends it SIGTERM when the GUI ends, however it ends.
 
     close() stops the bridge when the GUI shuts down; this covers a GUI that is killed (SIGKILL, a crash), which runs
     no cleanup. The signal follows the thread that started the bridge, which is the GUI's main (Tk) thread. Everything
-    the child calls is looked up here, before the fork: between fork and exec it only makes two system calls. None
-    where libc has no prctl.
+    the child calls is looked up here, before the fork: between fork and exec it only makes two system calls.
+
+    Returns:
+        The function the child runs between fork and exec, or None where libc has no prctl.
     """
     try:
         prctl = ctypes.CDLL(None, use_errno=True).prctl
@@ -84,7 +84,8 @@ def _parent_death_signal() -> Optional[Callable[[], None]]:
         prctl(option, signum, unused, unused, unused)
         if os.getppid() != parent:
             # The GUI ended before the request took effect: no signal will come.
-            os._exit(1)  # pylint: disable=protected-access
+            # pylint: disable-next=protected-access  # A forked child exits without cleanup.
+            os._exit(1)
 
     return set_parent_death_signal
 
@@ -118,13 +119,13 @@ class RerunViewerLauncher:
         self._network_config = network_config
         self._urdf_file = urdf_file
         self._popen = popen
-        self._process: Optional[subprocess.Popen] = None
+        self._process: subprocess.Popen | None = None
 
     @property
     def binary(self) -> str:
         return os.path.join(self._repo_root, RERUN_BRIDGE_BINARY)
 
-    def command(self) -> List[str]:
+    def command(self) -> list[str]:
         """The bridge's command line: its binary, the network file and, when known, the robot's URDF."""
         # LINT.IfChange(rerun_bridge_flags)
         command = [self.binary, f"--network_config={self._network_config}"]
@@ -152,6 +153,9 @@ class RerunViewerLauncher:
                 ),
             )
         try:
+            # preexec_fn only sets the parent-death signal (PR_SET_PDEATHSIG), which start_new_session cannot do; the
+            # function calls nothing that could take a lock another thread holds (_parent_death_signal).
+            # pylint: disable-next=subprocess-popen-preexec-fn  # The parent-death signal needs it (above).
             self._process = self._popen(
                 self.command(),
                 cwd=self._repo_root,

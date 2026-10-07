@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <functional>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/model_data/Metrics.h>
 #include <ocs2_core/model_data/Multiplier.h>
 
@@ -140,7 +142,7 @@ void updateIntermediateMultiplierCollection(const OptimalControlProblem& ocp, sc
  * @param [in] metrics : Metrics.
  * @return A const pointer to the constraint term value.
  */
-const vector_t* extractFinalTermConstraint(const OptimalControlProblem& ocp, const std::string& name, const Metrics& metrics);
+const vector_t* absl_nullable extractFinalTermConstraint(const OptimalControlProblem& ocp, const std::string& name, const Metrics& metrics);
 
 /**
  * Extracts a requested final term LagrangianMetrics from the input Metrics.
@@ -149,8 +151,9 @@ const vector_t* extractFinalTermConstraint(const OptimalControlProblem& ocp, con
  * @param [in] metrics : Metrics.
  * @return A const pointer to the term LagrangianMetrics.
  */
-const LagrangianMetrics* extractFinalTermLagrangianMetrics(const OptimalControlProblem& ocp, const std::string& name,
-                                                           const Metrics& metrics);
+const LagrangianMetrics* absl_nullable extractFinalTermLagrangianMetrics(const OptimalControlProblem& ocp,
+                                                                         const std::string& name,
+                                                                         const Metrics& metrics);
 
 /**
  * Extracts an array of the requested pre-jump constraint term from the input Metrics array.
@@ -206,8 +209,9 @@ bool extractIntermediateTermLagrangianMetrics(const OptimalControlProblem& ocp, 
  * @param [out] multiplier : A const reference to the term Multiplier.
  * @return True if the term found in the final collection.
  */
-const Multiplier* extractFinalTermMultiplier(const OptimalControlProblem& ocp, const std::string& name,
-                                             const MultiplierCollection& multiplierColl);
+const Multiplier* absl_nullable extractFinalTermMultiplier(const OptimalControlProblem& ocp,
+                                                           const std::string& name,
+                                                           const MultiplierCollection& multiplierColl);
 
 /**
  * Extracts a requested pre-jump Term Multiplier array from the input MultiplierCollection array.

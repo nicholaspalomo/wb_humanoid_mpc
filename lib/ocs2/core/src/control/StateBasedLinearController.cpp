@@ -29,12 +29,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/control/StateBasedLinearController.h>
 
+#include "absl/base/nullability.h"
+
 namespace ocs2 {
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void StateBasedLinearController::setController(ControllerBase* ctrlPtr) {
+void StateBasedLinearController::setController(ControllerBase* absl_nullable ctrlPtr) {
   if (ctrlPtr == nullptr) {
     throw std::runtime_error("The controller pointer is null!");
   }
@@ -45,8 +47,10 @@ void StateBasedLinearController::setController(ControllerBase* ctrlPtr) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-vector_t StateBasedLinearController::computeTrajectorySpreadingInput(scalar_t t, const vector_t& x, const scalar_array_t& ctrlEventTimes,
-                                                                     ControllerBase* ctrlPtr) {
+vector_t StateBasedLinearController::computeTrajectorySpreadingInput(scalar_t t,
+                                                                     const vector_t& x,
+                                                                     const scalar_array_t& ctrlEventTimes,
+                                                                     ControllerBase* absl_nonnull ctrlPtr) {
   size_t currentMode = static_cast<size_t>(x.tail(1).value());
   size_t numEvents = ctrlEventTimes.size();
 
@@ -88,7 +92,7 @@ vector_t StateBasedLinearController::computeInput(scalar_t t, const vector_t& x)
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void StateBasedLinearController::concatenate(const ControllerBase* nextController, int index, int length) {
+void StateBasedLinearController::concatenate(const ControllerBase* absl_nonnull nextController, int index, int length) {
   ctrlPtr_->concatenate(nextController, index, length);
 }
 
@@ -130,7 +134,7 @@ void StateBasedLinearController::display() const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-StateBasedLinearController* StateBasedLinearController::clone() const {
+StateBasedLinearController* absl_nonnull StateBasedLinearController::clone() const {
   return new StateBasedLinearController(*this);
 }
 

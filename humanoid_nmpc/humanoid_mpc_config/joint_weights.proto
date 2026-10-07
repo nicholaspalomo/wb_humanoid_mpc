@@ -1,0 +1,37 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/joint_value.proto";
+import "nproto/options.proto";
+import "nproto/retired_field_options.proto";
+
+// Weights by joint: the torque costs of the legs (left_leg_torque_cost and right_leg_torque_cost of the centroidal MPC,
+// formerly activeJointNames beside a column vector `weights` by "(i,0)" index) and of every joint (joint_torque_weights
+// of the whole-body MPC, formerly a column vector by joint index). The weight of a joint is `scaling` times its value.
+//
+// A leg's torque cost weighs the joints it lists, in the order it lists them, each at most once, and needs at least
+// one; joint_torque_weights names each joint of the MPC model exactly once, in any order. Both refuse a fixed joint
+// and a name the model does not have.
+// Next ID: 3
+message JointWeights {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::JointWeights";
+  option (nproto.retired_field) = {
+    name: "active_joint_names"
+    replacement: "list each joint with its weight: joints { joint: \"...\" value: ... }"
+  };
+  option (nproto.retired_field) = {
+    name: "weights"
+    replacement: "list each joint with its weight: joints { joint: \"...\" value: ... }"
+  };
+  option (nproto.retired_field) = {
+    name: "default"
+    replacement: "name every joint with its weight"
+  };
+
+  reserved 3 to max;
+
+  // The factor of every value below.
+  double scaling = 1 [default = 1.0];
+  repeated JointValue joints = 2;
+}

@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
 
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
@@ -73,7 +75,7 @@ class CentroidalModelPinocchioMappingTpl final : public PinocchioStateInputMappi
   explicit CentroidalModelPinocchioMappingTpl(CentroidalModelInfoTpl<SCALAR> centroidalModelInfo);
 
   ~CentroidalModelPinocchioMappingTpl() override = default;
-  CentroidalModelPinocchioMappingTpl* clone() const override;
+  CentroidalModelPinocchioMappingTpl* absl_nonnull clone() const override;
 
   /** Sets the pinocchio interface for caching
    * @param [in] pinocchioInterface: pinocchio interface on which computations are expected. It will keep a pointer for the getters.
@@ -123,7 +125,7 @@ class CentroidalModelPinocchioMappingTpl final : public PinocchioStateInputMappi
  private:
   CentroidalModelPinocchioMappingTpl(const CentroidalModelPinocchioMappingTpl& rhs);
 
-  const PinocchioInterfaceTpl<SCALAR>* pinocchioInterfacePtr_;
+  const PinocchioInterfaceTpl<SCALAR>* absl_nullable pinocchioInterfacePtr_;
   const CentroidalModelInfoTpl<SCALAR> centroidalModelInfo_;
 };
 

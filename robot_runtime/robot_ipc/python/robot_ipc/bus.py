@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """The ZeroMQ bus of the distributed runtime, in Python: the twin of robot_ipc/Bus.h.
 
 A bus binds one PUB socket at the endpoint of its node (unless it only subscribes) and connects one SUB socket to every
@@ -8,11 +35,13 @@ Both sockets belong to the bus's receive thread, which start() launches. Callbac
 one at a time. publish() may be called from any thread: it serializes on the caller and queues the frames for the
 receive thread, which an eventfd wakes at once.
 
-    with Bus("operator", load_network_config("config/ipc/network.textproto")) as bus:
+    network = robot_ipc.load_network_config("config/ipc/network.textproto")
+    with robot_ipc.Bus("operator", network) as bus:
         ...  # subscribe() before entering, publish() inside
 """
 
 import collections
+from collections.abc import Callable
 import dataclasses
 import enum
 import logging
@@ -20,18 +49,13 @@ import math
 import os
 import threading
 import time
+from typing import Any
 import weakref
-from typing import Any, Callable, Deque, Dict, List, Optional, Tuple, Type, Union
 
-import zmq
 from google.protobuf import message as protobuf_message
+import zmq
 
-from robot_ipc.network_config import (
-    EPHEMERAL_PORT,
-    NetworkConfig,
-    NetworkConfigError,
-    validate_network_config,
-)
+from robot_ipc import network_config
 
 _LOGGER = logging.getLogger("robot_ipc")
 
@@ -62,8 +86,14 @@ class Delivery(str, enum.Enum):
 # LINT.ThenChange(//robot_runtime/robot_ipc/src/Delivery.cpp:delivery_names)
 
 
-def parse_delivery(value: Union[str, Delivery]) -> Delivery:
+def parse_delivery(value: str | Delivery) -> Delivery:
     """The delivery of that name ("latest" or "all").
+
+    Args:
+        value: The name of a delivery, or a Delivery, which is returned as it is.
+
+    Returns:
+        The Delivery that `value` names.
 
     Raises:
         ValueError: an unknown name; the message lists the valid ones.
@@ -115,11 +145,11 @@ class _Subscription:
     delivery: Delivery
     callback: Callable[..., None]
     # None for subscribe_raw(), which takes any type.
-    message_class: Optional[Type[protobuf_message.Message]]
+    message_class: type[protobuf_message.Message] | None
     expected_type: bytes
     statistics: TopicStatistics
     # Delivery.LATEST: (type name, payload) of the newest message of the current drain, not yet parsed.
-    latest: Optional[Tuple[bytes, bytes]] = None
+    latest: tuple[bytes, bytes] | None = None
 
 
 @dataclasses.dataclass
@@ -133,7 +163,7 @@ class _RateLimitedLog:
     """Logs each kind of problem at most once per _LOG_PERIOD."""
 
     def __init__(self) -> None:
-        self._last: Dict[str, float] = {}
+        self._last: dict[str, float] = {}
 
     def warning(self, kind: str, text: str, exc_info: bool = False) -> None:
         now = time.monotonic()
@@ -150,7 +180,7 @@ def _port_of(endpoint: str) -> int:
     try:
         return int(endpoint.rsplit(":", 1)[1])
     except (IndexError, ValueError):
-        return EPHEMERAL_PORT
+        return network_config.EPHEMERAL_PORT
 
 
 def _self_connect_endpoint(bound_endpoint: str) -> str:
@@ -179,7 +209,7 @@ class Bus:
         reconnect_interval_max: ...backing off up to this.
 
     Raises:
-        NetworkConfigError: the network is invalid.
+        network_config.NetworkConfigError: the network is invalid.
         ValueError: the node is not in the network, or an option is out of range.
         BusError: the node's endpoint cannot be bound.
     """
@@ -188,7 +218,7 @@ class Bus:
     def __init__(
         self,
         node_name: str,
-        network: NetworkConfig,
+        network: network_config.NetworkConfig,
         *,
         io_poll_period: float = 0.1,
         send_high_water_mark: int = 1000,
@@ -201,13 +231,14 @@ class Bus:
         reconnect_interval_max: float = 1.0,
     ) -> None:
         # LINT.ThenChange(//robot_runtime/robot_ipc/include/robot_ipc/BusOptions.h:bus_defaults)
-        validate_network_config(network)
+        network_config.validate_network_config(network)
         node = network.find(node_name) if node_name else None
         if node_name and node is None:
             raise ValueError(
                 f"node '{node_name}' is not in the network (nodes: {', '.join(network.node_names())})"
             )
-        if io_poll_period <= 0:
+        # The float checks are negated, so that NaN fails them too (AGENTS.md, Python: negated float comparisons).
+        if not io_poll_period > 0:
             raise ValueError("io_poll_period must be positive")
         if send_high_water_mark < 0 or receive_high_water_mark < 0:
             raise ValueError("the high-water marks must be >= 0 (0: no limit)")
@@ -215,9 +246,9 @@ class Bus:
             raise ValueError(
                 "publish_queue_capacity and max_messages_per_drain must be positive"
             )
-        if heartbeat_interval < 0 or heartbeat_timeout < 0:
+        if not (heartbeat_interval >= 0 and heartbeat_timeout >= 0):
             raise ValueError("heartbeat_interval and heartbeat_timeout must be >= 0")
-        if reconnect_interval <= 0 or reconnect_interval_max < 0:
+        if not (reconnect_interval > 0 and reconnect_interval_max >= 0):
             raise ValueError(
                 "reconnect_interval must be positive and reconnect_interval_max >= 0"
             )
@@ -232,32 +263,34 @@ class Bus:
         self._reconnect_interval_max = reconnect_interval_max
 
         self._lifecycle_lock = threading.Lock()
-        self._thread: Optional[threading.Thread] = None
-        self._io_thread_ident: Optional[int] = None
+        self._thread: threading.Thread | None = None
+        self._io_thread_ident: int | None = None
         self._stop_requested = threading.Event()
         self._closed = False
 
-        self._subscriptions: Dict[bytes, _Subscription] = {}
-        self._latest_subscriptions: List[_Subscription] = []
-        self._all_topics_callback: Optional[TopicCallback] = None
-        self._periodic_callbacks: List[_PeriodicCallback] = []
+        self._subscriptions: dict[bytes, _Subscription] = {}
+        self._latest_subscriptions: list[_Subscription] = []
+        self._all_topics_callback: TopicCallback | None = None
+        self._periodic_callbacks: list[_PeriodicCallback] = []
         self._periodic_callback_errors = 0
 
         self._queue_lock = threading.Lock()
-        self._queue: Deque[Tuple[str, Tuple[bytes, bytes, bytes]]] = collections.deque()
+        self._queue: collections.deque[tuple[str, tuple[bytes, bytes, bytes]]] = (
+            collections.deque()
+        )
         self._statistics_lock = threading.Lock()
-        self._statistics: Dict[str, TopicStatistics] = {}
+        self._statistics: dict[str, TopicStatistics] = {}
         self._log = _RateLimitedLog()
 
         self._bound_endpoint = ""
-        self._subscriber_endpoints: List[str] = []
+        self._subscriber_endpoints: list[str] = []
         self._wake_fd = os.eventfd(0, os.EFD_NONBLOCK | os.EFD_CLOEXEC)
         # Closed with the bus object, not by close(): a thread that still holds the bus may call publish() after
         # close(), and a closed descriptor's number can be handed to another file or socket of the process, which a
         # wake-up would then write into. close() makes publish() refuse instead.
         self._wake_fd_finalizer = weakref.finalize(self, os.close, self._wake_fd)
         self._context = zmq.Context()
-        self._publisher: Optional[zmq.Socket] = None
+        self._publisher: zmq.Socket | None = None
         try:
             if node is not None:
                 self._publisher = self._context.socket(zmq.PUB)
@@ -281,7 +314,7 @@ class Bus:
             for peer in network.nodes:
                 if node is not None and peer.name == node.name:
                     endpoint = _self_connect_endpoint(self._bound_endpoint)
-                elif peer.port == EPHEMERAL_PORT:
+                elif peer.port == network_config.EPHEMERAL_PORT:
                     # Bound wherever its kernel chose; reachable through connect() only.
                     continue
                 else:
@@ -300,6 +333,7 @@ class Bus:
             raise
 
     def _configure_socket(self, socket: zmq.Socket) -> None:
+        """Sets the options both sockets share: linger, heartbeats, TCP keepalive and reconnect backoff."""
         socket.setsockopt(zmq.LINGER, _LINGER_MS)
         socket.setsockopt(zmq.HEARTBEAT_IVL, _milliseconds(self._heartbeat_interval))
         socket.setsockopt(zmq.HEARTBEAT_TIMEOUT, _milliseconds(self._heartbeat_timeout))
@@ -323,13 +357,24 @@ class Bus:
     def subscribe(
         self,
         topic: str,
-        message_class: Type[protobuf_message.Message],
+        message_class: type[protobuf_message.Message],
         callback: MessageCallback,
-        delivery: Union[str, Delivery] = Delivery.LATEST,
+        delivery: str | Delivery = Delivery.LATEST,
     ) -> None:
         """Hands every message of exactly `topic` that carries `message_class` to `callback`, on the receive thread.
 
         A message of another type, or one that does not parse, is rejected and counted. One subscription per topic.
+
+        Args:
+            topic: The whole topic; ZeroMQ's prefix matches of other topics are not delivered.
+            message_class: The generated protobuf class the messages of the topic carry.
+            callback: Called with each parsed message.
+            delivery: Delivery.LATEST (or "latest") or Delivery.ALL (or "all").
+
+        Raises:
+            ValueError: `message_class` is not a generated message, the topic is empty or already subscribed, or the
+                callback is not callable.
+            BusError: the bus is running or closed.
         """
         descriptor = getattr(message_class, "DESCRIPTOR", None)
         if descriptor is None:
@@ -349,7 +394,7 @@ class Bus:
         self,
         topic: str,
         callback: RawCallback,
-        delivery: Union[str, Delivery] = Delivery.LATEST,
+        delivery: str | Delivery = Delivery.LATEST,
     ) -> None:
         """Hands every message of exactly `topic` to `callback(type_name, payload)`, whatever its type."""
         self._add_subscription(
@@ -367,6 +412,13 @@ class Bus:
         """Hands every message of every topic to `callback(topic, type_name, payload)`, in order (for tools/ipc).
 
         It sees the messages of the topics that have their own subscription too. It keeps no per-topic statistics.
+
+        Args:
+            callback: Called with the topic, the type name and the serialized message of each message.
+
+        Raises:
+            ValueError: the callback is not callable, or the bus already has a subscription to every topic.
+            BusError: the bus is running or closed.
         """
         if not callable(callback):
             raise ValueError("the callback is not callable")
@@ -378,6 +430,7 @@ class Bus:
             self._all_topics_callback = callback
 
     def _add_subscription(self, subscription: _Subscription) -> None:
+        """Validates `subscription` and subscribes the SUB socket to its topic; the bus must not be running."""
         if not isinstance(subscription.topic, str) or not subscription.topic:
             raise ValueError(
                 "the topic is empty (ZeroMQ would match every topic with it)"
@@ -404,7 +457,7 @@ class Bus:
         self, period: float, callback: Callable[[], None]
     ) -> None:
         """Calls `callback` on the receive thread every `period` seconds, on absolute deadlines from start()."""
-        if period <= 0:
+        if not period > 0:  # Negated, so that NaN fails it too.
             raise ValueError("a periodic callback needs a positive period")
         if not callable(callback):
             raise ValueError("the periodic callback is not callable")
@@ -531,6 +584,10 @@ class Bus:
 
         A message published while the bus is not running stays queued until start().
 
+        Args:
+            topic: The topic to publish on.
+            message: The message; it is serialized on the calling thread.
+
         Returns:
             False when the queue to the receive thread was full and the message was dropped (counted).
 
@@ -565,6 +622,10 @@ class Bus:
         self, topic: str, message: protobuf_message.Message
     ) -> None:
         """Publishes from a callback or a periodic callback, straight onto the socket.
+
+        Args:
+            topic: The topic to publish on.
+            message: The message, sent after whatever publish() queued before it.
 
         Raises:
             BusError: called from another thread, or the bus only subscribes.
@@ -623,11 +684,13 @@ class Bus:
     def bound_port(self) -> int:
         """The port of bound_endpoint (the kernel's choice for EPHEMERAL_PORT), or EPHEMERAL_PORT."""
         return (
-            _port_of(self._bound_endpoint) if self._bound_endpoint else EPHEMERAL_PORT
+            _port_of(self._bound_endpoint)
+            if self._bound_endpoint
+            else network_config.EPHEMERAL_PORT
         )
 
     @property
-    def subscriber_endpoints(self) -> List[str]:
+    def subscriber_endpoints(self) -> list[str]:
         """The endpoints the SUB socket is connected to, in the order they were connected."""
         with self._lifecycle_lock:
             return list(self._subscriber_endpoints)
@@ -643,7 +706,7 @@ class Bus:
             statistics = self._statistics.get(topic)
             return dataclasses.replace(statistics) if statistics else TopicStatistics()
 
-    def statistics(self) -> Dict[str, TopicStatistics]:
+    def statistics(self) -> dict[str, TopicStatistics]:
         """The counters of every topic the bus has published or subscribed."""
         with self._statistics_lock:
             return {
@@ -663,6 +726,7 @@ class Bus:
     # ------------------------------------------------------------------------------------------------------------------
 
     def _run(self) -> None:
+        """The receive thread: polls the sockets and the eventfd, sends, drains and runs the due periodic callbacks."""
         self._io_thread_ident = threading.get_ident()
         poller = zmq.Poller()
         poller.register(self._subscriber, zmq.POLLIN)
@@ -679,14 +743,16 @@ class Bus:
                     self._run_due_callbacks(time.monotonic())
                 except zmq.ContextTerminated:
                     break
-                except Exception:  # pylint: disable=broad-except
+                # pylint: disable-next=broad-exception-caught  # The outermost loop of the receive thread.
+                except Exception:
                     # Nothing escapes the receive thread.
                     self._log.warning(
                         "loop", "the receive thread caught an exception", exc_info=True
                     )
             try:
                 self._send_queued()
-            except Exception:  # pylint: disable=broad-except
+            # pylint: disable-next=broad-exception-caught  # The receive thread's last act; nothing escapes it.
+            except Exception:
                 self._log.warning(
                     "stop",
                     "sending the queued messages at stop() failed",
@@ -714,11 +780,24 @@ class Bus:
         for topic, frames in sending:
             self._send(topic, frames)
 
-    def _send(self, topic: str, frames: Tuple[bytes, bytes, bytes]) -> None:
-        assert self._publisher is not None
+    def _send(self, topic: str, frames: tuple[bytes, bytes, bytes]) -> None:
+        """Writes one message to the PUB socket without blocking, and counts it as sent or dropped.
+
+        Args:
+            topic: The topic the statistics count the message under.
+            frames: The topic, the type name and the serialized message.
+
+        Raises:
+            BusError: the bus only subscribes, so it has no PUB socket.
+        """
+        publisher = self._publisher
+        if publisher is None:
+            raise BusError(
+                f"cannot send on '{topic}': this bus has no node name, so it only subscribes"
+            )
         try:
             # A PUB socket never blocks: at a subscriber's high-water mark ZeroMQ drops the message for it.
-            self._publisher.send_multipart(frames, zmq.NOBLOCK)
+            publisher.send_multipart(frames, zmq.NOBLOCK)
             sent = True
         except zmq.Again:
             sent = False
@@ -733,13 +812,15 @@ class Bus:
                 statistics.send_dropped += 1
 
     def _drain(self) -> None:
+        """Reads up to max_messages_per_drain messages and dispatches them, the newest one of each LATEST topic last."""
         for _ in range(self._max_messages_per_drain):
             try:
                 frames = self._subscriber.recv_multipart(zmq.NOBLOCK)
             except zmq.Again:
                 break
-            if self._all_topics_callback is not None:
-                self._dispatch_all_topics(frames)
+            all_topics_callback = self._all_topics_callback
+            if all_topics_callback is not None:
+                self._dispatch_all_topics(all_topics_callback, frames)
             # ZeroMQ matched a prefix; the topic must match whole.
             subscription = self._subscriptions.get(frames[0])
             if subscription is None:
@@ -769,18 +850,20 @@ class Bus:
                 subscription.latest = None
                 self._dispatch(subscription, type_name, payload)
 
-    def _dispatch_all_topics(self, frames: List[bytes]) -> None:
+    def _dispatch_all_topics(
+        self, callback: TopicCallback, frames: list[bytes]
+    ) -> None:
+        """Hands one message to the subscription to every topic; a message of other than three frames is skipped."""
         if len(frames) != 3:
             return
-        callback = self._all_topics_callback
-        assert callback is not None
         try:
             callback(
                 frames[0].decode("utf-8", errors="replace"),
                 frames[1].decode("utf-8", errors="replace"),
                 frames[2],
             )
-        except Exception:  # pylint: disable=broad-except
+        # pylint: disable-next=broad-exception-caught  # A raising callback must not end the receive thread.
+        except Exception:
             self._log.warning(
                 "all_topics", "the callback of every topic raised", exc_info=True
             )
@@ -788,6 +871,7 @@ class Bus:
     def _dispatch(
         self, subscription: _Subscription, type_name: bytes, payload: bytes
     ) -> None:
+        """Parses one message of `subscription` and hands it to its callback, counting a rejection or a raise."""
         statistics = subscription.statistics
         if subscription.expected_type and type_name != subscription.expected_type:
             with self._statistics_lock:
@@ -798,7 +882,7 @@ class Bus:
                 f"takes a {subscription.expected_type.decode()}",
             )
             return
-        arguments: Tuple[Any, ...]
+        arguments: tuple[Any, ...]
         if subscription.message_class is not None:
             try:
                 arguments = (subscription.message_class.FromString(payload),)
@@ -816,7 +900,8 @@ class Bus:
             statistics.delivered += 1
         try:
             subscription.callback(*arguments)
-        except Exception:  # pylint: disable=broad-except
+        # pylint: disable-next=broad-exception-caught  # A raising callback must not end the receive thread.
+        except Exception:
             with self._statistics_lock:
                 statistics.handler_errors += 1
             self._log.warning(
@@ -826,12 +911,14 @@ class Bus:
             )
 
     def _run_due_callbacks(self, now: float) -> None:
+        """Calls each periodic callback whose deadline has passed, and schedules its next call."""
         for periodic in self._periodic_callbacks:
             if now < periodic.next_deadline:
                 continue
             try:
                 periodic.callback()
-            except Exception:  # pylint: disable=broad-except
+            # pylint: disable-next=broad-exception-caught  # A raising callback must not end the receive thread.
+            except Exception:
                 self._periodic_callback_errors += 1
                 self._log.warning(
                     "periodic", "a periodic callback raised", exc_info=True
@@ -846,7 +933,6 @@ __all__ = [
     "Bus",
     "BusError",
     "Delivery",
-    "NetworkConfigError",
     "TopicStatistics",
     "parse_delivery",
 ]

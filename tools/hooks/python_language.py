@@ -38,6 +38,9 @@
 - `py-power-feature` (2.19): no `__del__`, metaclasses, `exec` or `eval` outside tests.
 - `py-backslash` (3.2): no backslash line continuations; use parentheses.
 - `py-type-comment` (3.19): no `# type:` comments other than `# type: ignore[code]`; annotate.
+- `py-pragma-reason` (AGENTS.md): every `# pylint: disable=...` / `disable-next=...` and every `# type: ignore[code]`
+  says why after it, `  # <reason>` (a standalone pylint pragma may carry its reason on the comment line above it
+  instead), and `# pylint: skip-file` is not used.
 - `py-shebang` (3.7): a shebang if and only if the file is executable, and then exactly `#!/usr/bin/env python3`.
 - `py-main-guard` (3.17): the `__main__` guard calls `main()`, and nothing else runs at import time.
 """
@@ -61,6 +64,7 @@ EXCEPTION_NAME = "py-exception-name"
 POWER_FEATURE = "py-power-feature"
 BACKSLASH = "py-backslash"
 TYPE_COMMENT = "py-type-comment"
+PRAGMA_REASON = "py-pragma-reason"
 SHEBANG = "py-shebang"
 MAIN_GUARD = "py-main-guard"
 
@@ -377,6 +381,78 @@ def check_type_comment(source: str, path: str) -> list[check_types.Finding]:
     ]
 
 
+_PYLINT_PRAGMA = re.compile(
+    r"\bpylint:\s*(?P<kind>disable-next|disable|skip-file)\b(?:\s*=\s*(?P<messages>[\w\s,-]*[\w-]))?(?P<rest>.*)$"
+)
+_TYPE_IGNORE = re.compile(r"#\s*type:\s*ignore\[[^\]]*\](?P<rest>.*)$")
+# A reason after a pragma: a comment of its own, not a NOLINT marker (which needs a reason too).
+_PRAGMA_REASON = re.compile(r"^\s+#\s*(?!NOLINT)\S")
+
+
+def _reason_above(lines: list[str], line: int) -> bool:
+    """True when the line above `line` (1-based) is a comment that is not itself a pragma: a block pragma's reason."""
+    if line < 2:
+        return False
+    above = lines[line - 2].strip()
+    return (
+        above.startswith("#")
+        and bool(above.lstrip("#").strip())
+        and not _PYLINT_PRAGMA.search(above)
+    )
+
+
+def check_pragma_reason(source: str, path: str) -> list[check_types.Finding]:
+    """pylint pragmas and `# type: ignore[code]` comments without their reason, and `# pylint: skip-file`."""
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return []
+    lines = source.split("\n")
+    findings = []
+
+    def add(token: tokenize.TokenInfo, message: str) -> None:
+        findings.append(
+            check_types.Finding(
+                path,
+                token.start[0],
+                token.start[1] + 1,
+                PRAGMA_REASON,
+                f"{message} (AGENTS.md).",
+            )
+        )
+
+    for token in tokens:
+        if token.type != tokenize.COMMENT:
+            continue
+        ignore = _TYPE_IGNORE.search(token.string)
+        if ignore and not _PRAGMA_REASON.match(ignore.group("rest")):
+            add(
+                token,
+                "`# type: ignore[<code>]` without its reason: append `  # <why the type checker is wrong here>`",
+            )
+        pragma = _PYLINT_PRAGMA.search(token.string)
+        if pragma is None:
+            continue
+        if pragma.group("kind") == "skip-file":
+            add(
+                token,
+                "`# pylint: skip-file` silences every message of the file: disable each one where it occurs, with "
+                "its reason",
+            )
+            continue
+        if _PRAGMA_REASON.match(pragma.group("rest")):
+            continue
+        standalone = not token.line[: token.start[1]].strip()
+        if standalone and _reason_above(lines, token.start[0]):
+            continue
+        add(
+            token,
+            f"`# pylint: {pragma.group('kind')}=...` without its reason: append `  # <reason>`, as "
+            "`# pylint: disable=<message>  # <reason>`",
+        )
+    return findings
+
+
 def check_shebang(source: str, path: str) -> list[check_types.Finding]:
     """A shebang on a file that is not executable, or none (or another one) on a file that is."""
     full = os.path.join(ROOT, path)
@@ -494,6 +570,11 @@ CHECKS = [
     _check(BACKSLASH, check_backslash, "no backslash line continuations (3.2)."),
     _check(
         TYPE_COMMENT, check_type_comment, "annotations, not # type: comments (3.19)."
+    ),
+    _check(
+        PRAGMA_REASON,
+        check_pragma_reason,
+        "pylint pragmas and type: ignore comments say why; no pylint: skip-file (AGENTS.md).",
     ),
     _check(SHEBANG, check_shebang, "a shebang exactly on executable files (3.7)."),
     _check(

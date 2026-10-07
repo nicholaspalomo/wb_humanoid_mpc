@@ -1,0 +1,403 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/acom_weights.proto";
+import "humanoid_mpc_config/collision_constraint_config.proto";
+import "humanoid_mpc_config/com_weights.proto";
+import "humanoid_mpc_config/config_options.proto";
+import "humanoid_mpc_config/contact_implicit_config.proto";
+import "humanoid_mpc_config/contact_wrench_gate_config.proto";
+import "humanoid_mpc_config/contacts_config.proto";
+import "humanoid_mpc_config/dcm_terminal_cost_config.proto";
+import "humanoid_mpc_config/icp_cost_weights.proto";
+import "humanoid_mpc_config/input_weights.proto";
+import "humanoid_mpc_config/interface_config.proto";
+import "humanoid_mpc_config/joint_limits_config.proto";
+import "humanoid_mpc_config/joint_weights.proto";
+import "humanoid_mpc_config/locomotion_heuristics_config.proto";
+import "humanoid_mpc_config/mimic_joints_config.proto";
+import "humanoid_mpc_config/model_settings_config.proto";
+import "humanoid_mpc_config/mpc_link_config.proto";
+import "humanoid_mpc_config/mpc_settings_config.proto";
+import "humanoid_mpc_config/nominal_foothold_config.proto";
+import "humanoid_mpc_config/rollout_settings_config.proto";
+import "humanoid_mpc_config/sqp_settings_config.proto";
+import "humanoid_mpc_config/state_values.proto";
+import "humanoid_mpc_config/state_weights.proto";
+import "humanoid_mpc_config/swing_trajectory_config.proto";
+import "humanoid_mpc_config/task_space_cost_config.proto";
+import "nproto/options.proto";
+import "nproto/retired_field_options.proto";
+
+// A robot's MPC task file, config/mpc/task.textproto: what the MPC, the robot process, the visualization and the tuning
+// GUI read from it (README.md, "Schema map"). The names are snake_case; the weights and states that were matrices
+// by index are blocks by name (Q -> state_weights, R -> input_weights, Q_final -> final_state_weights, Q_com ->
+// com_weights, Q_acom -> acom_weights, initialState -> initial_state).
+//
+// A scalar whose absence means "the default" carries that default, the one of the domain struct it converts to; a
+// scalar whose absence has its own meaning (the controller's default, unset, or required by the formulation that uses
+// it) has none and is a std::optional of the struct. A repeated field that the file omits is empty, also where the
+// domain struct has a non-empty default (telemetry_sinks), so every shipped file lists them all.
+//
+// Named components are strings that their registries resolve (costs, constraints, estimators, sinks, visualizations,
+// parameterizations, the centroidal model), never booleans or int codes; the retired booleans, int codes and blocks
+// below are refused with what replaced them.
+// Next ID: 55
+message TaskFile {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::TaskFile";
+  // LINT.IfChange(retired_formulation_keys)
+  option (nproto.retired_field) = {
+    name: "use_com_and_acom_tracking"
+    replacement: "the switch is the entry com_and_acom_tracking_cost of the costs list: delete the key and, where it was true, list com_and_acom_tracking_cost under costs (humanoid_learning/acom/README.md, section 4.1)"
+  };
+  option (nproto.retired_field) = {
+    name: "use_dcm_terminal_cost"
+    replacement: "the switch is the entry dcm_terminal_cost of the costs list: delete the key and, where it was true, list dcm_terminal_cost under costs in place of terminal_cost; the two are alternative ends of the horizon and listing both is refused (humanoid_nmpc/docs/README.md, section 1)"
+  };
+  // LINT.ThenChange(//tools/locomotion_heuristics/derive_parameters.py:retired_formulation_keys)
+  option (nproto.retired_field) = {
+    name: "use_contact_planning"
+    replacement: "the contact schedule source is selected by name: contact_schedule_source: \"contact_planner\" where it was true (the online contact planner, centroidal MPC only), \"gait_schedule\" (the default) where it was false (humanoid_nmpc/docs/README.md, section 2)"
+  };
+  option (nproto.retired_field) = {
+    name: "use_contact_basis_vector_inputs"
+    replacement: "the contact input parameterization is selected by name: contact_input_parameterization: \"basis_vectors\" where it was true, \"wrench\" (the default) where it was false (humanoid_nmpc/docs/contact_basis_vectors/README.md)"
+  };
+  // LINT.IfChange(retired_robot_keys)
+  option (nproto.retired_field) = {
+    name: "enable_telemetry"
+    replacement: "list the telemetry sinks by name instead: telemetry_sinks: \"bus\" publishes robot/state, no telemetry_sinks turns the telemetry off"
+  };
+  option (nproto.retired_field) = {
+    name: "use_gravity_comp_feedforward"
+    replacement: "name the feedforward of WB_MPC instead: wb_mpc_feedforward: \"inverse_dynamics\" (the default) or \"gravity_compensation\""
+  };
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:robot_task_keys)
+  option (nproto.retired_field) = {
+    name: "ddp"
+    replacement: "the MPC runs the SQP solver, whose settings are multiple_shooting; nothing reads DDP settings"
+  };
+  option (nproto.retired_field) = {
+    name: "mpc_tasks"
+    replacement: "list costs, soft_constraints and hard_constraints at the top level of the file"
+  };
+  option (nproto.retired_field) = {
+    name: "tasks"
+    replacement: "list costs, soft_constraints and hard_constraints at the top level of the file"
+  };
+  option (nproto.retired_field) = {
+    name: "Q"
+    replacement: "the running state weights are the block state_weights, by coordinate and joint name: state_weights { scaling: 85 base_position { x: 1 y: 1 z: 1 } joint_positions { joint: \"<joint>\" value: 5 } }"
+  };
+  option (nproto.retired_field) = {
+    name: "R"
+    replacement: "the input weights are the block input_weights, by contact and joint name: input_weights { contact_wrenches { contact: \"<contact>\" force { x: 1 y: 1 z: 1 } moment { x: 1 y: 1 z: 1 } } }"
+  };
+  option (nproto.retired_field) = {
+    name: "Q_final"
+    replacement: "the terminal state weights are the block final_state_weights, with the blocks of state_weights, scaled by terminal_cost_scaling"
+  };
+  option (nproto.retired_field) = {
+    name: "Q_com"
+    replacement: "the weights of com_and_acom_tracking_cost on the center of mass are the block com_weights { scaling x y z }"
+  };
+  option (nproto.retired_field) = {
+    name: "Q_acom"
+    replacement: "the weights of com_and_acom_tracking_cost on the angular center of mass are the block acom_weights { scaling yaw pitch roll }"
+  };
+  option (nproto.retired_field) = {
+    name: "task_space_foot_cost_weights"
+    replacement: "the foot cost is the block task_space_foot_cost { active_phases: \"swing_and_stance\" weights { pos_x: ... } }, its weights in a block of their own"
+  };
+  option (nproto.retired_field) = {
+    name: "contact_planning"
+    replacement: "the contact planner's configuration is a file of its own, config/mpc/contact_planning.textproto next to the task file (humanoid_mpc_config.ContactPlanningFile)"
+  };
+  option (nproto.retired_field) = {
+    name: "centroidal_model_type"
+    replacement: "the centroidal model is selected by name: centroidal_model: \"full_centroidal_dynamics\" where it was 0, \"single_rigid_body_dynamics\" where it was 1"
+  };
+
+  reserved 55 to max;
+  // 19 was centroidal_model_type, OCS2's int code of the centroidal model, now the name centroidal_model.
+  reserved 19;
+
+  // ---- Simulation and telemetry (the robot process, its MuJoCo backend and the visualization) ----
+
+  // Where the robot process sends its telemetry, by TelemetrySinkRegistry name; absent: none.
+  // LINT.IfChange(telemetry_sinks)
+  repeated string telemetry_sinks = 1 [
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      registry: "telemetry_sink"
+      consumer: "robot"
+    }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h:telemetry_sink_names, //humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:robot_task_keys)
+  // LINT.IfChange(robot_task_keys)
+  // [Hz] robot/state, decimated from the control loop; absent: min(100 Hz, the control rate).
+  double telemetry_frequency = 2 [
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      unit: "Hz"
+      consumer: "robot"
+    }
+  ];
+  // [s] The width of the viewer's contact timeline (MuJoCo backend).
+  double sim_contact_timeline_window = 3 [
+    default = 5.0,
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      unit: "s"
+      consumer: "robot"
+    }
+  ];
+  // [N] The normal force above which a contact point counts as touching (ground truth).
+  double sim_contact_force_threshold = 4 [
+    default = 5.0,
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      unit: "N"
+      consumer: "robot"
+    }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:robot_task_keys)
+  // LINT.IfChange(sim_fall_recovery_keys)
+  // [rad] The tilt past which the simulator catches the robot on the gantry; 0 disables the catch.
+  double sim_max_base_tilt_angle = 5 [
+    default = 0.0,
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      unit: "rad"
+      consumer: "robot"
+    }
+  ];
+  // [m] How far the gantry lifts a caught robot; 0 skips the settle sequence.
+  double sim_gantry_catch_lift = 6 [
+    default = 0.0,
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      unit: "m"
+      consumer: "robot"
+    }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/docs/mpc_reset/README.md:sim_fall_recovery_keys, //humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:robot_task_keys)
+  // How the virtual gantry holds the floating base, by name.
+  // LINT.IfChange(gantry_hold)
+  string gantry_hold = 7 [
+    default = "weld_constraint",
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      registry: "gantry_hold"
+      consumer: "robot"
+    }
+  ];
+  // LINT.ThenChange(//robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/MujocoSimInterface.h:gantry_hold_names, //humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:robot_task_keys)
+  // The controller's measured contact state, by ContactEstimatorRegistry name.
+  // LINT.IfChange(contact_estimator)
+  string contact_estimator = 8 [
+    default = "cheater_sim",
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_HOT
+      registry: "contact_estimator"
+      consumer: "robot"
+    }
+  ];
+  // LINT.ThenChange(//robot_runtime/robot_model/src/ContactEstimatorRegistry.cpp:contact_estimator_names, //robot_runtime/mujoco_sim_interface/src/CheaterSimContactEstimator.cpp:cheater_sim_contact_estimator_name, //humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:robot_task_keys, //humanoid_nmpc/remote_control/remote_control/tk_app/mpc_params_tab.py:contact_estimator_gui)
+  // The ball the GUI's Dodgeball tab throws, by name; empty: none.
+  // LINT.IfChange(sim_projectile)
+  string sim_projectile = 9 [
+    default = "",
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      registry: "projectile"
+      consumer: "robot"
+    }
+  ];
+  // LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/Projectile.cpp:projectile_names, //humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:robot_task_keys)
+  // The MuJoCo viewer markers, by VisualizationRegistry name; absent: none.
+  // LINT.IfChange(sim_visualizations)
+  repeated string sim_visualizations = 10 [
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      registry: "visualization"
+      consumer: "robot"
+    }
+  ];
+  // LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/visualization/VisualizationRegistry.cpp:visualization_names, //humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:robot_task_keys)
+  // Whether the tuning GUI publishes and saves this robot's parameters.
+  bool enable_online_tuning = 11 [
+    default = true,
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "the tuning GUI's own switch, whether it publishes and saves: set it in the file"
+      consumer: "gui"
+    }
+  ];
+
+  // ---- Formulation ----
+
+  // What the contact inputs of the MPC are, by name.
+  // LINT.IfChange(contact_input_parameterization)
+  string contact_input_parameterization = 12 [
+    default = "wrench",
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      registry: "contact_input_parameterization"
+    }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/ContactInputParameterization.h:contact_input_parameterization_names, //humanoid_nmpc/remote_control/remote_control/tk_app/mpc_params_tab.py:contact_input_parameterization_gui)
+  // Where the contact schedule comes from, by name.
+  // LINT.IfChange(contact_schedule_source)
+  string contact_schedule_source = 13 [
+    default = "gait_schedule",
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      registry: "contact_schedule_source"
+    }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/MpcFormulationConfig.h:contact_schedule_source_names)
+  // The weights of com_and_acom_tracking_cost (formerly Q_com and Q_acom), a cost of the centroidal MPC.
+  ComWeights com_weights = 14 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT formulations: "centroidal" }];
+  AcomWeights acom_weights = 15 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT formulations: "centroidal" }];
+  // LINT.IfChange(visualization_task_keys)
+  // [Hz] The most viz/scene messages per second; absent: 30 Hz, reported as the default.
+  double rerun_scene_frequency = 16 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP unit: "Hz" }];
+  // The frames of the frame telemetry groups; absent: the contact frames.
+  repeated string telemetry_frames = 17 [
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "frame names of the robot model"
+    }
+  ];
+  // The frames whose planned paths the viewer draws; absent: the contact frames.
+  repeated string rerun_plan_frames = 18 [
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "frame names of the robot model"
+    }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/visualization/README.md:task_keys, //humanoid_nmpc/humanoid_common_mpc_app/visualization/include/humanoid_common_mpc_app/visualization/VisualizationConfig.h:visualization_task_fields)
+  // The dynamics the centroidal MPC is formulated on, by name: "full_centroidal_dynamics" or
+  // "single_rigid_body_dynamics" (OCS2's CentroidalModelType); read, and required, by the centroidal MPC only.
+  // LINT.IfChange(centroidal_model)
+  string centroidal_model = 54 [
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      registry: "centroidal_model"
+      formulations: "centroidal"
+    }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/model/MpcFormulationFromConfig.h:centroidal_model_names, //humanoid_nmpc/remote_control/remote_control/config_schema.py:formulation_marker)
+  // The terms of the problem, by registry name.
+  // LINT.IfChange(hard_constraints)
+  repeated string hard_constraints = 20 [
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      registry: "hard_constraint"
+    }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/MpcFormulationConfig.cpp:hard_constraint_registry)
+  // LINT.IfChange(soft_constraints)
+  repeated string soft_constraints = 21 [
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      registry: "soft_constraint"
+    }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/MpcFormulationConfig.cpp:soft_constraint_registry, //humanoid_nmpc/humanoid_common_mpc/src/common/MpcFormulationConfig.cpp:soft_constraint_names)
+  // LINT.IfChange(costs)
+  repeated string costs = 22 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP registry: "mpc_cost" }];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/MpcFormulationConfig.cpp:mpc_cost_registry)
+  NominalFootholdConfig nominal_foothold = 23 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP }];
+  // [m] The height of the ground, shared by the swing trajectories and the contact-implicit terms.
+  double terrain_height = 24 [default = 0.0, (humanoid_mpc_config.tuning) = { reload: RELOAD_HOT unit: "m" }];
+  // The contact-implicit terms and the locomotion heuristics: the centroidal MPC's (the whole-body MPC refuses the
+  // first and reads no locomotion_heuristics block).
+  ContactImplicitConfig contact_implicit = 25 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT formulations: "centroidal" }];
+  LocomotionHeuristicsConfig locomotion_heuristics = 26 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT formulations: "centroidal" }];
+
+  // ---- The robot's controller ----
+
+  // The feedforward torques of WB_MPC, by name.
+  // LINT.IfChange(wb_mpc_feedforward)
+  string wb_mpc_feedforward = 27 [
+    default = "inverse_dynamics",
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      registry: "wb_mpc_feedforward"
+      consumer: "robot"
+    }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/RobotProcessSettings.h:wb_mpc_feedforward_names, //humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:robot_task_keys)
+  // LINT.IfChange(robot_controller_keys)
+  // [s] The blend into the MPC's action (centroidal controller); absent: the controller's default.
+  double mpc_entry_blend_time = 28 [
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      unit: "s"
+      consumer: "robot"
+    }
+  ];
+  // [s] The decay of the SAFETY mode's torques; absent: the controller's default.
+  double safety_decay_time_constant = 29 [
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      unit: "s"
+      consumer: "robot"
+    }
+  ];
+  // The gate of the planned contact wrenches; absent: the instantaneous gate.
+  ContactWrenchGateConfig contact_wrench_gate = 30 [
+    (nproto.optional_message) = true,
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_HOT
+      consumer: "robot"
+    }
+  ];
+  // The remote MPC link of the robot process.
+  MpcLinkConfig mpc_link = 31 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP consumer: "robot" }];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:robot_task_keys)
+
+  // ---- The MPC's model and solver ----
+
+  InterfaceConfig interface = 32 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP }];
+  ModelSettingsConfig model_settings = 33 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP }];
+  SwingTrajectoryConfig swing_trajectory_config = 34 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  SqpSettingsConfig multiple_shooting = 35 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP }];
+  RolloutSettingsConfig rollout = 36 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP }];
+  MpcSettingsConfig mpc = 37 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP }];
+
+  // ---- Costs and constraints ----
+
+  // The state the MPC starts from (formerly initialState).
+  StateValues initial_state = 38 [
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      exclude_reason: "the state the MPC starts from, read once at start-up: an initial pose, not a weight"
+    }
+  ];
+  // The running state and input weights (formerly Q and R).
+  StateWeights state_weights = 39 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  InputWeights input_weights = 40 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  // The terminal state weight (formerly Q_final), scaled by terminal_cost_scaling.
+  StateWeights final_state_weights = 41 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  // The factor of final_state_weights; required when costs lists terminal_cost or com_and_acom_tracking_cost.
+  double terminal_cost_scaling = 42 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  // The capture-point costs of the centroidal MPC.
+  DcmTerminalCostConfig dcm_terminal_cost = 43 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT formulations: "centroidal" }];
+  IcpCostWeights icp_cost_weights = 44 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT formulations: "centroidal" }];
+  // The foot cost (formerly task_space_foot_cost_weights) and the named link costs (formerly a map by name), which
+  // only the centroidal MPC builds.
+  TaskSpaceCostConfig task_space_foot_cost = 45 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  repeated TaskSpaceCostConfig task_space_costs = 46 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT formulations: "centroidal" }];
+  // The torque costs of the legs (the centroidal MPC's external torque costs) and of every joint (the whole-body MPC's
+  // joint_torque_cost, formerly joint_torque_weights by index); each formulation's parameter updater applies its own.
+  JointWeights left_leg_torque_cost = 47 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT formulations: "centroidal" }];
+  JointWeights right_leg_torque_cost = 48 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT formulations: "centroidal" }];
+  JointWeights joint_torque_weights = 49 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT formulations: "whole_body" }];
+  ContactsConfig contacts = 50 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP }];
+  // Formerly jointLimits.
+  JointLimitsConfig joint_limits = 51 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  CollisionConstraintConfig collision_constraint = 52 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP }];
+  // Formerly mimicJoints.
+  MimicJointsConfig mimic_joints = 53 [(humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP }];
+}

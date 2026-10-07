@@ -60,9 +60,9 @@ struct BusOptions {
   /** ZMQ_RCVHWM: messages queued per publisher before the connection pushes back (0: no limit). */
   int receiveHighWaterMark = 1000;
   /** Messages publish() queues for the IO thread before it refuses (counted as sendDropped). */
-  std::size_t publishQueueCapacity = 1024;
+  size_t publishQueueCapacity = 1024;
   /** The most messages one drain reads before the IO thread dispatches and serves its other work. */
-  std::size_t maxMessagesPerDrain = 4096;
+  size_t maxMessagesPerDrain = 4096;
 
   /** ZMTP heartbeats (ZMQ_HEARTBEAT_IVL / _TIMEOUT / _TTL): a peer silent for heartbeatTimeout is disconnected. */
   absl::Duration heartbeatInterval = absl::Seconds(1);

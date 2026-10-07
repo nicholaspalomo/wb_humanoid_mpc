@@ -31,29 +31,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstddef>
 
-#include <ocs2_core/Types.h>
-#include <ocs2_oc/oc_data/PrimalSolution.h>
+#include "absl/base/nullability.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 
 namespace ocs2::humanoid::ipc {
 
 /**
  * The number of leading entries of `timeTrajectory` that a solution cut at `finalTime` keeps: every time up to
- * `finalTime`, and one beyond it when there is one, so that the kept trajectory spans the window. The rule of
- * GaussNewtonDDP::getPrimalSolution(); at least one entry of a non-empty trajectory is kept.
+ * `finalTime`, and one beyond it when there is one, so that the kept trajectory spans the window. The rule of upstream
+ * OCS2 GaussNewtonDDP::getPrimalSolution(); at least one entry of a non-empty trajectory is kept.
  */
 size_t solutionWindowLength(const scalar_array_t& timeTrajectory, scalar_t finalTime);
 
 /**
- * Cuts `solution` to the solution time window that ends at `finalTime` (mpc::Settings::solutionTimeWindow_), as
- * GaussNewtonDDP::getPrimalSolution() does and as SqpSolver::getPrimalSolution(), which ignores its finalTime, does not:
+ * Cuts `solution` to the solution time window that ends at `finalTime` (mpc::Settings::solutionTimeWindow_), as upstream
+ * OCS2 GaussNewtonDDP::getPrimalSolution() does and as SqpSolver::getPrimalSolution(), which ignores its finalTime, does not:
  * the time, state and input trajectories keep solutionWindowLength() nodes, the post-event indices keep the events
  * among them, and a FeedforwardController or LinearController keeps the nodes of its own time stamps by the same rule.
  * The mode schedule is kept whole. A solution that ends before `finalTime` is left as it is, and so is a controller of
  * another type (policyToProto() refuses those anyway).
  *
- * The MPC node calls it before it sends a policy, so that mpc.solutionTimeWindow bounds the bandwidth whatever the
+ * The MPC node calls it before it sends a policy, so that mpc.solution_time_window bounds the bandwidth whatever the
  * solver (humanoid_nmpc/docs/distributed_runtime/README.md, "Bandwidth").
  */
-void trimToSolutionWindow(scalar_t finalTime, PrimalSolution* solution);
+void trimToSolutionWindow(scalar_t finalTime, PrimalSolution* absl_nonnull solution);
 
 }  // namespace ocs2::humanoid::ipc

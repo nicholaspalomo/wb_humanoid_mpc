@@ -27,16 +27,22 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
-#include <stdexcept>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include <ocs2_core/PreComputation.h>
+#include "absl/base/nullability.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/match.h"
+#include "gtest/gtest.h"
+#include "ocs2_core/PreComputation.h"
 
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_nmpc/humanoid_wb_mpc/test/AffineEndEffectorDynamics.h"
 #include "humanoid_wb_mpc/constraint/EndEffectorDynamicsAccelerationsConstraint.h"
+#include "humanoid_wb_mpc/constraint/EndEffectorDynamicsLinearAccConstraint.h"
 #include "humanoid_wb_mpc/end_effector/EndEffectorDynamics.h"
 
 /**
@@ -48,134 +54,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-constexpr Eigen::Index kStateDim = 4;
-constexpr Eigen::Index kInputDim = 5;
+using test_support::AffineEndEffectorDynamics;
+using test_support::kAffineInputDim;
+using test_support::kAffineStateDim;
+
 constexpr scalar_t kQueryTime = 0.0;
-
-/**
- * End-effector dynamics whose position, orientation error wrt the plane, twist and accelerations are fixed affine maps
- * of the state and the input, with exact linear approximations. The orientation error ignores the plane normal: only
- * the composition the constraint performs is under test.
- */
-class AffineEndEffectorDynamics final : public EndEffectorDynamics<scalar_t> {
- public:
-  AffineEndEffectorDynamics() : ids_{"test_foot"} {
-    // Fixed, dense and of no particular structure, so that every row and column of every block is exercised.
-    positionDx_ = matrix_t::Zero(3, kStateDim);
-    positionDx_ << 1.0, 0.2, -0.3, 0.4, -0.5, 1.1, 0.6, -0.2, 0.3, -0.7, 0.9, 0.5;
-    positionOffset_ = vector3_t(0.1, -0.2, 0.05);
-    orientationDx_ = matrix_t::Zero(3, kStateDim);
-    orientationDx_ << 0.3, -0.1, 0.8, 0.2, 0.6, 0.4, -0.5, 0.1, -0.2, 0.7, 0.3, -0.9;
-    twistDx_ = matrix_t::Zero(6, kStateDim);
-    twistDu_ = matrix_t::Zero(6, kInputDim);
-    accelerationDx_ = matrix_t::Zero(6, kStateDim);
-    accelerationDu_ = matrix_t::Zero(6, kInputDim);
-    for (Eigen::Index row = 0; row < 6; ++row) {
-      for (Eigen::Index col = 0; col < kStateDim; ++col) {
-        twistDx_(row, col) = 0.1 * static_cast<scalar_t>((row + 2 * col) % 5) - 0.2;
-        accelerationDx_(row, col) = 0.05 * static_cast<scalar_t>((3 * row + col) % 7) - 0.15;
-      }
-      for (Eigen::Index col = 0; col < kInputDim; ++col) {
-        twistDu_(row, col) = 0.2 * static_cast<scalar_t>((2 * row + col) % 3) - 0.1;
-        accelerationDu_(row, col) = 0.3 * static_cast<scalar_t>((row + 3 * col) % 4) - 0.4;
-      }
-    }
-  }
-  AffineEndEffectorDynamics* clone() const override { return new AffineEndEffectorDynamics(*this); }
-  const std::vector<std::string>& getIds() const override { return ids_; }
-
-  vector3_t position(const vector_t& state) const { return positionDx_ * state + positionOffset_; }
-  vector3_t orientationErrorWrtPlane(const vector_t& state) const { return orientationDx_ * state; }
-  vector6_t twist(const vector_t& state, const vector_t& input) const { return twistDx_ * state + twistDu_ * input; }
-  vector6_t accelerations(const vector_t& state, const vector_t& input) const { return accelerationDx_ * state + accelerationDu_ * input; }
-
-  std::vector<vector3_t> getPosition(const vector_t& state) const override { return {position(state)}; }
-  std::vector<vector3_t> getOrientationErrorWrtPlane(const vector_t& state, const std::vector<vector3_t>& /*planeNormals*/) const override {
-    return {orientationErrorWrtPlane(state)};
-  }
-  std::vector<vector6_t> getTwist(const vector_t& state, const vector_t& input) const override { return {twist(state, input)}; }
-  std::vector<vector3_t> getVelocity(const vector_t& state, const vector_t& input) const override {
-    return {twist(state, input).head<3>()};
-  }
-  std::vector<vector3_t> getAngularVelocity(const vector_t& state, const vector_t& input) const override {
-    return {twist(state, input).tail<3>()};
-  }
-  std::vector<vector6_t> getAccelerations(const vector_t& state, const vector_t& input) const override {
-    return {accelerations(state, input)};
-  }
-  std::vector<vector3_t> getLinearAcceleration(const vector_t& state, const vector_t& input) const override {
-    return {accelerations(state, input).head<3>()};
-  }
-  std::vector<vector3_t> getAngularAcceleration(const vector_t& state, const vector_t& input) const override {
-    return {accelerations(state, input).tail<3>()};
-  }
-
-  std::vector<VectorFunctionLinearApproximation> getPositionLinearApproximation(const vector_t& state) const override {
-    VectorFunctionLinearApproximation approximation;
-    approximation.f = position(state);
-    approximation.dfdx = positionDx_;
-    return {approximation};
-  }
-  std::vector<VectorFunctionLinearApproximation> getOrientationErrorWrtPlaneLinearApproximation(
-      const vector_t& state, const std::vector<vector3_t>& /*planeNormals*/) const override {
-    VectorFunctionLinearApproximation approximation;
-    approximation.f = orientationErrorWrtPlane(state);
-    approximation.dfdx = orientationDx_;
-    return {approximation};
-  }
-  std::vector<VectorFunctionLinearApproximation> getTwistLinearApproximation(const vector_t& state, const vector_t& input) const override {
-    return {affine(twist(state, input), twistDx_, twistDu_)};
-  }
-  std::vector<VectorFunctionLinearApproximation> getVelocityLinearApproximation(const vector_t& state,
-                                                                                const vector_t& input) const override {
-    return {affine(twist(state, input).head<3>(), twistDx_.topRows(3), twistDu_.topRows(3))};
-  }
-  std::vector<VectorFunctionLinearApproximation> getAngularVelocityLinearApproximation(const vector_t& state,
-                                                                                       const vector_t& input) const override {
-    return {affine(twist(state, input).tail<3>(), twistDx_.bottomRows(3), twistDu_.bottomRows(3))};
-  }
-  std::vector<VectorFunctionLinearApproximation> getAccelerationsLinearApproximation(const vector_t& state,
-                                                                                     const vector_t& input) const override {
-    return {affine(accelerations(state, input), accelerationDx_, accelerationDu_)};
-  }
-  std::vector<VectorFunctionLinearApproximation> getLinearAccelerationLinearApproximation(const vector_t& state,
-                                                                                          const vector_t& input) const override {
-    return {affine(accelerations(state, input).head<3>(), accelerationDx_.topRows(3), accelerationDu_.topRows(3))};
-  }
-  std::vector<VectorFunctionLinearApproximation> getAngularAccelerationLinearApproximation(const vector_t& state,
-                                                                                           const vector_t& input) const override {
-    return {affine(accelerations(state, input).tail<3>(), accelerationDx_.bottomRows(3), accelerationDu_.bottomRows(3))};
-  }
-
-  // The constraint never asks for an orientation, only for its error with respect to a plane.
-  std::vector<quaternion_t> getOrientation(const vector_t& /*state*/) const override { throw std::logic_error("not used"); }
-  std::vector<vector3_t> getOrientationError(const vector_t& /*state*/,
-                                             const std::vector<quaternion_t>& /*referenceOrientations*/) const override {
-    throw std::logic_error("not used");
-  }
-  std::vector<VectorFunctionLinearApproximation> getOrientationErrorLinearApproximation(
-      const vector_t& /*state*/, const std::vector<quaternion_t>& /*referenceOrientations*/) const override {
-    throw std::logic_error("not used");
-  }
-
- private:
-  static VectorFunctionLinearApproximation affine(const vector_t& value, const matrix_t& dfdx, const matrix_t& dfdu) {
-    VectorFunctionLinearApproximation approximation;
-    approximation.f = value;
-    approximation.dfdx = dfdx;
-    approximation.dfdu = dfdu;
-    return approximation;
-  }
-
-  std::vector<std::string> ids_;
-  matrix_t positionDx_;
-  vector3_t positionOffset_;
-  matrix_t orientationDx_;
-  matrix_t twistDx_;
-  matrix_t twistDu_;
-  matrix_t accelerationDx_;
-  matrix_t accelerationDu_;
-};
 
 /** The gains WBMpcInterface::getStanceFootConstraint builds, with distinct values so that no two rows coincide. */
 EndEffectorDynamicsAccelerationsConstraint::Config stanceFootConfig() {
@@ -195,11 +78,25 @@ EndEffectorDynamicsAccelerationsConstraint::Config stanceFootConfig() {
 }
 
 vector_t testState() {
-  return (vector_t(kStateDim) << 0.3, -0.7, 1.2, 0.4).finished();
+  return (vector_t(kAffineStateDim) << 0.3, -0.7, 1.2, 0.4).finished();
 }
 
 vector_t testInput() {
-  return (vector_t(kInputDim) << -0.5, 0.9, 0.2, -1.1, 0.6).finished();
+  return (vector_t(kAffineInputDim) << -0.5, 0.9, 0.2, -1.1, 0.6).finished();
+}
+
+/** The constraint Create() makes for `config` on `dynamics`, which has its one end effector; null after a failure. */
+std::unique_ptr<EndEffectorDynamicsAccelerationsConstraint> stanceFootConstraint(
+    const EndEffectorDynamics<scalar_t>& dynamics, EndEffectorDynamicsAccelerationsConstraint::Config config) {
+  absl::StatusOr<std::unique_ptr<EndEffectorDynamicsAccelerationsConstraint>> constraint =
+      EndEffectorDynamicsAccelerationsConstraint::Create(dynamics, /*numConstraints=*/6, std::move(config));
+  EXPECT_TRUE(constraint.ok()) << constraint.status();
+  return constraint.ok() ? *std::move(constraint) : nullptr;
+}
+
+/** End-effector dynamics of none and of two end effectors, which the single-end-effector constraints refuse. */
+std::vector<std::vector<std::string>> otherThanOneEndEffector() {
+  return {{}, {"left_foot", "right_foot"}};
 }
 
 /** Central differences of getValue() in the state (`withRespectToState`) or in the input. */
@@ -207,7 +104,7 @@ matrix_t valueJacobian(const EndEffectorDynamicsAccelerationsConstraint& constra
                        const vector_t& state,
                        const vector_t& input,
                        bool withRespectToState) {
-  const scalar_t step = 1e-6;
+  const scalar_t step = 1.0e-6;
   const Eigen::Index dim = withRespectToState ? state.size() : input.size();
   matrix_t jacobian(constraint.getNumConstraints(kQueryTime), dim);
   for (Eigen::Index i = 0; i < dim; ++i) {
@@ -231,24 +128,28 @@ matrix_t valueJacobian(const EndEffectorDynamicsAccelerationsConstraint& constra
 
 TEST(EndEffectorDynamicsAccelerationsConstraint, TheLinearizationIsExactForTheStanceFootGains) {
   const AffineEndEffectorDynamics dynamics;
-  const EndEffectorDynamicsAccelerationsConstraint constraint(dynamics, /*numConstraints=*/6, stanceFootConfig());
+  const std::unique_ptr<EndEffectorDynamicsAccelerationsConstraint> created = stanceFootConstraint(dynamics, stanceFootConfig());
+  ASSERT_NE(created, nullptr);
+  const EndEffectorDynamicsAccelerationsConstraint& constraint = *created;
   const vector_t state = testState();
   const vector_t input = testInput();
 
   const vector_t value = constraint.getValue(kQueryTime, state, input, PreComputation());
   const VectorFunctionLinearApproximation approximation = constraint.getLinearApproximation(kQueryTime, state, input, PreComputation());
-  EXPECT_TRUE(approximation.f.isApprox(value, /*prec=*/1e-12)) << approximation.f.transpose() << "\nvs\n" << value.transpose();
-  EXPECT_TRUE(approximation.dfdx.isApprox(valueJacobian(constraint, state, input, /*withRespectToState=*/true), /*prec=*/1e-8));
-  EXPECT_TRUE(approximation.dfdu.isApprox(valueJacobian(constraint, state, input, /*withRespectToState=*/false), /*prec=*/1e-8));
+  EXPECT_TRUE(approximation.f.isApprox(value, /*prec=*/1.0e-12)) << approximation.f.transpose() << "\nvs\n" << value.transpose();
+  EXPECT_TRUE(approximation.dfdx.isApprox(valueJacobian(constraint, state, input, /*withRespectToState=*/true), /*prec=*/1.0e-8));
+  EXPECT_TRUE(approximation.dfdu.isApprox(valueJacobian(constraint, state, input, /*withRespectToState=*/false), /*prec=*/1.0e-8));
 
   // The orientation rows of Ax are applied: without the orientation gain the last three rows change by exactly its
   // contribution.
   EndEffectorDynamicsAccelerationsConstraint::Config withoutOrientationGain = stanceFootConfig();
   withoutOrientationGain.Ax.block(3, 3, 3, 3).setZero();
-  const EndEffectorDynamicsAccelerationsConstraint withoutOrientation(dynamics, /*numConstraints=*/6, withoutOrientationGain);
-  const VectorFunctionLinearApproximation reduced = withoutOrientation.getLinearApproximation(kQueryTime, state, input, PreComputation());
+  const std::unique_ptr<EndEffectorDynamicsAccelerationsConstraint> withoutOrientation =
+      stanceFootConstraint(dynamics, withoutOrientationGain);
+  ASSERT_NE(withoutOrientation, nullptr);
+  const VectorFunctionLinearApproximation reduced = withoutOrientation->getLinearApproximation(kQueryTime, state, input, PreComputation());
   const vector3_t orientationTerm = 80.0 * dynamics.orientationErrorWrtPlane(state);
-  EXPECT_TRUE((approximation.f - reduced.f).tail<3>().isApprox(orientationTerm, /*prec=*/1e-12));
+  EXPECT_TRUE((approximation.f - reduced.f).tail<3>().isApprox(orientationTerm, /*prec=*/1.0e-12));
   EXPECT_GT(orientationTerm.norm(), 1.0) << "the case under test: an orientation error the gain acts on";
 }
 
@@ -261,8 +162,13 @@ TEST(EndEffectorDynamicsAccelerationsConstraint, TheLinearizationReadsOnlyTheDia
   EndEffectorDynamicsAccelerationsConstraint::Config coupled = stanceFootConfig();
   coupled.Ax.block(0, 3, 3, 3) = (matrix3_t() << 1.0, 2.0, 0.5, -1.0, 0.3, 0.7, 0.2, -0.4, 1.5).finished();
   coupled.Ax.block(3, 0, 3, 3) = (matrix3_t() << 0.6, -0.1, 0.9, 0.4, 1.2, -0.3, -0.8, 0.5, 0.1).finished();
-  const EndEffectorDynamicsAccelerationsConstraint withCoupling(dynamics, /*numConstraints=*/6, coupled);
-  const EndEffectorDynamicsAccelerationsConstraint blockDiagonal(dynamics, /*numConstraints=*/6, stanceFootConfig());
+  const std::unique_ptr<EndEffectorDynamicsAccelerationsConstraint> createdWithCoupling = stanceFootConstraint(dynamics, coupled);
+  const std::unique_ptr<EndEffectorDynamicsAccelerationsConstraint> createdBlockDiagonal =
+      stanceFootConstraint(dynamics, stanceFootConfig());
+  ASSERT_NE(createdWithCoupling, nullptr);
+  ASSERT_NE(createdBlockDiagonal, nullptr);
+  const EndEffectorDynamicsAccelerationsConstraint& withCoupling = *createdWithCoupling;
+  const EndEffectorDynamicsAccelerationsConstraint& blockDiagonal = *createdBlockDiagonal;
 
   const VectorFunctionLinearApproximation coupledApproximation =
       withCoupling.getLinearApproximation(kQueryTime, state, input, PreComputation());
@@ -277,8 +183,41 @@ TEST(EndEffectorDynamicsAccelerationsConstraint, TheLinearizationReadsOnlyTheDia
   const vector6_t couplingTerm = (coupled.Ax - stanceFootConfig().Ax) * footPose;
   const vector_t valueDifference = withCoupling.getValue(kQueryTime, state, input, PreComputation()) -
                                    blockDiagonal.getValue(kQueryTime, state, input, PreComputation());
-  EXPECT_TRUE(valueDifference.isApprox(couplingTerm, /*prec=*/1e-12));
+  EXPECT_TRUE(valueDifference.isApprox(couplingTerm, /*prec=*/1.0e-12));
   EXPECT_GT(couplingTerm.norm(), 1.0) << "the case under test: a coupling the value sees";
+}
+
+// The stance-foot constraint reads the first end effector of its dynamics: dynamics of none or of several are refused by
+// Create(), naming what it was given, where the constructor used to throw.
+TEST(EndEffectorDynamicsAccelerationsConstraint, CreateRefusesDynamicsOfOtherThanOneEndEffector) {
+  for (const std::vector<std::string>& ids : otherThanOneEndEffector()) {
+    const AffineEndEffectorDynamics dynamics(ids);
+    const absl::StatusOr<std::unique_ptr<EndEffectorDynamicsAccelerationsConstraint>> constraint =
+        EndEffectorDynamicsAccelerationsConstraint::Create(dynamics, /*numConstraints=*/6, stanceFootConfig());
+    ASSERT_FALSE(constraint.ok()) << ids.size() << " end effectors";
+    EXPECT_EQ(constraint.status().code(), absl::StatusCode::kInvalidArgument);
+    EXPECT_TRUE(absl::StrContains(constraint.status().message(), "only accepts a single end-effector")) << constraint.status();
+    for (const std::string& id : ids) {
+      EXPECT_TRUE(absl::StrContains(constraint.status().message(), id)) << constraint.status();
+    }
+  }
+}
+
+// The swing foot's normal-motion constraint likewise.
+TEST(EndEffectorDynamicsLinearAccConstraint, CreateRefusesDynamicsOfOtherThanOneEndEffector) {
+  for (const std::vector<std::string>& ids : otherThanOneEndEffector()) {
+    const AffineEndEffectorDynamics dynamics(ids);
+    const absl::StatusOr<std::unique_ptr<EndEffectorDynamicsLinearAccConstraint>> constraint =
+        EndEffectorDynamicsLinearAccConstraint::Create(dynamics, /*numConstraints=*/1);
+    ASSERT_FALSE(constraint.ok()) << ids.size() << " end effectors";
+    EXPECT_EQ(constraint.status().code(), absl::StatusCode::kInvalidArgument);
+    EXPECT_TRUE(absl::StrContains(constraint.status().message(), "only accepts a single end-effector")) << constraint.status();
+  }
+  const AffineEndEffectorDynamics oneFoot;
+  const absl::StatusOr<std::unique_ptr<EndEffectorDynamicsLinearAccConstraint>> constraint =
+      EndEffectorDynamicsLinearAccConstraint::Create(oneFoot, /*numConstraints=*/1);
+  ASSERT_TRUE(constraint.ok()) << constraint.status();
+  EXPECT_EQ((*constraint)->getNumConstraints(kQueryTime), 1u);
 }
 
 }  // namespace

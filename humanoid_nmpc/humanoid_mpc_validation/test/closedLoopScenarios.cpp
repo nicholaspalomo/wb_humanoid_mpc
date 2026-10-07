@@ -27,9 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cstdlib>
 #include <filesystem>
@@ -38,12 +36,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
 #include "absl/log/globals.h"
 #include "absl/log/log.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_join.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopMetricsSchema.h"
 #include "humanoid_mpc_validation/closed_loop/LockstepClosedLoop.h"
@@ -63,20 +63,32 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * a minute of walking. Run one robot at a time.
  */
 
+// The defaults of the flags that are not strings.
+namespace {
+constexpr bool kDefaultCompareSolveTime = false;
+constexpr int kDefaultThreads = 0;  // not positive: the task file's multiple_shooting.n_threads
+}  // namespace
+
+// NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
 ABSL_FLAG(std::string, robot, "", "The configuration to run (RobotConfiguration::name).");
+// NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
 ABSL_FLAG(std::string, label, "M0", "The label written into the metrics documents.");
+// NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
 ABSL_FLAG(std::string, baseline, "", "A label under data/closed_loop/ to compare with within the bands of section 4.5; empty: none.");
+// NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
 ABSL_FLAG(bool,
           compare_solve_time,
-          /*default_value=*/false,
+          kDefaultCompareSolveTime,
           "Also compare the p99 solve time with the baseline (only on the machine it was recorded on).");
+// NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
 ABSL_FLAG(std::string, output_dir, "", "Where the outputs go; empty: $TEST_UNDECLARED_OUTPUTS_DIR.");
-ABSL_FLAG(int, threads, /*default_value=*/0, "Overrides the task file's sqp.nThreads when positive.");
+// NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
+ABSL_FLAG(int, threads, kDefaultThreads, "Overrides the task file's multiple_shooting.n_threads when positive.");
 
 namespace ocs2::humanoid::validation {
 namespace {
 
-constexpr const char* kBaselineDirectory = "humanoid_nmpc/humanoid_mpc_validation/data/closed_loop";
+constexpr char kBaselineDirectory[] = "humanoid_nmpc/humanoid_mpc_validation/data/closed_loop";
 
 /** The scenarios this suite runs: every one but the determinism test's smoke run. */
 std::vector<std::string> suiteScenarioNames() {
@@ -93,7 +105,7 @@ bool isWalkingScenario(const std::string& name) {
 
 std::string outputDirectory() {
   if (!absl::GetFlag(FLAGS_output_dir).empty()) return absl::GetFlag(FLAGS_output_dir);
-  const char* undeclared = std::getenv("TEST_UNDECLARED_OUTPUTS_DIR");
+  const char* absl_nullable undeclared = std::getenv("TEST_UNDECLARED_OUTPUTS_DIR");
   return undeclared != nullptr ? std::string(undeclared) : std::string("closed_loop_outputs");
 }
 
@@ -162,7 +174,7 @@ INSTANTIATE_TEST_SUITE_P(Scenarios,
 }  // namespace
 }  // namespace ocs2::humanoid::validation
 
-int main(int argc, char** argv) {
+int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   ::testing::InitGoogleTest(&argc, argv);
   absl::ParseCommandLine(argc, argv);
   // The controllers log every transition at INFO; the runs report through the metrics documents instead.

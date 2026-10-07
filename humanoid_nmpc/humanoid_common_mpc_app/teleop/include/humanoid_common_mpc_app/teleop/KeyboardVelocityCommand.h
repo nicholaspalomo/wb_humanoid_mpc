@@ -40,22 +40,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::teleop {
 
 /**
- * The command limits of the robot's reference.yaml, as the MPC reads them (TargetTrajectoriesCalculatorBase): the
+ * The command limits of the robot's reference file, as the MPC reads them (TargetTrajectoriesCalculatorBase): the
  * keyboard command is clamped to them and normalized by them, and the MPC scales the normalized command back by its own
  * copy, so the two must be the same numbers.
  */
 struct KeyboardCommandLimits {
-  /** [v_x m/s, v_y m/s, pelvis height change m, yaw rate rad/s]: maxDisplacementVelocityX, maxDisplacementVelocityY,
-   *  maxDeltaPelvisHeight, maxRotationVelocity. */
+  /** [v_x m/s, v_y m/s, pelvis height change m, yaw rate rad/s]: max_displacement_velocity_x,
+   *  max_displacement_velocity_y, max_delta_pelvis_height, max_rotation_velocity. */
   vector4_t limits = vector4_t(0.5, 0.3, 0.4, 0.5);
-  /** [m] defaultBaseHeight: the pelvis height a zero height change commands. */
+  /** [m] default_base_height: the pelvis height a zero height change commands. */
   scalar_t defaultBaseHeight = 0.7;
 };
 
 /**
- * The command limits of `referenceFile`. Every key is required, as the MPC requires it: InvalidArgument naming the
- * file and the key when one is missing, is not a number or, for the four limits, is not positive; NotFound when the
- * file does not exist.
+ * The command limits of the reference file `referenceFile` (a robot's config/command/reference.textproto, read strictly:
+ * loadReferenceFile(), then keyboardCommandLimitsFromConfig()). Every limit is required, as the MPC requires it.
+ *
+ * @return NotFound when the file does not exist; the errors of loadReferenceFile(), which name the file, the line and
+ *         the column; and InvalidArgument naming the file and the field when one is missing, is not a finite number or,
+ *         for the four limits, is not positive.
  */
 absl::StatusOr<KeyboardCommandLimits> loadKeyboardCommandLimits(const std::string& referenceFile);
 
@@ -68,7 +71,7 @@ absl::StatusOr<vector4_t> parseKeyboardCommandLine(absl::string_view line);
 
 /**
  * The operator/walking_velocity_command of `command`: clamped to +-limits, the velocities normalized by their limits,
- * the pelvis height defaultBaseHeight plus the clamped change.
+ * the pelvis height default_base_height plus the clamped change.
  */
 humanoid_mpc_msgs::WalkingVelocityCommand keyboardCommandToMessage(const vector4_t& command, const KeyboardCommandLimits& limits);
 

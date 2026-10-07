@@ -33,11 +33,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_sqp/SqpMpc.h"
 
-#include <ocs2_core/reference/TargetTrajectories.h>
-#include <ocs2_mpc/SystemObservation.h>
-#include <ocs2_sqp/SqpMpc.h>
-
+#include "humanoid_common_mpc/parameter_update/MpcParameterUpdaterModule.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc_app/node/MpcFiles.h"
 #include "humanoid_common_mpc_app/node/MpcNodeRuntime.h"
@@ -60,13 +60,17 @@ namespace ocs2::humanoid {
  *     from operator/walking_velocity_command; a reset of the MPC resets it and, through its reset hook, the target
  *     calculator;
  *   - resets to wbMpcResetTargetTrajectories(), the reset target the MRT joint controller hands its in-process link;
+ *   - the MPC parameter updater (makeWholeBodyMpcParameterUpdater()), registered after the motion manager: the RELOAD_HOT
+ *     fields of an update on operator/mpc_parameters (checked against the robot and this task file's configuration by
+ *     MpcNodeRuntime), and of the task file when it is saved, are written into the running problem before the next
+ *     solve, the RELOAD_START_UP ones that differ logged as taking effect at the next start; a saved reference file's
+ *     command limits reach the calculator and the motion manager (makeCommandLimitsReloaders());
  *   - every policy carries the scaled velocity command (ViewerAnnotations);
  *   - the visualization publisher (humanoid_common_mpc_app/visualization), as the ROS nodes always ran their
  *     visualizer: viz/scene and viz/telemetry for the Rerun bridge, from every published policy and every robot/state
  *     sample, on a thread of its own.
  *
- * As in the ROS node, the whole-body MPC has no contact planner and no MPC parameter updater: operator/mpc_parameters
- * is not subscribed, and the policies carry no target contact patch.
+ * As in the ROS node, the whole-body MPC has no contact planner, and the policies carry no target contact patch.
  */
 class WBMpcNode {
  public:
@@ -80,7 +84,7 @@ class WBMpcNode {
   /**
    * Builds the MPC from `files` and registers it on `bus`, which must not be running yet and publishes as the MPC node
    * ("mpc"). The errors of WBMpcInterface::Create() (NotFound for a missing file), of the visualization publisher (the
-   * task file's visualization keys) and of node::MpcNodeRuntime::Create().
+   * task file's visualization fields) and of node::MpcNodeRuntime::Create().
    */
   static absl::StatusOr<std::unique_ptr<WBMpcNode>> Create(const node::MpcFiles& files,
                                                            std::unique_ptr<robot::ipc::Bus> bus,
@@ -104,7 +108,10 @@ class WBMpcNode {
   ipc::ModelDimensions dimensions() const;
 
   WBMpcInterface& interface() { return *interface_; }
+  /** The MPC, whose solver holds the per-worker copies of the problem the parameter updater writes. */
+  SqpMpc& mpc() { return *mpc_; }
   ProceduralMpcMotionManager& motionManager() { return *motionManager_; }
+  MpcParameterUpdaterModule& parameterUpdater() { return *parameterUpdater_; }
   node::MpcNodeRuntime& runtime() { return *runtime_; }
   visualization::VisualizationPublisher& visualization() { return *visualization_; }
 
@@ -115,6 +122,9 @@ class WBMpcNode {
   std::unique_ptr<SqpMpc> mpc_;
   std::unique_ptr<WBMpcTargetTrajectoriesCalculator> targetCalculator_;
   std::shared_ptr<ProceduralMpcMotionManager> motionManager_;
+  // Registered with the solver after the motion manager; shared because OCS2's addSynchronizedModule() takes a
+  // std::shared_ptr. Never null after Create().
+  std::shared_ptr<MpcParameterUpdaterModule> parameterUpdater_;
   // Before the runtime, so that it outlives the MpcServer whose post-solve observer feeds it.
   std::unique_ptr<visualization::VisualizationPublisher> visualization_;
   // Last, so that it is destroyed first: its solver thread drives everything above.

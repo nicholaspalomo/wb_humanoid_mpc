@@ -1,13 +1,36 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Tests for proto_next_id.py: the `// Next ID: N` comment and the opening `reserved N to max;` of every message."""
 
-import os
-import sys
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import proto_next_id  # noqa: E402
-
-from tools.hooks import check_test_support  # noqa: E402
+from tools.hooks import check_test_support
+from tools.hooks import proto_next_id
 
 
 def violations(source):
@@ -147,6 +170,23 @@ message Vector3 {
         )
         self.assertEqual(violations(two_options), [])
 
+    def test_options_with_aggregate_values_are_leading_options_too(self):
+        source = """// Next ID: 2
+message TaskFile {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::TaskFile";
+  option (nproto.retired_field) = { name: "use_old" replacement: "write new" };
+  option (nproto.retired_field) = {
+    name: "legacy"
+    replacement: "drop it"
+  };
+
+  reserved 2 to max;
+
+  double new_value = 1;
+}
+"""
+        self.assertEqual(violations(source), [])
+
     def test_nested_messages_need_their_own(self):
         source = """// Next ID: 2
 message Outer {
@@ -218,6 +258,24 @@ message Mixed {
             "reserved 6", "reserved 5"
         )
         self.assertEqual(violations(stale), [("Mixed", 2)])
+
+    def test_fields_with_aggregate_options_keep_their_numbers(self):
+        source = """// Next ID: 4
+message Weights {
+  reserved 4 to max;
+
+  double x = 1 [(tuning) = { unit: "m" slider_max: 2 }];
+  double y = 2;
+  oneof choice {
+    double z = 3 [(tuning) = { unit: "m" }];
+  }
+}
+"""
+        self.assertEqual(violations(source), [])
+        stale = source.replace("Next ID: 4", "Next ID: 3").replace(
+            "reserved 4", "reserved 3"
+        )
+        self.assertEqual(violations(stale), [("Weights", 2)])
 
     def test_nested_numbers_do_not_count_for_the_outer_message(self):
         source = """// Next ID: 2

@@ -2,15 +2,14 @@ load("@operator_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 load(":clang_tidy.bzl", "clang_tidy_args", "clang_tidy_selftest")
 
-# clang-tidy as a Bazel aspect (README.md): `make lint-tidy`, `make lint-tidy-sweep` and `make lint-tidy-fix` build
-# with the configurations of .bazelrc (`--config=clang-tidy*`), and these scripts turn the build's reports into the
-# result or apply its fix-its. Nothing in //... runs clang-tidy, so `bazel build //...` and `bazel test //...` work
-# without it; the self-test that does is `manual`.
+# clang-tidy as a Bazel aspect (README.md): `make lint-tidy` and `make lint-tidy-fix` build with the configurations of
+# .bazelrc (`--config=clang-tidy*`), and these scripts turn the build's reports into the result or apply its fix-its.
+# Nothing in //... runs clang-tidy, so `bazel build //...` and `bazel test //...` work without it; the self-test that
+# does is `manual`.
 
 exports_files([
     "clang_tidy.bzl",
     "run_clang_tidy.sh",
-    "sweep.clang-tidy",
 ])
 
 py_library(
@@ -43,14 +42,11 @@ py_binary(
     deps = [":clang_tidy_selftest_lib"],
 )
 
-# Lints the fixtures of testdata/ with every candidate check and fails unless the findings and the applied fix-its are
-# the expected ones. Needs clang-tidy (docker/install_llvm_tools.sh tidy); `make lint-tidy` builds it.
+# Lints the fixtures of testdata/ with the checks of //:.clang-tidy and fails unless the findings and the applied
+# fix-its are the expected ones. Needs clang-tidy (docker/install_llvm_tools.sh tidy); `make lint-tidy` builds it.
 clang_tidy_selftest(
     name = "selftest",
-    configs = [
-        "sweep.clang-tidy",
-        "//:.clang-tidy",
-    ],
+    configs = ["//:.clang-tidy"],
     expected = ["//tools/clang_tidy/testdata:expected"],
     fixtures = [
         "//tools/clang_tidy/testdata:braces",
@@ -59,6 +55,7 @@ clang_tidy_selftest(
         "//tools/clang_tidy/testdata:discarded_status",
         "//tools/clang_tidy/testdata:explicit_constructor",
         "//tools/clang_tidy/testdata:member_init",
+        "//tools/clang_tidy/testdata:nullability",
         "//tools/clang_tidy/testdata:rename",
     ],
     golden = ["//tools/clang_tidy/testdata:renamed_files"],
@@ -114,7 +111,6 @@ py_test(
     srcs = ["test_clang_tidy_config.py"],
     data = [
         "clang_tidy.bzl",
-        "sweep.clang-tidy",
         "//:.clang-tidy",
         "//:MODULE.bazel",
     ],
@@ -123,6 +119,13 @@ py_test(
         "//tools/hooks:lint_files",
         requirement("pyyaml"),
     ],
+)
+
+py_test(
+    name = "test_lint_tidy_targets",
+    size = "small",
+    srcs = ["test_lint_tidy_targets.py"],
+    data = ["//:Makefile"],
 )
 
 py_test(

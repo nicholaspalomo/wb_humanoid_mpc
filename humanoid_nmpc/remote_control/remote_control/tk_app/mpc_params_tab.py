@@ -1,203 +1,182 @@
-"""****************************************************************************
-Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
+"""The MPC Parameters tab: a widget per parameter of the task file and the contact-planning file, published and saved.
 
-* Redistributions of source code must retain the above copyright notice, this
-  list of conditions and the following disclaimer.
+Nothing here names a parameter. The tab shows what the schemas of the two files hold (config_schema): every number,
+bool and registry name the schema does not exclude, labeled by its field names with what the schema adds (unit, reload
+class, applicability), in the blocks of the file. A slider moved is a change of a tuned_file.TunedFile;
+every change is published, debounced, as the whole of both files (humanoid_mpc_config.MpcParameterUpdate on
+operator/mpc_parameters, with the task file's identity) after a strict parse of the edited text, and written into the
+files only by "Save", which keeps every other byte of them. Save then sends the task file's saved text to the robot's
+store (robot_config_save.py); the contact-planning file is the MPC's alone and stays on the laptop.
+"""
 
-* Redistributions in binary form must reproduce the above copyright notice,
-  this list of conditions and the following disclaimer in the documentation
-  and/or other materials provided with the distribution.
-
-* Neither the name of the copyright holder nor the names of its
-  contributors may be used to endorse or promote products derived from
-  this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-****************************************************************************"""
-
+from collections.abc import Callable
 import functools
 import logging
 import os
-import re
+from tkinter import filedialog
+from tkinter import ttk
 import tkinter as tk
-from tkinter import ttk, filedialog
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 
-from remote_control.operator_bus import yaml_document
-from remote_control.tk_app.scrollable_frame import ScrollableFrame
-from remote_control.tk_app.slider_row import SliderRow
-from remote_control.tk_app.yaml_param_tree import MATRIX_KEY, tunables as read_tunables
-from remote_control.tk_app.yaml_editor_utils import (
-    load_yaml_safe,
-    update_yaml_values_in_place,
-)
+from humanoid_mpc_config import contact_planning_file_pb2
+from humanoid_mpc_config import task_file_pb2
+
+from remote_control import config_files
+from remote_control import config_schema
+from remote_control import operator_bus
+from remote_control import robot_config_save
+from remote_control import tuned_file
+from remote_control.tk_app import combobox
+from remote_control.tk_app import parameter_rows
+from remote_control.tk_app import robot_save_status
+from remote_control.tk_app import scrollable_frame
 
 _LOGGER = logging.getLogger(__name__)
 
-# Contact-constraint keys that are baked into the constraint (or into the basis generators) at build time.
-# MpcParameterUpdaterModule only hot-reloads a barrier's `mu` and `delta`, so editing these takes effect on the next
-# launch, not immediately. numBasisVectors also sets the input dimension under basis-vector contact inputs. They are
-# still shown so the value can be saved to the task file, but the label says so rather than implying a live control.
-# LINT.IfChange(build_time_contact_keys)
-_BUILD_TIME_CONTACT_KEYS = frozenset(
-    (
-        "frictionCoefficient",
-        "torsionalFrictionCoefficient",
-        "minNormalForce",
-        "gripperForce",
-        "numBasisVectors",
-    )
-)
-# Whole `contacts` sub-blocks that are geometry, read once when the problem is built.
-_BUILD_TIME_CONTACT_BLOCKS = frozenset(
-    ("contact_rectangle", "contact_frame_translation")
-)
-# LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/mrt/MpcParameterUpdaterModule.cpp:hot_reloadable_barrier_keys)
+# The block selector's entry of the contact-planning file, and the prefix of its parameters' keys in slider_rows. The
+# task file has no field of this name (it is retired there, task_file.proto), so the keys of the two files never meet.
+CONTACT_PLANNING_BLOCK = "contact_planning"
 
-# The contact input parameterization the task file selects, and the `contacts` blocks only one of them reads: the soft
-# wrench cone's barrier (contact_wrench_cone is not built under basis vectors, whose cone is the lambda >= 0 barrier)
-# and the basis-vector blocks (read only under basis vectors).
-# LINT.IfChange(contact_input_parameterization_gui)
-CONTACT_INPUT_PARAMETERIZATION_KEY = "contactInputParameterization"
-WRENCH_CONTACT_INPUTS = "wrench"
-BASIS_VECTOR_CONTACT_INPUTS = "basis_vectors"
-_WRENCH_ONLY_CONTACT_BLOCKS = frozenset(("contactWrenchConeSoftConstraint",))
-_BASIS_ONLY_CONTACT_BLOCKS = frozenset(
-    ("basisNonNegativityBarrier", "basisScalingRegularization")
-)
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/ContactInputParameterization.h:contact_input_parameterization_names)
+# The block selector's entry of the task file's top-level scalars.
+ROOT_CATEGORY = "(top level)"
+
+# The debounce of a publish after a change [ms].
+_PUBLISH_DEBOUNCE_MS = 300
+# How long a passing status stays on the status line [ms]; a Save's stays until the next status.
+_STATUS_DISPLAY_MS = 5000
 
 
-def contact_slider_annotation(
-    path: List[str], contact_input_parameterization: str
-) -> Optional[str]:
-    """Why a slider under `contacts` does not act on the running MPC, or None when it does.
-
-    "restart" marks a value read only when the problem is built. "not applicable" marks one the selected contact input
-    parameterization does not read at all, which is worse: saving it changes nothing even after a restart. A barrier's
-    mu and delta are live, except in the wrench cone's block under basis-vector inputs, where no such term exists.
-    """
-    if len(path) < 2 or path[0] != "contacts":
-        return None
-    block, key = path[1], path[-1]
-    basis = contact_input_parameterization == BASIS_VECTOR_CONTACT_INPUTS
-    if block in _BUILD_TIME_CONTACT_BLOCKS or key in _BUILD_TIME_CONTACT_KEYS:
-        return "restart"
-    if block in _WRENCH_ONLY_CONTACT_BLOCKS and basis:
-        return "not applicable: %s %s" % (
-            CONTACT_INPUT_PARAMETERIZATION_KEY,
-            BASIS_VECTOR_CONTACT_INPUTS,
-        )
-    if block in _BASIS_ONLY_CONTACT_BLOCKS and not basis:
-        return "not applicable: %s %s" % (
-            CONTACT_INPUT_PARAMETERIZATION_KEY,
-            contact_input_parameterization,
-        )
-    return None
-
-
-def _contact_slider_label(
-    label: str, path: List[str], contact_input_parameterization: str
-) -> str:
-    """Names a slider, flagging the contact keys that do not act live (contact_slider_annotation)."""
-    annotation = contact_slider_annotation(path, contact_input_parameterization)
-    return "%s (%s)" % (label, annotation) if annotation else label
+def _disabled_banner(reason: str) -> str:
+    """The banner of a tab whose online tuning is off, for `reason` (empty: the task file's enable_online_tuning)."""
+    return f"🔒 Online Tuning Disabled ({reason or 'enable_online_tuning: false in the task file'})"
 
 
 class MpcParamsTab(ttk.Frame):
-    """
-    MPC Parameters tuning tab allowing real-time slider tuning for Q/R matrices,
-    task space tracking costs, foot constraints, swing trajectory, and relaxed barrier limits.
+    """The MPC Parameters tab: a row per tunable parameter of the task file (and its contact-planning file).
+
+    Args:
+        parent: the notebook the tab is added to.
+        task_file: the task file to load (one that does not exist is reported, and nothing is loaded); None: the first
+            preset, when it exists.
+        on_params_updated: called with the task file's path after every save; None: nothing is called.
+        enable_online_tuning: whether the rows and saving are enabled; None: as the task file's enable_online_tuning
+            says.
+        param_publisher: the publisher of operator/mpc_parameters; None: nothing is published.
+        robot_saver: the GUI's saver of the robot's copies (robot_config_save.RobotConfigSaver); None: Save writes
+            the laptop's files only, and says so.
+        **kwargs: the options of the tab's ttk.Frame.
     """
 
     KNOWN_PRESETS = {
-        "DRC Atlas (Centroidal)": "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml",
-        "Unitree G1 (WB)": "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml",
-        "Unitree R1 (Centroidal)": "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.yaml",
-        "Unitree G1 (Centroidal)": "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml",
-        "EngineAI SA01 (Centroidal)": "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml",
+        "DRC Atlas (Centroidal)": "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto",
+        "Unitree G1 (WB)": "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto",
+        "Unitree R1 (Centroidal)": "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto",
+        "Unitree G1 (Centroidal)": "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto",
+        "EngineAI SA01 (Centroidal)": "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto",
     }
 
-    # Measured contact state of the controller, selected by name in the task file (robot_model/ContactEstimatorRegistry.h)
-    # and hot-reloadable through the parameter topic. The Base Controller tab's checkbox (set_cheater_contact_estimator)
-    # switches between the simulator's ground truth and every contact point touching (the historical behavior, with
-    # which phase resetting must stay off).
+    # The measured contact state of the controller, selected by name in the task file (robot_model/ContactEstimatorRegistry.h)
+    # and hot-reloaded from the parameter topic. The Base Controller tab's drop-down (set_contact_estimator) offers the
+    # names of the contact_estimator registry (config_registries.textproto).
     # LINT.IfChange(contact_estimator_gui)
-    CONTACT_ESTIMATOR_KEY = "contactEstimator"
-    CHEATER_SIM_CONTACT_ESTIMATOR = "cheater_sim"
-    CONTACT_ESTIMATOR_WHEN_UNCHECKED = "always_in_contact"
-    # LINT.ThenChange(//robot_runtime/robot_model/src/ContactEstimatorRegistry.cpp:contact_estimator_names, //robot_runtime/mujoco_sim_interface/src/CheaterSimContactEstimator.cpp:cheater_sim_contact_estimator_name)
+    CONTACT_ESTIMATOR_KEY = "contact_estimator"
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_file.proto:contact_estimator)
+
+    # The task file's field that selects the contact inputs, which the labels of the contact blocks depend on.
+    # LINT.IfChange(contact_input_parameterization_gui)
+    CONTACT_INPUT_PARAMETERIZATION_KEY = "contact_input_parameterization"
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_file.proto:contact_input_parameterization)
 
     def __init__(
         self,
-        parent,
-        task_file: Optional[str] = None,
-        on_params_updated=None,
-        enable_online_tuning: Optional[bool] = None,
-        param_publisher=None,
-        *args,
-        **kwargs,
-    ):
-        super().__init__(parent, *args, **kwargs)
+        parent: tk.Misc,
+        task_file: str | None = None,
+        on_params_updated: Callable[[str], None] | None = None,
+        enable_online_tuning: bool | None = None,
+        param_publisher: operator_bus.TopicPublisher | None = None,
+        robot_saver: robot_config_save.RobotConfigSaver | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(parent, **kwargs)
         self.configure(style="TFrame")
 
         self.task_file = task_file
-        # The contact planner's own file (contact_planning.yaml next to the task file), None while the block is inline.
-        self.contact_planning_file: Optional[str] = None
+        # The contact planner's own file (contact_planning.textproto next to the task file); None without one.
+        self.contact_planning_file: str | None = None
         self.on_params_updated = on_params_updated
         self._explicit_online_tuning = enable_online_tuning
         self.enable_online_tuning = (
             True if enable_online_tuning is None else enable_online_tuning
         )
 
-        self.raw_data: Dict[str, Any] = {}
-        self.slider_rows: Dict[str, SliderRow] = {}  # key_path_str -> SliderRow
-        self.comment_map: Dict[str, str] = {}  # "(i,i)" -> comment description
-        self._tunables = (
-            []
-        )  # every numeric leaf of the loaded configuration (yaml_param_tree.Tunable)
-        self._debounce_publish_id = None  # tkinter after() ID for debounced publish
-        # The publisher of operator/mpc_parameters (operator_bus.TopicPublisher): publish(YamlDocument).
+        # The two files, as loaded or last saved, with the operator's changes.
+        self.task: tuned_file.TunedFile | None = None
+        self.contact_planning: tuned_file.TunedFile | None = None
+        # The names each registry accepts (config_registries.textproto): the choices of the registry strings.
+        self.registries = config_files.load_registries()
+        # The rows of the block on screen, by key: a task file parameter's path, or a contact-planning parameter's
+        # path behind CONTACT_PLANNING_BLOCK + ".".
+        self.slider_rows: dict[str, parameter_rows.ParameterRow] = {}
+        # tkinter after() ID for debounced publish
+        self._debounce_publish_id: str | None = None
+        # The publisher of operator/mpc_parameters (operator_bus.TopicPublisher): publish(MpcParameterUpdate).
         self.param_publisher = param_publisher
-        self._live_values: Dict[str, float] = (
-            {}
-        )  # Persists slider values across category switches
-        self._default_values: Dict[str, float] = (
-            {}
-        )  # Persists reset-checkpoint defaults across category switches
         # Called (no arguments) whenever the contact estimator selection changes: file loaded, reset, or set through
-        # set_cheater_contact_estimator. The Base Controller tab keeps its checkbox in sync with it.
-        self.on_contact_estimator_changed: Optional[Callable[[], None]] = None
+        # set_contact_estimator. The Base Controller tab keeps its drop-down in sync with it.
+        self.on_contact_estimator_changed: Callable[[], None] | None = None
+        # The tkinter after() ID that clears a passing status; None when none is pending.
+        self._status_clear_id: str | None = None
+        # The robot's copy of the task file after a Save.
+        self.robot_save = robot_save_status.RobotSaveStatus(
+            self, robot_saver, self._show_save_status
+        )
 
         self._build_header_ui()
-
-        # Category navigation buttons / segmented bar
         self._build_category_nav_ui()
 
         # Scrollable container for parameters
-        self.scroll_container = ScrollableFrame(self, bg_color="#2c2c2c")
+        self.scroll_container = scrollable_frame.ScrollableFrame(
+            self, bg_color="#2c2c2c"
+        )
         self.scroll_container.pack(fill="both", expand=True, padx=10, pady=(0, 10))
 
-        if self.task_file and os.path.exists(self.task_file):
+        # A file given that is not there is reported, never replaced by another robot's: the fallback is for none.
+        if self.task_file:
             self.load_file(self.task_file)
         else:
             default_path = list(self.KNOWN_PRESETS.values())[0]
             if os.path.exists(default_path):
                 self.load_file(default_path)
 
-    def _build_header_ui(self):
+    def _build_header_ui(self) -> None:
+        """The toolbar (preset, file, reload, reset, save), the status line and the online tuning banner."""
         toolbar = ttk.Frame(self)
         toolbar.pack(fill="x", padx=10, pady=(10, 5))
 
@@ -214,14 +193,7 @@ class MpcParamsTab(ttk.Frame):
         )
         preset_cb.pack(side="left", padx=(0, 10))
         preset_cb.bind("<<ComboboxSelected>>", self._on_preset_selected)
-        preset_cb.bind(
-            "<Button-1>",
-            lambda e: (
-                e.widget.event_generate("<Down>", when="head")
-                if e.widget.identify(e.x, e.y) != "downarrow"
-                else None
-            ),
-        )
+        preset_cb.bind("<Button-1>", combobox.open_dropdown_on_click)
 
         self.path_var = tk.StringVar(value=self.task_file or "")
         path_entry = ttk.Entry(toolbar, textvariable=self.path_var, width=32)
@@ -239,7 +211,7 @@ class MpcParamsTab(ttk.Frame):
         self.reset_btn.pack(side="left", padx=2)
 
         self.save_btn = ttk.Button(
-            toolbar, text="💾 Save to YAML", command=self.save_and_checkpoint
+            toolbar, text="💾 Save", command=self.save_and_checkpoint
         )
         self.save_btn.pack(side="left", padx=(4, 0))
 
@@ -251,7 +223,7 @@ class MpcParamsTab(ttk.Frame):
         # Online tuning disabled warning banner
         self.warning_banner = ttk.Label(
             self,
-            text="🔒 Online Tuning Disabled (enableOnlineTuning: false in task.yaml)",
+            text=_disabled_banner(""),
             font=("Helvetica", 9, "bold"),
             foreground="#e67e22",
         )
@@ -260,96 +232,81 @@ class MpcParamsTab(ttk.Frame):
             self.save_btn.configure(state="disabled")
             self.reset_btn.configure(state="disabled")
 
-    def set_online_tuning_enabled(self, enabled: bool):
-        """Dynamically enable or disable online tuning in the GUI."""
+    def set_online_tuning_enabled(self, enabled: bool, reason: str = "") -> None:
+        """Enables or disables online tuning; `reason` is why it is off, for the banner (empty: the task file says so)."""
         self.enable_online_tuning = bool(enabled)
+        state = "normal" if self.enable_online_tuning else "disabled"
         if not self.enable_online_tuning:
+            self.warning_banner.configure(text=_disabled_banner(reason))
             self.warning_banner.pack(anchor="w", padx=12, pady=(0, 2))
-            if hasattr(self, "save_btn"):
-                self.save_btn.configure(state="disabled")
-            if hasattr(self, "reset_btn"):
-                self.reset_btn.configure(state="disabled")
-            for row in self.slider_rows.values():
-                row.set_state("disabled")
         else:
             self.warning_banner.pack_forget()
-            if hasattr(self, "save_btn"):
-                self.save_btn.configure(state="normal")
-            if hasattr(self, "reset_btn"):
-                self.reset_btn.configure(state="normal")
-            for row in self.slider_rows.values():
-                row.set_state("normal")
+        self.save_btn.configure(state=state)
+        self.reset_btn.configure(state=state)
+        for row in self.slider_rows.values():
+            row.set_state(state)
         self._notify_contact_estimator_changed()
 
-    # ── Contact estimator selection (checkbox on the Base Controller tab) ──────────────────────────────────────
+    # ── Contact estimator selection (the drop-down on the Base Controller tab) ─────────────────────────────────
     def has_contact_estimator_selection(self) -> bool:
-        """True when the loaded task file selects a contact estimator by name (`contactEstimator`)."""
-        return self.CONTACT_ESTIMATOR_KEY in self.raw_data
+        """True when the loaded task file selects a contact estimator by name (`contact_estimator`)."""
+        return self.task is not None and self.task.message.HasField(
+            self.CONTACT_ESTIMATOR_KEY
+        )
 
-    def selected_contact_estimator(self) -> Optional[str]:
+    def selected_contact_estimator(self) -> str | None:
         """The live contact estimator name, or None without a selection in the file."""
-        return self._live_values.get(self.CONTACT_ESTIMATOR_KEY)
+        if not self.has_contact_estimator_selection() or self.task is None:
+            return None
+        return str(self.task.value(self.CONTACT_ESTIMATOR_KEY))
 
-    def is_cheater_contact_estimator_selected(self) -> bool:
-        return self.selected_contact_estimator() == self.CHEATER_SIM_CONTACT_ESTIMATOR
+    def contact_estimator_names(self) -> tuple[str, ...]:
+        """The names the contact estimator can be selected among: its registry's, and the live one if it is not."""
+        names: tuple[str, ...] = ()
+        if self.task is not None and self.task.has(self.CONTACT_ESTIMATOR_KEY):
+            names = self.task.spec(self.CONTACT_ESTIMATOR_KEY).choices or ()
+        selected = self.selected_contact_estimator()
+        if selected is not None and selected not in names:
+            names += (selected,)
+        return names
 
-    def set_cheater_contact_estimator(self, enabled: bool):
-        """Selects `cheater_sim` (True) or `always_in_contact` (False) and publishes it like a slider change (the name
-        reaches the simulator through the parameter topic; 'Save to YAML' writes it into the file). Ignored while
-        online tuning is off or the file has no selection."""
+    def set_contact_estimator(self, name: str) -> None:
+        """Selects the contact estimator `name` and publishes it like a slider change.
+
+        The name reaches the simulator through the parameter topic; "Save" writes it into the file. Ignored while
+        online tuning is off or the file has no selection.
+
+        Args:
+            name: a name of the contact_estimator registry (contact_estimator_names()).
+        """
         if not self.enable_online_tuning or not self.has_contact_estimator_selection():
             self._notify_contact_estimator_changed()
             return
-        name = (
-            self.CHEATER_SIM_CONTACT_ESTIMATOR
-            if enabled
-            else self.CONTACT_ESTIMATOR_WHEN_UNCHECKED
-        )
-        self._on_any_slider_change(self.CONTACT_ESTIMATOR_KEY, name)
+        row = self.slider_rows.get(self.CONTACT_ESTIMATOR_KEY)
+        if isinstance(row, parameter_rows.ChoiceRow):
+            row.on_change, callback = None, row.on_change
+            row.set_value(name)
+            row.on_change = callback
+        self._on_any_change(self.CONTACT_ESTIMATOR_KEY, name)
         self._notify_contact_estimator_changed()
 
-    def _notify_contact_estimator_changed(self):
+    def _notify_contact_estimator_changed(self) -> None:
         if self.on_contact_estimator_changed is not None:
             self.on_contact_estimator_changed()
 
-    @staticmethod
-    def _to_float(v):
-        """Convert int, float, or numeric/scientific-notation string (e.g. '1e4', '1e0') to float."""
-        if isinstance(v, (int, float)):
-            return float(v)
-        if isinstance(v, str):
-            try:
-                return float(v)
-            except ValueError:
-                return None
-        return None
-
-    def _build_category_nav_ui(self):
+    def _build_category_nav_ui(self) -> None:
+        """The frame the block selector goes into; the selector is built when a file is loaded."""
         nav_frame = ttk.Frame(self)
         nav_frame.pack(fill="x", padx=10, pady=(0, 6))
-
-        # The categories are the configuration's own top-level blocks, discovered when a file is loaded. Nothing about
-        # any particular robot or cost is written down here: a block added to the YAML becomes a category, and a
-        # parameter added to a block becomes a slider in it.
+        # The categories are the files' own top-level blocks, as their schemas order them: a block added to a schema
+        # becomes a category, and a field added to a block becomes a row in it.
         self.active_category = tk.StringVar(value="")
-        self.categories = []
-
-        # The buttons flow into as many rows as the width of the tab allows. A single packed row needs more width than
-        # the GUI's default window (960 px), and tkinter silently drops the buttons that do not fit, so the last
-        # categories would be unreachable without resizing the window.
-        self.category_buttons = []
+        self.categories: list[str] = []
+        self.category_selector: ttk.Combobox | None = None
         self._category_nav_frame = nav_frame
-        self._category_nav_columns = 0
-        nav_frame.bind(
-            "<Configure>", lambda event: self._reflow_category_buttons(event.width)
-        )
-        self._reflow_category_buttons(nav_frame.winfo_reqwidth())
 
-    def _reflow_category_buttons(self, available_width: int):
-        """Kept for the window-resize hook: the drop-down holds every block whatever the width, so nothing to reflow."""
-        return
-
-    def _on_preset_selected(self, event=None):
+    def _on_preset_selected(self, event: tk.Event | None = None) -> None:
+        del event  # Unused.
         preset_name = self.preset_var.get()
         if preset_name in self.KNOWN_PRESETS:
             path = self.KNOWN_PRESETS[preset_name]
@@ -358,147 +315,110 @@ class MpcParamsTab(ttk.Frame):
             else:
                 self._show_status(f"Preset path not found: {path}", error=True)
 
-    def _browse_file(self):
+    def _browse_file(self) -> None:
         selected = filedialog.askopenfilename(
-            title="Select task.yaml",
-            filetypes=[("YAML files", "*.yaml *.yml"), ("All files", "*.*")],
+            title="Select task.textproto",
+            filetypes=[("Textproto files", "*.textproto"), ("All files", "*.*")],
         )
         if selected:
             self.load_file(selected)
 
-    def load_file(self, file_path: str):
+    def load_file(self, file_path: str) -> None:
+        """Loads a task file (and the contact_planning.textproto next to it) and renders its rows.
+
+        The file's enable_online_tuning applies unless the tab was given one explicitly. A file that does not parse
+        into its schema is reported on the status line, with its line and column, and leaves the tab empty.
+
+        Args:
+            file_path: the task file.
+        """
         self.task_file = os.path.abspath(file_path)
         self.path_var.set(self.task_file)
-        self.raw_data = load_yaml_safe(self.task_file)
-
-        # The contact planner's parameters live in contact_planning.yaml next to the task file (the C++ interface
-        # resolves it the same way); a task file that still carries the block inline is read as before.
-        self.contact_planning_file = self._resolve_contact_planning_file(self.task_file)
-        if self.contact_planning_file:
-            planner_data = load_yaml_safe(self.contact_planning_file).get(
-                "contact_planning"
+        self.contact_planning_file = config_files.contact_planning_file(self.task_file)
+        try:
+            self.task = tuned_file.TunedFile(
+                self.task_file, task_file_pb2.TaskFile, self.registries
             )
-            if planner_data:
-                self.raw_data["contact_planning"] = planner_data
-
-        # Create a backup of the original files at load time (before any
-        # slider-driven writes) so "Reset All" can always restore them.
-        import shutil
-
-        for original in (self.task_file, self.contact_planning_file):
-            if not original:
-                continue
-            bak_path = original + ".bak"
-            if not os.path.exists(bak_path):
-                shutil.copy2(original, bak_path)
-
-        # The file's contact estimator selection is the live value and the reset checkpoint of the checkbox.
-        self._live_values.pop(self.CONTACT_ESTIMATOR_KEY, None)
-        self._default_values.pop(self.CONTACT_ESTIMATOR_KEY, None)
-        if self.CONTACT_ESTIMATOR_KEY in self.raw_data:
-            name = str(self.raw_data[self.CONTACT_ESTIMATOR_KEY]).strip().lower()
-            self._live_values[self.CONTACT_ESTIMATOR_KEY] = name
-            self._default_values[self.CONTACT_ESTIMATOR_KEY] = name
-        self._notify_contact_estimator_changed()
+            self.contact_planning = None
+            if self.contact_planning_file:
+                self.contact_planning = tuned_file.TunedFile(
+                    self.contact_planning_file,
+                    contact_planning_file_pb2.ContactPlanningFile,
+                    self.registries,
+                )
+        except (OSError, tuned_file.TunedFileError) as error:
+            self.task = None
+            self.contact_planning = None
+            self.categories = []
+            self._refresh_categories()
+            self._clear_rows()
+            self._show_status(f"Cannot load {self.task_file}: {error}", error=True)
+            self._notify_contact_estimator_changed()
+            return
 
         if self._explicit_online_tuning is not None:
             self.enable_online_tuning = self._explicit_online_tuning
-        elif "enableOnlineTuning" in self.raw_data:
-            self.enable_online_tuning = bool(self.raw_data["enableOnlineTuning"])
-        elif "enable_online_tuning" in self.raw_data:
-            self.enable_online_tuning = bool(self.raw_data["enable_online_tuning"])
-        self.set_online_tuning_enabled(self.enable_online_tuning)
-        self._parse_yaml_comments(self.task_file)
-        # Every tunable of both files, labeled from their own trailing comments. This is the whole model the GUI is
-        # built from: no parameter is named anywhere in this module.
-        self._tunables = read_tunables(self.task_file)
-        if self.contact_planning_file:
-            planner = load_yaml_safe(self.contact_planning_file).get("contact_planning")
-            if planner:
-                self._tunables += read_tunables(
-                    self.contact_planning_file, root={"contact_planning": planner}
-                )
+        else:
+            self.enable_online_tuning = bool(self.task.message.enable_online_tuning)
         self._refresh_categories()
         self._render_active_category()
+        self.set_online_tuning_enabled(self.enable_online_tuning)
         self._show_status(f"Loaded: {os.path.basename(self.task_file)}")
 
-    def reload_file(self):
+    def reload_file(self) -> None:
+        """Reads the files again, dropping every change, and publishes them so that the MPC follows."""
         if self.task_file and os.path.exists(self.task_file):
             self.load_file(self.task_file)
-            # Publish the reloaded values so the MPC syncs with the sliders
             self._publish_to_topic()
 
-    @staticmethod
-    def _resolve_contact_planning_file(task_file: str) -> Optional[str]:
-        """Path of contact_planning.yaml next to the task file, or None when there is none (block inline)."""
-        if not task_file:
-            return None
-        candidate = os.path.join(
-            os.path.dirname(os.path.abspath(task_file)), "contact_planning.yaml"
-        )
-        return candidate if os.path.isfile(candidate) else None
+    def _files(self) -> list[tuple[str, tuned_file.TunedFile]]:
+        """(key prefix, file) of the loaded files: the task file, and the contact-planning file behind its block."""
+        files: list[tuple[str, tuned_file.TunedFile]] = []
+        if self.task is not None:
+            files.append(("", self.task))
+        if self.contact_planning is not None:
+            files.append((CONTACT_PLANNING_BLOCK + ".", self.contact_planning))
+        return files
 
-    def _split_updates(self, updates):
-        """Splits (key_path, value) updates into those of the task file and those of the planner's own file."""
-        if not self.contact_planning_file:
-            return updates, []
-        planner_updates = [u for u in updates if u[0] and u[0][0] == "contact_planning"]
-        task_updates = [
-            u for u in updates if not (u[0] and u[0][0] == "contact_planning")
-        ]
-        return task_updates, planner_updates
+    def _locate(self, key: str) -> tuple[tuned_file.TunedFile, str]:
+        """The file and the parameter path of a row key; KeyError for a key of neither."""
+        for prefix, file in reversed(self._files()):
+            if prefix and key.startswith(prefix) and file.has(key[len(prefix) :]):
+                return file, key[len(prefix) :]
+        if self.task is not None and self.task.has(key):
+            return self.task, key
+        raise KeyError(key)
 
-    def _parse_yaml_comments(self, file_path: str):
-        """Extracts inline annotations like '# back_bkz' or '# p_base_z' from task.yaml."""
-        self.comment_map.clear()
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    match = re.search(
-                        r'["\']\((\d+),(\d+)\)["\']\s*:\s*[0-9eE\.\+\-]+\s*#\s*(.*)',
-                        line,
-                    )
-                    if match:
-                        key = f"({match.group(1)},{match.group(2)})"
-                        comment = match.group(3).strip()
-                        self.comment_map[key] = comment
-        except Exception:
-            pass
+    def _category_of(self, prefix: str, spec: config_schema.ParameterSpec) -> str:
+        if prefix:
+            return CONTACT_PLANNING_BLOCK
+        return spec.block or ROOT_CATEGORY
 
-    ROOT_CATEGORY = "(top level)"
-
-    def _refresh_categories(self):
-        """Rebuilds the category list from the loaded configuration, in the order the file lists its blocks."""
-        blocks = []
-        for tunable in self._tunables:
-            block = tunable.path[0] if len(tunable.path) > 1 else self.ROOT_CATEGORY
-            if block not in blocks:
-                blocks.append(block)
+    def _refresh_categories(self) -> None:
+        """Rebuilds the block selector from the loaded files, in the order their schemas list the blocks."""
+        blocks: list[str] = []
+        for prefix, file in self._files():
+            for spec in file.rendered():
+                block = self._category_of(prefix, spec)
+                if block not in blocks:
+                    blocks.append(block)
         self.categories = blocks
         if self.active_category.get() not in blocks:
             self.active_category.set(blocks[0] if blocks else "")
-        if hasattr(self, "_category_nav_frame"):
-            self._build_category_buttons()
-
-    def _build_category_buttons(self):
-        """The category selector.
-
-        A configuration has as many blocks as it has, and the DRC Atlas file has twenty-five of them, so a row of radio
-        buttons no longer fits any sensible window: tkinter silently drops the ones that do not, which would make the
-        last blocks unreachable. A drop-down holds any number of them and stays the same size.
-        """
         for widget in self._category_nav_frame.winfo_children():
             widget.destroy()
-        self.category_buttons = []
-        if not self.categories:
+        self.category_selector = None
+        if not blocks:
             return
         ttk.Label(self._category_nav_frame, text="Block:").pack(
             side="left", padx=(0, 6)
         )
+        # A drop-down holds any number of blocks (the DRC Atlas task file has some forty), where a row of buttons
+        # would lose the ones that do not fit.
         selector = ttk.Combobox(
             self._category_nav_frame,
             textvariable=self.active_category,
-            values=list(self.categories),
+            values=list(blocks),
             state="readonly",
             width=34,
         )
@@ -507,324 +427,228 @@ class MpcParamsTab(ttk.Frame):
             "<<ComboboxSelected>>", lambda _event: self._render_active_category()
         )
         self.category_selector = selector
-        # Kept so that the older reflow hook and any caller that counted buttons still see one widget per category.
-        self.category_buttons = [selector]
 
     def contact_input_parameterization(self) -> str:
-        """The contact input parameterization of the loaded task file; `wrench` when it names none, as in the MPC."""
-        return str(
-            self.raw_data.get(CONTACT_INPUT_PARAMETERIZATION_KEY, WRENCH_CONTACT_INPUTS)
-        ).strip()
+        """The contact input parameterization of the loaded task file (its schema default when it names none)."""
+        if self.task is None:
+            return ""
+        return str(self.task.value(self.CONTACT_INPUT_PARAMETERIZATION_KEY))
 
-    @staticmethod
-    def _slider_key(tunable):
-        """The dotted path the YAML writer expects: matrix keys are quoted, because that is how the file spells them."""
-        parts = [
-            (
-                ('"%s"' % part)
-                if MATRIX_KEY.match(part) and not part.startswith('"')
-                else part
-            )
-            for part in tunable.path
-        ]
-        return ".".join(parts)
+    def render_category_containing(self, key: str) -> bool:
+        """Renders the block of the row `key`, so the caller can reach that row.
 
-    def render_category_containing(self, slider_key: str) -> bool:
-        """Renders the block a slider belongs to, so the caller can reach that slider's live row.
+        Args:
+            key: The row's key: a parameter path of the task file, or CONTACT_PLANNING_BLOCK + "." and one of the
+                contact-planning file.
 
-        The categories are the configuration's own blocks, so the block of a key is simply its first path segment.
+        Returns:
+            Whether the row is on screen now.
         """
-        block = slider_key.split(".")[0] if "." in slider_key else self.ROOT_CATEGORY
-        if block not in self.categories:
-            return False
-        self.active_category.set(block)
-        self._render_active_category()
-        return slider_key in self.slider_rows
+        for prefix, file in self._files():
+            path = key[len(prefix) :] if prefix and key.startswith(prefix) else key
+            if (prefix and not key.startswith(prefix)) or not file.has(path):
+                continue
+            block = self._category_of(prefix, file.spec(path))
+            if block not in self.categories:
+                return False
+            self.active_category.set(block)
+            self._render_active_category()
+            return key in self.slider_rows
+        return False
 
-    def _render_block(self, category: str):
-        """Sliders for every tunable of one block of the configuration, grouped by their sub-blocks, in file order.
+    def _clear_rows(self) -> None:
+        for child in self.scroll_container.scrollable_content.winfo_children():
+            child.destroy()
+        self.slider_rows.clear()
 
-        There is nothing here about any particular parameter. The label of a slider is the trailing comment the file
-        carries next to it, its range comes from its own magnitude, and a parameter that nobody has written a line of
-        code about renders exactly like one that has.
-        """
-        wanted = [
-            tunable
-            for tunable in self._tunables
-            if (tunable.path[0] if len(tunable.path) > 1 else self.ROOT_CATEGORY)
-            == category
-        ]
-        if not wanted:
+    def _render_active_category(self) -> None:
+        """Renders the selected block: a row per rendered parameter, grouped by the blocks under it, in schema order."""
+        self._clear_rows()
+        category = self.active_category.get()
+        frames: dict[str, ttk.LabelFrame] = {}
+        for prefix, file in self._files():
+            for spec in file.rendered():
+                if self._category_of(prefix, spec) != category:
+                    continue
+                group = tuned_file.group_of(spec) or category
+                frame = frames.get(group)
+                if frame is None:
+                    frame = ttk.LabelFrame(
+                        self.scroll_container.scrollable_content,
+                        text="• " + (prefix + group if prefix else group),
+                    )
+                    frame.pack(fill="x", padx=6, pady=4)
+                    frames[group] = frame
+                key = prefix + spec.path
+                row = parameter_rows.make_row(
+                    frame,
+                    spec,
+                    config_schema.display_label(spec, file.message),
+                    file.value(spec.path),
+                    on_change=functools.partial(self._on_row_change, key),
+                )
+                if row is None:
+                    continue
+                row.pack(fill="x", padx=4, pady=1)
+                self.slider_rows[key] = row
+        if not self.slider_rows:
             ttk.Label(
                 self.scroll_container.scrollable_content,
                 text="No tunable parameters in this block.",
             ).pack(anchor="w", padx=8, pady=8)
-            return
-
-        frames = {}
-        for tunable in wanted:
-            # One frame per sub-block, so a nested block (gait_limits, blend, a matrix) reads as a group.
-            group = ".".join(tunable.path[:-1]) or category
-            frame = frames.get(group)
-            if frame is None:
-                frame = ttk.LabelFrame(
-                    self.scroll_container.scrollable_content, text="• " + group
-                )
-                frame.pack(fill="x", padx=6, pady=4)
-                frames[group] = frame
-            key = self._slider_key(tunable)
-            row = SliderRow(
-                frame,
-                name=_contact_slider_label(
-                    tunable.label, tunable.path, self.contact_input_parameterization()
-                ),
-                initial_value=tunable.value,
-                min_val=tunable.minimum,
-                max_val=tunable.maximum,
-                label_width=46,
-                # SliderRow reports its display label, which carries the comment and the annotations; the live values
-                # are keyed by the dotted path the YAML writer splits, so the row's own key is bound here instead.
-                on_change=functools.partial(self._on_slider_row_change, key),
-            )
-            row.pack(fill="x", padx=4, pady=1)
-            self.slider_rows[key] = row
-
-    def _render_active_category(self):
-        cat = self.active_category.get()
-
-        # Save current slider values before destroying them
-        for key, row in self.slider_rows.items():
-            self._live_values[key] = row.get_value()
-
-        # Clear content container
-        for child in self.scroll_container.scrollable_content.winfo_children():
-            child.destroy()
-
-        self.slider_rows.clear()
-        self._render_block(cat)
-
-        # Restore saved slider values and defaults (from previous edits on this tab)
-        for key, row in self.slider_rows.items():
-            if key in self._live_values:
-                row.set_value(self._live_values[key])
-            if key in self._default_values:
-                row.default_value = self._default_values[key]
-                row._update_highlight()
-
         if not self.enable_online_tuning:
             for row in self.slider_rows.values():
                 row.set_state("disabled")
 
-    def _sync_q_final_from_q(self):
-        """Copy ALL Q diagonal values and scaling into Q_final sliders."""
-        if not self.enable_online_tuning:
-            self._show_status("Online tuning is disabled.", error=True)
-            return
-
-        # Use live slider values (persisted across category switches) instead
-        # of re-reading the file, since we no longer auto-save to YAML.
-        q_data = {}
-        for key, val in self._live_values.items():
-            if key.startswith("Q."):
-                # Strip the "Q." prefix and any quotes
-                suffix = key[2:].strip('"')
-                q_data[suffix] = val
-
-        # Fall back to raw_data if no live values for Q exist yet
-        if not q_data:
-            q_data = self.raw_data.get("Q", {})
-
-        if not q_data:
-            self._show_status("Q matrix not found — nothing to sync.", error=True)
-            return
-
-        synced = 0
-        # Sync scaling
-        qf_scaling_key = "Q_final.scaling"
-        if qf_scaling_key in self.slider_rows:
-            q_scale = float(q_data.get("scaling", 1.0))
-            self.slider_rows[qf_scaling_key].set_value(q_scale)
-            self._live_values[qf_scaling_key] = q_scale
-            synced += 1
-
-        # Sync ALL diagonal entries that exist in Q_final sliders
-        for key in list(self.slider_rows.keys()):
-            if not key.startswith('Q_final."('):
-                continue
-            # Extract the "(i,j)" part from the slider key
-            diag_key = key.split("Q_final.")[1].strip('"')
-            if diag_key in q_data:
-                q_val = float(q_data[diag_key])
-                self.slider_rows[key].set_value(q_val)
-                self._live_values[key] = q_val
-                synced += 1
-
-        if synced > 0:
-            self._schedule_publish()
-            self._show_status(f"✓ Synced {synced} Q_final entries from Q")
-
-    def reset_all_defaults(self):
+    def reset_all_defaults(self) -> None:
+        """Returns every parameter to the file as loaded or last saved, and publishes the result."""
         if not self.enable_online_tuning:
             return
+        for _, file in self._files():
+            file.reset()
         for row in self.slider_rows.values():
+            callback, row.on_change = row.on_change, None
             row.reset_to_default()
-        if self.CONTACT_ESTIMATOR_KEY in self._default_values:
-            self._live_values[self.CONTACT_ESTIMATOR_KEY] = self._default_values[
-                self.CONTACT_ESTIMATOR_KEY
-            ]
-            self._notify_contact_estimator_changed()
-        # Publish immediately so the MPC picks up the reset values
+            row.on_change = callback
+        self._notify_contact_estimator_changed()
         self._publish_to_topic()
-        self._show_status("All parameters reset to loaded defaults")
+        self._show_status("All parameters reset to the saved files")
 
-    def _on_slider_row_change(self, key: str, _label: str, value):
-        """A SliderRow's on_change, bound to the row's dotted key path; the label the row reports is for display only."""
-        self._on_any_slider_change(key, value)
+    def _on_row_change(self, key: str, label: str, value: Any) -> None:
+        """A row's on_change, bound to its key; the label the row reports is for display only."""
+        del label  # Unused: for display only.
+        self._on_any_change(key, value)
 
-    def _on_any_slider_change(self, key: str, value):
-        """Called on every slider move (or checkbox toggle, with the selected name); debounces the publish.
+    def _on_any_change(self, key: str, value: Any) -> None:
+        """A change of the parameter `key`: held in its file, and published after the debounce.
 
-        `key` is the dotted key path of the value (`Q."(0,0)"`, `contacts.basisNonNegativityBarrier.mu`), which is what
-        _build_yaml_with_slider_values() and save_to_yaml() split to find the line to edit. The C++
-        MpcParameterUpdaterModule reads operator/mpc_parameters for real-time parameter updates without touching the
-        YAML file.
+        Args:
+            key: the row key of the parameter (its path, behind CONTACT_PLANNING_BLOCK + "." for the planner's).
+            value: its new value.
         """
-        # Persist the value so it survives category tab switches
-        self._live_values[key] = value
+        try:
+            file, path = self._locate(key)
+            file.set(path, value)
+        except (KeyError, ValueError) as error:
+            self._show_status(f"Cannot change {key}: {error}", error=True)
+            return
+        if key == self.CONTACT_ESTIMATOR_KEY:
+            self._notify_contact_estimator_changed()
         self._schedule_publish()
 
-    def _schedule_publish(self):
-        """Debounces a publish of every live value on operator/mpc_parameters."""
+    def _schedule_publish(self) -> None:
+        """Debounces a publish of both files on operator/mpc_parameters."""
         if self._debounce_publish_id is not None:
             self.after_cancel(self._debounce_publish_id)
-        self._debounce_publish_id = self.after(300, self._publish_to_topic)
+        self._debounce_publish_id = self.after(
+            _PUBLISH_DEBOUNCE_MS, self._publish_to_topic
+        )
 
-    def _build_yaml_with_slider_values(self) -> str:
-        """Build a complete YAML string from the original file with slider values applied.
+    def build_parameter_update(self) -> Any:
+        """The MpcParameterUpdate of the two files with the operator's changes, parsed strictly from their edited text.
 
-        Reads the original task.yaml, applies ALL current slider values (from
-        _live_values, which persists across category tab switches) as line
-        edits, and returns the full modified YAML string (without writing to
-        disk).  The C++ side writes this to a temp file for parsing.
+        Returns:
+            The update; None without a task file.
+
+        Raises:
+            tuned_file.TunedFileError: an edited text would not parse into its edited message.
         """
-        if not self.task_file or not os.path.exists(self.task_file):
-            return ""
+        if self.task is None:
+            return None
+        planner = (
+            self.contact_planning.edited().message
+            if self.contact_planning is not None
+            else None
+        )
+        return operator_bus.mpc_parameter_update(
+            self.task.edited().message,
+            planner,
+            config_path=robot_config_save.config_path_of(self.task.path),
+        )
 
-        with open(self.task_file, "r") as f:
-            lines = f.readlines()
-
-        # Merge current slider_rows into _live_values to capture any pending changes
-        for key_path_str, row in self.slider_rows.items():
-            self._live_values[key_path_str] = row.get_value()
-
-        # Build updates list from ALL live values (all categories)
-        updates = []
-        for key_path_str, val in self._live_values.items():
-            parts = key_path_str.split(".")
-            updates.append((parts, val))
-
-        # Apply updates in-place on the lines (same logic as update_yaml_values_in_place
-        # but without writing to disk)
-        from remote_control.tk_app.yaml_editor_utils import _update_single_key
-
-        task_updates, planner_updates = self._split_updates(updates)
-        for key_path, value in task_updates:
-            lines = _update_single_key(lines, key_path, value)
-
-        # The planner's file is a second YAML document with its own top-level key; appended to the task file's
-        # content it parses as one document, which is what the C++ updater expects on the topic.
-        if self.contact_planning_file and os.path.exists(self.contact_planning_file):
-            with open(self.contact_planning_file, "r") as f:
-                planner_lines = f.readlines()
-            for key_path, value in planner_updates:
-                planner_lines = _update_single_key(planner_lines, key_path, value)
-            if lines and not lines[-1].endswith("\n"):
-                lines.append("\n")
-            lines.append("\n")
-            lines.extend(planner_lines)
-
-        return "".join(lines)
-
-    def _publish_to_topic(self):
-        """Publishes the task file with the current slider values, as a YamlDocument on operator/mpc_parameters."""
+    def _publish_to_topic(self) -> None:
+        """Publishes the two files with the current values, as an MpcParameterUpdate on operator/mpc_parameters."""
         self._debounce_publish_id = None
         if not self.enable_online_tuning or not self.param_publisher:
             _LOGGER.debug("Skipping publish: online tuning disabled or no publisher.")
             return
-
         try:
-            yaml_content = self._build_yaml_with_slider_values()
-            if not yaml_content:
-                _LOGGER.warning("Not publishing: the rebuilt task YAML is empty.")
+            update = self.build_parameter_update()
+            if update is None:
+                _LOGGER.warning("Not publishing: no task file is loaded.")
                 return
-
-            self.param_publisher.publish(yaml_document(yaml_content))
-            _LOGGER.debug(
-                "Published %d characters on operator/mpc_parameters.", len(yaml_content)
-            )
-        except Exception as e:
+            self.param_publisher.publish(update)
+        except tuned_file.TunedFileError as error:
+            self._show_status(f"Not published: {error}", error=True)
+        # pylint: disable-next=broad-exception-caught  # Shown to the operator: a Tk callback must not raise.
+        except Exception as error:
             _LOGGER.exception("Failed to publish MPC parameter updates.")
-            self._show_status(f"Error publishing to topic: {e}", error=True)
+            self._show_status(f"Error publishing to topic: {error}", error=True)
 
-    def save_and_checkpoint(self):
-        """Explicit save: writes to YAML AND updates the reset checkpoint.
+    def save_and_checkpoint(self) -> None:
+        """Explicit save: writes the files AND makes them the reset checkpoint ('Reset All' returns to them)."""
+        self.save()
 
-        After this, 'Reset All' will restore sliders to these values.
+    def save(self) -> bool:
+        """Writes every change into its file on the laptop, then sends the saved task file to the robot.
+
+        The laptop's files keep every byte the changes do not touch (the planner's changes go into
+        contact_planning.textproto, which is saved first: it is the MPC's alone, so that a failure to save it leaves the
+        task file's two copies, the laptop's and the robot's, as they were). Then the exact text of the task file,
+        saved, goes to the robot's store, also when nothing changed (it re-synchronizes a robot that refused an earlier
+        save or missed an editor's); the status line follows the robot's answer. A laptop save that fails sends nothing.
+
+        Returns:
+            Whether the laptop's files were saved.
         """
-        self.save_to_yaml(update_defaults=True)
-
-    def save_to_yaml(self, update_defaults: bool = False):
         if not self.enable_online_tuning:
             self._show_status("Online tuning is disabled.", error=True)
-            return
-
-        if not self.task_file:
-            self._show_status("No file path specified to save.", error=True)
-            return
-
-        # Merge current slider_rows into _live_values to capture pending changes
-        for key_path_str, row in self.slider_rows.items():
-            self._live_values[key_path_str] = row.get_value()
-
-        # Build updates from ALL live values (all tabs, not just the active one)
-        updates = []
-        for key_path_str, val in self._live_values.items():
-            parts = key_path_str.split(".")
-            updates.append((parts, val))
-
-        try:
-            # Never create .bak here — the backup was already created at
-            # file-load time in load_file(). The planner's sliders go to its own file.
-            task_updates, planner_updates = self._split_updates(updates)
-            success = update_yaml_values_in_place(
-                self.task_file, task_updates, create_backup=False
-            )
-            if success and planner_updates:
-                success = update_yaml_values_in_place(
-                    self.contact_planning_file, planner_updates, create_backup=False
+            return False
+        if self.task is None or not self.task_file:
+            self._show_status("No file loaded to save.", error=True)
+            return False
+        if self.contact_planning is not None:
+            try:
+                self.contact_planning.save()
+            except (OSError, tuned_file.TunedFileError) as error:
+                self._show_status(
+                    f"Error saving the contact planner's file: {error}; the task file was not saved",
+                    error=True,
                 )
-            if success:
-                if update_defaults:
-                    # Explicit "Save to YAML": update the reset checkpoint
-                    # so "Reset All" returns to these values.
-                    for key, val in self._live_values.items():
-                        # Update defaults for visible sliders
-                        if key in self.slider_rows:
-                            self.slider_rows[key].default_value = val
-                    # Also store defaults for non-visible tabs
-                    self._default_values = dict(self._live_values)
-                for row in self.slider_rows.values():
-                    row._update_highlight()
+                return False
+        try:
+            task_text = self.task.save().text
+        except (OSError, tuned_file.TunedFileError) as error:
+            planner = (
+                " (the contact planner's file was saved)"
+                if self.contact_planning is not None
+                else ""
+            )
+            self._show_status(f"Error saving: {error}{planner}", error=True)
+            return False
+        for row in self.slider_rows.values():
+            row.mark_saved()
+        self.robot_save.send(robot_config_save.KIND_TASK, self.task.path, task_text)
+        if self.on_params_updated:
+            self.on_params_updated(self.task_file)
+        return True
 
-                self._show_status(f"✓ Saved to {os.path.basename(self.task_file)}")
-                if self.on_params_updated:
-                    self.on_params_updated(self.task_file)
-            else:
-                self._show_status("Failed to save YAML file.", error=True)
-        except Exception as e:
-            self._show_status(f"Error saving: {e}", error=True)
+    def _show_save_status(self, msg: str, error: bool) -> None:
+        """Shows the outcome of a Save, which stays until the next status."""
+        self._show_status(msg, error=error, transient=False)
 
-    def _show_status(self, msg: str, error: bool = False):
+    def _show_status(
+        self, msg: str, error: bool = False, transient: bool = True
+    ) -> None:
+        """Shows `msg` on the status line, in red for an error; a transient one is cleared after _STATUS_DISPLAY_MS."""
+        if self._status_clear_id is not None:
+            self.after_cancel(self._status_clear_id)
+            self._status_clear_id = None
         color = "#e74c3c" if error else "#27ae60"
         self.status_label.configure(text=msg, foreground=color)
-        self.after(5000, lambda: self.status_label.configure(text=""))
+        if transient:
+            self._status_clear_id = self.after(_STATUS_DISPLAY_MS, self._clear_status)
+
+    def _clear_status(self) -> None:
+        self._status_clear_id = None
+        self.status_label.configure(text="")

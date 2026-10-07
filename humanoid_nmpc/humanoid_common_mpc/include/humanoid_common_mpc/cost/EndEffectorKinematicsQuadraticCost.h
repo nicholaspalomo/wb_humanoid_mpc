@@ -30,20 +30,29 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include <memory>
+#include <string>
 
-#include <ocs2_core/cost/StateInputGaussNewtonCostAd.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-#include <ocs2_robotic_tools/end_effector/EndEffectorKinematics.h>
-#include <pinocchio/algorithm/frames.hpp>
+#include "absl/base/nullability.h"
+#include "ocs2_core/cost/StateInputGaussNewtonCostAd.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "ocs2_robotic_tools/end_effector/EndEffectorKinematics.h"
+#include "pinocchio/algorithm/frames.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
-
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
 
+/**
+ * A Gauss-Newton cost on the task-space error of one link - position, orientation, linear and angular velocity - against
+ * the link pose the reference state implies, generated with CppAD.
+ *
+ * The robot model and the reference manager, when given, must outlive it. setWeights() retunes it between solves. Like
+ * every OCS2 term it is cloned for each solver thread, and a single instance is not thread-safe.
+ */
 class EndEffectorKinematicsQuadraticCost : public ocs2::StateInputCostGaussNewtonAd {
  public:
   /**
@@ -53,26 +62,25 @@ class EndEffectorKinematicsQuadraticCost : public ocs2::StateInputCostGaussNewto
    * base-pose costs regularize it towards the shaped one, and the stiffer of the two cancels the heuristic. Null leaves
    * the reference exactly as the target trajectory has it.
    */
-  EndEffectorKinematicsQuadraticCost(EndEffectorKinematicsWeights weights,
+  EndEffectorKinematicsQuadraticCost(const EndEffectorKinematicsWeights& weights,
                                      const PinocchioInterface& pinocchioInterface,
                                      const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
                                      const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
-                                     std::string endEffectorName,
+                                     const std::string& endEffectorName,
                                      const ModelSettings& modelSettings,
-                                     const SwitchedModelReferenceManager* referenceManager = nullptr);
+                                     const SwitchedModelReferenceManager* absl_nullable referenceManager = nullptr);
 
   ~EndEffectorKinematicsQuadraticCost() override = default;
-  EndEffectorKinematicsQuadraticCost* clone() const override { return new EndEffectorKinematicsQuadraticCost(*this); }
+  EndEffectorKinematicsQuadraticCost& operator=(const EndEffectorKinematicsQuadraticCost&) = delete;
+  EndEffectorKinematicsQuadraticCost(EndEffectorKinematicsQuadraticCost&&) = delete;
+  EndEffectorKinematicsQuadraticCost& operator=(EndEffectorKinematicsQuadraticCost&&) = delete;
+  EndEffectorKinematicsQuadraticCost* absl_nonnull clone() const override { return new EndEffectorKinematicsQuadraticCost(*this); }
 
-  virtual vector_t getParameters(scalar_t time,
-                                 const TargetTrajectories& targetTrajectories,
-                                 const PreComputation& preComputation) const override;
+  vector_t getParameters(scalar_t time, const TargetTrajectories& targetTrajectories, const PreComputation& preComputation) const override;
 
-  bool isActive(scalar_t time) const override { return isActive_; }
+  bool isActive(scalar_t /*time*/) const override { return isActive_; }
   void setActive(bool active) { isActive_ = active; }
   bool getActive() const { return isActive_; }
-
-  static EndEffectorKinematicsWeights getWeights(const std::string& taskFile, const std::string prefix, bool verbose = false);
 
   void getWeights(vector12_t& weights) const { weights = sqrtWeights_.cwiseProduct(sqrtWeights_); }
   void setWeights(const vector12_t& weights) { sqrtWeights_ = weights.cwiseSqrt(); }
@@ -94,12 +102,10 @@ class EndEffectorKinematicsQuadraticCost : public ocs2::StateInputCostGaussNewto
   pinocchio::FrameIndex frameID_;
   PinocchioInterfaceCppAd pinocchioInterfaceCppAd_;
   const std::unique_ptr<EndEffectorKinematics<scalar_t>> endEffectorKinematicsPtr_;
-  std::unique_ptr<MpcRobotModelBase<ad_scalar_t>> mpcRobotModelADPtr;
+  std::unique_ptr<MpcRobotModelBase<ad_scalar_t>> mpcRobotModelADPtr_;
   bool isActive_ = true;
   /// Shapes the reference base pose when set; see the constructor. Shared, read-only, across the solver's clones.
-  const SwitchedModelReferenceManager* referenceManagerPtr_ = nullptr;
+  const SwitchedModelReferenceManager* absl_nullable referenceManagerPtr_ = nullptr;
 };
-
-EndEffectorKinematicsWeights loadWeightsFromFile(const std::string& filename, const std::string& fieldname, bool verbose = true);
 
 }  // namespace ocs2::humanoid

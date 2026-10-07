@@ -36,6 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <mutex>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 #include <ocs2_core/control/ControllerBase.h>
 #include <ocs2_core/manifold/StateManifold.h>
@@ -113,7 +115,7 @@ class MRT_BASE {
    * @brief Initializes rollout class to roll out a feedback policy
    * @param rolloutPtr: The rollout object to be used
    */
-  void initRollout(const RolloutBase* rolloutPtr);
+  void initRollout(const RolloutBase* absl_nonnull rolloutPtr);
 
   /**
    * Sets the manifold the state lives on (nullptr, the default, for a flat state). evaluatePolicy() then interpolates the

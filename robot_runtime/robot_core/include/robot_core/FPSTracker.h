@@ -29,32 +29,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <assert.h>
 #include <chrono>
-#include <iomanip>
-#include <iostream>
-#include <string>
 
-#include "absl/log/log.h"
+#include "absl/log/absl_check.h"
 
 namespace robot {
 
+/**
+ * The rate at which tick() is called, smoothed exponentially with `alpha` (0 < alpha <= 1; 1 keeps only the newest
+ * period), for the simulator and renderer frame rates of the MuJoCo metrics overlay. Not thread-safe: one thread ticks and reads it.
+ */
 class FPSTracker {
  public:
-  explicit FPSTracker(const std::string& name, double alpha = 0.1)
-      : initialized_(false), sampleCount_(0), alpha_(alpha), fps_(0.0), name_(name) {
-    assert(alpha > 0 && alpha <= 1);
+  explicit FPSTracker(double alpha = 0.1) : alpha_(alpha) {
+    ABSL_CHECK(alpha > 0.0 && alpha <= 1.0) << "FPSTracker: alpha must be in (0, 1], got " << alpha;
     lastTimePoint_ = std::chrono::steady_clock::now();
   }
 
   ~FPSTracker() = default;
 
   void tick() {
-    auto now = std::chrono::steady_clock::now();
+    const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
     double deltaTime = std::chrono::duration<double>(now - lastTimePoint_).count();
     lastTimePoint_ = now;
 
-    ++sampleCount_;
     double currentFPS = 1.0 / deltaTime;
 
     if (initialized_) {
@@ -67,23 +65,14 @@ class FPSTracker {
 
   void reset() { initialized_ = false; }
 
-  void print() const { LOG(INFO) << "FPS [" << name_ << "]: " << static_cast<int>(fps_); }
-
-  double alpha() const { return alpha_; }
-
   double fps() const { return fps_; }
 
-  size_t sampleCount() const { return sampleCount_; }
-
  private:
-  bool initialized_;
-  size_t sampleCount_;
+  bool initialized_ = false;
 
   double alpha_;  // Smoothing factor (0 < alpha <= 1)
-  double fps_;
+  double fps_ = 0.0;
 
   std::chrono::time_point<std::chrono::steady_clock> lastTimePoint_;
-
-  std::string name_;
 };
 }  // namespace robot

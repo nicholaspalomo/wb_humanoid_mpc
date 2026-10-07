@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 #include <ocs2_core/manifold/StateManifold.h>
 
@@ -72,7 +74,10 @@ void incrementTrajectory(const std::vector<Type>& v, const std::vector<Type>& dv
  * Steps a state trajectory along the manifold: xNew[i] = x[i] (+) alpha * dx[i]. With a nullptr manifold this is
  * incrementTrajectory(x, dx, alpha, xNew), bit for bit. It assumes that xNew is already resized to the size of x.
  */
-inline void retractTrajectory(const StateManifold* stateManifold, const vector_array_t& x, const vector_array_t& dx, const scalar_t alpha,
+inline void retractTrajectory(const StateManifold* absl_nullable stateManifold,
+                              const vector_array_t& x,
+                              const vector_array_t& dx,
+                              const scalar_t alpha,
                               vector_array_t& xNew) {
   if (stateManifold == nullptr) {
     incrementTrajectory(x, dx, alpha, xNew);

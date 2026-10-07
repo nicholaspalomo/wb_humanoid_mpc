@@ -40,12 +40,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::realtime {
 namespace {
 
-constexpr std::int64_t kNanosecondsPerSecond = 1'000'000'000;
+constexpr int64_t kNanosecondsPerSecond = 1'000'000'000;
 
 timespec toTimespec(std::chrono::nanoseconds time) {
   timespec converted{};
   converted.tv_sec = static_cast<time_t>(time.count() / kNanosecondsPerSecond);
-  converted.tv_nsec = static_cast<long>(time.count() % kNanosecondsPerSecond);
+  converted.tv_nsec = static_cast<decltype(converted.tv_nsec)>(time.count() % kNanosecondsPerSecond);
   return converted;
 }
 
@@ -54,7 +54,7 @@ timespec toTimespec(std::chrono::nanoseconds time) {
 std::chrono::nanoseconds monotonicNow() {
   timespec now{};
   clock_gettime(CLOCK_MONOTONIC, &now);
-  return std::chrono::nanoseconds(static_cast<std::int64_t>(now.tv_sec) * kNanosecondsPerSecond + now.tv_nsec);
+  return std::chrono::nanoseconds(static_cast<int64_t>(now.tv_sec) * kNanosecondsPerSecond + now.tv_nsec);
 }
 
 void sleepUntil(std::chrono::nanoseconds deadline) {
@@ -74,7 +74,7 @@ DeadlineAdvance advanceDeadline(std::chrono::nanoseconds servedDeadline,
     return DeadlineAdvance{.nextDeadline = following, .missedPeriods = 0};
   }
   // The deadlines servedDeadline + k * period with 1 <= k <= missed have passed as well; the next is the one after.
-  const std::int64_t missed = (wakeupTime - servedDeadline) / period;
+  const int64_t missed = (wakeupTime - servedDeadline) / period;
   return DeadlineAdvance{.nextDeadline = servedDeadline + (missed + 1) * period, .missedPeriods = missed};
 }
 

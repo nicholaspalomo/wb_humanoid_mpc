@@ -27,7 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include "humanoid_mpc_validation/benchmark/MpcSolveBenchmark.h"
 
@@ -39,11 +39,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include <ocs2_core/automatic_differentiation/CppAdInterface.h>
-
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/strip.h"
+#include "ocs2_core/automatic_differentiation/CppAdInterface.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/mrt/ControlMode.h"
@@ -59,7 +59,7 @@ class TapeOperationCounter {
   TapeOperationCounter() {
     CppAdInterface::setLibraryObserver([this](const CppAdInterface& library) {
       std::lock_guard<std::mutex> lock(mutex_);
-      if (counts_.count(library.getLibraryFolder()) > 0) return;  // a copy reloads a library already counted
+      if (counts_.contains(library.getLibraryFolder())) return;  // a copy reloads a library already counted
       counts_.emplace(library.getLibraryFolder(), library.getTapeOperationCount());
     });
   }
@@ -117,8 +117,9 @@ absl::StatusOr<JsonValue> runSolveBenchmark(const RobotConfiguration& configurat
   robot::model::RobotJointAction action(driver->robotDescription());
   // The JOINT_PD posture, which WB_MPC holds while it waits for a policy solved after a reset.
   std::vector<scalar_t> nominalPosture(driver->robotDescription().getNumJoints(), 0.0);
-  for (size_t joint = 0; joint < nominalPosture.size(); ++joint)
-    nominalPosture[joint] = driver->initialRobotState().getJointPosition(joint);
+  for (size_t joint = 0; joint < nominalPosture.size(); ++joint) {
+    nominalPosture[joint] = driver->initialRobotState().getCheckedJointPosition(joint);
+  }
   RobotController& controller = driver->robotController();
   for (size_t pass = 0; pass < options.repeats; ++pass) {
     // Each pass starts afresh from the first record, in WB_MPC (the controller's mode after construction): the first
@@ -164,7 +165,7 @@ absl::StatusOr<JsonValue> runSolveBenchmark(const RobotConfiguration& configurat
   times.set("solve_qp", summarizeTimes(solveQp));
   times.set("linesearch", summarizeTimes(linesearch));
   times.set("compute_controller", summarizeTimes(computeController));
-  const JsonValue* p99 = times.findPath("total.p99");
+  const JsonValue* absl_nullable p99 = times.findPath("total.p99");
   const double periodMs = 1000.0 / driver->mpcFrequency();
   JsonValue& gate = document.set("real_time", JsonValue::object());
   gate.set("mpc_period_ms", JsonValue::number(periodMs));

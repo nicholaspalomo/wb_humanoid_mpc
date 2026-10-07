@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <pinocchio/fwd.hpp>  // forward declarations must be included first.
 
+#include "absl/base/nullability.h"
+
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
 
 #include <pinocchio/algorithm/centroidal-derivatives.hpp>
@@ -57,7 +59,7 @@ CentroidalModelPinocchioMappingTpl<SCALAR>::CentroidalModelPinocchioMappingTpl(c
 /******************************************************************************************************/
 /******************************************************************************************************/
 template <typename SCALAR>
-CentroidalModelPinocchioMappingTpl<SCALAR>* CentroidalModelPinocchioMappingTpl<SCALAR>::clone() const {
+CentroidalModelPinocchioMappingTpl<SCALAR>* absl_nonnull CentroidalModelPinocchioMappingTpl<SCALAR>::clone() const {
   return new CentroidalModelPinocchioMappingTpl<SCALAR>(*this);
 }
 

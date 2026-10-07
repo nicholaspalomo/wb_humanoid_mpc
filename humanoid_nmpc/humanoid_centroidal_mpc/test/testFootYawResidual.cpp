@@ -27,11 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
-
-#include <pinocchio/algorithm/frames.hpp>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cmath>
 #include <functional>
@@ -40,11 +36,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <ocs2_core/PreComputation.h>
-#include <ocs2_core/automatic_differentiation/CppAdInterface.h>
-#include <ocs2_core/automatic_differentiation/Types.h>
-#include <ocs2_core/reference/TargetTrajectories.h>
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
+#include "gtest/gtest.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/automatic_differentiation/CppAdInterface.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
+#include "pinocchio/algorithm/frames.hpp"
 
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
@@ -108,8 +106,8 @@ TEST(FootYawResidual, IsTheWrappedYawErrorAtEveryNonSingularOrientation) {
     const matrix3_t rotation = getRotationMatrixFromZyxEulerAngles<scalar_t>(euler);
     const scalar_t reference = yawDistribution(generator);
     const scalar_t legacy = legacyFootYawError(rotation, reference, /*hasYawReference=*/1.0);
-    if (std::abs(std::abs(legacy) - M_PI) < 1e-3) continue;  // the wrap itself, where neither is continuous
-    EXPECT_NEAR(Cost::footYawError<scalar_t>(rotation, reference, /*hasYawReference=*/1.0), legacy, 1e-9) << "sample " << sample;
+    if (std::abs(std::abs(legacy) - M_PI) < 1.0e-3) continue;  // the wrap itself, where neither is continuous
+    EXPECT_NEAR(Cost::footYawError<scalar_t>(rotation, reference, /*hasYawReference=*/1.0), legacy, 1.0e-9) << "sample " << sample;
     // Masked, it is exactly zero, whatever the orientation and the reference.
     EXPECT_EQ(Cost::footYawError<scalar_t>(rotation, reference, /*hasYawReference=*/0.0), 0.0) << "sample " << sample;
   }
@@ -121,7 +119,7 @@ TEST(FootYawResidual, HasFiniteDerivativesAtAYawOfExactlyZero) {
                   const ad_scalar_t& has) { return Cost::footYawError<ad_scalar_t>(rotation, reference, has); },
                "halfAngle");
   for (const scalar_t hasYawReference : {0.0, 1.0}) {
-    for (const vector3_t& euler : {vector3_t(0.0, 0.0, 0.0), vector3_t(0.0, 0.1, -0.05), vector3_t(1e-9, 0.0, 0.0)}) {
+    for (const vector3_t& euler : {vector3_t(0.0, 0.0, 0.0), vector3_t(0.0, 0.1, -0.05), vector3_t(1.0e-9, 0.0, 0.0)}) {
       const vector_t jacobian = jacobianAt(*library, euler, /*yawReference=*/0.0, hasYawReference);
       EXPECT_TRUE(jacobian.allFinite()) << "hasYawReference " << hasYawReference << ", euler " << euler.transpose() << ": "
                                         << jacobian.transpose();
@@ -138,7 +136,7 @@ TEST(FootYawResidual, TheLegacyResidualHadNoFiniteDerivativeThere) {
                "legacy");
   EXPECT_FALSE(jacobianAt(*library, vector3_t::Zero(), /*yawReference=*/0.0, /*hasYawReference=*/0.0).allFinite());
   EXPECT_FALSE(jacobianAt(*library, vector3_t::Zero(), /*yawReference=*/0.0, /*hasYawReference=*/1.0).allFinite());
-  EXPECT_TRUE(jacobianAt(*library, vector3_t(1e-9, 0.0, 0.0), /*yawReference=*/0.0, /*hasYawReference=*/1.0).allFinite());
+  EXPECT_TRUE(jacobianAt(*library, vector3_t(1.0e-9, 0.0, 0.0), /*yawReference=*/0.0, /*hasYawReference=*/1.0).allFinite());
 }
 
 TEST(FootYawResidual, TheSwingFootCostIsDifferentiableAtTheSimulatorsResetPose) {

@@ -1,14 +1,41 @@
-"""Statistics of the messages a listener receives: per-topic rate, period jitter and size (`hz`), and the census of
-every topic seen on the bus (`list`).
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-Times are local receive times (time.monotonic), so the statistics describe the stream as it arrives here, after the
-network: the rate and jitter of a topic published at a steady period include whatever the link adds.
+"""Statistics of the messages a listener receives: rate, period jitter and size (`hz`), and the census (`list`).
+
+The rate statistics describe one topic; the census counts every topic seen on the bus. Times are local receive times
+(time.monotonic), so the statistics describe the stream as it arrives here, after the network: the rate and jitter of a
+topic published at a steady period include whatever the link adds.
 """
 
 import collections
 import dataclasses
 import math
-from typing import Deque, Dict, List, NamedTuple, Optional, Set, Tuple
+from typing import NamedTuple
 
 KIBIBYTE = 1024.0
 
@@ -37,14 +64,17 @@ class RateStatistics:
             raise ValueError(
                 f"the window must hold at least two messages, got {window_size}"
             )
-        self._samples: Deque[Tuple[float, int]] = collections.deque(maxlen=window_size)
+        self._samples: collections.deque[tuple[float, int]] = collections.deque(
+            maxlen=window_size
+        )
         self.total_count = 0
 
     def add(self, receive_time: float, size_bytes: int) -> None:
+        """Adds a message that arrived at `receive_time` (seconds) with a payload of `size_bytes`."""
         self._samples.append((receive_time, size_bytes))
         self.total_count += 1
 
-    def snapshot(self) -> Optional[RateSnapshot]:
+    def snapshot(self) -> RateSnapshot | None:
         """The statistics of the window, or None until it holds two messages that arrived at different times."""
         if len(self._samples) < 2:
             return None
@@ -96,13 +126,14 @@ class TopicSummary:
     """What `list` reports about one topic."""
 
     topic: str
-    type_names: Set[str]
+    type_names: set[str]
     count: int
     first_receive_time: float
     last_receive_time: float
 
     @property
-    def rate_hz(self) -> Optional[float]:
+    def rate_hz(self) -> float | None:
+        """The average rate of the topic in Hz; None until two messages arrived at different times."""
         span = self.last_receive_time - self.first_receive_time
         if self.count < 2 or span <= 0.0:
             return None
@@ -113,9 +144,10 @@ class TopicCensus:
     """Every topic seen, with its type names (one, unless two publishers disagree) and how often it arrived."""
 
     def __init__(self) -> None:
-        self._topics: Dict[str, TopicSummary] = {}
+        self._topics: dict[str, TopicSummary] = {}
 
     def add(self, topic: str, type_name: str, receive_time: float) -> None:
+        """Counts a message of `topic` and type `type_name` that arrived at `receive_time` (seconds)."""
         summary = self._topics.get(topic)
         if summary is None:
             self._topics[topic] = TopicSummary(
@@ -130,12 +162,12 @@ class TopicCensus:
         summary.count += 1
         summary.last_receive_time = receive_time
 
-    def summaries(self) -> List[TopicSummary]:
+    def summaries(self) -> list[TopicSummary]:
         """The topics, sorted by name."""
         return [self._topics[topic] for topic in sorted(self._topics)]
 
 
-def format_census(summaries: List[TopicSummary]) -> str:
+def format_census(summaries: list[TopicSummary]) -> str:
     """A table of topic, type and rate, one topic per line."""
     rows = [("TOPIC", "TYPE", "MESSAGES", "RATE")]
     for summary in summaries:

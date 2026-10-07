@@ -20,4 +20,5 @@ nodes { name: "robot"     host: "127.0.0.1"  port: 5600 }  # the robot process
 nodes { name: "mpc"       host: "127.0.0.1"  port: 5610 }  # the MPC node
 nodes { name: "operator"  host: "127.0.0.1"  port: 5620 }  # the remote_control GUI
 nodes { name: "teleop"    host: "127.0.0.1"  port: 5621 }  # keyboard / Xbox teleoperation
-# LINT.ThenChange(//robot_runtime/robot_ipc/src/NetworkConfig.cpp:localhost_nodes, //robot_runtime/robot_ipc/python/robot_ipc/network_config.py:localhost_nodes, //docker-compose.bridge.yaml:bus_ports, //config/ipc/two_machine.example.textproto:two_machine_nodes, //tools/deploy/netem.sh:bus_ports)
+nodes { name: "config_push"  host: "127.0.0.1"  port: 5622 }  # push_robot_config: a configuration file to the robot
+# LINT.ThenChange(//robot_runtime/robot_ipc/src/NetworkConfig.cpp:localhost_nodes, //robot_runtime/robot_ipc/python/robot_ipc/network_config.py:localhost_nodes, //docker-compose.bridge.yaml:bus_ports, //config/ipc/two_machine.example.textproto:two_machine_nodes, //tools/deploy/netem.sh:bus_ports, //humanoid_nmpc/remote_control/remote_control/operator_bus.py:operator_nodes)

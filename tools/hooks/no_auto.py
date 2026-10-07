@@ -44,9 +44,20 @@ _FACTORIES = frozenset({"make_unique", "make_shared"})
 
 
 def _is_factory_initializer(code: tuple[cpp_source.Token, ...], index: int) -> bool:
-    """True for the `auto` of `[const] auto name = std::make_unique<` (or make_shared)."""
+    """True for the `auto` of `[const] auto name = std::make_unique<T>(...);` (or make_shared).
+
+    The call is the whole initializer: `auto p = std::make_unique<T>().get();` deduces a raw `T*` (which dangles), and
+    `auto p = std::make_shared<T>(), q = 3;` declares a second variable whose type is not on the line.
+
+    Args:
+      code: The code tokens of the file.
+      index: The index of the `auto`.
+
+    Returns:
+      Whether the `auto` is the one form the rule permits.
+    """
     texts = [t.text for t in code[index + 1 : index + 7]]
-    return (
+    if not (
         len(texts) >= 6
         and code[index + 1].kind == cpp_source.IDENTIFIER
         and texts[1] == "="
@@ -54,7 +65,17 @@ def _is_factory_initializer(code: tuple[cpp_source.Token, ...], index: int) -> b
         and texts[3] == "::"
         and texts[4] in _FACTORIES
         and texts[5] == "<"
-    )
+    ):
+        return False
+    close = cpp_source.matching_angle(code, index + 6)
+    if (
+        close + 1 >= len(code)
+        or code[close].text not in (">", ">>")
+        or code[close + 1].text != "("
+    ):
+        return False
+    call_end = cpp_source.matching(code, close + 1)
+    return call_end + 1 < len(code) and code[call_end + 1].text == ";"
 
 
 def check_source(source: str, path: str = "<source>") -> list[check_types.Finding]:

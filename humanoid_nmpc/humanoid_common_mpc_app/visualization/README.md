@@ -21,7 +21,7 @@ MPC solver thread ---- setPolicy(command, solution) ----> [triple buffer]  --+
                   ---- setObservation(observation) -----> [triple buffer]  --+--> visualization thread (SCHED_OTHER,
 bus IO thread -------- pushRobotState(sample) ----------> [bounded SPSC      |    nice +10), every pollPeriod (5 ms):
   (subscribeRobotState: robot/state, every sample)          queue, 64]      --+    one viz/telemetry per sample,
-                                                                                   viz/scene at rerunSceneFrequency
+                                                                                   viz/scene at rerun_scene_frequency
                                                                                    -> Bus::publish()
 ```
 
@@ -65,7 +65,7 @@ the bus.
 
 `mpcRobotModel` is the model the MPC's dynamics use (for the centroidal MPC the effective one, the
 `BasisInputsModelDecorator` when the task file selects `basis_vectors`), and the Pinocchio model the MPC's
-(`createCustomPinocchioInterface()`). `Create()` takes a `PublishFunction` instead of a bus for tests. Any process
+(`loadCustomPinocchioInterface()`). `Create()` takes a `PublishFunction` instead of a bus for tests. Any process
 that runs a solver feeds it the same three calls.
 
 ## What it computes
@@ -82,7 +82,7 @@ that runs a solver feeds it the same three calls.
   file's contact rectangle), and the collision spheres (`collision_constraint` of the task file). The wrenches are the
   policy's input at the observation's time through the state-aware world-frame accessors, so they are right for the
   basis-vector inputs too.
-- The plan: the paths of `rerunPlanFrames`, of the base and of the CoM projected to the ground (the stance feet's mean
+- The plan: the paths of `rerun_plan_frames`, of the base and of the CoM projected to the ground (the stance feet's mean
   height at the observation), and the footholds where a foot lands inside the horizon, in the contact colors.
 
 **Telemetry** (`TelemetryBuilder`): every group of the bridge's telemetry contract, at the sample's time, for three
@@ -97,25 +97,28 @@ and plan (the latest policy). See the bridge's README for the paths, the names a
 | The force, CoP and corner-force markers used `observation.input`, which the MuJoCo sims leave zero, and a stance foot without force gave a CoP of 0/0 = NaN | The policy's input at the observation's time; below `kMinNormalForceForCop` (1 N) the CoP is the contact frame |
 | `mpc/desired/*` was the reference, not the plan | `reference` groups, and new `plan` groups (`dofs/{position,velocity}/plan`, `frames/*/<frame>/plan`); the `mpc` wrenches are the plan's |
 | `quaternionToEulerZYX` returned (roll, pitch, yaw) under that name | `eulerAnglesZyxFromRotation()` returns (yaw, pitch, roll), `rollPitchYawFromRotation()` the plots' order |
-| A function-static frame list fixed by the first model, hard-coded to the G1's frames; a function-static ground height | `rerunPlanFrames` from the task file, checked against the model at start-up; the ground height is the builder's |
+| A function-static frame list fixed by the first model, hard-coded to the G1's frames; a function-static ground height | `rerun_plan_frames` from the task file, checked against the model at start-up; the ground height is the builder's |
 | The rate gate (`lastTime_`) was never reset on a clock rewind | The scene's rate is kept on the monotonic clock; the measured acceleration restarts after a rewind |
 | Inline on the realtime thread: a copy of the Pinocchio model per policy, FK per node, DDS publishes | A thread of its own in the MPC process, fed through lock-free mailboxes |
 
-## Task-file keys
+## Task-file fields
 
-Read at start-up (the GUI's MPC parameter tab shows `rerunSceneFrequency` as a slider like every number; a change takes
-effect when the MPC node restarts). The start-up log names the values.
+Read at start-up from the robot's typed task file (`config/mpc/task.textproto`, `humanoid_mpc_config.TaskFile`, parsed
+strictly: an unknown field or a value of the wrong type is refused with its file, line and column), together with the
+contact polygons (`contacts`) and the collision spheres (`collision_constraint`) the scene draws. The tuning GUI's MPC
+Parameters tab shows `rerun_scene_frequency` as a slider like every number of the schema; a change takes effect when the
+MPC node restarts. The start-up log names the values.
 
 <!-- LINT.IfChange(task_keys) -->
-| Key | Default | Meaning |
+| Field | Absent | Meaning |
 |---|---|---|
-| `rerunSceneFrequency` | 30 | [Hz] the most `viz/scene` messages per second; a positive number |
-| `telemetryFrames` | the contact frames | the frames of the `frames/<kind>/<frame>/<source>` plots |
-| `rerunPlanFrames` | the contact frames | the frames whose planned paths `world/plan/end_effectors` draws, one strip each (the G1 adds its lidar and palms) |
-<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/visualization/include/humanoid_common_mpc_app/visualization/VisualizationConfig.h:visualization_task_keys) -->
+| `rerun_scene_frequency` | 30 | [Hz] the most `viz/scene` messages per second; a positive number |
+| `telemetry_frames` | the contact frames | the frames of the `frames/<kind>/<frame>/<source>` plots, one entry per frame |
+| `rerun_plan_frames` | the contact frames | the frames whose planned paths `world/plan/end_effectors` draws, one strip each (the G1 adds its lidar and palms) |
+<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_file.proto:visualization_task_keys, //humanoid_nmpc/humanoid_common_mpc_app/visualization/include/humanoid_common_mpc_app/visualization/VisualizationConfig.h:visualization_task_fields) -->
 
 A frame a list names that the MPC's model does not have, a duplicate, or a name that is not a valid entity path is an
-error at start-up that names the key.
+error at start-up that names the field.
 
 ## The `robot/state` sample
 
@@ -128,7 +131,7 @@ order, in the world frame.
 
 | Target | What it checks |
 |---|---|
-| `:test_visualization_config` | the keys' defaults, values and refusals; a frame the model lacks is refused; every shipped task file sets the keys and its publisher starts |
+| `:test_visualization_config` | the fields' defaults, values and refusals, read strictly from a task file; a frame the model lacks is refused; every shipped task file sets the fields and its publisher starts |
 | `:test_robot_state_decoder` | the Euler angle conventions; the base in the world frame and as Euler rates; joints by name in any order; the PD law of the action; refusals |
 | `:test_scene_builder` | for the G1 centroidal, the Atlas with basis-vector inputs and the G1 whole-body MPC: every path once; link poses, plan points, footholds and collision spheres against an independently built Pinocchio model; forces ending at the hand-computed CoP; corner forces equivalent to the wrench; no NaN without force; sample-only and observation-only scenes; the plan recomputed only for a new policy |
 | `:test_telemetry_builder` | the group layout against the contract; base, Euler angles, twists, joints, wrenches, the reference and the plan against hand-computed values; the measured acceleration and its reset on a rewind; every value finite; every formulation |

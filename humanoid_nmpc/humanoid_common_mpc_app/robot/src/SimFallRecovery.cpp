@@ -31,8 +31,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
-#include <stdexcept>
+#include <string>
 #include <utility>
+#include <vector>
+
+#include "absl/base/nullability.h"
 
 #include "humanoid_common_mpc/mrt/ControlMode.h"
 
@@ -41,7 +44,7 @@ namespace ocs2::humanoid {
 SimFallRecovery::SimFallRecovery(const Config& config,
                                  const robot::mujoco_sim_interface::MujocoSimInterface& robotInterface,
                                  std::vector<size_t> restJointIndices,
-                                 RealtimeEventLog* eventLog)
+                                 RealtimeEventLog* absl_nullable eventLog)
     : config_(config),
       restJointIndices_(std::move(restJointIndices)),
       eventLog_(eventLog),
@@ -54,7 +57,7 @@ scalar_t SimFallRecovery::baseTiltAngle(const quaternion_t& baseRotationLocalToW
   // on the spot reads zero tilt exactly like one that has not. The clamp keeps a matrix entry that rounds just past
   // one from producing a NaN, which would compare false against the threshold and silently disable the recovery.
   const matrix3_t baseRotation = baseRotationLocalToWorld.toRotationMatrix();
-  return std::acos(std::clamp(baseRotation(2, 2), scalar_t(-1.0), scalar_t(1.0)));
+  return std::acos(std::clamp<scalar_t>(baseRotation(2, 2), -1.0, 1.0));
 }
 
 bool SimFallRecovery::isAtRest(const robot::model::RobotState& robotState,
@@ -66,13 +69,9 @@ bool SimFallRecovery::isAtRest(const robot::model::RobotState& robotState,
   if (robotState.getRootAngularVelocityInLocalFrame().norm() > config.settleAngularSpeed) return false;
   for (size_t joint : jointIndices) {
     if (joint >= nominalJointPositions.size()) continue;
-    scalar_t position = 0.0;
-    try {
-      position = robotState.getJointPosition(joint);
-    } catch (const std::runtime_error&) {
-      continue;  // a joint the simulator does not report has no say in whether the robot is at rest
-    }
-    if (std::abs(position - nominalJointPositions[joint]) > config.settleJointError) return false;
+    // A joint the simulator does not report has no say in whether the robot is at rest.
+    if (!robotState.hasJoint(joint)) continue;
+    if (std::abs(robotState.getJointPosition(joint) - nominalJointPositions[joint]) > config.settleJointError) return false;
   }
   return true;
 }
@@ -82,7 +81,7 @@ std::string SimFallRecovery::describeDiscontinuity(const Cycle& cycle) const {
 }
 
 void SimFallRecovery::report(
-    RealtimeEventCode code, std::int32_t detail, absl::string_view text, double value0, double value1, double value2, std::uint64_t count) {
+    RealtimeEventCode code, int32_t detail, absl::string_view text, double value0, double value1, double value2, uint64_t count) {
   if (eventLog_ != nullptr) {
     eventLog_->post(code, detail, text, value0, value1, value2, count);
   }
@@ -138,7 +137,7 @@ SimFallRecovery::Cycle SimFallRecovery::update(const robot::model::RobotState& r
   if (!cycle.discontinuity && !gantryLocked && lastGantryLocked_) {
     cycle.gantryUnlocked = true;
     if (phase_ != Phase::kIdle) {
-      report(RealtimeEventCode::kSettleEndedByUnlock, static_cast<std::int32_t>(phase_));
+      report(RealtimeEventCode::kSettleEndedByUnlock, static_cast<int32_t>(phase_));
       enterPhase(Phase::kIdle, robotState.getTime());
     }
   }
@@ -155,12 +154,12 @@ SimFallRecovery::Cycle SimFallRecovery::update(const robot::model::RobotState& r
       if (phase_ == Phase::kIdle) standingGantryHeight_ = robotInterface.getGantryHeight();
       rampStartHeight_ = std::max(standingGantryHeight_, robotInterface.getGantryHeight());
       enterPhase(Phase::kLifting, robotState.getTime());
-      report(RealtimeEventCode::kCaughtAndSettling, static_cast<std::int32_t>(cycle.cause), /*text=*/{}, cycle.tilt,
-             config_.maxBaseTiltAngle, config_.catchLift, cycle.resetEpoch);
+      report(RealtimeEventCode::kCaughtAndSettling, static_cast<int32_t>(cycle.cause), /*text=*/{}, cycle.tilt, config_.maxBaseTiltAngle,
+             config_.catchLift, cycle.resetEpoch);
     } else {
       // A new discontinuity ends a sequence that was running: the robot is where the new event left it.
       if (!caughtAfterFall) enterPhase(Phase::kIdle, robotState.getTime());
-      report(RealtimeEventCode::kDiscontinuity, static_cast<std::int32_t>(cycle.cause), /*text=*/{}, cycle.tilt, config_.maxBaseTiltAngle,
+      report(RealtimeEventCode::kDiscontinuity, static_cast<int32_t>(cycle.cause), /*text=*/{}, cycle.tilt, config_.maxBaseTiltAngle,
              config_.catchLift, cycle.resetEpoch);
     }
   }
@@ -169,7 +168,7 @@ SimFallRecovery::Cycle SimFallRecovery::update(const robot::model::RobotState& r
     stepSettleSequence(robotState, nominalJointPositions, robotInterface);
     if (phase_ != Phase::kIdle && control_mode::isMpc(currentModeName)) {
       if (!refusalReported_) {
-        report(RealtimeEventCode::kMpcModeRefusedWhileSettling, static_cast<std::int32_t>(phase_), currentModeName);
+        report(RealtimeEventCode::kMpcModeRefusedWhileSettling, static_cast<int32_t>(phase_), currentModeName);
         refusalReported_ = true;
       }
       currentModeName.assign(control_mode::kJointPd.data(), control_mode::kJointPd.size());
@@ -186,7 +185,7 @@ void SimFallRecovery::stepSettleSequence(const robot::model::RobotState& robotSt
                                          const std::vector<scalar_t>& nominalJointPositions,
                                          robot::mujoco_sim_interface::MujocoSimInterface& robotInterface) {
   const scalar_t time = robotState.getTime();
-  const scalar_t elapsed = std::max(scalar_t(0.0), time - phaseStartTime_);
+  const scalar_t elapsed = std::max<scalar_t>(0.0, time - phaseStartTime_);
   const scalar_t liftedHeight = standingGantryHeight_ + config_.catchLift;
   const bool timedOut = elapsed > config_.settleTimeout;
   switch (phase_) {
@@ -224,7 +223,6 @@ void SimFallRecovery::stepSettleSequence(const robot::model::RobotState& robotSt
       }
       break;
     case Phase::kIdle:
-    default:
       break;
   }
 }

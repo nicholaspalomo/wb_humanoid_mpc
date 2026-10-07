@@ -27,8 +27,10 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include "humanoid_common_mpc_app/node/test_support/ScriptedRobot.h"
+#include "humanoid_nmpc/humanoid_common_mpc_app/node/test/ScriptedRobot.h"
 
+#include <memory>
+#include <string>
 #include <utility>
 
 #include "absl/log/check.h"
@@ -51,7 +53,7 @@ namespace topics = ::ocs2::humanoid::ipc::topics;
 std::unique_ptr<robot::ipc::Bus> createLoopbackBus(const std::string& name) {
   robot::ipc::BusOptions options;
   options.nodeName = name;
-  options.network.nodes = {robot::ipc::NodeEndpoint{.name = name, .host = "127.0.0.1", .port = robot::ipc::kEphemeralPort}};
+  options.network.nodes = {robot::ipc::NodeEndpoint{.name = name, .host = "127.0.0.1", .port = robot::ipc::kEphemeralPort, .bindHost = ""}};
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
   CHECK_OK(bus.status());
   return *std::move(bus);

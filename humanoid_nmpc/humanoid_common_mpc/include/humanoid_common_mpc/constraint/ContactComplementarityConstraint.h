@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -27,7 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 
-#include <ocs2_core/constraint/StateInputConstraint.h>
+#include "absl/base/nullability.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -50,7 +55,7 @@ namespace ocs2::humanoid {
  *   f_n >= 0,   h >= 0,   f_n h = 0,
  *
  * of which the first is the contact cone's (the friction or wrench cone, or the non-negativity of the basis scalings),
- * which has to be un-gated for it - loadMpcFormulationTasks() insists on a cone once `zero_wrench` is gone - the second
+ * which has to be un-gated for it - checkMpcFormulationTasks() insists on a cone once `zero_wrench` is gone - the second
  * is GroundPenetrationConstraint and the third is this term, penalized rather than imposed. A foot may then carry load
  * only where it touches the ground, and where it touches the ground it may carry load whatever the nominal gait says.
  * The contact schedule from the reduced-order planner is demoted from a constraint to a set of REFERENCES - the
@@ -121,9 +126,12 @@ class ContactComplementarityConstraint final : public StateInputConstraint {
                                    scalar_t gapSmoothing = 1.0e-3);
 
   ~ContactComplementarityConstraint() override = default;
-  ContactComplementarityConstraint* clone() const override { return new ContactComplementarityConstraint(*this); }
+  ContactComplementarityConstraint& operator=(const ContactComplementarityConstraint&) = delete;
+  ContactComplementarityConstraint(ContactComplementarityConstraint&&) = delete;
+  ContactComplementarityConstraint& operator=(ContactComplementarityConstraint&&) = delete;
+  ContactComplementarityConstraint* absl_nonnull clone() const override { return new ContactComplementarityConstraint(*this); }
 
-  size_t getNumConstraints(scalar_t time) const override { return 1; }
+  size_t getNumConstraints(scalar_t /*time*/) const override { return 1; }
   vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
   VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
                                                            const vector_t& state,
@@ -141,8 +149,6 @@ class ContactComplementarityConstraint final : public StateInputConstraint {
   void setGapSmoothing(scalar_t gapSmoothing);
   /** [m] the gap between the lowest point of the footprint and the terrain, as this term sees it. */
   scalar_t getGap(const vector_t& state) const;
-  /** The constant row with f_n = normalForceRow . u; exposed for the tests. */
-  const vector_t& getNormalForceRow() const { return normalForceRow_; }
 
  private:
   ContactComplementarityConstraint(const ContactComplementarityConstraint& rhs);

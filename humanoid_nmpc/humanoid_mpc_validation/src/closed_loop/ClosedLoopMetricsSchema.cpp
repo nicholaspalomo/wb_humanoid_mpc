@@ -32,6 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/no_destructor.h"
+#include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
@@ -130,21 +132,21 @@ void collectUnknown(const JsonValue& value,
 }  // namespace
 
 const std::vector<JsonSchemaField>& closedLoopMetricsSchema() {
-  static const std::vector<JsonSchemaField> schema = makeSchema();
-  return schema;
+  static const absl::NoDestructor<std::vector<JsonSchemaField>> kSchema(makeSchema());
+  return *kSchema;
 }
 
 absl::Status validateClosedLoopMetrics(const JsonValue& document) {
   if (!document.isObject()) return absl::InvalidArgumentError("[validateClosedLoopMetrics] the document is not a JSON object");
   std::vector<std::string> problems;
-  const JsonValue* schema = document.find("schema");
+  const JsonValue* absl_nullable schema = document.find("schema");
   if (schema == nullptr || !schema->isString() || schema->asString() != kClosedLoopMetricsSchemaName) {
     problems.push_back(absl::StrCat("schema is not '", kClosedLoopMetricsSchemaName, "'"));
   }
   absl::flat_hash_map<std::string, JsonFieldKind> known;
   for (const JsonSchemaField& field : closedLoopMetricsSchema()) {
     known.emplace(field.path, field.kind);
-    const JsonValue* value = document.findPath(field.path);
+    const JsonValue* absl_nullable value = document.findPath(field.path);
     if (value == nullptr) {
       problems.push_back(absl::StrCat(field.path, " is missing"));
     } else if (!hasKind(*value, field.kind)) {

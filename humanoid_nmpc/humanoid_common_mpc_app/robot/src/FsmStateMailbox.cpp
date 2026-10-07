@@ -33,7 +33,7 @@ namespace ocs2::humanoid {
 
 FsmStateMailbox::FsmStateMailbox() = default;
 
-void FsmStateMailbox::write(absl::string_view mode, bool gantryLocked, std::uint64_t controllerResets, bool mpcHealthy) {
+void FsmStateMailbox::write(absl::string_view mode, bool gantryLocked, uint64_t controllerResets, bool mpcHealthy) {
   msgs::FsmState& slot = states_.writeSlot();
   slot.mode.assign(mode.data(), mode.size());
   slot.gantry_locked = gantryLocked;

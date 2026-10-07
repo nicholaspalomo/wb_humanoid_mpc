@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,17 +29,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_centroidal_model/CentroidalModelInfo.h>
-#include <ocs2_core/cost/StateCost.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_core/cost/StateCost.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 
@@ -78,7 +82,7 @@ class ComAndAcomTrackingCost : public StateCost {
    *     so that row 0 is yaw, matching the centroidal state.
    * @param pinocchioInterface  Reduced model matching the MPC's joint set.
    * @param info    Centroidal model info for that same model.
-   * @param robotName  model_settings.robotName; selects the compiled-in aCOM weights.
+   * @param robotName  model_settings.robot_name; selects the compiled-in aCOM weights.
    *
    * @return InvalidArgument if a weight matrix is not 3x3 or `info` does not describe `pinocchioInterface`; NotFound
    *     if no aCOM network is registered for `robotName`; FailedPrecondition if the network was trained on a joint
@@ -87,17 +91,11 @@ class ComAndAcomTrackingCost : public StateCost {
   static absl::StatusOr<std::unique_ptr<ComAndAcomTrackingCost>> Create(
       matrix_t Q_com, matrix_t Q_acom, PinocchioInterface pinocchioInterface, CentroidalModelInfo info, absl::string_view robotName);
 
-  /**
-   * Deprecated: use Create(), which HumanoidCostConstraintFactory does. Kept for the tests that exercise the throwing
-   * form; runs exactly Create()'s checks.
-   *
-   * @throws std::runtime_error with Create()'s message if any of its checks fails.
-   */
-  ComAndAcomTrackingCost(
-      matrix_t Q_com, matrix_t Q_acom, PinocchioInterface pinocchioInterface, CentroidalModelInfo info, const std::string& robotName);
-
   ~ComAndAcomTrackingCost() override = default;
-  ComAndAcomTrackingCost* clone() const override;
+  ComAndAcomTrackingCost& operator=(const ComAndAcomTrackingCost&) = delete;
+  ComAndAcomTrackingCost(ComAndAcomTrackingCost&&) = delete;
+  ComAndAcomTrackingCost& operator=(ComAndAcomTrackingCost&&) = delete;
+  ComAndAcomTrackingCost* absl_nonnull clone() const override;
 
   bool isActive(scalar_t /*time*/) const override { return true; }
 
@@ -112,7 +110,7 @@ class ComAndAcomTrackingCost : public StateCost {
                                                                  const PreComputation& preComp) const override;
 
   /**
-   * Returns InvalidArgument, naming the offending task.yaml block, unless both matrices are 3x3.
+   * Returns InvalidArgument, naming the offending weight block of the task file, unless both matrices are 3x3.
    */
   static absl::Status validateWeights(const matrix_t& Q_com, const matrix_t& Q_acom);
 
@@ -122,9 +120,9 @@ class ComAndAcomTrackingCost : public StateCost {
    * Called by the live parameter updater on every per-thread copy of the problem,
    * from the solver thread before the worker pool starts.
    *
-   * @throws std::invalid_argument with validateWeights()'s message if either matrix is not 3x3.
+   * @return validateWeights()'s InvalidArgument, with the weights left as they were, if either matrix is not 3x3.
    */
-  void setWeights(matrix_t Q_com, matrix_t Q_acom);
+  absl::Status setWeights(matrix_t Q_com, matrix_t Q_acom);
 
   const matrix_t& getQCom() const { return Q_com_; }
   const matrix_t& getQAcom() const { return Q_acom_; }

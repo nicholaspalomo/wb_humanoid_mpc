@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -30,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/status/statusor.h"
+
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionRule.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningProblem.h"
@@ -40,24 +45,25 @@ namespace ocs2::humanoid {
 
 /**
  * Creates the planner's terms by name and assembles the problem and the pipelines from the term lists of the
- * configuration, the analog of HumanoidCostConstraintFactory. Every `make*` throws std::invalid_argument for an
- * unknown name (the message lists the supported ones).
+ * configuration, the analog of HumanoidCostConstraintFactory. Every `make*` returns an InvalidArgument for an unknown
+ * name (the message lists the supported ones). Stateless; safe to call from any thread.
  */
 class ContactPlanningTermFactory {
  public:
-  static std::unique_ptr<LipModelBlock> makeModelBlock(const std::string& name);
-  static std::unique_ptr<LipCost> makeCost(const std::string& name);
-  static std::unique_ptr<LipConstraint> makeSoftConstraint(const std::string& name);
-  static std::unique_ptr<LipConstraint> makeHardConstraint(const std::string& name);
-  static std::unique_ptr<ContactLogicRule> makeLogicRule(const std::string& name);
-  static std::unique_ptr<AssignmentCost> makeAssignmentCost(const std::string& name);
-  static std::unique_ptr<SearchStage> makeSearchStage(const std::string& name);
+  static absl::StatusOr<std::unique_ptr<LipModelBlock>> makeModelBlock(const std::string& name);
+  static absl::StatusOr<std::unique_ptr<LipCost>> makeCost(const std::string& name);
+  static absl::StatusOr<std::unique_ptr<LipConstraint>> makeSoftConstraint(const std::string& name);
+  static absl::StatusOr<std::unique_ptr<LipConstraint>> makeHardConstraint(const std::string& name);
+  static absl::StatusOr<std::unique_ptr<ContactLogicRule>> makeLogicRule(const std::string& name);
+  static absl::StatusOr<std::unique_ptr<AssignmentCost>> makeAssignmentCost(const std::string& name);
+  static absl::StatusOr<std::unique_ptr<SearchStage>> makeSearchStage(const std::string& name);
   /**
    * The execution rules the core knows (phase resetting, cadence modulation, DCM step adjustment). The planned heading
-   * override needs the robot model and lives with the reference manager, which passes its own maker as `extra`.
+   * override needs the robot model and lives with the reference manager, which passes its own maker as `extra`. A rule
+   * that neither the core nor `extra` builds is an InvalidArgument naming it.
    */
   using ExtraRuleMaker = std::function<std::unique_ptr<ExecutionRule>(const std::string& canonicalName)>;
-  static std::unique_ptr<ExecutionRule> makeExecutionRule(const std::string& name, const ExtraRuleMaker& extra = nullptr);
+  static absl::StatusOr<std::unique_ptr<ExecutionRule>> makeExecutionRule(const std::string& name, const ExtraRuleMaker& extra = nullptr);
 
   /**
    * The problem of the configuration's formulation: the listed terms in list order, finalized (layout composed, terms

@@ -11,8 +11,8 @@
 # itself fails: a crash, or an exit status with no diagnostic to show for it. The second form checks that every check and
 # option a configuration names exists (the self-test runs it).
 #
-# The system's clang-tidy is not part of an action's cache key, so this script pins its major version: a different
-# clang-tidy is an error, and changing the pin changes this file, which re-runs every action.
+# The system's clang-tidy is not part of an action's cache key, so this script pins its exact version: a different
+# clang-tidy, a point release included, is an error, and changing the pin changes this file, which re-runs every action.
 #
 # POSIX sh, not bash, for the reason tools/bazel gives: the dev container's BASH_ENV makes every bash script source the
 # shell setup first.
@@ -20,6 +20,7 @@ set -eu
 
 # LINT.IfChange(clang_tidy_version)
 CLANG_TIDY_VERSION=21
+CLANG_TIDY_FULL_VERSION=21.1.8
 # LINT.ThenChange(//docker/Dockerfile:clang_tidy_version, //docker/install_llvm_tools.sh:llvm_versions)
 
 tidy="clang-tidy-${CLANG_TIDY_VERSION}"
@@ -28,10 +29,10 @@ if ! command -v "${tidy}" >/dev/null 2>&1; then
     "'sudo sh docker/install_llvm_tools.sh tidy'." >&2
   exit 1
 fi
-version="$("${tidy}" --version | sed -n 's/.*LLVM version \([0-9][0-9]*\)\..*/\1/p' | head -n 1)"
-if [ "${version}" != "${CLANG_TIDY_VERSION}" ]; then
-  echo "run_clang_tidy.sh: ${tidy} reports LLVM version '${version}', expected ${CLANG_TIDY_VERSION}." \
-    "Rebuild the dev container." >&2
+version="$("${tidy}" --version | sed -n 's/.*LLVM version \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n 1)"
+if [ "${version}" != "${CLANG_TIDY_FULL_VERSION}" ]; then
+  echo "run_clang_tidy.sh: ${tidy} reports LLVM version '${version}', expected ${CLANG_TIDY_FULL_VERSION}." \
+    "Rebuild the dev container, or install the pinned build with 'sudo sh docker/install_llvm_tools.sh tidy'." >&2
   exit 1
 fi
 

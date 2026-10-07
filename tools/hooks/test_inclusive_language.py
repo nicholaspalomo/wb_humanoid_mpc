@@ -68,14 +68,12 @@ class InclusiveLanguageTest(unittest.TestCase):
             "inclusive-language",
             "int x;\n// the master switch\n",
             "src/a.cpp",
-            pending=True,
         )
         check_test_support.assert_check_behaves(
             self,
             "inclusive-language",
             "Some text.\n\nThe master scale.\n",
             "docs/README.md",
-            pending=True,
         )
 
 

@@ -29,19 +29,35 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/TaskFileWatcher.h"
 
+#include <filesystem>
+#include <optional>
+#include <string>
 #include <system_error>
 #include <utility>
 
+#include "absl/strings/string_view.h"
+
 namespace ocs2::humanoid {
 
-TaskFileWatcher::TaskFileWatcher(std::string file, std::function<void(const std::string& file)> onChange)
-    : file_(std::move(file)), onChange_(std::move(onChange)) {
-  std::error_code error;
-  const std::filesystem::file_time_type writeTime = std::filesystem::last_write_time(file_, error);
-  if (!error) {
-    lastWriteTime_ = writeTime;
+TaskFileWatcher::TaskFileWatcher(absl::string_view file,
+                                 std::optional<std::filesystem::file_time_type> readAt,
+                                 std::function<void(const std::string& file)> onChange)
+    : file_(file), onChange_(std::move(onChange)) {
+  if (!readAt.has_value()) readAt = writeTimeOf(file_);
+  if (readAt.has_value()) {
+    lastWriteTime_ = *readAt;
     haveWriteTime_ = true;
   }
+}
+
+TaskFileWatcher::TaskFileWatcher(absl::string_view file, std::function<void(const std::string& file)> onChange)
+    : TaskFileWatcher(file, /*readAt=*/std::nullopt, std::move(onChange)) {}
+
+std::optional<std::filesystem::file_time_type> TaskFileWatcher::writeTimeOf(absl::string_view file) {
+  std::error_code error;
+  const std::filesystem::file_time_type writeTime = std::filesystem::last_write_time(std::string(file), error);
+  if (error) return std::nullopt;
+  return writeTime;
 }
 
 bool TaskFileWatcher::poll() {

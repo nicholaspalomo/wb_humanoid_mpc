@@ -31,8 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstddef>
 
-#include <ocs2_core/Types.h>
-#include <ocs2_oc/oc_data/PrimalSolution.h>
+#include "ocs2_core/Types.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 
 #include "humanoid_mpc_ipc/MpcMessageConversions.h"
 

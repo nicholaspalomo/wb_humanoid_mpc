@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Runs the processes of a launch file: starts them, prefixes their output, and stops all of them together.
 
 Every process starts in its own session, hence its own process group, so that
@@ -17,6 +44,7 @@ SIGTERM and waits the SIGTERM grace period, then SIGKILL. A second shutdown requ
 next stage.
 """
 
+from collections.abc import Callable, Mapping, Sequence
 import ctypes
 import dataclasses
 import os
@@ -26,17 +54,7 @@ import subprocess
 import sys
 import threading
 import time
-from typing import (
-    BinaryIO,
-    Callable,
-    Dict,
-    List,
-    Mapping,
-    Optional,
-    Sequence,
-    TextIO,
-    Tuple,
-)
+from typing import BinaryIO, TextIO
 
 import launch_file
 
@@ -82,6 +100,7 @@ def shell_exit_code(returncode: int) -> int:
 
 
 def describe_exit(code: int) -> str:
+    """How the console reports the shell exit code `code`: `was killed by SIGINT`, or `exited with code 3`."""
     if code > 128:
         try:
             return f"was killed by {signal.Signals(code - 128).name}"
@@ -91,16 +110,24 @@ def describe_exit(code: int) -> str:
 
 
 def _is_runfiles_path(entry: str) -> bool:
+    """Whether the path `entry` is inside a Bazel runfiles tree."""
     return any(part.endswith(".runfiles") for part in entry.split(os.sep))
 
 
 def child_environment(
-    base: Mapping[str, str], overrides: Sequence[Tuple[str, str]]
-) -> Dict[str, str]:
+    base: Mapping[str, str], overrides: Sequence[tuple[str, str]]
+) -> dict[str, str]:
     """The environment of a child: the launcher's, without its Bazel runfiles, plus the process's `env`.
 
     PYTHONUNBUFFERED is set unless the environment already has it, so that the output of Python children reaches the
     prefixed console line by line instead of in 8 KiB blocks.
+
+    Args:
+        base: The launcher's environment.
+        overrides: The process's `env`, which wins over `base`.
+
+    Returns:
+        The environment, without the runfiles variables and the runfiles entries of PYTHONPATH.
     """
     environment = {
         key: value for key, value in base.items() if key not in RUNFILES_ENVIRONMENT
@@ -122,14 +149,14 @@ def child_environment(
 
 def process_argv(
     spec: launch_file.ProcessSpec, terminal_command: Sequence[str]
-) -> List[str]:
+) -> list[str]:
     """The argument vector a process is started with: its command, inside the terminal command when `terminal`."""
     if spec.terminal:
         return list(terminal_command) + list(spec.command)
     return list(spec.command)
 
 
-def _death_signal_preexec(death_signal: int) -> Optional[Callable[[], None]]:
+def _death_signal_preexec(death_signal: int) -> Callable[[], None] | None:
     """A preexec_fn that makes the child receive `death_signal` when the launcher dies; None off Linux."""
     if not sys.platform.startswith("linux"):
         return None
@@ -158,11 +185,17 @@ def _death_signal_preexec(death_signal: int) -> Optional[Callable[[], None]]:
     return preexec
 
 
-def _live_group_members(process_group: int) -> Optional[List[int]]:
+def _live_group_members(process_group: int) -> list[int] | None:
     """The processes of a group that are not zombies, from /proc; None where /proc cannot be read.
 
     A zombie still counts for kill(), so a group whose last members died but are not reaped yet (an orphaned
     grandchild waiting for init) would otherwise look alive until the teardown gave up on it.
+
+    Args:
+        process_group: The process group ID.
+
+    Returns:
+        The PIDs of its members that are neither zombies nor dead, or None when /proc cannot be listed.
     """
     try:
         entries = os.listdir("/proc")
@@ -209,7 +242,7 @@ class OutputSink:
         self._lock = threading.Lock()
         self._broken = False
 
-    def prefix(self, name: str, index: Optional[int]) -> str:
+    def prefix(self, name: str, index: int | None) -> str:
         """`[name]`, colored by the process's position in the launch file; bold for the launcher (index None)."""
         if not self._use_color:
             return f"[{name}]"
@@ -217,6 +250,7 @@ class OutputSink:
         return f"\x1b[{code}m[{name}]\x1b[0m"
 
     def write_line(self, prefix: str, line: str) -> None:
+        """Writes `line` behind `prefix`; once the console has gone away, writes nothing."""
         with self._lock:
             if self._broken:
                 return
@@ -230,17 +264,20 @@ class OutputSink:
 
 @dataclasses.dataclass
 class _ManagedProcess:
+    """A process of the launch file and what the supervisor knows of it."""
+
     spec: launch_file.ProcessSpec
     index: int
     prefix: str
-    popen: Optional[subprocess.Popen] = None
-    reader: Optional[threading.Thread] = None
+    popen: subprocess.Popen[bytes] | None = None
+    reader: threading.Thread | None = None
     # Shell convention (shell_exit_code) once the process has exited or failed to start.
-    exit_code: Optional[int] = None
+    exit_code: int | None = None
     reported: bool = False
 
 
 def _pump_output(stream: BinaryIO, prefix: str, sink: OutputSink) -> None:
+    """Writes every line of `stream` to `sink` behind `prefix` until the stream ends, then closes it."""
     try:
         for raw in iter(stream.readline, b""):
             sink.write_line(
@@ -273,7 +310,7 @@ class Supervisor:
         output: TextIO,
         color_mode: str = "auto",
         terminal_command: Sequence[str] = DEFAULT_TERMINAL_COMMAND,
-        environment: Optional[Mapping[str, str]] = None,
+        environment: Mapping[str, str] | None = None,
         death_signal: int = signal.SIGKILL,
     ) -> None:
         self._repo_root = repo_root
@@ -293,23 +330,32 @@ class Supervisor:
         self._requests: "queue.SimpleQueue[int]" = queue.SimpleQueue()
 
     def request_shutdown(self, signum: int = signal.SIGINT) -> None:
-        """Asks run() to stop everything, as if the launcher had received `signum`. Safe from signal handlers and
-        other threads; a second request during the teardown skips to the next, stronger signal.
+        """Asks run() to stop everything, as if the launcher had received `signum`.
+
+        Safe from signal handlers and other threads; a second request during the teardown skips to the next, stronger
+        signal.
         """
         self._requests.put(signum)
 
     def log(self, message: str) -> None:
+        """Writes one of the launcher's own messages to the console."""
         self._sink.write_line(self._launcher_prefix, message)
 
-    def _next_request(self) -> Optional[int]:
+    def _next_request(self) -> int | None:
+        """The signal of the oldest shutdown request not yet handled, or None."""
         try:
             return self._requests.get_nowait()
         except queue.Empty:
             return None
 
     def _start(self, process: _ManagedProcess) -> None:
+        """Starts `process` in a session of its own and relays its output; a start that fails sets its exit code."""
         argv = process_argv(process.spec, self._terminal_command)
         try:
+            # preexec_fn only sets the parent-death signal (PR_SET_PDEATHSIG), which start_new_session cannot do; the
+            # function calls prctl, getppid and kill, nothing that could take a lock another thread holds. The process
+            # outlives this call: the teardown stops it and run() reaps it.
+            # pylint: disable-next=consider-using-with,subprocess-popen-preexec-fn  # The reasons are above.
             process.popen = subprocess.Popen(
                 argv,
                 cwd=self._repo_root,
@@ -337,7 +383,7 @@ class Supervisor:
         )
         process.reader.start()
 
-    def _collect_exits(self) -> List[_ManagedProcess]:
+    def _collect_exits(self) -> list[_ManagedProcess]:
         """The processes that exited since the last call, reported on the console."""
         exited = []
         for process in self._processes:
@@ -353,6 +399,7 @@ class Supervisor:
         return exited
 
     def _group_alive(self, process: _ManagedProcess) -> bool:
+        """Whether the process, or any member of its process group but a zombie, is still running."""
         if process.popen is None:
             return False
         if process.popen.poll() is None:
@@ -367,12 +414,16 @@ class Supervisor:
         return True if members is None else bool(members)
 
     def _signal_group(self, process: _ManagedProcess, signum: int) -> None:
+        """Sends `signum` to the process group of `process`, unless it never started or the group is gone."""
+        if process.popen is None:
+            return
         try:
             os.killpg(process.popen.pid, signum)
         except (ProcessLookupError, PermissionError):
             pass
 
     def _teardown(self, first_stage: int) -> None:
+        """Signals every live process group, stage by stage from `first_stage`: SIGINT, SIGTERM, then SIGKILL."""
         stages = (
             (signal.SIGINT, self._shutdown.sigint_grace_period),
             (signal.SIGTERM, self._shutdown.sigterm_grace_period),
@@ -408,19 +459,25 @@ class Supervisor:
             self.log(f"could not stop the process group of {', '.join(survivors)}")
 
     def _drain_output(self) -> None:
+        """Waits up to OUTPUT_DRAIN_TIMEOUT_S, in all, for the output of every process to reach the console."""
         deadline = time.monotonic() + OUTPUT_DRAIN_TIMEOUT_S
         for process in self._processes:
             if process.reader is not None:
                 process.reader.join(timeout=max(deadline - time.monotonic(), 0.0))
 
     def run(self) -> int:
-        """Starts every process after its delay and supervises them until all exited, a required one exited, or a
-        shutdown was requested; then stops the rest. Returns the launcher's exit status (see the class comment).
+        """Starts every process after its delay, supervises them, and stops them all.
+
+        Supervision ends when every process has exited, a required one has exited, or a shutdown was requested; then
+        the teardown stops the rest.
+
+        Returns:
+            The launcher's exit status (see the class comment).
         """
         start = time.monotonic()
         pending = sorted(self._processes, key=lambda process: process.spec.delay)
         status = 0
-        first_stage: Optional[int] = None
+        first_stage: int | None = None
         try:
             while first_stage is None:
                 signum = self._next_request()
@@ -432,7 +489,8 @@ class Supervisor:
                     self._start(pending.pop(0))
                 for process in self._collect_exits():
                     if process.spec.required and first_stage is None:
-                        if process.exit_code != 0:
+                        # Not None: _collect_exits() returns exited processes only.
+                        if process.exit_code is not None and process.exit_code != 0:
                             status = process.exit_code
                         self.log(f"{process.spec.name} is required; stopping")
                         first_stage = 0

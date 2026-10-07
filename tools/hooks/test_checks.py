@@ -68,12 +68,6 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(checks.names() & lint_code.STEP_NAMES, frozenset())
         self.assertEqual(checks.names() & checks.CPPLINT_CATEGORIES, frozenset())
 
-    def test_pending_names_checks_or_steps(self):
-        self.assertEqual(
-            checks.PENDING - checks.names() - lint_code.STEP_NAMES, frozenset()
-        )
-        self.assertEqual(checks.enforced() & checks.PENDING, frozenset())
-
     def test_every_check_module_is_registered(self):
         # A module with a CHECKS list that the registry does not concatenate would never run.
         hooks = os.path.dirname(
@@ -99,11 +93,11 @@ class RegistryTest(unittest.TestCase):
         with self.assertRaises(KeyError):
             checks.by_name("no-such-check")
 
-    def test_format_fixes_are_enforced_and_behavior_preserving(self):
+    def test_format_fixes_are_behavior_preserving(self):
         for name in checks.format_fixes():
             check = checks.by_name(name)
             self.assertTrue(check.fixed_by_format)
-            self.assertNotIn(name, checks.PENDING)
+            self.assertIsNotNone(check.fix_source)
 
 
 class EngineTest(unittest.TestCase):
@@ -172,7 +166,7 @@ class EngineTest(unittest.TestCase):
         )
 
     def test_a_marker_for_an_unselected_check_is_used_when_it_suppresses(self):
-        # During a sweep the check named by the marker may be PENDING, and so not reported; its marker is still used.
+        # A run narrowed with --only may leave the marker's check unreported; its marker is still used.
         source = "#include <boost/variant.hpp>  // NOLINT(boost): a test\n"
         self.assertEqual(_run(source, "src/a.cpp", "nolint-unused"), [])
         self.assertEqual(_run(source, "src/a.cpp", "nolint-unused", "boost"), [])
@@ -200,24 +194,24 @@ class EngineTest(unittest.TestCase):
             [("american-spelling", 1)],
         )
 
-    def test_unknown_categories_and_the_clang_tidy_configurations(self):
+    def test_unknown_categories_and_the_clang_tidy_configuration(self):
         source = "int x;  // NOLINT(google-explicit-constructor): a test\n"
         with tempfile.TemporaryDirectory() as root:
             self.assertEqual(
                 _run(source, "src/a.cpp", "nolint-unknown", root=root),
                 [("nolint-unknown", 1)],
             )
+            # Only //:.clang-tidy counts: a configuration anywhere else enables nothing, so a marker for its checks would
+            # suppress nothing.
             os.makedirs(os.path.join(root, "tools/clang_tidy"))
-            sweep = os.path.join(root, "tools/clang_tidy/sweep.clang-tidy")
-            with open(sweep, "w", encoding="utf-8") as f:
+            with open(
+                os.path.join(root, "tools/clang_tidy/sweep.clang-tidy"),
+                "w",
+                encoding="utf-8",
+            ) as f:
                 f.write(
                     'Checks:\n  - "-*"\n  - google-explicit-constructor  # G: Implicit conversions\n'
                 )
-            checks._clang_tidy_checks_cached.cache_clear()
-            # Accepted while the sweep configuration lists it ...
-            self.assertEqual(_run(source, "src/a.cpp", "nolint-unknown", root=root), [])
-            # ... and rejected once that file is gone and .clang-tidy does not list it.
-            os.remove(sweep)
             with open(os.path.join(root, ".clang-tidy"), "w", encoding="utf-8") as f:
                 f.write("Checks: '-*,modernize-*'\n")
             checks._clang_tidy_checks_cached.cache_clear()
@@ -236,7 +230,7 @@ class EngineTest(unittest.TestCase):
             )
             checks._clang_tidy_checks_cached.cache_clear()
 
-    def test_a_pending_check_is_known_to_nolint(self):
+    def test_every_registry_check_is_known_to_nolint(self):
         for name in checks.names():
             self.assertTrue(checks.is_known_category(name, "/nonexistent"))
 

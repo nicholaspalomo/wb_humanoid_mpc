@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """The command line of the Rerun bridge, which draws the 3D scene and the plots of the robot and the MPC.
 
     bazel run //humanoid_nmpc/humanoid_rerun_viewer -- \\
@@ -12,21 +39,21 @@ and the recording is flushed. Exit status: 0 on success, 2 for a usage or config
 """
 
 import argparse
+from collections.abc import Sequence
 import logging
 import os
 import signal
 import sys
 import threading
 import time
-from typing import Any, Dict, List, NamedTuple, Optional, Sequence
-
-import robot_ipc
+from typing import Any, NamedTuple
 
 from humanoid_rerun_viewer import blueprint
 from humanoid_rerun_viewer import bridge as bridge_module
 from humanoid_rerun_viewer import bus_bridge
 from humanoid_rerun_viewer import rerun_sinks
 from humanoid_rerun_viewer import urdf_model
+import robot_ipc
 
 _LOGGER = logging.getLogger("humanoid_rerun_viewer")
 
@@ -48,10 +75,14 @@ _POLL_PERIOD_S = 0.1
 
 
 def resolve_input_path(path: str) -> str:
-    """A path named on the command line: as is when absolute, else in the start directory, else in the repository.
+    """Finds a path named on the command line: as is when absolute, else in the start directory, else in the repository.
 
-    Returns the first existing candidate, or the first candidate when none exists, so that the error names the path the
-    user meant.
+    Args:
+        path: the path as the user wrote it.
+
+    Returns:
+        The first existing candidate, or the first candidate when none exists, so that the error names the path the
+        user meant.
     """
     if os.path.isabs(path):
         return path
@@ -75,6 +106,7 @@ def resolve_output_path(path: str) -> str:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """The parser of the bridge's command line."""
     parser = argparse.ArgumentParser(
         prog="humanoid_rerun_viewer",
         description="Draws the bus's viz/scene, viz/telemetry and status messages in Rerun.",
@@ -161,7 +193,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def load_model(urdf: str, package_path: Sequence[str]) -> urdf_model.RobotModel:
-    """The URDF's model, its meshes looked up as the module urdf_model describes; warns about meshes not drawn.
+    """Loads the URDF's model, its meshes looked up as the module urdf_model describes; warns about meshes not drawn.
+
+    Args:
+        urdf: the URDF file, as resolve_input_path() finds it.
+        package_path: more directories to search for the packages of package:// URIs.
+
+    Returns:
+        The model.
 
     Raises:
         urdf_model.UrdfError: the URDF cannot be read.
@@ -192,7 +231,7 @@ class _StopRequest:
 
     def __init__(self) -> None:
         self.event = threading.Event()
-        self._previous: Dict[int, Any] = {}
+        self._previous: dict[int, Any] = {}
 
     def install(self) -> None:
         for signum in (signal.SIGINT, signal.SIGTERM):
@@ -209,7 +248,7 @@ class _StopRequest:
         signal.signal(signum, signal.SIG_DFL)
 
 
-def run(args: argparse.Namespace, stop: Optional[threading.Event] = None) -> RunResult:
+def run(args: argparse.Namespace, stop: threading.Event | None = None) -> RunResult:
     """Runs the bridge until `stop` is set or the duration passes."""
     stop = stop if stop is not None else threading.Event()
     try:
@@ -279,7 +318,7 @@ def run(args: argparse.Namespace, stop: Optional[threading.Event] = None) -> Run
     return RunResult(EXIT_OK, delivered)
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     logging.basicConfig(
@@ -288,7 +327,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     if args.rerun_sink == "save" and not args.rrd_path:
         parser.error("--rerun_sink save needs --rrd_path")
-    if args.flush_period <= 0.0:
+    # The not-form rejects NaN, which `args.flush_period <= 0.0` would let through.
+    if not args.flush_period > 0.0:
         parser.error("--flush_period must be positive")
     stop_request = _StopRequest()
     stop_request.install()
@@ -301,7 +341,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         logging.shutdown()
         sys.stdout.flush()
         sys.stderr.flush()
-        os._exit(result.exit_status)  # pylint: disable=protected-access
+        # pylint: disable-next=protected-access  # os._exit is public API: an exit that skips the exit handlers.
+        os._exit(result.exit_status)
     return result.exit_status
 
 

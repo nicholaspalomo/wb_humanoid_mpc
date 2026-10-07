@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdexcept>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
@@ -122,7 +123,8 @@ void ManifoldLinearController::flattenSingle(scalar_t time, std::vector<double>&
 }
 // LINT.ThenChange(:unflatten_layout, //lib/ocs2/core/include/ocs2_core/control/ManifoldLinearController.h)
 
-void ManifoldLinearController::flatten(const scalar_array_t& timeArray, const std::vector<std::vector<double>*>& flatArray2) const {
+void ManifoldLinearController::flatten(const scalar_array_t& timeArray,
+                                       const std::vector<std::vector<double>* absl_nonnull>& flatArray2) const {
   if (timeArray.size() != flatArray2.size()) {
     throw std::runtime_error("[ManifoldLinearController::flatten] timeArray and flatArray2 must have the same size.");
   }
@@ -131,12 +133,13 @@ void ManifoldLinearController::flatten(const scalar_array_t& timeArray, const st
   }
 }
 
-absl::StatusOr<ManifoldLinearController> ManifoldLinearController::unFlatten(const size_array_t& stateDim,
-                                                                             const size_array_t& inputDim,
-                                                                             const size_array_t& tangentDim,
-                                                                             const scalar_array_t& timeArray,
-                                                                             const std::vector<std::vector<double> const*>& flatArray2,
-                                                                             std::shared_ptr<const StateManifold> stateManifold) {
+absl::StatusOr<ManifoldLinearController> ManifoldLinearController::unFlatten(
+    const size_array_t& stateDim,
+    const size_array_t& inputDim,
+    const size_array_t& tangentDim,
+    const scalar_array_t& timeArray,
+    const std::vector<const std::vector<double>* absl_nullable>& flatArray2,
+    std::shared_ptr<const StateManifold> stateManifold) {
   if (stateManifold == nullptr) {
     return absl::InvalidArgumentError("[ManifoldLinearController::unFlatten] The state manifold must not be null.");
   }
@@ -174,8 +177,8 @@ absl::StatusOr<ManifoldLinearController> ManifoldLinearController::unFlatten(con
   return ManifoldLinearController(timeArray, std::move(anchorStates), std::move(nominalInputs), std::move(gains), std::move(stateManifold));
 }
 
-void ManifoldLinearController::concatenate(const ControllerBase* nextController, int index, int length) {
-  const ManifoldLinearController* next = dynamic_cast<const ManifoldLinearController*>(nextController);
+void ManifoldLinearController::concatenate(const ControllerBase* absl_nonnull nextController, int index, int length) {
+  const ManifoldLinearController* absl_nullable next = dynamic_cast<const ManifoldLinearController*>(nextController);
   if (next == nullptr) {
     throw std::runtime_error("[ManifoldLinearController::concatenate] Concatenate only works with controllers of the same type.");
   }

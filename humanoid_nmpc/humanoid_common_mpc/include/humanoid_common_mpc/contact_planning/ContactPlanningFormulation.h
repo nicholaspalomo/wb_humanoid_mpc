@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -34,67 +38,67 @@ namespace ocs2::humanoid {
 
 /**
  * Canonical names of the terms the contact planner can be assembled from. They are the entries of the term lists of
- * `contact_planning.yaml` and the keys of the parameter block of every term (ContactPlanningConfig), and they are what
+ * `contact_planning.textproto` and the names of the parameter block of every term (ContactPlanningConfig), and they are what
  * the start-up print of the assembled problem shows. Lookups normalize a name like the task file's formulation lists
  * (case-insensitive, `_`, `-` and spaces ignored), so `velocityTracking` and `velocity_tracking` are the same term.
  *
- * These strings ARE the YAML spelling, so renaming one renames a key of every robot's file. The registry of
+ * These strings ARE the names a file writes, so renaming one renames a key of every robot's file. The registry of
  * ContactPlanningFormulation.cpp only refers to them, which is why the directive guards the strings themselves.
  */
 // LINT.IfChange(term_names)
 namespace term {
 // Model blocks (the `dynamics` list). The first two are mandatory and always first: they own the variable layout the
 // LipContactPlanner enums and the mixed-integer solver rely on.
-inline constexpr const char* kLipCom = "lip_com";
-inline constexpr const char* kFootholdIntegrator = "foothold_integrator";
-inline constexpr const char* kHeadingDoubleIntegrator = "heading_double_integrator";
+inline constexpr char kLipCom[] = "lip_com";
+inline constexpr char kFootholdIntegrator[] = "foothold_integrator";
+inline constexpr char kHeadingDoubleIntegrator[] = "heading_double_integrator";
 // Costs.
-inline constexpr const char* kRegularization = "regularization";
-inline constexpr const char* kPreviousFootholdConsistency = "previous_foothold_consistency";
-inline constexpr const char* kVelocityTracking = "velocity_tracking";
-inline constexpr const char* kStepWidth = "step_width";
-inline constexpr const char* kHeadingRateTracking = "heading_rate_tracking";
-inline constexpr const char* kHeadingTracking = "heading_tracking";
-inline constexpr const char* kFootYawTracking = "foot_yaw_tracking";
-inline constexpr const char* kYawTorqueRegularization = "yaw_torque_regularization";
-inline constexpr const char* kFootYawRegularization = "foot_yaw_regularization";
-inline constexpr const char* kZmpRegularization = "zmp_regularization";
-inline constexpr const char* kFootholdRegularization = "foothold_regularization";
-inline constexpr const char* kStepLength = "step_length";
-inline constexpr const char* kTerminalDcm = "terminal_dcm";
+inline constexpr char kRegularization[] = "regularization";
+inline constexpr char kPreviousFootholdConsistency[] = "previous_foothold_consistency";
+inline constexpr char kVelocityTracking[] = "velocity_tracking";
+inline constexpr char kStepWidth[] = "step_width";
+inline constexpr char kHeadingRateTracking[] = "heading_rate_tracking";
+inline constexpr char kHeadingTracking[] = "heading_tracking";
+inline constexpr char kFootYawTracking[] = "foot_yaw_tracking";
+inline constexpr char kYawTorqueRegularization[] = "yaw_torque_regularization";
+inline constexpr char kFootYawRegularization[] = "foot_yaw_regularization";
+inline constexpr char kZmpRegularization[] = "zmp_regularization";
+inline constexpr char kFootholdRegularization[] = "foothold_regularization";
+inline constexpr char kStepLength[] = "step_length";
+inline constexpr char kTerminalDcm[] = "terminal_dcm";
 // Soft constraints.
-inline constexpr const char* kZmpSupportRegion = "zmp_support_region";
-inline constexpr const char* kReachability = "reachability";
-inline constexpr const char* kFootSeparation = "foot_separation";
-inline constexpr const char* kHipYawRange = "hip_yaw_range";
+inline constexpr char kZmpSupportRegion[] = "zmp_support_region";
+inline constexpr char kReachability[] = "reachability";
+inline constexpr char kFootSeparation[] = "foot_separation";
+inline constexpr char kHipYawRange[] = "hip_yaw_range";
 // Hard constraints.
-inline constexpr const char* kNoFlight = "no_flight";
-inline constexpr const char* kFootMotionInSwingOnly = "foot_motion_in_swing_only";
-inline constexpr const char* kYawTorqueBudget = "yaw_torque_budget";
-inline constexpr const char* kFootYawPinnedInContact = "foot_yaw_pinned_in_contact";
+inline constexpr char kNoFlight[] = "no_flight";
+inline constexpr char kFootMotionInSwingOnly[] = "foot_motion_in_swing_only";
+inline constexpr char kYawTorqueBudget[] = "yaw_torque_budget";
+inline constexpr char kFootYawPinnedInContact[] = "foot_yaw_pinned_in_contact";
 // Logic rules on the contact binaries (`no_flight` is both a QP row and a logic rule, under the same name).
-inline constexpr const char* kPhaseDurations = "phase_durations";
-inline constexpr const char* kMinimumDoubleSupport = "minimum_double_support";
-inline constexpr const char* kAlternatingFeet = "alternating_feet";
+inline constexpr char kPhaseDurations[] = "phase_durations";
+inline constexpr char kMinimumDoubleSupport[] = "minimum_double_support";
+inline constexpr char kAlternatingFeet[] = "alternating_feet";
 // Assignment costs on the binaries.
-inline constexpr const char* kContactSwitch = "contact_switch";
-inline constexpr const char* kPlanConsistency = "plan_consistency";
-inline constexpr const char* kDoubleSupportPenalty = "double_support_penalty";
+inline constexpr char kContactSwitch[] = "contact_switch";
+inline constexpr char kPlanConsistency[] = "plan_consistency";
+inline constexpr char kDoubleSupportPenalty[] = "double_support_penalty";
 // Search stages around the branch-and-bound.
-inline constexpr const char* kWarmStartPreviousPlan = "warm_start_previous_plan";
-inline constexpr const char* kDiving = "diving";
-inline constexpr const char* kEventShiftLocalSearch = "event_shift_local_search";
-inline constexpr const char* kCadenceStretch = "cadence_stretch";
-inline constexpr const char* kHeadingRelinearization = "heading_relinearization";
+inline constexpr char kWarmStartPreviousPlan[] = "warm_start_previous_plan";
+inline constexpr char kDiving[] = "diving";
+inline constexpr char kEventShiftLocalSearch[] = "event_shift_local_search";
+inline constexpr char kCadenceStretch[] = "cadence_stretch";
+inline constexpr char kHeadingRelinearization[] = "heading_relinearization";
 // Execution rules of the reference manager, applied between plans.
-inline constexpr const char* kPhaseResetting = "phase_resetting";
-inline constexpr const char* kEnergyCadenceModulation = "energy_cadence_modulation";
-inline constexpr const char* kDcmStepAdjustment = "dcm_step_adjustment";
-inline constexpr const char* kPlannedHeadingOverride = "planned_heading_override";
-inline constexpr const char* kPlannedComOverride = "planned_com_override";
+inline constexpr char kPhaseResetting[] = "phase_resetting";
+inline constexpr char kEnergyCadenceModulation[] = "energy_cadence_modulation";
+inline constexpr char kDcmStepAdjustment[] = "dcm_step_adjustment";
+inline constexpr char kPlannedHeadingOverride[] = "planned_heading_override";
+inline constexpr char kPlannedComOverride[] = "planned_com_override";
 }  // namespace term
 // clang-format off
-// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningFormulation.cpp:known_term_names, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.yaml:contact_planning_config_tail, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/contact_planning.yaml:contact_planning_config_tail, //humanoid_nmpc/docs/README.md:formulation_term_table)
+// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningFormulation.cpp:known_term_names, //humanoid_nmpc/docs/README.md:formulation_term_table, //humanoid_nmpc/humanoid_mpc_config/contact_planning_file.proto:term_lists, //humanoid_nmpc/humanoid_mpc_config/contact_planning_file.proto:term_blocks)
 // clang-format on
 
 /** Normalizes a term name for comparison: lower case, `_`, `-` and spaces removed. */
@@ -103,7 +107,7 @@ std::string normalizeTermName(const std::string& name);
 bool sameTermName(const std::string& a, const std::string& b);
 
 /** Which list of the formulation a term belongs to. */
-enum class TermKind { MODEL_BLOCK, COST, SOFT_CONSTRAINT, HARD_CONSTRAINT, LOGIC_RULE, ASSIGNMENT_COST, SEARCH_STAGE, EXECUTION_RULE };
+enum class TermKind { kModelBlock, kCost, kSoftConstraint, kHardConstraint, kLogicRule, kAssignmentCost, kSearchStage, kExecutionRule };
 /** Every kind, in the order of the configuration file's lists. */
 const std::vector<TermKind>& allTermKinds();
 /** The configuration key of the list of a kind (`dynamics`, `costs`, ..., `execution`). */
@@ -159,7 +163,6 @@ struct ContactPlanningFormulation {
   bool hasSoftConstraint(const std::string& name) const { return listed(softConstraints, name); }
   bool hasHardConstraint(const std::string& name) const { return listed(hardConstraints, name); }
   bool hasLogicRule(const std::string& name) const { return listed(logicRules, name); }
-  bool hasAssignmentCost(const std::string& name) const { return listed(assignmentCosts, name); }
   bool hasSearchStage(const std::string& name) const { return listed(search, name); }
   bool hasExecutionRule(const std::string& name) const { return listed(execution, name); }
 

@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """The kinematic tree of a URDF and its forward kinematics: the world pose of every link at given joint positions.
 
     tree = load_kinematic_tree("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf")
@@ -9,18 +36,18 @@ The root link (the link that is no joint's child) is at the world origin; a floa
 origin, since it has no single position.
 """
 
+from collections.abc import Mapping, Sequence
 import dataclasses
 import math
-import xml.etree.ElementTree as element_tree
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple
+from xml.etree import ElementTree
 
 import numpy as np
 
 from humanoid_rerun_viewer import urdf_model
 
-Translation = Tuple[float, float, float]
-QuaternionXyzw = Tuple[float, float, float, float]
-LinkPose = Tuple[Translation, QuaternionXyzw]
+Translation = tuple[float, float, float]
+QuaternionXyzw = tuple[float, float, float, float]
+LinkPose = tuple[Translation, QuaternionXyzw]
 
 # The joint types whose position is one number, and those that move nothing.
 REVOLUTE_TYPES = ("revolute", "continuous")
@@ -60,9 +87,9 @@ class Joint:
     origin_translation: np.ndarray
     origin_rotation: np.ndarray
     axis: np.ndarray
-    lower: Optional[float] = None
-    upper: Optional[float] = None
-    mimic: Optional[Mimic] = None
+    lower: float | None = None
+    upper: float | None = None
+    mimic: Mimic | None = None
 
     @property
     def movable(self) -> bool:
@@ -122,7 +149,7 @@ def quaternion_from_rotation(rotation: np.ndarray) -> QuaternionXyzw:
     quaternion /= np.linalg.norm(quaternion)
     if quaternion[3] < 0.0:
         quaternion = -quaternion
-    return tuple(float(value) for value in quaternion)  # type: ignore[return-value]
+    return tuple(float(value) for value in quaternion)  # type: ignore[return-value]  # A quaternion has four.
 
 
 class KinematicTree:
@@ -143,10 +170,10 @@ class KinematicTree:
         self, name: str, links: Sequence[str], joints: Sequence[Joint], source: str
     ) -> None:
         self.name = name
-        self.links: Tuple[str, ...] = tuple(links)
-        self.joints: Tuple[Joint, ...] = tuple(joints)
+        self.links: tuple[str, ...] = tuple(links)
+        self.joints: tuple[Joint, ...] = tuple(joints)
         known = set(self.links)
-        parent_joint: Dict[str, Joint] = {}
+        parent_joint: dict[str, Joint] = {}
         for joint in self.joints:
             for link in (joint.parent, joint.child):
                 if link not in known:
@@ -165,11 +192,11 @@ class KinematicTree:
                 f"{source}: the links must form one tree; the links without a parent are {roots}"
             )
         self.root_link = roots[0]
-        children: Dict[str, List[Joint]] = {link: [] for link in self.links}
+        children: dict[str, list[Joint]] = {link: [] for link in self.links}
         for joint in self.joints:
             children[joint.parent].append(joint)
         # Parents before children, so that link_poses() is one pass.
-        self._order: List[Joint] = []
+        self._order: list[Joint] = []
         stack = [self.root_link]
         while stack:
             link = stack.pop()
@@ -187,19 +214,26 @@ class KinematicTree:
                         f"{source}: joint '{joint.name}' mimics '{joint.mimic.joint}', which is no movable joint"
                     )
 
-    def movable_joints(self) -> Tuple[Joint, ...]:
+    def movable_joints(self) -> tuple[Joint, ...]:
         """The joints an operator sets: movable and not mimicking another, in document order."""
         return tuple(
             joint for joint in self.joints if joint.movable and joint.mimic is None
         )
 
-    def nominal_positions(self) -> Dict[str, float]:
+    def nominal_positions(self) -> dict[str, float]:
         """Every settable joint at 0, clamped to its limits (as joint_state_publisher_gui starts)."""
         return {joint.name: joint.clamp(0.0) for joint in self.movable_joints()}
 
-    def link_poses(self, positions: Mapping[str, float]) -> Dict[str, LinkPose]:
-        """The world pose of every link, the root at the origin. A settable joint missing from `positions` is at its
-        nominal position; a position outside the limits is clamped."""
+    def link_poses(self, positions: Mapping[str, float]) -> dict[str, LinkPose]:
+        """Computes the world pose of every link, the root at the origin.
+
+        Args:
+            positions: the positions of the settable joints, by name; a joint missing from it is at its nominal
+                position, and a position outside the limits is clamped.
+
+        Returns:
+            The pose of every link, by name.
+        """
         nominal = self.nominal_positions()
         by_name = {joint.name: joint for joint in self.joints}
 
@@ -211,8 +245,8 @@ class KinematicTree:
                 )
             return joint.clamp(float(positions.get(joint.name, nominal[joint.name])))
 
-        rotations: Dict[str, np.ndarray] = {self.root_link: np.eye(3)}
-        translations: Dict[str, np.ndarray] = {self.root_link: np.zeros(3)}
+        rotations: dict[str, np.ndarray] = {self.root_link: np.eye(3)}
+        translations: dict[str, np.ndarray] = {self.root_link: np.zeros(3)}
         for joint in self._order:
             rotation = rotations[joint.parent] @ joint.origin_rotation
             translation = (
@@ -229,7 +263,7 @@ class KinematicTree:
             translations[joint.child] = translation
         return {
             link: (
-                tuple(float(value) for value in translations[link]),  # type: ignore[misc]
+                tuple(float(value) for value in translations[link]),  # type: ignore[misc]  # A translation has three.
                 quaternion_from_rotation(rotations[link]),
             )
             for link in self.links
@@ -237,12 +271,13 @@ class KinematicTree:
 
 
 def _floats(
-    element: Optional[element_tree.Element],
+    element: ElementTree.Element | None,
     attribute: str,
     default: Sequence[float],
     where: str,
     source: str,
 ) -> np.ndarray:
+    """The numbers of `attribute`, as many as `default` has, or `default` when there is no such attribute."""
     if element is None or element.get(attribute) is None:
         return np.array(default, dtype=float)
     text = element.get(attribute, "")
@@ -258,8 +293,9 @@ def _floats(
 
 
 def _optional_float(
-    element: Optional[element_tree.Element], attribute: str, where: str, source: str
-) -> Optional[float]:
+    element: ElementTree.Element | None, attribute: str, where: str, source: str
+) -> float | None:
+    """The finite number of `attribute`, or None when there is no such attribute."""
     if element is None or element.get(attribute) is None:
         return None
     try:
@@ -276,8 +312,8 @@ def _optional_float(
 def parse_kinematic_tree(text: str, source: str) -> KinematicTree:
     """The kinematic tree of a URDF's text; `source` names it in errors."""
     try:
-        robot = element_tree.fromstring(text)
-    except element_tree.ParseError as error:
+        robot = ElementTree.fromstring(text)
+    except ElementTree.ParseError as error:
         raise urdf_model.UrdfError(f"{source}: {error}") from error
     if robot.tag != "robot":
         raise urdf_model.UrdfError(

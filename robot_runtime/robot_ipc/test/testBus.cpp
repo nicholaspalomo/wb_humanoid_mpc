@@ -42,9 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include <gtest/gtest.h>
-#include <zmq.hpp>
-
+#include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -52,6 +50,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "gtest/gtest.h"
+#include "zmq.hpp"  // NOLINT(build/include_subdir): cppzmq installs its header in no directory
 
 #include "robot_ipc/Bus.h"
 #include "robot_ipc/BusOptions.h"
@@ -231,7 +231,7 @@ TEST(BusLifecycleTest, ConfigurationIsRefusedWhileRunningAndAcceptedAfterStop) {
   const std::unique_ptr<Bus> bus = createPublisher();
   ASSERT_NE(bus, nullptr);
   Collector collector;
-  EXPECT_EQ(bus->subscribe<TestSample>("", Delivery::kAll, collector.handler()).code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(bus->subscribe<TestSample>(/*topic=*/"", Delivery::kAll, collector.handler()).code(), absl::StatusCode::kInvalidArgument);
   EXPECT_EQ(bus->subscribe<TestSample>("test/a", Delivery::kAll, /*handler=*/nullptr).code(), absl::StatusCode::kInvalidArgument);
   EXPECT_EQ(bus->addPeriodicCallback(absl::ZeroDuration(), []() {}).code(), absl::StatusCode::kInvalidArgument);
   ASSERT_TRUE(bus->subscribe<TestSample>("test/a", Delivery::kAll, collector.handler()).ok());
@@ -275,7 +275,7 @@ TEST(BusLifecycleTest, StopFromAHandlerEndsTheLoopAndALaterStopJoins) {
   const std::unique_ptr<Bus> bus = createPublisher();
   ASSERT_NE(bus, nullptr);
   ASSERT_TRUE(subscribeProbe(*bus).ok());
-  Bus* const self = bus.get();
+  Bus* absl_nonnull const self = bus.get();
   std::atomic<int> calls{0};
   ASSERT_TRUE(bus->subscribe<TestSample>("test/stop", Delivery::kAll,
                                          [self, &calls](const TestSample& /*sample*/) {
@@ -300,7 +300,7 @@ TEST(BusLifecycleTest, StopFromAHandlerEndsTheLoopAndALaterStopJoins) {
 TEST(BusDeliveryTest, AProcessReceivesItsOwnTopicsAndHandlersPublishFromTheIoThread) {
   const std::unique_ptr<Bus> bus = createPublisher();
   ASSERT_NE(bus, nullptr);
-  Bus* const self = bus.get();
+  Bus* absl_nonnull const self = bus.get();
   std::atomic<bool> handlersOnIoThread{true};
   Collector pongs;
   ASSERT_TRUE(subscribeProbe(*bus).ok());
@@ -543,7 +543,7 @@ TEST(BusDeliveryTest, PeriodicCallbacksRunOnTheIoThreadAndMayPublish) {
   ASSERT_TRUE(subscribeProbe(*subscriber).ok());
   ASSERT_TRUE(subscriber->subscribe<TestSample>("test/periodic", Delivery::kAll, collector.handler()).ok());
 
-  Bus* const self = publisher.get();
+  Bus* absl_nonnull const self = publisher.get();
   std::atomic<uint64_t> calls{0};
   std::atomic<bool> onIoThread{true};
   ASSERT_TRUE(publisher

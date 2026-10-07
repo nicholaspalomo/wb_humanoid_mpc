@@ -38,7 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /** What an operator/fsm_command asks the robot process to do, parsed off the realtime thread (parseFsmCommand()). */
-enum class FsmCommandKind : std::uint8_t {
+enum class FsmCommandKind : uint8_t {
   kZeroTorque,    ///< ZERO_TORQUE, DISABLE_TORQUES: the torques off
   kJointPd,       ///< JOINT_PD
   kGravityComp,   ///< GRAVITY_COMP
@@ -56,9 +56,9 @@ struct FsmCommandEvent {
 };
 
 /**
- * The command `command` names, or nullopt for a string that names none (the robot ignores it, as the ROS sims did). The
- * names are the remote control's (remote_control/humanoid_finite_state_machine.py) and those of the ROS sims' FSM
- * bridge: ENABLE_TORQUES and MPC_ACTIVE enter WB_MPC, DISABLE_TORQUES is ZERO_TORQUE.
+ * The command `command` names, or nullopt for a string that names none (the robot ignores it). The names are the
+ * remote control's control modes (remote_control/humanoid_finite_state_machine.py) and gantry commands, and the aliases
+ * fsm_command.proto lists: ENABLE_TORQUES and MPC_ACTIVE enter WB_MPC, DISABLE_TORQUES is ZERO_TORQUE.
  */
 std::optional<FsmCommandKind> parseFsmCommand(absl::string_view command);
 

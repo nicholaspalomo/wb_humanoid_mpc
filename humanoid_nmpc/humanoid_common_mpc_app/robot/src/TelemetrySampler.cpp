@@ -32,7 +32,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <limits>
 #include <optional>
+#include <string>
 #include <utility>
+#include <vector>
 
 namespace ocs2::humanoid {
 
@@ -48,26 +50,26 @@ msgs::RobotStateSample TelemetrySampler::prototype(const std::vector<std::string
   sample.joint_kp = Eigen::VectorXd::Zero(numJoints);
   sample.joint_kd = Eigen::VectorXd::Zero(numJoints);
   sample.joint_feed_forward_efforts = Eigen::VectorXd::Zero(numJoints);
-  sample.contact_flags.assign(N_CONTACTS, false);
-  sample.measured_contact_wrenches.assign(N_CONTACTS, msgs::Wrench());
+  sample.contact_flags.assign(kNumContacts, false);
+  sample.measured_contact_wrenches.assign(kNumContacts, msgs::Wrench());
   return sample;
 }
 
-TelemetrySampler::TelemetrySampler(Config config)
-    : decimation_(std::max<std::size_t>(1, config.decimation)),
+TelemetrySampler::TelemetrySampler(const Config& config)
+    : decimation_(std::max<size_t>(1, config.decimation)),
       numJoints_(config.jointNames.size()),
-      queue_(std::max<std::size_t>(1, config.capacity), prototype(config.jointNames)) {}
+      queue_(std::max<size_t>(1, config.capacity), prototype(config.jointNames)) {}
 
 bool TelemetrySampler::sample(const robot::model::RobotState& robotState,
                               const robot::model::RobotJointAction& jointAction,
                               absl::string_view controlMode,
                               const contact_flag_t& measuredContactFlags,
-                              const std::array<vector3_t, N_CONTACTS>& measuredContactForces) {
+                              const std::array<vector3_t, kNumContacts>& measuredContactForces) {
   if (++cycle_ < decimation_) {
     return false;
   }
   cycle_ = 0;
-  samplesTaken_.fetch_add(1, std::memory_order_relaxed);  // NOLINT(argument-comment): libstdc++ names the value __i.
+  samplesTaken_.fetch_add(1, std::memory_order_relaxed);
   queue_.tryPushInPlace([&](msgs::RobotStateSample& slot) {
     slot.time = robotState.getTime();
     // Every control mode name fits std::string's small-string buffer, so this copies without allocating.
@@ -80,9 +82,9 @@ bool TelemetrySampler::sample(const robot::model::RobotState& robotState,
     slot.base_linear_velocity_local = {.x = linearVelocity.x(), .y = linearVelocity.y(), .z = linearVelocity.z()};
     const vector3_t angularVelocity = robotState.getRootAngularVelocityInLocalFrame();
     slot.base_angular_velocity_local = {.x = angularVelocity.x(), .y = angularVelocity.y(), .z = angularVelocity.z()};
-    for (std::size_t joint = 0; joint < numJoints_; ++joint) {
+    for (size_t joint = 0; joint < numJoints_; ++joint) {
       const Eigen::Index row = static_cast<Eigen::Index>(joint);
-      const std::optional<robot::model::JointAction>& action = jointAction.at(joint);
+      const std::optional<robot::model::JointAction>& action = jointAction[joint];  // joint < numJoints_, the description's
       slot.joint_positions[row] = robotState.getJointPosition(joint);
       slot.joint_velocities[row] = robotState.getJointVelocity(joint);
       // The RobotState carries no measured effort yet (nothing fills JointState::measuredEffort).
@@ -96,7 +98,7 @@ bool TelemetrySampler::sample(const robot::model::RobotState& robotState,
       slot.joint_kd[row] = action.has_value() ? action->kd : 0.0;
       slot.joint_feed_forward_efforts[row] = action.has_value() ? action->feed_forward_effort : 0.0;
     }
-    for (std::size_t contact = 0; contact < N_CONTACTS; ++contact) {
+    for (size_t contact = 0; contact < kNumContacts; ++contact) {
       slot.contact_flags[contact] = measuredContactFlags[contact];
       msgs::Wrench& wrench = slot.measured_contact_wrenches[contact];
       wrench.force = {
@@ -107,8 +109,8 @@ bool TelemetrySampler::sample(const robot::model::RobotState& robotState,
   return true;
 }
 
-std::size_t TelemetrySampler::drain(const std::function<void(const msgs::RobotStateSample& sample)>& consumer) {
-  std::size_t drained = 0;
+size_t TelemetrySampler::drain(const std::function<void(const msgs::RobotStateSample& sample)>& consumer) {
+  size_t drained = 0;
   while (queue_.tryPopInPlace([&](const msgs::RobotStateSample& sample) { consumer(sample); })) {
     ++drained;
   }

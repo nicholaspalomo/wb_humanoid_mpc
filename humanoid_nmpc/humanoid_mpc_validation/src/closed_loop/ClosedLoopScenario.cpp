@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/no_destructor.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 
@@ -75,9 +76,10 @@ std::vector<ClosedLoopScenario> makeScenarios() {
   scenarios.push_back({"arc",
                        "0.3 m/s forward while turning at 0.3 rad/s for 15 s, then at rest",
                        {CommandSegment{.duration = 15.0, .forwardVelocity = 0.3, .yawRate = 0.3}, rest(kStopDuration)}});
-  ClosedLoopScenario smoke{"smoke",
-                           "0.3 m/s forward while turning at 0.2 rad/s for 1.5 s after 0.5 s of standing (the determinism test)",
-                           {CommandSegment{.duration = 1.5, .forwardVelocity = 0.3, .yawRate = 0.2}}};
+  ClosedLoopScenario smoke{
+      .name = "smoke",
+      .description = "0.3 m/s forward while turning at 0.2 rad/s for 1.5 s after 0.5 s of standing (the determinism test)",
+      .segments = {CommandSegment{.duration = 1.5, .forwardVelocity = 0.3, .yawRate = 0.2}}};
   smoke.standingTime = 0.5;
   scenarios.push_back(smoke);
   return scenarios;
@@ -86,8 +88,8 @@ std::vector<ClosedLoopScenario> makeScenarios() {
 }  // namespace
 
 const std::vector<ClosedLoopScenario>& closedLoopScenarios() {
-  static const std::vector<ClosedLoopScenario> scenarios = makeScenarios();
-  return scenarios;
+  static const absl::NoDestructor<std::vector<ClosedLoopScenario>> kScenarios(makeScenarios());
+  return *kScenarios;
 }
 
 absl::StatusOr<ClosedLoopScenario> findClosedLoopScenario(absl::string_view name) {
@@ -134,7 +136,7 @@ GuiVelocityCommand toGuiVelocityCommand(const Eigen::Vector3d& command, const Ei
   GuiVelocityCommand gui;
   gui.message = clampGuiVelocityMessage(sticks);
   // A stick beyond its range is cut; a few ulps of the division are not a saturation.
-  constexpr double kTolerance = 1e-12;
+  constexpr double kTolerance = 1.0e-12;
   gui.saturated =
       std::abs(sticks(0)) > 1.0 + kTolerance || std::abs(sticks(1)) > 1.0 + kTolerance || std::abs(sticks(3)) > 1.0 + kTolerance;
   return gui;

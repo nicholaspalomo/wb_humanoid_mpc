@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -23,8 +27,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -32,9 +34,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <functional>
 #include <limits>
 #include <memory>
-#include <stdexcept>
 #include <string>
 #include <vector>
+
+#include "absl/base/nullability.h"
+#include "absl/log/check.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h"
@@ -58,15 +66,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningTerm.h"
 #include "humanoid_common_mpc/contact_planning/problem/Layout.h"
+#include "humanoid_common_mpc/contact_planning/problem/LayoutBuilder.h"
 #include "humanoid_common_mpc/contact_planning/problem/LipConstraint.h"
 #include "humanoid_common_mpc/contact_planning/problem/LipCost.h"
 #include "humanoid_common_mpc/contact_planning/problem/StageAccumulator.h"
 #include "humanoid_common_mpc/contact_planning/problem/TermCollection.h"
 #include "humanoid_common_mpc/contact_planning/search/CadenceStretchStage.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
-
-#include "absl/status/status.h"
-#include "absl/status/statusor.h"
 
 namespace ocs2::humanoid {
 
@@ -116,36 +122,52 @@ ContactPlannerInput makeWalkingInput() {
   return input;
 }
 
+/** The term `name` of `collection`; CHECK-fails when there is none (the tests ask only for terms they listed). */
+template <typename T>
+const T& termNamed(const TermCollection<T>& collection, absl::string_view name) {
+  const T* absl_nullable term = collection.find(name);
+  CHECK(term != nullptr) << "no term named '" << name << "'";
+  return *term;
+}
+
+/** The term `name` of `collection` as the concrete term `Derived`; CHECK-fails when it is absent or of another type. */
+template <typename Derived, typename T>
+const Derived& termAs(const TermCollection<T>& collection, absl::string_view name) {
+  const Derived* absl_nullable derived = dynamic_cast<const Derived*>(&termNamed(collection, name));
+  CHECK(derived != nullptr) << "the term '" << name << "' is not of the requested type";
+  return *derived;
+}
+
 }  // namespace
 
 /*============================================ layout and rows ============================================*/
 
 TEST(ContactPlanningTerms, LayoutIsComposedFromTheBlocksInOrder) {
   const Layout lip = LipContactPlanner::makeLayout(makeConfig()).value();
-  EXPECT_EQ(lip.nx, LIP_STATE_DIM);
-  EXPECT_EQ(lip.nu, LIP_INPUT_DIM);
+  EXPECT_EQ(lip.nx, kLipStateDim);
+  EXPECT_EQ(lip.nu, kLipInputDim);
   EXPECT_FALSE(lip.hasHeading);
-  EXPECT_EQ(lip.state(var::kComX), LIP_CX);
-  EXPECT_EQ(lip.state(var::footX(1)), LIP_PRX);
-  EXPECT_EQ(lip.input(var::contact(0)), LIP_CL);
-  EXPECT_EQ(lip.input(var::contact(1)), LIP_CR);
+  EXPECT_EQ(lip.state(var::kComX), kLipCx);
+  EXPECT_EQ(lip.state(var::footX(1)), kLipPrx);
+  EXPECT_EQ(lip.input(var::contact(0)), kLipCl);
+  EXPECT_EQ(lip.input(var::contact(1)), kLipCr);
   EXPECT_NE(lip.describe().find("x = [c_x c_y v_x v_y p_Lx p_Ly p_Rx p_Ry] (8)"), std::string::npos) << lip.describe();
 
   const Layout heading = LipContactPlanner::makeLayout(makeHeadingConfig()).value();
-  EXPECT_EQ(heading.nx, LIP_STATE_DIM + 2 + static_cast<int>(N_CONTACTS));
-  EXPECT_EQ(heading.nu, LIP_INPUT_DIM + 2 * static_cast<int>(N_CONTACTS));
+  EXPECT_EQ(heading.nx, kLipStateDim + 2 + static_cast<int>(kNumContacts));
+  EXPECT_EQ(heading.nu, kLipInputDim + 2 * static_cast<int>(kNumContacts));
   EXPECT_TRUE(heading.hasHeading);
-  EXPECT_EQ(heading.heading, LIP_STATE_DIM) << "the heading block appends, the LIP indices are unchanged";
-  EXPECT_EQ(heading.state(var::kComX), LIP_CX);
-  EXPECT_EQ(heading.input(var::contact(1)), LIP_CR);
-  EXPECT_EQ(heading.yawTorque(0), LIP_INPUT_DIM);
-  EXPECT_EQ(heading.footYawDelta(1), LIP_INPUT_DIM + 3);
+  EXPECT_EQ(heading.heading, kLipStateDim) << "the heading block appends, the LIP indices are unchanged";
+  EXPECT_EQ(heading.state(var::kComX), kLipCx);
+  EXPECT_EQ(heading.input(var::contact(1)), kLipCr);
+  EXPECT_EQ(heading.yawTorque(0), kLipInputDim);
+  EXPECT_EQ(heading.footYawDelta(1), kLipInputDim + 3);
 }
 
 TEST(ContactPlanningTerms, RowCountsPerNodeAreTheDocumentedOnes) {
   {
     const std::unique_ptr<LipContactPlanner> planner = LipContactPlanner::Create(makeConfig()).value();
-    const OcpQpProblem problem = planner->buildProblem(makeStandingInput());
+    const OcpQpProblem problem = planner->buildProblem(makeStandingInput()).value();
     EXPECT_EQ(problem.stages.front().numGeneralConstraints(), 27) << "1 no-flight + 12 support + 8 foot motion + 4 reach + 2 separation";
     EXPECT_EQ(problem.stages.back().numGeneralConstraints(), 6) << "the terminal node carries the kinematic rows only";
     EXPECT_EQ(static_cast<int>(problem.stages.front().softGeneralIndices.size()), 18);
@@ -153,7 +175,7 @@ TEST(ContactPlanningTerms, RowCountsPerNodeAreTheDocumentedOnes) {
   }
   {
     const std::unique_ptr<LipContactPlanner> planner = LipContactPlanner::Create(makeHeadingConfig()).value();
-    const OcpQpProblem problem = planner->buildProblem(makeStandingInput());
+    const OcpQpProblem problem = planner->buildProblem(makeStandingInput()).value();
     EXPECT_EQ(problem.stages.front().numGeneralConstraints(), 37) << "+ 4 torque budget + 4 yaw pin + 2 hip range";
     EXPECT_EQ(problem.stages.back().numGeneralConstraints(), 8);
     EXPECT_EQ(static_cast<int>(problem.stages.front().idxbu.size()), 10);
@@ -171,13 +193,13 @@ TEST(ContactPlanningTerms, TermsAreAssembledInListOrderAndOnTheirNodeSets) {
   ASSERT_EQ(problem.costs.size(), 2u);
   EXPECT_EQ(problem.costs.nameAt(0), term::kRegularization);
   EXPECT_EQ(problem.costs.nameAt(1), term::kVelocityTracking);
-  EXPECT_EQ(problem.costs.get(term::kVelocityTracking).nodeSet(), NodeSet::ALL);
-  const OcpQpProblem qp = planner->buildProblem(makeWalkingInput());
+  EXPECT_EQ(termNamed(problem.costs, term::kVelocityTracking).nodeSet(), NodeSet::kAll);
+  const OcpQpProblem qp = planner->buildProblem(makeWalkingInput()).value();
   EXPECT_EQ(qp.stages.front().numGeneralConstraints(), 1);
   EXPECT_EQ(qp.stages.back().numGeneralConstraints(), 0);
   // The velocity tracking cost acts on the terminal node too: q_N carries -2 w v_cmd on the velocity entries.
-  EXPECT_NEAR(qp.stages.back().q(LIP_VX), -2.0 * config.velocityTracking.weight * 0.4, 1e-12);
-  EXPECT_NEAR(qp.stages.back().Q(LIP_CX, LIP_CX), config.regularization.state, 1e-15) << "only the regularization touches the CoM";
+  EXPECT_NEAR(qp.stages.back().q(kLipVx), -2.0 * config.velocityTracking.weight * 0.4, 1.0e-12);
+  EXPECT_NEAR(qp.stages.back().Q(kLipCx, kLipCx), config.regularization.state, 1.0e-15) << "only the regularization touches the CoM";
 }
 
 // step_length: w ||dp - d_nom (1 - c)||^2 per foot and axis on the running nodes. The residual is affine in dp and the
@@ -191,35 +213,35 @@ TEST(ContactPlanningTerms, StepLengthCostTiesTheSwingDisplacementToTheCommandedS
   config.stepLength.weight = 20.0;
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
   const std::unique_ptr<LipContactPlanner> planner = LipContactPlanner::Create(config).value();
-  const StepLengthCost& cost = planner->getProblem().costs.get<StepLengthCost>(term::kStepLength);
-  EXPECT_EQ(cost.nodeSet(), NodeSet::RUNNING);
+  const StepLengthCost& cost = termAs<StepLengthCost>(planner->getProblem().costs, term::kStepLength);
+  EXPECT_EQ(cost.nodeSet(), NodeSet::kRunning);
   // T_stride / T_swing = 2 (0.3 + 0.1) / 0.3
-  EXPECT_NEAR(cost.strideToSwingRatio(), 8.0 / 3.0, 1e-12);
+  EXPECT_NEAR(cost.strideToSwingRatio(), 8.0 / 3.0, 1.0e-12);
   const vector2_t d = cost.nominalDisplacementPerNode(vector2_t(0.4, 0.0), /*dt=*/0.1);
-  EXPECT_NEAR(d.x(), 0.4 * 0.1 * 8.0 / 3.0, 1e-12);
-  EXPECT_NEAR(d.y(), 0.0, 1e-12);
+  EXPECT_NEAR(d.x(), 0.4 * 0.1 * 8.0 / 3.0, 1.0e-12);
+  EXPECT_NEAR(d.y(), 0.0, 1.0e-12);
 
   const scalar_t w = config.stepLength.weight;
-  const OcpQpProblem qp = planner->buildProblem(makeWalkingInput());
+  const OcpQpProblem qp = planner->buildProblem(makeWalkingInput()).value();
   const OcpQpStage& stage = qp.stages.front();
-  EXPECT_NEAR(stage.R(LIP_DLX, LIP_DLX), 2.0 * w, 1e-12);
-  EXPECT_NEAR(stage.R(LIP_DLY, LIP_DLY), 2.0 * w, 1e-12);
-  EXPECT_NEAR(stage.R(LIP_DLX, LIP_CL), 2.0 * w * d.x(), 1e-12);
-  EXPECT_NEAR(stage.R(LIP_CL, LIP_DLX), 2.0 * w * d.x(), 1e-12);
-  EXPECT_NEAR(stage.R(LIP_DLY, LIP_CL), 0.0, 1e-12) << "no lateral command, no lateral nominal";
-  EXPECT_NEAR(stage.R(LIP_CL, LIP_CL), 2.0 * w * d.squaredNorm(), 1e-12);
-  EXPECT_NEAR(stage.r(LIP_DLX), -2.0 * w * d.x(), 1e-12);
-  EXPECT_NEAR(stage.r(LIP_CL), -2.0 * w * d.squaredNorm(), 1e-12);
-  EXPECT_NEAR(stage.R(LIP_DRX, LIP_CR), 2.0 * w * d.x(), 1e-12) << "both feet";
-  EXPECT_NEAR(stage.R(LIP_DLX, LIP_CR), 0.0, 1e-12) << "no coupling across feet";
+  EXPECT_NEAR(stage.R(kLipDlx, kLipDlx), 2.0 * w, 1.0e-12);
+  EXPECT_NEAR(stage.R(kLipDly, kLipDly), 2.0 * w, 1.0e-12);
+  EXPECT_NEAR(stage.R(kLipDlx, kLipCl), 2.0 * w * d.x(), 1.0e-12);
+  EXPECT_NEAR(stage.R(kLipCl, kLipDlx), 2.0 * w * d.x(), 1.0e-12);
+  EXPECT_NEAR(stage.R(kLipDly, kLipCl), 0.0, 1.0e-12) << "no lateral command, no lateral nominal";
+  EXPECT_NEAR(stage.R(kLipCl, kLipCl), 2.0 * w * d.squaredNorm(), 1.0e-12);
+  EXPECT_NEAR(stage.r(kLipDlx), -2.0 * w * d.x(), 1.0e-12);
+  EXPECT_NEAR(stage.r(kLipCl), -2.0 * w * d.squaredNorm(), 1.0e-12);
+  EXPECT_NEAR(stage.R(kLipDrx, kLipCr), 2.0 * w * d.x(), 1.0e-12) << "both feet";
+  EXPECT_NEAR(stage.R(kLipDlx, kLipCr), 0.0, 1.0e-12) << "no coupling across feet";
   EXPECT_TRUE(stage.Q.isZero()) << "the term touches no state";
   EXPECT_EQ(qp.stages.back().numInputs(), 0) << "not on the terminal node";
 
   // Standing still: the nominal is zero and the term is a plain regularizer of the foot displacement.
-  const OcpQpProblem standing = planner->buildProblem(makeStandingInput());
-  EXPECT_NEAR(standing.stages.front().R(LIP_DLX, LIP_DLX), 2.0 * w, 1e-12);
-  EXPECT_NEAR(standing.stages.front().R(LIP_DLX, LIP_CL), 0.0, 1e-12);
-  EXPECT_NEAR(standing.stages.front().r(LIP_CL), 0.0, 1e-12);
+  const OcpQpProblem standing = planner->buildProblem(makeStandingInput()).value();
+  EXPECT_NEAR(standing.stages.front().R(kLipDlx, kLipDlx), 2.0 * w, 1.0e-12);
+  EXPECT_NEAR(standing.stages.front().R(kLipDlx, kLipCl), 0.0, 1.0e-12);
+  EXPECT_NEAR(standing.stages.front().r(kLipCl), 0.0, 1.0e-12);
   EXPECT_NE(cost.describe().find("d_nom = v_cmd dt T_stride / T_swing"), std::string::npos);
 }
 
@@ -236,14 +258,14 @@ TEST(ContactPlanningTerms, TerminalDcmCanTrackTheCommandedVelocityInsteadOfComin
   walking.terminalDcm.trackCommandedVelocity = true;
   const std::unique_ptr<LipContactPlanner> restPlanner = LipContactPlanner::Create(rest).value();
   const std::unique_ptr<LipContactPlanner> walkingPlanner = LipContactPlanner::Create(walking).value();
-  EXPECT_FALSE(restPlanner->getProblem().costs.get<TerminalDcmCost>(term::kTerminalDcm).tracksCommandedVelocity());
-  EXPECT_TRUE(walkingPlanner->getProblem().costs.get<TerminalDcmCost>(term::kTerminalDcm).tracksCommandedVelocity());
-  EXPECT_NE(walkingPlanner->getProblem().costs.get(term::kTerminalDcm).describe().find("v_cmd / omega"), std::string::npos);
+  EXPECT_FALSE(termAs<TerminalDcmCost>(restPlanner->getProblem().costs, term::kTerminalDcm).tracksCommandedVelocity());
+  EXPECT_TRUE(termAs<TerminalDcmCost>(walkingPlanner->getProblem().costs, term::kTerminalDcm).tracksCommandedVelocity());
+  EXPECT_NE(termNamed(walkingPlanner->getProblem().costs, term::kTerminalDcm).describe().find("v_cmd / omega"), std::string::npos);
 
   ContactPlannerInput input = makeWalkingInput();
   input.velocityCommand = vector2_t(0.4, -0.15);
-  const OcpQpProblem qpRest = restPlanner->buildProblem(input);
-  const OcpQpProblem qpWalking = walkingPlanner->buildProblem(input);
+  const OcpQpProblem qpRest = restPlanner->buildProblem(input).value();
+  const OcpQpProblem qpWalking = walkingPlanner->buildProblem(input).value();
   // ContactPlanningProblem::assemble allocates numNodes + 1 stages: the running nodes 0 ... numNodes - 1, which carry
   // inputs and dynamics, and the terminal stage numNodes, which carries neither. `last` below is therefore the index of
   // the last RUNNING node - the single node NodeSet::LAST_RUNNING selects - and stages.back() is the terminal stage.
@@ -251,7 +273,7 @@ TEST(ContactPlanningTerms, TerminalDcmCanTrackTheCommandedVelocityInsteadOfComin
   // in the rest of this test into something else.
   ASSERT_EQ(qpWalking.stages.size(), static_cast<size_t>(rest.planner.numNodes) + 1u);
   const size_t last = static_cast<size_t>(rest.planner.numNodes - 1);
-  const scalar_t omega = std::sqrt(rest.shared.gravity / rest.shared.comHeight);
+  const scalar_t omega = std::sqrt(rest.shared.gravity / rest.pendulumHeight());
   const scalar_t dt = rest.planner.dt;
   const scalar_t w = rest.terminalDcm.weight;
 
@@ -266,35 +288,35 @@ TEST(ContactPlanningTerms, TerminalDcmCanTrackTheCommandedVelocityInsteadOfComin
   for (const std::array<scalar_t, 6>& trial : trials) {
     vector_t x = vector_t::Zero(qpWalking.stages[last].numStates());
     vector_t u = vector_t::Zero(qpWalking.stages[last].numInputs());
-    x(LIP_CX) = trial[0];
-    x(LIP_CY) = trial[1];
-    x(LIP_VX) = trial[2];
-    x(LIP_VY) = trial[3];
-    u(LIP_ZX) = trial[4];
-    u(LIP_ZY) = trial[5];
+    x(kLipCx) = trial[0];
+    x(kLipCy) = trial[1];
+    x(kLipVx) = trial[2];
+    x(kLipVy) = trial[3];
+    u(kLipZx) = trial[4];
+    u(kLipZy) = trial[5];
     scalar_t restExpected = 0.0;
     scalar_t walkingExpected = 0.0;
     for (int axis = 0; axis < 2; ++axis) {
-      const scalar_t zmp = u(LIP_ZX + axis);
-      const scalar_t xiNext = zmp + std::exp(omega * dt) * (x(LIP_CX + axis) + x(LIP_VX + axis) / omega - zmp);
+      const scalar_t zmp = u(kLipZx + axis);
+      const scalar_t xiNext = zmp + std::exp(omega * dt) * (x(kLipCx + axis) + x(kLipVx + axis) / omega - zmp);
       restExpected += w * (xiNext - zmp) * (xiNext - zmp);
       const scalar_t walkingResidual = xiNext - zmp - input.velocityCommand(axis) / omega;
       walkingExpected += w * walkingResidual * walkingResidual;
     }
-    EXPECT_NEAR(stageCost(qpRest.stages[last], x, u), restExpected, 1e-9 * (1.0 + restExpected)) << "come to rest: xi_N -> zmp";
-    EXPECT_NEAR(stageCost(qpWalking.stages[last], x, u), walkingExpected, 1e-9 * (1.0 + walkingExpected))
+    EXPECT_NEAR(stageCost(qpRest.stages[last], x, u), restExpected, 1.0e-9 * (1.0 + restExpected)) << "come to rest: xi_N -> zmp";
+    EXPECT_NEAR(stageCost(qpWalking.stages[last], x, u), walkingExpected, 1.0e-9 * (1.0 + walkingExpected))
         << "keep walking: xi_N -> zmp + v_cmd / omega";
   }
   // And the target is attained: at xi_N = zmp + v_cmd / omega the tracking cost vanishes.
   vector_t x = vector_t::Zero(qpWalking.stages[last].numStates());
   vector_t u = vector_t::Zero(qpWalking.stages[last].numInputs());
   for (int axis = 0; axis < 2; ++axis) {
-    u(LIP_ZX + axis) = 0.07 * (axis + 1);
-    x(LIP_CX + axis) = 0.02;
+    u(kLipZx + axis) = 0.07 * (axis + 1);
+    x(kLipCx + axis) = 0.02;
     // xi_{N-1} - zmp = e^{-omega dt} v_cmd / omega, so that xi_N - zmp = v_cmd / omega.
-    x(LIP_VX + axis) = omega * (u(LIP_ZX + axis) - x(LIP_CX + axis)) + std::exp(-omega * dt) * input.velocityCommand(axis);
+    x(kLipVx + axis) = omega * (u(kLipZx + axis) - x(kLipCx + axis)) + std::exp(-omega * dt) * input.velocityCommand(axis);
   }
-  EXPECT_NEAR(stageCost(qpWalking.stages[last], x, u), 0.0, 1e-9);
+  EXPECT_NEAR(stageCost(qpWalking.stages[last], x, u), 0.0, 1.0e-9);
 
   // Every other stage of the horizon has to stay untouched. The bound of this loop used to be `k + 1 < last`, which
   // stopped one node too early: with the twelve-node configuration of makeConfig() it inspected the nodes 0 ... 9 only,
@@ -321,14 +343,14 @@ TEST(ContactPlanningTerms, NodeSetsSelectExactlyTheStagesTheirNamesPromise) {
   constexpr int kNumNodes = 4;
   struct Expectation {
     NodeSet set;
-    const char* name;
+    const char* absl_nonnull name;
     std::array<bool, 5> contains;  // one entry per stage, 0 ... kNumNodes, the terminal stage last
   };
   const std::vector<Expectation> expectations = {
-      {NodeSet::RUNNING, "running nodes", {{true, true, true, true, false}}},
-      {NodeSet::TERMINAL, "terminal node", {{false, false, false, false, true}}},
-      {NodeSet::ALL, "all nodes", {{true, true, true, true, true}}},
-      {NodeSet::LAST_RUNNING, "last running node", {{false, false, false, true, false}}},
+      {NodeSet::kRunning, "running nodes", {{true, true, true, true, false}}},
+      {NodeSet::kTerminal, "terminal node", {{false, false, false, false, true}}},
+      {NodeSet::kAll, "all nodes", {{true, true, true, true, true}}},
+      {NodeSet::kLastRunning, "last running node", {{false, false, false, true, false}}},
   };
   for (const Expectation& expectation : expectations) {
     EXPECT_EQ(nodeSetName(expectation.set), expectation.name);
@@ -373,11 +395,11 @@ namespace {
 // out from the input trajectory alone. It deliberately restates the formula of the term instead of reading anything the
 // assembly produced, so that it is an independent statement of what the assembled objective has to evaluate to.
 scalar_t stepLengthFunctional(scalar_t weight, const vector2_t& nominalDisplacement, const std::vector<vector_t>& inputs) {
-  const std::array<std::array<int, 2>, N_CONTACTS> footDelta{{{LIP_DLX, LIP_DLY}, {LIP_DRX, LIP_DRY}}};
-  const std::array<int, N_CONTACTS> contact{LIP_CL, LIP_CR};
+  const std::array<std::array<int, 2>, kNumContacts> footDelta{{{kLipDlx, kLipDly}, {kLipDrx, kLipDry}}};
+  const std::array<int, kNumContacts> contact{kLipCl, kLipCr};
   scalar_t total = 0.0;
   for (const vector_t& input : inputs) {
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    for (size_t foot = 0; foot < kNumContacts; ++foot) {
       for (int axis = 0; axis < 2; ++axis) {
         const scalar_t residual =
             input(footDelta[foot][static_cast<size_t>(axis)]) - nominalDisplacement(axis) * (1.0 - input(contact[foot]));
@@ -414,7 +436,7 @@ TEST(ContactPlanningTerms, AnAccumulatedStageEvaluatesToTheFullSquaredResidual) 
   const scalar_t secondOffset = -1.25;
   StageAccumulator accumulator(problem.stages[0]);
   accumulator.addQuadraticResidual({{0, 1.5}, {1, -0.5}}, {{0, 2.0}, {1, 0.25}}, firstOffset, firstWeight);
-  accumulator.addQuadraticResidual({{1, 1.0}}, {}, secondOffset, secondWeight);
+  accumulator.addQuadraticResidual({{1, 1.0}}, /*uCoefficients=*/{}, secondOffset, secondWeight);
 
   const vector_t terminalState = vector_t::Zero(kNumStates);
   const std::array<std::array<scalar_t, 4>, 4> trials{
@@ -429,7 +451,7 @@ TEST(ContactPlanningTerms, AnAccumulatedStageEvaluatesToTheFullSquaredResidual) 
     const scalar_t expected = firstWeight * firstResidual * firstResidual + secondWeight * secondResidual * secondResidual;
     const std::vector<vector_t> stateTrajectory = {state, terminalState};
     const std::vector<vector_t> inputTrajectory = {input};
-    EXPECT_NEAR(evaluateOcpQpObjective(problem, stateTrajectory, inputTrajectory), expected, 1e-12)
+    EXPECT_NEAR(evaluateOcpQpObjective(problem, stateTrajectory, inputTrajectory), expected, 1.0e-12)
         << "x = " << state.transpose() << ", u = " << input.transpose()
         << ": the stage must evaluate to the squared residuals, the constant part of the expansion included";
   }
@@ -465,12 +487,12 @@ TEST(ContactPlanningTerms, ObjectivesOfProblemsAssembledOnDifferentNodeGridsAreC
   const vector2_t nominalDisplacement = input.velocityCommand * (config.planner.dt * strideToSwingRatio);
   const vector2_t stretchedDisplacement = input.velocityCommand * (stretchedConfig.planner.dt * strideToSwingRatio);
 
-  const OcpQpProblem qp = planner->buildProblem(input);
-  const OcpQpProblem stretchedQp = stretchedPlanner->buildProblem(input);
+  const OcpQpProblem qp = planner->buildProblem(input).value();
+  const OcpQpProblem stretchedQp = stretchedPlanner->buildProblem(input).value();
   // Anchor d_nom to what was actually assembled, so that a change of the nominal displacement shows up as a failure
   // here rather than silently moving both sides of the comparisons below.
-  ASSERT_NEAR(qp.stages.front().R(LIP_DLX, LIP_CL), 2.0 * weight * nominalDisplacement.x(), 1e-12);
-  ASSERT_NEAR(stretchedQp.stages.front().R(LIP_DRY, LIP_CR), 2.0 * weight * stretchedDisplacement.y(), 1e-12);
+  ASSERT_NEAR(qp.stages.front().R(kLipDlx, kLipCl), 2.0 * weight * nominalDisplacement.x(), 1.0e-12);
+  ASSERT_NEAR(stretchedQp.stages.front().R(kLipDry, kLipCr), 2.0 * weight * stretchedDisplacement.y(), 1.0e-12);
   ASSERT_EQ(stretchedQp.stages.size(), qp.stages.size()) << "the stretch changes the node duration, not the node count";
 
   const int numStates = qp.stages.front().numStates();
@@ -490,8 +512,8 @@ TEST(ContactPlanningTerms, ObjectivesOfProblemsAssembledOnDifferentNodeGridsAreC
 
   const scalar_t nominalOnTrajectory = evaluateOcpQpObjective(qp, stateTrajectory, inputTrajectory);
   const scalar_t stretchedOnTrajectory = evaluateOcpQpObjective(stretchedQp, stateTrajectory, inputTrajectory);
-  EXPECT_NEAR(nominalOnTrajectory, stepLengthFunctional(weight, nominalDisplacement, inputTrajectory), 1e-9);
-  EXPECT_NEAR(stretchedOnTrajectory, stepLengthFunctional(weight, stretchedDisplacement, inputTrajectory), 1e-9);
+  EXPECT_NEAR(nominalOnTrajectory, stepLengthFunctional(weight, nominalDisplacement, inputTrajectory), 1.0e-9);
+  EXPECT_NEAR(stretchedOnTrajectory, stepLengthFunctional(weight, stretchedDisplacement, inputTrajectory), 1.0e-9);
   // The two problems are not merely shifted by a constant each: on this trajectory the dropped constants reversed the
   // ORDER of the two grids. The stretched problem is the genuinely worse of the two here - 35.50 against 33.90 in the
   // functional the terms document - while an objective that leaves the constants out reports 23.63 against 26.30 and
@@ -510,9 +532,9 @@ TEST(ContactPlanningTerms, ObjectivesOfProblemsAssembledOnDifferentNodeGridsAreC
   const scalar_t nominalObjective = evaluateOcpQpObjective(qp, zeroStates, zeroInputs);
   const scalar_t stretchedObjective = evaluateOcpQpObjective(stretchedQp, zeroStates, zeroInputs);
   ASSERT_GT(expectedNominal, 1.0) << "the trial is only meaningful while the dropped constant is a large number";
-  EXPECT_NEAR(nominalObjective, expectedNominal, 1e-9);
-  EXPECT_NEAR(stretchedObjective, kStretch * kStretch * expectedNominal, 1e-9);
-  EXPECT_NEAR(stretchedObjective - nominalObjective, (kStretch * kStretch - 1.0) * expectedNominal, 1e-9)
+  EXPECT_NEAR(nominalObjective, expectedNominal, 1.0e-9);
+  EXPECT_NEAR(stretchedObjective, kStretch * kStretch * expectedNominal, 1.0e-9);
+  EXPECT_NEAR(stretchedObjective - nominalObjective, (kStretch * kStretch - 1.0) * expectedNominal, 1.0e-9)
       << "the stretched grid is strictly worse here; reporting a tie is what let the cadence stretch overshoot";
 }
 
@@ -524,10 +546,60 @@ TEST(ContactPlanningTerms, AHeadingTermWithoutTheHeadingBlockIsRejected) {
   EXPECT_EQ(config.validateStatus().code(), absl::StatusCode::kInvalidArgument);
   // The problem checks it too, for a problem assembled by hand.
   ContactPlanningProblem problem;
-  problem.model.add(term::kLipCom, ContactPlanningTermFactory::makeModelBlock(term::kLipCom));
-  problem.model.add(term::kFootholdIntegrator, ContactPlanningTermFactory::makeModelBlock(term::kFootholdIntegrator));
-  problem.costs.add(term::kHeadingTracking, ContactPlanningTermFactory::makeCost(term::kHeadingTracking));
-  EXPECT_THROW(problem.finalize(makeConfig()), std::invalid_argument);
+  ASSERT_EQ(problem.model.add(term::kLipCom, ContactPlanningTermFactory::makeModelBlock(term::kLipCom).value()), absl::OkStatus());
+  ASSERT_EQ(problem.model.add(term::kFootholdIntegrator, ContactPlanningTermFactory::makeModelBlock(term::kFootholdIntegrator).value()),
+            absl::OkStatus());
+  ASSERT_EQ(problem.costs.add(term::kHeadingTracking, ContactPlanningTermFactory::makeCost(term::kHeadingTracking).value()),
+            absl::OkStatus());
+  const absl::Status finalized = problem.finalize(makeConfig());
+  EXPECT_EQ(finalized.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_NE(finalized.message().find(term::kHeadingDoubleIntegrator), std::string::npos) << finalized;
+  EXPECT_FALSE(problem.isFinalized());
+}
+
+// A problem is used only once finalize() has succeeded: assemble() and configure() before it are a FailedPrecondition,
+// and so is everything after a finalize() that failed.
+TEST(ContactPlanningTerms, AProblemThatIsNotFinalizedRefusesToAssembleOrConfigure) {
+  const ContactPlanningConfig config = makeConfig();
+  ContactPlanningProblem problem;
+  EXPECT_EQ(problem.configure(config).code(), absl::StatusCode::kFailedPrecondition);
+  const absl::StatusOr<OcpQpProblem> assembled = problem.assemble(ContactPlanningContext());
+  ASSERT_FALSE(assembled.ok());
+  EXPECT_EQ(assembled.status().code(), absl::StatusCode::kFailedPrecondition);
+  EXPECT_NE(assembled.status().message().find("before finalize()"), std::string::npos) << assembled.status();
+
+  // The model has to start with the LIP block and the foothold block, in that order.
+  ContactPlanningProblem reversed;
+  ASSERT_EQ(reversed.model.add(term::kFootholdIntegrator, ContactPlanningTermFactory::makeModelBlock(term::kFootholdIntegrator).value()),
+            absl::OkStatus());
+  ASSERT_EQ(reversed.model.add(term::kLipCom, ContactPlanningTermFactory::makeModelBlock(term::kLipCom).value()), absl::OkStatus());
+  const absl::Status finalized = reversed.finalize(config);
+  EXPECT_EQ(finalized.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_NE(finalized.message().find("must start with"), std::string::npos) << finalized;
+  EXPECT_EQ(reversed.configure(config).code(), absl::StatusCode::kFailedPrecondition);
+}
+
+// The layout's lookups and the blocks' positions are invariants the problem establishes before any term reads them, so a
+// violation is a programming error that stops the process with the name, rather than a status to propagate.
+TEST(ContactPlanningTermsDeathTest, TheLayoutInvariantsCheckFailWithTheName) {
+  LayoutBuilder builder;
+  builder.addState(var::kComX);
+  EXPECT_DEATH(builder.addState(var::kComX), "state 'c_x' declared twice");
+  builder.addInput(var::kZmpX);
+  EXPECT_DEATH(builder.addInput(var::kZmpX), "input 'zmp_x' declared twice");
+  const Layout layout = builder.build();
+  EXPECT_DEATH(static_cast<void>(layout.state("no_such_state")), "no state named 'no_such_state'");
+  EXPECT_DEATH(static_cast<void>(layout.input("no_such_input")), "no input named 'no_such_input'");
+
+  // The foothold block first: the LIP block is then not where the fixed indices say it is.
+  LayoutBuilder footFirst;
+  std::unique_ptr<LipModelBlock> foothold = ContactPlanningTermFactory::makeModelBlock(term::kFootholdIntegrator).value();
+  std::unique_ptr<LipModelBlock> lip = ContactPlanningTermFactory::makeModelBlock(term::kLipCom).value();
+  foothold->declareVariables(footFirst);
+  lip->declareVariables(footFirst);
+  const Layout misordered = footFirst.build();
+  EXPECT_DEATH(lip->bind(misordered), "the LIP block must be the first block");
+  EXPECT_DEATH(foothold->bind(misordered), "the foothold block must follow the LIP block");
 }
 
 // The ordered, named collection every term list is held in: lookups by name agree with the insertion order before
@@ -536,7 +608,9 @@ TEST(ContactPlanningTerms, AHeadingTermWithoutTheHeadingBlockIsRejected) {
 TEST(ContactPlanningTerms, ATermCollectionKeepsItsOrderAndItsNameIndexInStep) {
   TermCollection<LipCost> costs;
   const std::vector<std::string> names{term::kRegularization, term::kVelocityTracking, term::kStepWidth, term::kTerminalDcm};
-  for (const std::string& name : names) costs.add(name, ContactPlanningTermFactory::makeCost(name));
+  for (const std::string& name : names) {
+    ASSERT_EQ(costs.add(name, ContactPlanningTermFactory::makeCost(name).value()), absl::OkStatus()) << name;
+  }
   ASSERT_EQ(costs.size(), names.size());
   EXPECT_EQ(costs.names(), names);
 
@@ -548,36 +622,29 @@ TEST(ContactPlanningTerms, ATermCollectionKeepsItsOrderAndItsNameIndexInStep) {
   EXPECT_FALSE(costs.has(term::kVelocityTracking));
   for (size_t i = 0; i < remaining.size(); ++i) {
     ASSERT_TRUE(costs.has(remaining[i]));
-    EXPECT_EQ(&costs.get(remaining[i]), &costs.at(i)) << remaining[i] << " must still resolve to its own term";
+    EXPECT_EQ(costs.find(remaining[i]), &costs.termAt(i)) << remaining[i] << " must still resolve to its own term";
     EXPECT_EQ(costs.getTermNameMap().at(remaining[i]), i);
   }
-  EXPECT_NO_THROW(costs.get<TerminalDcmCost>(term::kTerminalDcm));
+  EXPECT_NE(dynamic_cast<const TerminalDcmCost*>(costs.find(term::kTerminalDcm)), nullptr);
 
-  // A duplicate, a null term and a missing name are rejected, naming the term.
-  try {
-    costs.add(term::kStepWidth, ContactPlanningTermFactory::makeCost(term::kStepWidth));
-    FAIL() << "a duplicate name must throw";
-  } catch (const std::invalid_argument& e) {
-    EXPECT_NE(std::string(e.what()).find(term::kStepWidth), std::string::npos) << e.what();
-  }
-  EXPECT_THROW(costs.add("null_cost", /*term=*/nullptr), std::invalid_argument);
-  try {
-    costs.get(term::kVelocityTracking);
-    FAIL() << "an erased name must not resolve";
-  } catch (const std::out_of_range& e) {
-    EXPECT_NE(std::string(e.what()).find(term::kVelocityTracking), std::string::npos) << e.what();
-  }
+  // A duplicate and a null term are rejected, naming the term, and a missing name resolves to nothing.
+  const absl::Status duplicate = costs.add(term::kStepWidth, ContactPlanningTermFactory::makeCost(term::kStepWidth).value());
+  EXPECT_EQ(duplicate.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_NE(duplicate.message().find(term::kStepWidth), std::string::npos) << duplicate;
+  const absl::Status null = costs.add("null_cost", /*term=*/nullptr);
+  EXPECT_EQ(null.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_NE(null.message().find("null_cost"), std::string::npos) << null;
+  EXPECT_EQ(costs.find(term::kVelocityTracking), nullptr) << "an erased name must not resolve";
   EXPECT_EQ(costs.size(), remaining.size()) << "a rejected add changes nothing";
 }
 
-// The Status forms of the three builders reject what the throwing forms throw on, without throwing, naming the term;
-// repaired, the same lists build what the throwing forms build.
+// The three builders return a rejection as a Status that names the term; repaired, the same lists build.
 TEST(ContactPlanningTerms, TheBuildersReturnARejectionAsAStatusThatNamesTheTerm) {
   // A heading cost without the heading block.
   ContactPlanningConfig config = makeConfig();
   config.formulation.costs.push_back(term::kHeadingTracking);
   absl::StatusOr<ContactPlanningProblem> problem = absl::InternalError("not built");
-  EXPECT_NO_THROW(problem = ContactPlanningTermFactory::buildProblemStatus(config));
+  problem = ContactPlanningTermFactory::buildProblemStatus(config);
   ASSERT_FALSE(problem.ok());
   EXPECT_EQ(problem.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_NE(std::string(problem.status().message()).find(term::kHeadingTracking), std::string::npos) << problem.status().message();
@@ -586,16 +653,16 @@ TEST(ContactPlanningTerms, TheBuildersReturnARejectionAsAStatusThatNamesTheTerm)
   config = makeConfig();
   config.formulation.search = {"simulated_annealing"};
   absl::StatusOr<TermCollection<SearchStage>> stages = absl::InternalError("not built");
-  EXPECT_NO_THROW(stages = ContactPlanningTermFactory::buildSearchStagesStatus(config));
+  stages = ContactPlanningTermFactory::buildSearchStagesStatus(config);
   ASSERT_FALSE(stages.ok());
   EXPECT_NE(std::string(stages.status().message()).find("simulated_annealing"), std::string::npos) << stages.status().message();
   EXPECT_NE(std::string(stages.status().message()).find(term::kDiving), std::string::npos) << stages.status().message();
   config.formulation.search = {term::kDiving, term::kDiving};
-  EXPECT_NO_THROW(stages = ContactPlanningTermFactory::buildSearchStagesStatus(config));
+  stages = ContactPlanningTermFactory::buildSearchStagesStatus(config);
   ASSERT_FALSE(stages.ok());
   EXPECT_NE(std::string(stages.status().message()).find(term::kDiving), std::string::npos) << stages.status().message();
   config.formulation.search = {term::kHeadingRelinearization};
-  EXPECT_NO_THROW(stages = ContactPlanningTermFactory::buildSearchStagesStatus(config));
+  stages = ContactPlanningTermFactory::buildSearchStagesStatus(config);
   ASSERT_FALSE(stages.ok());
   EXPECT_NE(std::string(stages.status().message()).find(term::kHeadingDoubleIntegrator), std::string::npos) << stages.status().message();
 
@@ -603,7 +670,7 @@ TEST(ContactPlanningTerms, TheBuildersReturnARejectionAsAStatusThatNamesTheTerm)
   config = makeHeadingConfig();
   config.formulation.execution = {term::kPlannedHeadingOverride};
   absl::StatusOr<TermCollection<ExecutionRule>> rules = absl::InternalError("not built");
-  EXPECT_NO_THROW(rules = ContactPlanningTermFactory::buildExecutionRulesStatus(config));
+  rules = ContactPlanningTermFactory::buildExecutionRulesStatus(config);
   ASSERT_FALSE(rules.ok());
   EXPECT_NE(std::string(rules.status().message()).find(term::kPlannedHeadingOverride), std::string::npos) << rules.status().message();
 
@@ -622,43 +689,51 @@ TEST(ContactPlanningTerms, TheBuildersReturnARejectionAsAStatusThatNamesTheTerm)
 }
 
 TEST(ContactPlanningTerms, TheFactoryNamesTheSupportedTermsInItsErrors) {
-  try {
-    ContactPlanningTermFactory::makeCost("gravity_compensation");
-    FAIL() << "an unknown cost must throw";
-  } catch (const std::invalid_argument& e) {
-    const std::string what = e.what();
-    EXPECT_NE(what.find("gravity_compensation"), std::string::npos);
-    EXPECT_NE(what.find(term::kVelocityTracking), std::string::npos) << "the supported names are listed";
-  }
-  EXPECT_THROW(ContactPlanningTermFactory::makeExecutionRule(term::kPlannedHeadingOverride), std::invalid_argument)
-      << "the heading override needs the reference manager's model";
-  EXPECT_NO_THROW(ContactPlanningTermFactory::makeExecutionRule("phaseResetting"));
+  const absl::StatusOr<std::unique_ptr<LipCost>> unknown = ContactPlanningTermFactory::makeCost("gravity_compensation");
+  ASSERT_FALSE(unknown.ok());
+  EXPECT_EQ(unknown.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_NE(unknown.status().message().find("gravity_compensation"), std::string::npos) << unknown.status();
+  EXPECT_NE(unknown.status().message().find(term::kVelocityTracking), std::string::npos) << "the supported names are listed";
+  // Every kind rejects a name of another kind the same way.
+  EXPECT_EQ(ContactPlanningTermFactory::makeModelBlock(term::kVelocityTracking).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(ContactPlanningTermFactory::makeSoftConstraint(term::kNoFlight).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(ContactPlanningTermFactory::makeHardConstraint(term::kReachability).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(ContactPlanningTermFactory::makeLogicRule(term::kContactSwitch).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(ContactPlanningTermFactory::makeAssignmentCost(term::kNoFlight).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(ContactPlanningTermFactory::makeSearchStage(term::kPhaseResetting).status().code(), absl::StatusCode::kInvalidArgument);
+  const absl::StatusOr<std::unique_ptr<ExecutionRule>> override =
+      ContactPlanningTermFactory::makeExecutionRule(term::kPlannedHeadingOverride);
+  ASSERT_FALSE(override.ok()) << "the heading override needs the reference manager's model";
+  EXPECT_NE(override.status().message().find(term::kPlannedHeadingOverride), std::string::npos) << override.status();
+  EXPECT_TRUE(ContactPlanningTermFactory::makeExecutionRule("phaseResetting").ok());
 }
 
 TEST(ContactPlanningTerms, EveryKnownTermCanBeBuiltAndDescribed) {
   const ContactPlanningConfig config = makeHeadingConfig();
-  for (const std::string& name : knownTermNames(TermKind::COST)) {
-    std::unique_ptr<LipCost> cost = ContactPlanningTermFactory::makeCost(name);
+  for (const std::string& name : knownTermNames(TermKind::kCost)) {
+    std::unique_ptr<LipCost> cost = ContactPlanningTermFactory::makeCost(name).value();
     cost->configure(config);
     EXPECT_FALSE(cost->describe().empty()) << name;
   }
-  for (const std::string& name : knownTermNames(TermKind::SOFT_CONSTRAINT)) {
-    std::unique_ptr<LipConstraint> constraint = ContactPlanningTermFactory::makeSoftConstraint(name);
+  for (const std::string& name : knownTermNames(TermKind::kSoftConstraint)) {
+    std::unique_ptr<LipConstraint> constraint = ContactPlanningTermFactory::makeSoftConstraint(name).value();
     constraint->configure(config);
-    EXPECT_EQ(constraint->softness(), Softness::SOFT) << name;
+    EXPECT_EQ(constraint->softness(), Softness::kSoft) << name;
   }
-  for (const std::string& name : knownTermNames(TermKind::HARD_CONSTRAINT)) {
-    std::unique_ptr<LipConstraint> constraint = ContactPlanningTermFactory::makeHardConstraint(name);
+  for (const std::string& name : knownTermNames(TermKind::kHardConstraint)) {
+    std::unique_ptr<LipConstraint> constraint = ContactPlanningTermFactory::makeHardConstraint(name).value();
     constraint->configure(config);
-    EXPECT_EQ(constraint->softness(), Softness::HARD) << name;
+    EXPECT_EQ(constraint->softness(), Softness::kHard) << name;
   }
-  for (const std::string& name : knownTermNames(TermKind::LOGIC_RULE))
-    EXPECT_NO_THROW(ContactPlanningTermFactory::makeLogicRule(name)) << name;
-  for (const std::string& name : knownTermNames(TermKind::ASSIGNMENT_COST)) {
-    EXPECT_NO_THROW(ContactPlanningTermFactory::makeAssignmentCost(name)) << name;
+  for (const std::string& name : knownTermNames(TermKind::kLogicRule)) {
+    EXPECT_TRUE(ContactPlanningTermFactory::makeLogicRule(name).ok()) << name;
   }
-  for (const std::string& name : knownTermNames(TermKind::SEARCH_STAGE))
-    EXPECT_NO_THROW(ContactPlanningTermFactory::makeSearchStage(name)) << name;
+  for (const std::string& name : knownTermNames(TermKind::kAssignmentCost)) {
+    EXPECT_TRUE(ContactPlanningTermFactory::makeAssignmentCost(name).ok()) << name;
+  }
+  for (const std::string& name : knownTermNames(TermKind::kSearchStage)) {
+    EXPECT_TRUE(ContactPlanningTermFactory::makeSearchStage(name).ok()) << name;
+  }
   const std::string summary = LipContactPlanner::formulationSummary(config).value();
   for (const std::string& name : config.formulation.costs) EXPECT_NE(summary.find(name), std::string::npos) << summary;
   EXPECT_NE(summary.find("x = [c_x c_y v_x v_y p_Lx p_Ly p_Rx p_Ry theta omega psi_L psi_R] (12)"), std::string::npos) << summary;
@@ -669,21 +744,21 @@ TEST(ContactPlanningTerms, EveryKnownTermCanBeBuiltAndDescribed) {
 TEST(ContactPlanningTerms, ParametersReloadByTermNameWithoutReassembly) {
   const std::unique_ptr<LipContactPlanner> planner = LipContactPlanner::Create(makeConfig()).value();
   const ContactPlannerInput input = makeWalkingInput();
-  const OcpQpProblem before = planner->buildProblem(input);
+  const OcpQpProblem before = planner->buildProblem(input).value();
   ContactPlanningConfig retuned = planner->getConfig();
   retuned.velocityTracking.weight *= 3.0;
-  retuned.zmpSupportRegion.slack = SlackPenalty{123.0, 4.0};
+  retuned.zmpSupportRegion.slack = SlackPenalty{.quadratic = 123.0, .linear = 4.0};
   ASSERT_EQ(planner->setConfig(retuned), absl::OkStatus());
-  EXPECT_NEAR(planner->getProblem().costs.get<VelocityTrackingCost>(term::kVelocityTracking).weight(), retuned.velocityTracking.weight,
-              1e-12);
-  const OcpQpProblem after = planner->buildProblem(input);
-  EXPECT_NEAR(after.stages.front().Q(LIP_VX, LIP_VX), 3.0 * before.stages.front().Q(LIP_VX, LIP_VX) - 2.0 * retuned.regularization.state,
-              1e-9);
+  EXPECT_NEAR(termAs<VelocityTrackingCost>(planner->getProblem().costs, term::kVelocityTracking).weight(), retuned.velocityTracking.weight,
+              1.0e-12);
+  const OcpQpProblem after = planner->buildProblem(input).value();
+  EXPECT_NEAR(after.stages.front().Q(kLipVx, kLipVx), 3.0 * before.stages.front().Q(kLipVx, kLipVx) - 2.0 * retuned.regularization.state,
+              1.0e-9);
   // The ZMP rows are the first 12 soft rows of a running node; their penalty is the term's own, the rest keep the shared one.
-  EXPECT_NEAR(after.stages.front().Zl(0), 123.0, 1e-12);
-  EXPECT_NEAR(after.stages.front().zl(0), 4.0, 1e-12);
-  EXPECT_NEAR(after.stages.front().Zl(12), retuned.shared.slackPenalty.quadratic, 1e-12);
-  EXPECT_NEAR(before.stages.front().Zl(0), planner->getConfig().shared.slackPenalty.quadratic, 1e-12);
+  EXPECT_NEAR(after.stages.front().Zl(0), 123.0, 1.0e-12);
+  EXPECT_NEAR(after.stages.front().zl(0), 4.0, 1.0e-12);
+  EXPECT_NEAR(after.stages.front().Zl(12), retuned.shared.slackPenalty.quadratic, 1.0e-12);
+  EXPECT_NEAR(before.stages.front().Zl(0), planner->getConfig().shared.slackPenalty.quadratic, 1.0e-12);
 }
 
 TEST(ContactPlanningTerms, ChangingATermListReassemblesTheProblemAndKeepsTheWarmStartWhileTheLayoutHolds) {
@@ -695,20 +770,20 @@ TEST(ContactPlanningTerms, ChangingATermListReassemblesTheProblemAndKeepsTheWarm
   next.time += 0.1;
   next.contacts = first.contactsAtTime(next.time);
   ASSERT_GE(planner->defaultNominal(next).com.size(), 1u);
-  const bool warmBefore = planner->makeContext(next, planner->defaultNominal(next)).previousPlanShift >= 0;
+  const bool warmBefore = planner->makeContext(next, planner->defaultNominal(next)).value().previousPlanShift >= 0;
   EXPECT_TRUE(warmBefore);
 
   ContactPlanningConfig fewerCosts = planner->getConfig();
   fewerCosts.formulation.setCost(term::kStepWidth, /*on=*/false);
   ASSERT_EQ(planner->setConfig(fewerCosts), absl::OkStatus());
   EXPECT_FALSE(planner->getProblem().costs.has(term::kStepWidth));
-  EXPECT_GE(planner->makeContext(next, planner->defaultNominal(next)).previousPlanShift, 0)
+  EXPECT_GE(planner->makeContext(next, planner->defaultNominal(next)).value().previousPlanShift, 0)
       << "same grid and layout: the warm start survives";
 
   ContactPlanningConfig heading = makeHeadingConfig();
   ASSERT_EQ(planner->setConfig(heading), absl::OkStatus());
   EXPECT_TRUE(planner->getLayout().hasHeading);
-  EXPECT_LT(planner->makeContext(next, planner->defaultNominal(next)).previousPlanShift, 0) << "a new layout drops the warm start";
+  EXPECT_LT(planner->makeContext(next, planner->defaultNominal(next)).value().previousPlanShift, 0) << "a new layout drops the warm start";
 }
 
 TEST(ContactPlanningTerms, SearchStagesFollowTheList) {
@@ -734,29 +809,29 @@ TEST(ContactPlanningTerms, ExecutionRulesAreBuiltFromTheListAndReportWhatTheyNee
   ASSERT_TRUE(built.ok()) << built.status();
   const TermCollection<ExecutionRule>& rules = *built;
   ASSERT_EQ(rules.size(), 3u);
-  EXPECT_FALSE(rules.get(term::kPhaseResetting).needsPredictedTrajectory());
-  EXPECT_TRUE(rules.get(term::kEnergyCadenceModulation).needsPredictedTrajectory());
-  EXPECT_TRUE(rules.get(term::kDcmStepAdjustment).needsPredictedTrajectory());
+  EXPECT_FALSE(termNamed(rules, term::kPhaseResetting).needsPredictedTrajectory());
+  EXPECT_TRUE(termNamed(rules, term::kEnergyCadenceModulation).needsPredictedTrajectory());
+  EXPECT_TRUE(termNamed(rules, term::kDcmStepAdjustment).needsPredictedTrajectory());
   config.formulation.execution.push_back(term::kPlannedHeadingOverride);
   EXPECT_FALSE(ContactPlanningTermFactory::buildExecutionRulesStatus(config).ok()) << "needs the heading block and the model";
 }
 
 TEST(ContactPlanningTerms, WithoutRulesTheScheduleIsLeftAloneAndTheLatchTracksTheSwing) {
   // A swing of the left foot from 1.0 to 1.4 s, the right foot down throughout.
-  ModeSchedule schedule({1.0, 1.4}, {ModeNumber::STANCE, ModeNumber::RF, ModeNumber::STANCE});
+  ModeSchedule schedule({1.0, 1.4}, {ModeNumber::kStance, ModeNumber::kRf, ModeNumber::kStance});
   feet_array_t<SwingTimingLatch> latches = makeFeetArray(SwingTimingLatch{});
   const ContactPlanningConfig config = makeConfig();
   const feet_array_t<scalar_t> noCadence = makeFeetArray(0.0);
   contact_flag_t measured = {true, true};  // the left foot reports contact mid-swing
   const feet_array_t<ContactEventReport> reports =
       adaptScheduleToContactEvents(schedule, /*time=*/1.2, measured, noCadence, config, latches);
-  EXPECT_EQ(reports[0].type, ContactEventReport::Type::NONE) << "no phase_resetting rule listed";
+  EXPECT_EQ(reports[0].type, ContactEventReport::Type::kNone) << "no phase_resetting rule listed";
   EXPECT_TRUE(latches[0].active);
-  EXPECT_NEAR(latches[0].nominalTouchDownTime, 1.4, 1e-12);
-  EXPECT_NEAR(schedule.eventTimes[1], 1.4, 1e-12);
+  EXPECT_NEAR(latches[0].nominalTouchDownTime, 1.4, 1.0e-12);
+  EXPECT_NEAR(schedule.eventTimes[1], 1.4, 1.0e-12);
   measured = {false, true};  // the foot is still in the air at its scheduled touch-down: nothing extends it either
   const feet_array_t<ContactEventReport> late = adaptScheduleToContactEvents(schedule, /*time=*/1.45, measured, noCadence, config, latches);
-  EXPECT_EQ(late[0].type, ContactEventReport::Type::NONE);
+  EXPECT_EQ(late[0].type, ContactEventReport::Type::kNone);
   EXPECT_FALSE(latches[0].active) << "the contact phase proceeds and the latch is released";
 }
 
@@ -767,12 +842,13 @@ TEST(ContactPlanningTerms, DoubleSupportPenaltyChargesEveryNodeWithBothFeetDown)
   config.doubleSupportPenalty.cost = 5.0;
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
   const std::unique_ptr<LipContactPlanner> planner = LipContactPlanner::Create(config).value();
-  const DoubleSupportPenaltyCost& cost = planner->getProblem().assignmentCosts.get<DoubleSupportPenaltyCost>(term::kDoubleSupportPenalty);
+  const DoubleSupportPenaltyCost& cost =
+      termAs<DoubleSupportPenaltyCost>(planner->getProblem().assignmentCosts, term::kDoubleSupportPenalty);
 
   ContactLogicState state;
   state.numNodes = 3;
-  MiqpAssignment a(3 * N_CONTACTS);
-  const std::function<void(int, std::int8_t, std::int8_t)> set = [&a](int node, std::int8_t left, std::int8_t right) {
+  MiqpAssignment a(3 * kNumContacts);
+  const std::function<void(int, int8_t, int8_t)> set = [&a](int node, int8_t left, int8_t right) {
     a[static_cast<size_t>(ContactLogicState::contactBinaryIndex(node, /*foot=*/0))] = left;
     a[static_cast<size_t>(ContactLogicState::contactBinaryIndex(node, /*foot=*/1))] = right;
   };
@@ -780,19 +856,20 @@ TEST(ContactPlanningTerms, DoubleSupportPenaltyChargesEveryNodeWithBothFeetDown)
   set(0, 0, 1);  // left swinging, right in contact
   set(1, 1, 1);  // double support
   set(2, 1, 0);  // left in contact, right swinging
-  EXPECT_NEAR(cost.cost(state, a), 5.0, 1e-12) << "one double-support node out of three";
+  EXPECT_NEAR(cost.cost(state, a), 5.0, 1.0e-12) << "one double-support node out of three";
 
   set(2, 1, 1);
-  EXPECT_NEAR(cost.cost(state, a), 10.0, 1e-12) << "two double-support nodes";
+  EXPECT_NEAR(cost.cost(state, a), 10.0, 1.0e-12) << "two double-support nodes";
 
   set(0, 1, 1);
   set(1, 1, 1);
   set(2, 1, 1);
-  EXPECT_NEAR(cost.cost(state, a), 15.0, 1e-12) << "standing costs the whole horizon";
+  EXPECT_NEAR(cost.cost(state, a), 15.0, 1.0e-12) << "standing costs the whole horizon";
 
   config.doubleSupportPenalty.cost = 0.0;
   const std::unique_ptr<LipContactPlanner> disabled = LipContactPlanner::Create(config).value();
-  EXPECT_NEAR(disabled->getProblem().assignmentCosts.get<DoubleSupportPenaltyCost>(term::kDoubleSupportPenalty).cost(state, a), 0.0, 1e-12)
+  EXPECT_NEAR(termAs<DoubleSupportPenaltyCost>(disabled->getProblem().assignmentCosts, term::kDoubleSupportPenalty).cost(state, a), 0.0,
+              1.0e-12)
       << "a zero cost is free whatever the assignment";
 }
 
@@ -807,20 +884,21 @@ TEST(ContactPlanningTerms, DoubleSupportPenaltyIsALowerBoundOnAPartialAssignment
   config.doubleSupportPenalty.cost = 5.0;
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
   const std::unique_ptr<LipContactPlanner> planner = LipContactPlanner::Create(config).value();
-  const DoubleSupportPenaltyCost& cost = planner->getProblem().assignmentCosts.get<DoubleSupportPenaltyCost>(term::kDoubleSupportPenalty);
+  const DoubleSupportPenaltyCost& cost =
+      termAs<DoubleSupportPenaltyCost>(planner->getProblem().assignmentCosts, term::kDoubleSupportPenalty);
 
   ContactLogicState state;
   state.numNodes = 3;
-  MiqpAssignment partial(3 * N_CONTACTS, kMiqpFree);
-  EXPECT_NEAR(cost.cost(state, partial), 0.0, 1e-12) << "nothing decided, nothing charged";
+  MiqpAssignment partial(3 * kNumContacts, kMiqpFree);
+  EXPECT_NEAR(cost.cost(state, partial), 0.0, 1.0e-12) << "nothing decided, nothing charged";
 
   // One foot down at node 0, the other still free: not yet a double support.
   partial[static_cast<size_t>(ContactLogicState::contactBinaryIndex(0, 0))] = 1;
-  EXPECT_NEAR(cost.cost(state, partial), 0.0, 1e-12) << "a half-decided node is not charged";
+  EXPECT_NEAR(cost.cost(state, partial), 0.0, 1.0e-12) << "a half-decided node is not charged";
 
   // Deciding the second foot completes the double support and the cost may only rise.
   partial[static_cast<size_t>(ContactLogicState::contactBinaryIndex(0, 1))] = 1;
-  EXPECT_NEAR(cost.cost(state, partial), 5.0, 1e-12);
+  EXPECT_NEAR(cost.cost(state, partial), 5.0, 1.0e-12);
 
   // Completing the rest of the horizon can only add to it, never take away.
   MiqpAssignment complete = partial;
@@ -853,28 +931,28 @@ TEST(ContactPlanningTerms, CadenceStretchIsBoundedByTheGaitLimits) {
     // NOLINTNEXTLINE(argument-comment): std::vector fill constructor, whose libstdc++ parameters are reserved names (__n, __value)
     MiqpAssignment assignment(static_cast<size_t>(ContactLogicState::kBinariesPerNode * config.planner.numNodes), 1);
     for (int node = 0; node < swingNodes; ++node) {
-      assignment[static_cast<size_t>(ContactLogicState::contactBinaryIndex(node, CONTACT_LEFT_INDEX))] = 0;
+      assignment[static_cast<size_t>(ContactLogicState::contactBinaryIndex(node, kContactLeftIndex))] = 0;
     }
     return assignment;
   };
 
   EXPECT_NEAR(CadenceStretchStage::admissibleStretch(config, assignmentWithSwing(4), config.planner.numNodes, /*maxStretch=*/2.0),
-              0.5 / 0.4, 1e-9);
+              0.5 / 0.4, 1.0e-9);
   EXPECT_NEAR(CadenceStretchStage::admissibleStretch(config, assignmentWithSwing(5), config.planner.numNodes, /*maxStretch=*/2.0), 1.0,
-              1e-9);
+              1.0e-9);
   // maxStretch is the other bound, and it is the binding one for a short swing.
   EXPECT_NEAR(CadenceStretchStage::admissibleStretch(config, assignmentWithSwing(3), config.planner.numNodes, /*maxStretch=*/1.2), 1.2,
-              1e-9);
+              1.0e-9);
   // A swing that already exceeds the limit cannot be repaired by stretching, and must not push the bound below 1.
   EXPECT_NEAR(CadenceStretchStage::admissibleStretch(config, assignmentWithSwing(8), config.planner.numNodes, /*maxStretch=*/2.0), 1.0,
-              1e-9);
+              1.0e-9);
 }
 
 TEST(ContactPlanningTerms, CadenceStretchIsDisabledWithoutSamples) {
   ContactPlanningConfig config = makeConfig();
   config.cadenceStretch.samples = 0;
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
-  std::unique_ptr<SearchStage> stage = ContactPlanningTermFactory::makeSearchStage(term::kCadenceStretch);
+  std::unique_ptr<SearchStage> stage = ContactPlanningTermFactory::makeSearchStage(term::kCadenceStretch).value();
   ASSERT_NE(stage, nullptr);
   stage->configure(config);
   EXPECT_NE(stage->describe().find("0 stretch"), std::string::npos);
@@ -882,7 +960,7 @@ TEST(ContactPlanningTerms, CadenceStretchIsDisabledWithoutSamples) {
 
 TEST(ContactPlanningTerms, ANearlyOnTimeTouchDownDoesNotSplitAZeroDoubleSupportExchange) {
   // Left swings 1.0 -> 1.4 and lands at the instant the right lifts; right then swings 1.4 -> 1.8.
-  const ModeSchedule nominal({1.0, 1.4, 1.8}, {ModeNumber::STANCE, ModeNumber::RF, ModeNumber::LF, ModeNumber::STANCE});
+  const ModeSchedule nominal({1.0, 1.4, 1.8}, {ModeNumber::kStance, ModeNumber::kRf, ModeNumber::kLf, ModeNumber::kStance});
   ContactPlanningConfig config = makeConfig();
   config.formulation.execution = {term::kPhaseResetting};
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
@@ -895,7 +973,7 @@ TEST(ContactPlanningTerms, ANearlyOnTimeTouchDownDoesNotSplitAZeroDoubleSupportE
   const std::function<scalar_t(const ModeSchedule&)> shortestDoubleSupport = [](const ModeSchedule& schedule) {
     scalar_t shortest = std::numeric_limits<scalar_t>::infinity();
     for (size_t i = 0; i + 1 < schedule.eventTimes.size(); ++i) {
-      if (schedule.modeSequence[i + 1] == ModeNumber::STANCE) {
+      if (schedule.modeSequence[i + 1] == ModeNumber::kStance) {
         shortest = std::min(shortest, schedule.eventTimes[i + 1] - schedule.eventTimes[i]);
       }
     }
@@ -908,7 +986,7 @@ TEST(ContactPlanningTerms, ANearlyOnTimeTouchDownDoesNotSplitAZeroDoubleSupportE
     adaptScheduleToContactEvents(schedule, /*time=*/1.37, bothDown, noCadence, config, latches);
     const feet_array_t<ContactEventReport> reports =
         adaptScheduleToContactEvents(schedule, /*time=*/1.392, bothDown, noCadence, config, latches);
-    EXPECT_EQ(reports[0].type, ContactEventReport::Type::NONE) << "a near-on-time touch-down is not an early one";
+    EXPECT_EQ(reports[0].type, ContactEventReport::Type::kNone) << "a near-on-time touch-down is not an early one";
     EXPECT_EQ(schedule.eventTimes, nominal.eventTimes) << "the schedule was re-timed";
     EXPECT_EQ(schedule.modeSequence, nominal.modeSequence) << "the exchange was split by a sliver of double support";
   }
@@ -918,9 +996,9 @@ TEST(ContactPlanningTerms, ANearlyOnTimeTouchDownDoesNotSplitAZeroDoubleSupportE
     adaptScheduleToContactEvents(schedule, /*time=*/1.20, bothDown, noCadence, config, latches);
     const feet_array_t<ContactEventReport> reports =
         adaptScheduleToContactEvents(schedule, /*time=*/1.222, bothDown, noCadence, config, latches);
-    EXPECT_EQ(reports[0].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
-    EXPECT_NEAR(reports[0].touchDownTime, 1.222, 1e-9);
-    EXPECT_GE(shortestDoubleSupport(schedule), config.phaseResetting.earlyTouchdownMinAdvance - 1e-9)
+    EXPECT_EQ(reports[0].type, ContactEventReport::Type::kEarlyTouchDown);
+    EXPECT_NEAR(reports[0].touchDownTime, 1.222, 1.0e-9);
+    EXPECT_GE(shortestDoubleSupport(schedule), config.phaseResetting.earlyTouchdownMinAdvance - 1.0e-9)
         << "the rule may not create a double support shorter than its own guard";
   }
   {  // With the guard off the sliver comes back: this is the behavior the guard exists to remove.
@@ -932,8 +1010,8 @@ TEST(ContactPlanningTerms, ANearlyOnTimeTouchDownDoesNotSplitAZeroDoubleSupportE
     adaptScheduleToContactEvents(schedule, /*time=*/1.37, bothDown, noCadence, unguarded, latches);
     const feet_array_t<ContactEventReport> reports =
         adaptScheduleToContactEvents(schedule, /*time=*/1.392, bothDown, noCadence, unguarded, latches);
-    EXPECT_EQ(reports[0].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
-    EXPECT_NEAR(shortestDoubleSupport(schedule), 0.008, 1e-9) << "8 ms of double support, below the MPC time step";
+    EXPECT_EQ(reports[0].type, ContactEventReport::Type::kEarlyTouchDown);
+    EXPECT_NEAR(shortestDoubleSupport(schedule), 0.008, 1.0e-9) << "8 ms of double support, below the MPC time step";
   }
 }
 
@@ -959,7 +1037,7 @@ std::vector<MiqpAssignment> allPartialAssignments(int numBinaries) {
     MiqpAssignment assignment(static_cast<size_t>(numBinaries), kMiqpFree);
     int rest = code;
     for (int i = 0; i < numBinaries; ++i) {
-      assignment[static_cast<size_t>(i)] = static_cast<std::int8_t>(rest % 3 - 1);
+      assignment[static_cast<size_t>(i)] = static_cast<int8_t>(rest % 3 - 1);
       rest /= 3;
     }
     assignments.push_back(assignment);
@@ -979,7 +1057,7 @@ std::vector<MiqpAssignment> allCompletionsOf(const MiqpAssignment& partial) {
   for (int mask = 0; mask < numCompletions; ++mask) {
     MiqpAssignment complete = partial;
     for (size_t j = 0; j < freeIndices.size(); ++j) {
-      complete[freeIndices[j]] = static_cast<std::int8_t>((mask >> j) & 1);
+      complete[freeIndices[j]] = static_cast<int8_t>((mask >> j) & 1);
     }
     completions.push_back(complete);
   }
@@ -990,14 +1068,14 @@ std::vector<MiqpAssignment> allCompletionsOf(const MiqpAssignment& partial) {
 std::string printAssignment(const MiqpAssignment& assignment) {
   std::string out;
   for (size_t i = 0; i < assignment.size(); ++i) {
-    if (i > 0 && i % N_CONTACTS == 0) out += " ";
+    if (i > 0 && i % kNumContacts == 0) out += " ";
     out += (assignment[i] == kMiqpFree) ? "." : (assignment[i] == 1 ? "1" : "0");
   }
   return out;
 }
 
-/** Writes both feet of one node of an assignment. Binaries are node-major: N_CONTACTS * node + foot. */
-void setContacts(MiqpAssignment& assignment, int node, std::int8_t left, std::int8_t right) {
+/** Writes both feet of one node of an assignment. Binaries are node-major: kNumContacts * node + foot. */
+void setContacts(MiqpAssignment& assignment, int node, int8_t left, int8_t right) {
   assignment[static_cast<size_t>(ContactLogicState::contactBinaryIndex(node, /*foot=*/0))] = left;
   assignment[static_cast<size_t>(ContactLogicState::contactBinaryIndex(node, /*foot=*/1))] = right;
 }
@@ -1024,7 +1102,7 @@ TEST(ContactPlanningTerms, ContactSwitchCostIsExactWhenCompleteAndALowerBoundOnE
   ContactPlanningConfig config = makeConfig();
   config.contactSwitch.cost = 0.25;
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
-  std::unique_ptr<AssignmentCost> term = ContactPlanningTermFactory::makeAssignmentCost(term::kContactSwitch);
+  std::unique_ptr<AssignmentCost> term = ContactPlanningTermFactory::makeAssignmentCost(term::kContactSwitch).value();
   ASSERT_NE(term, nullptr);
   term->configure(config);
   EXPECT_NE(term->describe().find("per lift-off / touch-down event"), std::string::npos) << term->describe();
@@ -1036,45 +1114,45 @@ TEST(ContactPlanningTerms, ContactSwitchCostIsExactWhenCompleteAndALowerBoundOnE
 
   // The measured contact state is the node before the horizon: an assignment that keeps both feet down over the whole
   // horizon costs nothing, and the same assignment costs one event when a foot is in the air at planning time.
-  MiqpAssignment allDown(static_cast<size_t>(kNumNodes) * N_CONTACTS, static_cast<std::int8_t>(1));
-  EXPECT_NEAR(term->cost(state, allDown), 0.0, 1e-12) << "both feet were already down, nothing happens";
+  MiqpAssignment allDown(static_cast<size_t>(kNumNodes) * kNumContacts, static_cast<int8_t>(1));
+  EXPECT_NEAR(term->cost(state, allDown), 0.0, 1.0e-12) << "both feet were already down, nothing happens";
   ContactPlannerInput airborneLeft = standing;
   airborneLeft.contacts = {false, true};
   ContactLogicState airborneState = state;
   airborneState.input = &airborneLeft;
-  EXPECT_NEAR(term->cost(airborneState, allDown), 0.25, 1e-12) << "the left foot touches down at node 0";
+  EXPECT_NEAR(term->cost(airborneState, allDown), 0.25, 1.0e-12) << "the left foot touches down at node 0";
 
   // One full swing of the left foot inside the horizon: lift-off at node 0 and touch-down at node 2 is two events, the
   // right foot never moves. 2 * 0.25 = 0.5.
-  MiqpAssignment oneSwing(static_cast<size_t>(kNumNodes) * N_CONTACTS, static_cast<std::int8_t>(1));
+  MiqpAssignment oneSwing(static_cast<size_t>(kNumNodes) * kNumContacts, static_cast<int8_t>(1));
   setContacts(oneSwing, /*node=*/0, /*left=*/0, /*right=*/1);
   setContacts(oneSwing, /*node=*/1, /*left=*/0, /*right=*/1);
   setContacts(oneSwing, /*node=*/2, /*left=*/1, /*right=*/1);
-  EXPECT_NEAR(term->cost(state, oneSwing), 0.5, 1e-12) << "one lift-off and one touch-down";
+  EXPECT_NEAR(term->cost(state, oneSwing), 0.5, 1.0e-12) << "one lift-off and one touch-down";
 
   // Both feet stepping on every node is the most expensive pattern of this horizon: three alternations per foot.
-  MiqpAssignment chattering(static_cast<size_t>(kNumNodes) * N_CONTACTS, static_cast<std::int8_t>(0));
+  MiqpAssignment chattering(static_cast<size_t>(kNumNodes) * kNumContacts, static_cast<int8_t>(0));
   setContacts(chattering, /*node=*/0, /*left=*/0, /*right=*/0);
   setContacts(chattering, /*node=*/1, /*left=*/1, /*right=*/1);
   setContacts(chattering, /*node=*/2, /*left=*/0, /*right=*/0);
-  EXPECT_NEAR(term->cost(state, chattering), 6.0 * 0.25, 1e-12) << "three events per foot";
+  EXPECT_NEAR(term->cost(state, chattering), 6.0 * 0.25, 1.0e-12) << "three events per foot";
 
   // The subsequence argument, made concrete. Only the left foot at node 1 is decided, to the value the foot already
   // has, so nothing is charged - while the completion that lifts the foot at node 0 and puts it back down at node 1
   // costs two events. A term that charged the free nodes, or that treated a free node as a swing, would report more
   // than zero here and the search could prune the completion away.
-  MiqpAssignment onlyNodeOne(static_cast<size_t>(kNumNodes) * N_CONTACTS, kMiqpFree);
+  MiqpAssignment onlyNodeOne(static_cast<size_t>(kNumNodes) * kNumContacts, kMiqpFree);
   onlyNodeOne[static_cast<size_t>(ContactLogicState::contactBinaryIndex(1, 0))] = 1;
-  EXPECT_NEAR(term->cost(state, onlyNodeOne), 0.0, 1e-12) << "the only decided node agrees with the measured state";
+  EXPECT_NEAR(term->cost(state, onlyNodeOne), 0.0, 1.0e-12) << "the only decided node agrees with the measured state";
   MiqpAssignment completedWithASwing = onlyNodeOne;                       // node 1 already has the left foot down
   setContacts(completedWithASwing, /*node=*/0, /*left=*/0, /*right=*/1);  // the left foot lifts before that decided node
   completedWithASwing[static_cast<size_t>(ContactLogicState::contactBinaryIndex(1, 1))] = 1;
   setContacts(completedWithASwing, /*node=*/2, /*left=*/1, /*right=*/1);
-  EXPECT_NEAR(term->cost(state, completedWithASwing), 0.5, 1e-12)
+  EXPECT_NEAR(term->cost(state, completedWithASwing), 0.5, 1.0e-12)
       << "the completion pays for the lift-off and the touch-down the free nodes were hiding";
 
   // The contract itself, over every partial assignment of the horizon and every completion of each.
-  const std::vector<MiqpAssignment> partials = allPartialAssignments(kNumNodes * static_cast<int>(N_CONTACTS));
+  const std::vector<MiqpAssignment> partials = allPartialAssignments(kNumNodes * static_cast<int>(kNumContacts));
   ASSERT_EQ(partials.size(), 729u) << "3^6 patterns of free / 0 / 1";
   int numStrictBounds = 0;
   for (const MiqpAssignment& partial : partials) {
@@ -1083,10 +1161,10 @@ TEST(ContactPlanningTerms, ContactSwitchCostIsExactWhenCompleteAndALowerBoundOnE
     const std::vector<MiqpAssignment> completions = allCompletionsOf(partial);
     for (const MiqpAssignment& complete : completions) {
       const scalar_t exact = term->cost(state, complete);
-      ASSERT_LE(bound, exact + 1e-12) << "the partial assignment " << printAssignment(partial) << " is charged " << bound
-                                      << ", more than its completion " << printAssignment(complete) << " at " << exact
-                                      << "; the branch-and-bound would prune the completion away on that bound";
-      if (exact > bound + 1e-12) ++numStrictBounds;
+      ASSERT_LE(bound, exact + 1.0e-12) << "the partial assignment " << printAssignment(partial) << " is charged " << bound
+                                        << ", more than its completion " << printAssignment(complete) << " at " << exact
+                                        << "; the branch-and-bound would prune the completion away on that bound";
+      if (exact > bound + 1.0e-12) ++numStrictBounds;
     }
   }
   EXPECT_GT(numStrictBounds, 0) << "a bound that never actually undercharges would mean the enumeration is degenerate";
@@ -1098,9 +1176,9 @@ TEST(ContactPlanningTerms, ContactSwitchCostIsExactWhenCompleteAndALowerBoundOnE
   ContactPlanningConfig freePrice = config;
   freePrice.contactSwitch.cost = 0.0;
   EXPECT_EQ(freePrice.validateStatus(), absl::OkStatus());
-  std::unique_ptr<AssignmentCost> freeTerm = ContactPlanningTermFactory::makeAssignmentCost(term::kContactSwitch);
+  std::unique_ptr<AssignmentCost> freeTerm = ContactPlanningTermFactory::makeAssignmentCost(term::kContactSwitch).value();
   freeTerm->configure(freePrice);
-  EXPECT_NEAR(freeTerm->cost(state, chattering), 0.0, 1e-12) << "a zero price charges nothing for any pattern";
+  EXPECT_NEAR(freeTerm->cost(state, chattering), 0.0, 1.0e-12) << "a zero price charges nothing for any pattern";
 }
 
 /**
@@ -1117,13 +1195,13 @@ TEST(ContactPlanningTerms, PlanConsistencyCostShiftsIntoThePreviousPlanClampsAtI
   ContactPlanningConfig config = makeConfig();
   config.planConsistency.cost = 0.5;
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
-  std::unique_ptr<AssignmentCost> term = ContactPlanningTermFactory::makeAssignmentCost(term::kPlanConsistency);
+  std::unique_ptr<AssignmentCost> term = ContactPlanningTermFactory::makeAssignmentCost(term::kPlanConsistency).value();
   ASSERT_NE(term, nullptr);
   term->configure(config);
   EXPECT_NE(term->describe().find("per decided node whose contact differs from the previous plan"), std::string::npos) << term->describe();
 
   const ContactPlannerInput standing = makeStandingInput();
-  MiqpAssignment previous(static_cast<size_t>(kNumNodes) * N_CONTACTS, static_cast<std::int8_t>(0));
+  MiqpAssignment previous(static_cast<size_t>(kNumNodes) * kNumContacts, static_cast<int8_t>(0));
   setContacts(previous, /*node=*/0, /*left=*/1, /*right=*/0);  // left down, right swinging
   setContacts(previous, /*node=*/1, /*left=*/0, /*right=*/1);  // the exchange
   setContacts(previous, /*node=*/2, /*left=*/1, /*right=*/1);  // double support
@@ -1135,22 +1213,22 @@ TEST(ContactPlanningTerms, PlanConsistencyCostShiftsIntoThePreviousPlanClampsAtI
 
   // The assignment every case below is scored against: all four feet-nodes in the air is deliberately far from the
   // previous plan, so that each shift produces a different, checkable number.
-  MiqpAssignment allUp(static_cast<size_t>(kNumNodes) * N_CONTACTS, static_cast<std::int8_t>(0));
+  MiqpAssignment allUp(static_cast<size_t>(kNumNodes) * kNumContacts, static_cast<int8_t>(0));
 
   // shift 0 - the previous plan has not moved, node k is compared with node k. The previous plan has four ones in it
   // (node 0 left, node 1 right, node 2 both), so four of the six entries differ.
   state.previousPlanShift = 0;
-  EXPECT_NEAR(term->cost(state, allUp), 4.0 * 0.5, 1e-12) << "one charge per previous contact that is now a swing";
+  EXPECT_NEAR(term->cost(state, allUp), 4.0 * 0.5, 1.0e-12) << "one charge per previous contact that is now a swing";
 
   // shift 1 - node 0 reads the previous node 1 (one contact), node 1 reads the previous node 2 (two contacts), and
   // node 2 would read the previous node 3, which does not exist and is clamped back to node 2 (two contacts).
   state.previousPlanShift = 1;
-  EXPECT_NEAR(term->cost(state, allUp), 5.0 * 0.5, 1e-12) << "1 + 2 + 2 charges, the last node clamped";
+  EXPECT_NEAR(term->cost(state, allUp), 5.0 * 0.5, 1.0e-12) << "1 + 2 + 2 charges, the last node clamped";
 
   // shift 2 - every node of the horizon is at or past the end of the previous plan, so all three read its last node.
   // This is the clamp on its own: three nodes times the two contacts of the previous terminal pattern.
   state.previousPlanShift = 2;
-  EXPECT_NEAR(term->cost(state, allUp), 6.0 * 0.5, 1e-12) << "every node clamped to the previous plan's last node";
+  EXPECT_NEAR(term->cost(state, allUp), 6.0 * 0.5, 1.0e-12) << "every node clamped to the previous plan's last node";
 
   // The clamp is a clamp and not a wrap: with shift 2 the previous plan's node 0 and node 1 are unreachable, so
   // rewriting them cannot change the charge, while rewriting its last node changes all three of them at once.
@@ -1159,39 +1237,39 @@ TEST(ContactPlanningTerms, PlanConsistencyCostShiftsIntoThePreviousPlanClampsAtI
   setContacts(rewrittenHead, /*node=*/1, /*left=*/0, /*right=*/0);
   ContactLogicState headState = state;
   headState.previousAssignment = &rewrittenHead;
-  EXPECT_NEAR(term->cost(headState, allUp), 6.0 * 0.5, 1e-12) << "the nodes before the clamp are never read at shift 2";
+  EXPECT_NEAR(term->cost(headState, allUp), 6.0 * 0.5, 1.0e-12) << "the nodes before the clamp are never read at shift 2";
   MiqpAssignment rewrittenTail = previous;
   setContacts(rewrittenTail, /*node=*/2, /*left=*/0, /*right=*/0);
   ContactLogicState tailState = state;
   tailState.previousAssignment = &rewrittenTail;
-  EXPECT_NEAR(term->cost(tailState, allUp), 0.0, 1e-12) << "every node of the horizon reads that one node";
+  EXPECT_NEAR(term->cost(tailState, allUp), 0.0, 1.0e-12) << "every node of the horizon reads that one node";
 
   // An exact, hand-counted value at the shipped shift of one cycle: node 0 matches the previous node 1, node 1 matches
   // the previous node 2, and node 2 differs from the (clamped) previous node 2 in the right foot alone.
-  MiqpAssignment nearlyConsistent(static_cast<size_t>(kNumNodes) * N_CONTACTS, static_cast<std::int8_t>(0));
+  MiqpAssignment nearlyConsistent(static_cast<size_t>(kNumNodes) * kNumContacts, static_cast<int8_t>(0));
   setContacts(nearlyConsistent, /*node=*/0, /*left=*/0, /*right=*/1);
   setContacts(nearlyConsistent, /*node=*/1, /*left=*/1, /*right=*/1);
   setContacts(nearlyConsistent, /*node=*/2, /*left=*/1, /*right=*/0);
   state.previousPlanShift = 1;
-  EXPECT_NEAR(term->cost(state, nearlyConsistent), 0.5, 1e-12) << "exactly one node-foot pair differs";
+  EXPECT_NEAR(term->cost(state, nearlyConsistent), 0.5, 1.0e-12) << "exactly one node-foot pair differs";
 
   // No usable previous plan: the reference manager leaves previousPlanShift at -1 on the first cycle, after a reset and
   // whenever the stored plan no longer matches the node count, and the term has to contribute nothing then rather than
   // index into a plan that is not there.
   ContactLogicState noShift = state;
   noShift.previousPlanShift = -1;
-  EXPECT_NEAR(term->cost(noShift, allUp), 0.0, 1e-12) << "no usable previous plan, no hysteresis";
+  EXPECT_NEAR(term->cost(noShift, allUp), 0.0, 1.0e-12) << "no usable previous plan, no hysteresis";
   ContactLogicState noPlan = state;
   noPlan.previousAssignment = nullptr;
-  EXPECT_NEAR(term->cost(noPlan, allUp), 0.0, 1e-12) << "a shift without a plan must not be dereferenced";
+  EXPECT_NEAR(term->cost(noPlan, allUp), 0.0, 1.0e-12) << "a shift without a plan must not be dereferenced";
   ContactLogicState defaulted;
   defaulted.input = &standing;
   defaulted.numNodes = kNumNodes;
-  EXPECT_NEAR(term->cost(defaulted, allUp), 0.0, 1e-12) << "the defaults of ContactLogicState mean 'no previous plan'";
+  EXPECT_NEAR(term->cost(defaulted, allUp), 0.0, 1.0e-12) << "the defaults of ContactLogicState mean 'no previous plan'";
 
   // The lower-bound contract, exhaustively, at the shift where the clamp is active for the last node.
   state.previousPlanShift = 1;
-  const std::vector<MiqpAssignment> partials = allPartialAssignments(kNumNodes * static_cast<int>(N_CONTACTS));
+  const std::vector<MiqpAssignment> partials = allPartialAssignments(kNumNodes * static_cast<int>(kNumContacts));
   ASSERT_EQ(partials.size(), 729u);
   int numStrictBounds = 0;
   for (const MiqpAssignment& partial : partials) {
@@ -1200,9 +1278,9 @@ TEST(ContactPlanningTerms, PlanConsistencyCostShiftsIntoThePreviousPlanClampsAtI
     const std::vector<MiqpAssignment> completions = allCompletionsOf(partial);
     for (const MiqpAssignment& complete : completions) {
       const scalar_t exact = term->cost(state, complete);
-      ASSERT_LE(bound, exact + 1e-12) << "the partial assignment " << printAssignment(partial) << " is charged " << bound
-                                      << ", more than its completion " << printAssignment(complete) << " at " << exact;
-      if (exact > bound + 1e-12) ++numStrictBounds;
+      ASSERT_LE(bound, exact + 1.0e-12) << "the partial assignment " << printAssignment(partial) << " is charged " << bound
+                                        << ", more than its completion " << printAssignment(complete) << " at " << exact;
+      if (exact > bound + 1.0e-12) ++numStrictBounds;
     }
   }
   EXPECT_GT(numStrictBounds, 0);
@@ -1214,13 +1292,13 @@ TEST(ContactPlanningTerms, PlanConsistencyCostShiftsIntoThePreviousPlanClampsAtI
     int expected = 0;
     for (int node = 0; node < kNumNodes; ++node) {
       const int source = std::min(node + 1, kNumNodes - 1);
-      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      for (size_t foot = 0; foot < kNumContacts; ++foot) {
         const size_t here = static_cast<size_t>(ContactLogicState::contactBinaryIndex(node, foot));
         const size_t there = static_cast<size_t>(ContactLogicState::contactBinaryIndex(source, foot));
         if (partial[here] != previous[there]) ++expected;
       }
     }
-    ASSERT_NEAR(term->cost(state, partial), 0.5 * static_cast<scalar_t>(expected), 1e-12) << printAssignment(partial);
+    ASSERT_NEAR(term->cost(state, partial), 0.5 * static_cast<scalar_t>(expected), 1.0e-12) << printAssignment(partial);
   }
 }
 
@@ -1283,11 +1361,11 @@ TEST(ContactPlanningTerms, PreviousFootholdConsistencyCostPullsEachNodeToTheShif
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
   const Layout layout = LipContactPlanner::makeLayout(config).value();
   ASSERT_FALSE(layout.hasHeading) << "the flat planner, where the term is a plain quadratic on the foothold states";
-  std::unique_ptr<LipCost> term = ContactPlanningTermFactory::makeCost(term::kPreviousFootholdConsistency);
+  std::unique_ptr<LipCost> term = ContactPlanningTermFactory::makeCost(term::kPreviousFootholdConsistency).value();
   ASSERT_NE(term, nullptr);
   term->bind(layout);
   term->configure(config);
-  EXPECT_EQ(term->nodeSet(), NodeSet::ALL);
+  EXPECT_EQ(term->nodeSet(), NodeSet::kAll);
   EXPECT_NE(term->describe().find("p_{i,prev}(k + shift)"), std::string::npos) << term->describe();
 
   const int numNodes = config.planner.numNodes;
@@ -1318,20 +1396,20 @@ TEST(ContactPlanningTerms, PreviousFootholdConsistencyCostPullsEachNodeToTheShif
 
     const int source = std::min(node + kShift, numNodes);
     scalar_t expectedConstant = 0.0;
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    for (size_t foot = 0; foot < kNumContacts; ++foot) {
       for (int axis = 0; axis < 2; ++axis) {
         const int index = layout.state(axis == 0 ? var::footX(foot) : var::footY(foot));
         const scalar_t target = previousPlan.footholds[static_cast<size_t>(source)][foot](axis);
-        EXPECT_NEAR(stage.Q(index, index), 2.0 * kWeight, 1e-12) << "node " << node << ", foot " << foot << ", axis " << axis;
-        EXPECT_NEAR(stage.q(index), -2.0 * kWeight * target, 1e-12)
+        EXPECT_NEAR(stage.Q(index, index), 2.0 * kWeight, 1.0e-12) << "node " << node << ", foot " << foot << ", axis " << axis;
+        EXPECT_NEAR(stage.q(index), -2.0 * kWeight * target, 1.0e-12)
             << "node " << node << " must be pulled to the previous plan's node " << source << ", foot " << foot << ", axis " << axis;
         expectedConstant += kWeight * target * target;
       }
     }
-    EXPECT_NEAR(stage.constant, expectedConstant, 1e-12) << "node " << node << ": the full squared residual, offset included";
-    EXPECT_NEAR(stage.Q(LIP_CX, LIP_CX), 0.0, 1e-12) << "node " << node << ": the term touches only the foothold states";
-    EXPECT_NEAR(stage.Q(LIP_VY, LIP_VY), 0.0, 1e-12) << "node " << node;
-    EXPECT_NEAR(stage.Q(LIP_PLX, LIP_PRX), 0.0, 1e-12) << "node " << node << ": the feet are not coupled";
+    EXPECT_NEAR(stage.constant, expectedConstant, 1.0e-12) << "node " << node << ": the full squared residual, offset included";
+    EXPECT_NEAR(stage.Q(kLipCx, kLipCx), 0.0, 1.0e-12) << "node " << node << ": the term touches only the foothold states";
+    EXPECT_NEAR(stage.Q(kLipVy, kLipVy), 0.0, 1.0e-12) << "node " << node;
+    EXPECT_NEAR(stage.Q(kLipPlx, kLipPrx), 0.0, 1.0e-12) << "node " << node << ": the feet are not coupled";
     if (running) {
       EXPECT_TRUE(stage.R.isZero()) << "node " << node << ": the term touches no input";
       EXPECT_TRUE(stage.r.isZero()) << "node " << node;
@@ -1347,13 +1425,13 @@ TEST(ContactPlanningTerms, PreviousFootholdConsistencyCostPullsEachNodeToTheShif
     OcpQpStage stage = OcpQpStage::Zero(layout.nx, 0, false);
     StageAccumulator accumulator(stage);
     term->addToStage(ctx, node, accumulator);
-    EXPECT_NEAR(stage.q(LIP_PLX), -2.0 * kWeight * lastLeftX, 1e-12) << "node " << node << " reaches past the previous plan";
+    EXPECT_NEAR(stage.q(kLipPlx), -2.0 * kWeight * lastLeftX, 1.0e-12) << "node " << node << " reaches past the previous plan";
   }
   {
     OcpQpStage stage = OcpQpStage::Zero(layout.nx, 0, false);
     StageAccumulator accumulator(stage);
     term->addToStage(ctx, numNodes - kShift - 1, accumulator);
-    EXPECT_GT(std::abs(stage.q(LIP_PLX) + 2.0 * kWeight * lastLeftX), 1e-6)
+    EXPECT_GT(std::abs(stage.q(kLipPlx) + 2.0 * kWeight * lastLeftX), 1.0e-6)
         << "the last node before the clamp must still read a node of its own";
   }
 
@@ -1369,7 +1447,7 @@ TEST(ContactPlanningTerms, PreviousFootholdConsistencyCostPullsEachNodeToTheShif
     term->addToStage(withoutPlan, /*node=*/0, accumulator);
     EXPECT_TRUE(stage.Q.isZero()) << "without a previous plan the term contributes nothing";
     EXPECT_TRUE(stage.q.isZero());
-    EXPECT_NEAR(stage.constant, 0.0, 1e-15);
+    EXPECT_NEAR(stage.constant, 0.0, 1.0e-15);
   }
   {  // A negative shift with a plan still present is the same "not usable" state and must not index at a negative node.
     ContactPlanningContext staleShift = ctx;
@@ -1384,7 +1462,7 @@ TEST(ContactPlanningTerms, PreviousFootholdConsistencyCostPullsEachNodeToTheShif
     ContactPlanningConfig unweighted = config;
     unweighted.previousFootholdConsistency.weight = 0.0;
     EXPECT_EQ(unweighted.validateStatus(), absl::OkStatus());
-    std::unique_ptr<LipCost> disabled = ContactPlanningTermFactory::makeCost(term::kPreviousFootholdConsistency);
+    std::unique_ptr<LipCost> disabled = ContactPlanningTermFactory::makeCost(term::kPreviousFootholdConsistency).value();
     disabled->bind(layout);
     disabled->configure(unweighted);
     OcpQpStage stage = OcpQpStage::Zero(layout.nx, layout.nu, true);
@@ -1392,7 +1470,7 @@ TEST(ContactPlanningTerms, PreviousFootholdConsistencyCostPullsEachNodeToTheShif
     disabled->addToStage(ctx, /*node=*/0, accumulator);
     EXPECT_TRUE(stage.Q.isZero());
     EXPECT_TRUE(stage.q.isZero());
-    EXPECT_NEAR(stage.constant, 0.0, 1e-15);
+    EXPECT_NEAR(stage.constant, 0.0, 1.0e-15);
   }
 }
 
@@ -1421,11 +1499,11 @@ TEST(ContactPlanningTerms, StepWidthCostCouplesTheFourFootholdsAndTheHeadingAtAN
   EXPECT_EQ(config.validateStatus(), absl::OkStatus());
   const Layout layout = LipContactPlanner::makeLayout(config).value();
   ASSERT_TRUE(layout.hasHeading);
-  std::unique_ptr<LipCost> term = ContactPlanningTermFactory::makeCost(term::kStepWidth);
+  std::unique_ptr<LipCost> term = ContactPlanningTermFactory::makeCost(term::kStepWidth).value();
   ASSERT_NE(term, nullptr);
   term->bind(layout);
   term->configure(config);
-  EXPECT_EQ(term->nodeSet(), NodeSet::ALL);
+  EXPECT_EQ(term->nodeSet(), NodeSet::kAll);
   EXPECT_NE(term->describe().find("e_y . (p_L - p_R)"), std::string::npos) << term->describe();
 
   const int numNodes = config.planner.numNodes;
@@ -1448,17 +1526,17 @@ TEST(ContactPlanningTerms, StepWidthCostCouplesTheFourFootholdsAndTheHeadingAtAN
 
   // The hand computation. theta_n = 0.5, d_n = p_L,n - p_R,n = (0.36, 0.16) - (0.32, -0.14) = (0.04, 0.30).
   const scalar_t theta = nominal.heading[static_cast<size_t>(kNode)];
-  ASSERT_NEAR(theta, 0.5, 1e-12);
+  ASSERT_NEAR(theta, 0.5, 1.0e-12);
   const vector2_t nominalSeparation = nominal.feet[static_cast<size_t>(kNode)][0] - nominal.feet[static_cast<size_t>(kNode)][1];
-  ASSERT_NEAR(nominalSeparation.x(), 0.04, 1e-12);
-  ASSERT_NEAR(nominalSeparation.y(), 0.30, 1e-12);
+  ASSERT_NEAR(nominalSeparation.x(), 0.04, 1.0e-12);
+  ASSERT_NEAR(nominalSeparation.y(), 0.30, 1.0e-12);
   const vector2_t ey(-std::sin(theta), std::cos(theta));
   // g = (d e_y / d theta) . d_n = -e_x(theta_n) . d_n = -(cos 0.5 * 0.04 + sin 0.5 * 0.30).
   const scalar_t g = -(std::cos(theta) * nominalSeparation.x() + std::sin(theta) * nominalSeparation.y());
-  ASSERT_NEAR(g, -0.178930964056875812, 1e-12) << "-(0.8775825618903728 * 0.04 + 0.4794255386042030 * 0.30)";
+  ASSERT_NEAR(g, -0.178930964056875812, 1.0e-12) << "-(0.8775825618903728 * 0.04 + 0.4794255386042030 * 0.30)";
   // The residual is e_y . (p_L - p_R) + g (theta - theta_n) - w_nom, so the constant part is -w_nom - g theta_n.
   const scalar_t offset = -kNominalWidth - g * theta;
-  ASSERT_NEAR(offset, -0.150534517971562094, 1e-12) << "-0.24 + 0.178930964056875812 * 0.5";
+  ASSERT_NEAR(offset, -0.150534517971562094, 1.0e-12) << "-0.24 + 0.178930964056875812 * 0.5";
 
   vector_t coefficients = vector_t::Zero(layout.nx);
   coefficients(layout.state(var::footX(0))) = ey.x();
@@ -1474,16 +1552,16 @@ TEST(ContactPlanningTerms, StepWidthCostCouplesTheFourFootholdsAndTheHeadingAtAN
   // The expansion, entry by entry. Q = 2 w l l', q = 2 w c l, constant = w c^2.
   const matrix_t expectedQ = 2.0 * kWeight * coefficients * coefficients.transpose();
   const vector_t expectedq = 2.0 * kWeight * offset * coefficients;
-  EXPECT_TRUE(stage.Q.isApprox(expectedQ, 1e-12)) << "Q =\n" << stage.Q << "\nexpected\n" << expectedQ;
-  EXPECT_TRUE(stage.q.isApprox(expectedq, 1e-12)) << "q = " << stage.q.transpose() << ", expected " << expectedq.transpose();
-  EXPECT_NEAR(stage.constant, kWeight * offset * offset, 1e-12);
-  EXPECT_NEAR(stage.Q(LIP_PLY, LIP_PLY), 2.0 * kWeight * ey.y() * ey.y(), 1e-12);
-  EXPECT_NEAR(stage.Q(LIP_PLY, LIP_PRY), -2.0 * kWeight * ey.y() * ey.y(), 1e-12) << "the two feet enter with opposite signs";
-  EXPECT_NEAR(stage.Q(LIP_PLX, layout.heading), 2.0 * kWeight * ey.x() * g, 1e-12) << "the heading is coupled to every foothold";
-  EXPECT_NEAR(stage.Q(layout.heading, layout.heading), 2.0 * kWeight * g * g, 1e-12);
-  EXPECT_NEAR(stage.q(layout.heading), 2.0 * kWeight * offset * g, 1e-12);
-  EXPECT_NEAR(stage.Q(LIP_CX, LIP_CX), 0.0, 1e-12) << "the center of mass is not part of the step width";
-  EXPECT_NEAR(stage.Q(layout.headingRate, layout.headingRate), 0.0, 1e-12) << "nor is the heading rate";
+  EXPECT_TRUE(stage.Q.isApprox(expectedQ, 1.0e-12)) << "Q =\n" << stage.Q << "\nexpected\n" << expectedQ;
+  EXPECT_TRUE(stage.q.isApprox(expectedq, 1.0e-12)) << "q = " << stage.q.transpose() << ", expected " << expectedq.transpose();
+  EXPECT_NEAR(stage.constant, kWeight * offset * offset, 1.0e-12);
+  EXPECT_NEAR(stage.Q(kLipPly, kLipPly), 2.0 * kWeight * ey.y() * ey.y(), 1.0e-12);
+  EXPECT_NEAR(stage.Q(kLipPly, kLipPry), -2.0 * kWeight * ey.y() * ey.y(), 1.0e-12) << "the two feet enter with opposite signs";
+  EXPECT_NEAR(stage.Q(kLipPlx, layout.heading), 2.0 * kWeight * ey.x() * g, 1.0e-12) << "the heading is coupled to every foothold";
+  EXPECT_NEAR(stage.Q(layout.heading, layout.heading), 2.0 * kWeight * g * g, 1.0e-12);
+  EXPECT_NEAR(stage.q(layout.heading), 2.0 * kWeight * offset * g, 1.0e-12);
+  EXPECT_NEAR(stage.Q(kLipCx, kLipCx), 0.0, 1.0e-12) << "the center of mass is not part of the step width";
+  EXPECT_NEAR(stage.Q(layout.headingRate, layout.headingRate), 0.0, 1.0e-12) << "nor is the heading rate";
   EXPECT_TRUE(stage.R.isZero()) << "the term touches no input";
   EXPECT_TRUE(stage.r.isZero());
   EXPECT_TRUE(stage.S.isZero());
@@ -1499,30 +1577,30 @@ TEST(ContactPlanningTerms, StepWidthCostCouplesTheFourFootholdsAndTheHeadingAtAN
   const vector2_t separation(state(layout.state(var::footX(0))) - state(layout.state(var::footX(1))),
                              state(layout.state(var::footY(0))) - state(layout.state(var::footY(1))));
   const scalar_t residual = ey.dot(separation) + g * (state(layout.heading) - theta) - kNominalWidth;
-  ASSERT_GT(std::abs(residual), 1e-3) << "the trial is only meaningful away from the minimum of the term";
-  EXPECT_NEAR(0.5 * state.dot(stage.Q * state) + stage.q.dot(state) + stage.constant, kWeight * residual * residual, 1e-12)
+  ASSERT_GT(std::abs(residual), 1.0e-3) << "the trial is only meaningful away from the minimum of the term";
+  EXPECT_NEAR(0.5 * state.dot(stage.Q * state) + stage.q.dot(state) + stage.constant, kWeight * residual * residual, 1.0e-12)
       << "the stage must evaluate to w (e_y . (p_L - p_R) + g (theta - theta_n) - w_nom)^2";
   const vector_t gradient = stage.Q * state + stage.q;
   const vector_t expectedGradient = 2.0 * kWeight * residual * coefficients;
-  EXPECT_TRUE(gradient.isApprox(expectedGradient, 1e-9))
+  EXPECT_TRUE(gradient.isApprox(expectedGradient, 1.0e-9))
       << "gradient = " << gradient.transpose() << ", expected 2 w r l = " << expectedGradient.transpose();
 
   // Each node carries its own frame and its own nominal separation. Node 0 sits at 0.2 rad with d_n = (0.04, 0.24), so
   // reading the wrong node's nominal - a plausible off-by-one in a term that indexes ctx.nominal by node - changes both
   // the axis and g. Checking a second node also pins that the term is not accidentally constant over the horizon.
   const scalar_t thetaZero = nominal.heading[0];
-  ASSERT_NEAR(thetaZero, 0.2, 1e-12);
+  ASSERT_NEAR(thetaZero, 0.2, 1.0e-12);
   const vector2_t nominalSeparationZero = nominal.feet[0][0] - nominal.feet[0][1];
-  ASSERT_NEAR(nominalSeparationZero.y(), 0.24, 1e-12);
+  ASSERT_NEAR(nominalSeparationZero.y(), 0.24, 1.0e-12);
   const vector2_t eyZero(-std::sin(thetaZero), std::cos(thetaZero));
   const scalar_t gZero = -(std::cos(thetaZero) * nominalSeparationZero.x() + std::sin(thetaZero) * nominalSeparationZero.y());
   OcpQpStage stageZero = OcpQpStage::Zero(layout.nx, layout.nu, true);
   StageAccumulator accumulatorZero(stageZero);
   term->addToStage(ctx, /*node=*/0, accumulatorZero);
-  EXPECT_NEAR(stageZero.Q(LIP_PLY, LIP_PLY), 2.0 * kWeight * eyZero.y() * eyZero.y(), 1e-12);
-  EXPECT_NEAR(stageZero.Q(layout.heading, layout.heading), 2.0 * kWeight * gZero * gZero, 1e-12);
-  EXPECT_NEAR(stageZero.q(layout.heading), 2.0 * kWeight * (-kNominalWidth - gZero * thetaZero) * gZero, 1e-12);
-  EXPECT_GT(std::abs(stageZero.Q(layout.heading, layout.heading) - stage.Q(layout.heading, layout.heading)), 1e-6)
+  EXPECT_NEAR(stageZero.Q(kLipPly, kLipPly), 2.0 * kWeight * eyZero.y() * eyZero.y(), 1.0e-12);
+  EXPECT_NEAR(stageZero.Q(layout.heading, layout.heading), 2.0 * kWeight * gZero * gZero, 1.0e-12);
+  EXPECT_NEAR(stageZero.q(layout.heading), 2.0 * kWeight * (-kNominalWidth - gZero * thetaZero) * gZero, 1.0e-12);
+  EXPECT_GT(std::abs(stageZero.Q(layout.heading, layout.heading) - stage.Q(layout.heading, layout.heading)), 1.0e-6)
       << "two nodes with different nominal headings must not produce the same coupling";
 
   // Without the heading block the term degenerates to the plain lateral separation in the frame of the measured base
@@ -1534,7 +1612,7 @@ TEST(ContactPlanningTerms, StepWidthCostCouplesTheFourFootholdsAndTheHeadingAtAN
   const Layout flatLayout = LipContactPlanner::makeLayout(flatConfig).value();
   ASSERT_FALSE(flatLayout.hasHeading);
   ASSERT_EQ(flatLayout.heading, -1);
-  std::unique_ptr<LipCost> flatTerm = ContactPlanningTermFactory::makeCost(term::kStepWidth);
+  std::unique_ptr<LipCost> flatTerm = ContactPlanningTermFactory::makeCost(term::kStepWidth).value();
   flatTerm->bind(flatLayout);
   flatTerm->configure(flatConfig);
   ContactPlannerInput yawedInput = makeStandingInput();
@@ -1553,11 +1631,11 @@ TEST(ContactPlanningTerms, StepWidthCostCouplesTheFourFootholdsAndTheHeadingAtAN
   StageAccumulator flatAccumulator(flatStage);
   flatTerm->addToStage(flatCtx, kNode, flatAccumulator);
   const vector2_t flatEy(-std::sin(yawedInput.yaw), std::cos(yawedInput.yaw));
-  EXPECT_NEAR(flatStage.Q(LIP_PLY, LIP_PLY), 2.0 * kWeight * flatEy.y() * flatEy.y(), 1e-12) << "the frame is the base yaw";
-  EXPECT_NEAR(flatStage.Q(LIP_PLX, LIP_PLY), 2.0 * kWeight * flatEy.x() * flatEy.y(), 1e-12);
-  EXPECT_NEAR(flatStage.q(LIP_PLY), -2.0 * kWeight * kNominalWidth * flatEy.y(), 1e-12) << "the offset is -w_nom alone";
-  EXPECT_NEAR(flatStage.constant, kWeight * kNominalWidth * kNominalWidth, 1e-12);
-  EXPECT_EQ(flatLayout.nx, LIP_STATE_DIM) << "no heading column exists for the term to couple to";
+  EXPECT_NEAR(flatStage.Q(kLipPly, kLipPly), 2.0 * kWeight * flatEy.y() * flatEy.y(), 1.0e-12) << "the frame is the base yaw";
+  EXPECT_NEAR(flatStage.Q(kLipPlx, kLipPly), 2.0 * kWeight * flatEy.x() * flatEy.y(), 1.0e-12);
+  EXPECT_NEAR(flatStage.q(kLipPly), -2.0 * kWeight * kNominalWidth * flatEy.y(), 1.0e-12) << "the offset is -w_nom alone";
+  EXPECT_NEAR(flatStage.constant, kWeight * kNominalWidth * kNominalWidth, 1.0e-12);
+  EXPECT_EQ(flatLayout.nx, kLipStateDim) << "no heading column exists for the term to couple to";
 }
 
 }  // namespace ocs2::humanoid

@@ -1,0 +1,51 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "humanoid_mpc_config/mode_sequence_template_config.proto";
+import "nproto/options.proto";
+import "nproto/retired_field_options.proto";
+
+// The gaits the procedural motion manager switches between, humanoid_common_mpc/config/command/gait.textproto: their
+// names, and each gait's pattern. GaitFromConfig (humanoid_common_mpc/config/reference/GaitFromConfig.h) reads it into
+// the gait map, by name:
+//
+//   gait_list: "stance"
+//   gait_list: "trot"
+//   gaits {
+//     name: "stance"
+//     ...
+//   }
+//   gaits {
+//     name: "trot"
+//     ...
+//   }
+//
+// gait_list names every gait of gaits exactly once: a gait it does not name, or a name with no gait, is refused.
+// Next ID: 3
+message GaitFile {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::GaitFile";
+  option (nproto.retired_field) = {
+    name: "list"
+    replacement: "name the gaits in gait_list, one gait_list: \"<name>\" line each"
+  };
+  option (nproto.retired_layout_hint) = "Each gait is a block gaits { name: \"<name>\" mode_sequence: ... switching_times: ... } that gait_list names, not a block per gait name.";
+
+  reserved 3 to max;
+
+  // The gaits by name, each once (formerly list).
+  repeated string gait_list = 1 [
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      exclude_reason: "the gaits, read once at start-up: the GUI has no gait tab, edit the gait file"
+    }
+  ];
+  // The gaits, each named once (formerly one block per name).
+  repeated ModeSequenceTemplateConfig gaits = 2 [
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_START_UP
+      exclude_reason: "the gaits, read once at start-up: the GUI has no gait tab, edit the gait file"
+    }
+  ];
+}

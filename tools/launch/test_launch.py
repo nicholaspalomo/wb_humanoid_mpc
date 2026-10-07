@@ -1,8 +1,41 @@
-"""Tests of the launcher's command line: in this process for --dry_run and the errors, and as a subprocess of
-launch.py, the real entry point, for signal forwarding, exit codes and the death signal."""
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+"""Tests of the launcher's command line, in this process and as a subprocess of launch.py.
+
+In this process for --dry_run and the errors, and as a subprocess of launch.py, the real entry point, for signal
+forwarding, exit codes and the death signal.
+"""
+
+from collections.abc import Sequence
+import contextlib
 import io
 import os
+import pathlib
 import re
 import signal
 import subprocess
@@ -11,7 +44,6 @@ import tempfile
 import threading
 import time
 import unittest
-from typing import Dict, List, Optional, Sequence, Tuple
 
 import launch_cli
 import launch_file
@@ -24,6 +56,7 @@ TIMEOUT_S = 15.0
 
 
 def process_is_gone(pid: int) -> bool:
+    """Whether the process `pid` has exited: it no longer exists, or is a zombie."""
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -45,8 +78,9 @@ class LauncherProcess:
         environment["PYTHONPATH"] = os.pathsep.join(
             entry for entry in sys.path if entry
         )
-        self.lines: List[str] = []
+        self.lines: list[str] = []
         self._changed = threading.Condition()
+        # pylint: disable-next=consider-using-with  # finish() reaps it, and the test's cleanup kills it.
         self.popen = subprocess.Popen(
             [sys.executable, LAUNCH_SCRIPT, *argv, "--color", "never"],
             stdout=subprocess.PIPE,
@@ -58,12 +92,14 @@ class LauncherProcess:
         self._reader.start()
 
     def _read(self) -> None:
-        for line in self.popen.stdout:
+        stdout = self.popen.stdout
+        assert stdout is not None
+        for line in stdout:
             with self._changed:
                 self.lines.append(line.rstrip("\n"))
                 self._changed.notify_all()
 
-    def wait_for_line(self, pattern: str) -> Optional[re.Match]:
+    def wait_for_line(self, pattern: str) -> re.Match[str] | None:
         """The first output line matching `pattern`, waiting for it up to TIMEOUT_S."""
         regex = re.compile(pattern)
         deadline = time.monotonic() + TIMEOUT_S
@@ -82,20 +118,30 @@ class LauncherProcess:
                     return None
                 self._changed.wait(min(remaining, 0.1))
 
-    def finish(self) -> Tuple[int, str]:
+    def matched_line(self, pattern: str) -> re.Match[str]:
+        """The match of the first output line matching `pattern`; fails the test when none comes within TIMEOUT_S."""
+        match = self.wait_for_line(pattern)
+        assert match is not None, f"no output line matches {pattern!r}: {self.lines}"
+        return match
+
+    def finish(self) -> tuple[int, str]:
+        """The launcher's exit status and its output, once it exits (within TIMEOUT_S, else it is killed)."""
         try:
             code = self.popen.wait(timeout=TIMEOUT_S)
         except subprocess.TimeoutExpired:
             self.popen.kill()
             raise
         self._reader.join(timeout=TIMEOUT_S)
-        self.popen.stdout.close()
+        if self.popen.stdout is not None:
+            self.popen.stdout.close()
         return code, "\n".join(self.lines)
 
 
 class LaunchTestCase(unittest.TestCase):
+    """A temporary repository root, launch_cli.main() run on captured output, and launcher subprocesses."""
 
     def setUp(self) -> None:
+        # pylint: disable-next=consider-using-with  # The cleanup deletes it.
         self._directory = tempfile.TemporaryDirectory()
         self.addCleanup(self._directory.cleanup)
         self.repo_root = os.path.join(self._directory.name, "repo")
@@ -110,8 +156,8 @@ class LaunchTestCase(unittest.TestCase):
         return path
 
     def run_main(
-        self, *argv: str, environment: Optional[Dict[str, str]] = None
-    ) -> Tuple[int, str, str]:
+        self, *argv: str, environment: dict[str, str] | None = None
+    ) -> tuple[int, str, str]:
         out = io.StringIO()
         err = io.StringIO()
         code = launch_cli.main(
@@ -121,7 +167,12 @@ class LaunchTestCase(unittest.TestCase):
 
     def launcher(self, *argv: str) -> LauncherProcess:
         launcher = LauncherProcess(list(argv) + ["--repo_root", self.repo_root])
-        self.addCleanup(lambda: launcher.popen.poll() is None and launcher.popen.kill())
+
+        def kill_if_running() -> None:
+            if launcher.popen.poll() is None:
+                launcher.popen.kill()
+
+        self.addCleanup(kill_if_running)
         return launcher
 
 
@@ -235,6 +286,26 @@ class ErrorTest(LaunchTestCase):
                 self.assertEqual(out, "")
                 self.assertIn(expected, err)
 
+    def test_grace_periods_reject_nan_and_negative_values(self) -> None:
+        # The validator is written `not value >= 0.0`, which rejects NaN, where `value < 0.0` would let it through.
+        for flag in ("--sigint_grace_period", "--sigterm_grace_period"):
+            for value in ("nan", "-1"):
+                with self.subTest(flag=flag, value=value):
+                    stderr = io.StringIO()
+                    with contextlib.redirect_stderr(stderr), self.assertRaises(
+                        SystemExit
+                    ) as raised:
+                        launch_cli.build_parser().parse_args([EXAMPLE, flag, value])
+                    self.assertEqual(raised.exception.code, launch_cli.EXIT_USAGE)
+                    self.assertIn(
+                        f"non-negative number of seconds, got {value}",
+                        stderr.getvalue(),
+                    )
+        args = launch_cli.build_parser().parse_args(
+            [EXAMPLE, "--sigint_grace_period", "0"]
+        )
+        self.assertEqual(args.sigint_grace_period, 0.0)
+
     def test_a_machine_without_processes_is_an_error(self) -> None:
         path = self.write_launch_file(
             'processes { name: "a" machine: MACHINE_LAPTOP command: "p" }'
@@ -253,11 +324,7 @@ class RepoRootTest(LaunchTestCase):
     ) -> None:
         nested = os.path.join(self.repo_root, "robot_models", "launch")
         os.makedirs(nested)
-        open(
-            os.path.join(self.repo_root, launch_cli.REPO_ROOT_MARKER),
-            "w",
-            encoding="utf-8",
-        ).close()
+        pathlib.Path(self.repo_root, launch_cli.REPO_ROOT_MARKER).touch()
         launch_path = os.path.join(nested, "sim.launch.textproto")
         elsewhere = os.path.join(self._directory.name, "elsewhere")
         os.makedirs(elsewhere)
@@ -292,7 +359,7 @@ class RepoRootTest(LaunchTestCase):
     def test_relative_launch_files_resolve_from_where_bazel_run_was_started(
         self,
     ) -> None:
-        open(os.path.join(self.repo_root, "a.textproto"), "w", encoding="utf-8").close()
+        pathlib.Path(self.repo_root, "a.textproto").touch()
         self.assertEqual(
             launch_cli.resolve_launch_file_path(
                 "a.textproto", {"BUILD_WORKING_DIRECTORY": self.repo_root}
@@ -341,9 +408,7 @@ class RunTest(LaunchTestCase):
                 self.assertIsNotNone(launcher.wait_for_line(r"^\[viewer\] hello from"))
                 pids = [
                     int(
-                        launcher.wait_for_line(rf"started {name} \(pid (\d+)\)").group(
-                            1
-                        )
+                        launcher.matched_line(rf"started {name} \(pid (\d+)\)").group(1)
                     )
                     for name in ("mpc", "viewer")
                 ]
@@ -374,7 +439,7 @@ class RunTest(LaunchTestCase):
         )
         launcher = self.launcher(path)
         self.assertIsNotNone(launcher.wait_for_line(r"^\[orphan\] ready$"))
-        child = int(launcher.wait_for_line(r"started orphan \(pid (\d+)\)").group(1))
+        child = int(launcher.matched_line(r"started orphan \(pid (\d+)\)").group(1))
         # SIGKILL leaves the launcher no chance to tear down: only the death signal stops the child.
         launcher.popen.kill()
         launcher.finish()

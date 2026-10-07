@@ -30,7 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // The struct headers nproto generates hold plain C++ only: this file includes them alone, without protobuf or Abseil,
 // and compiles with -Wall -Wextra -Wpedantic -Werror.
 
-#include <gtest/gtest.h>
+#include "gtest/gtest.h"
 
 #include "nproto_test/other/point.nproto.h"
 #include "nproto_test/other/unit.nproto.h"

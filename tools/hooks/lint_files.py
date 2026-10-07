@@ -72,9 +72,7 @@ FIXTURE_DIRS = ("tools/clang_tidy/testdata/",)
 # LINT.ThenChange(//tools/clang_tidy/clang_tidy.bzl:excluded_packages)
 
 # Top-level directories that hold build output rather than sources, for when git cannot list the files.
-_OUTPUT_DIRS = frozenset(
-    {".git", ".bazel", ".bazel_ros_install", "build", "install", "log"}
-)
+_OUTPUT_DIRS = frozenset({".git", ".bazel"})
 
 CPP_EXTENSIONS = (
     ".c",

@@ -19,7 +19,8 @@ rerun-sdk==0.38.1
 # LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/scalar_batcher.py:scalars_column_metadata, //humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/rerun_sinks.py)
 numpy>=2
 
-# Configuration files (task.yaml, network.yaml, launch files).
+# YAML reading in the developer tools: .clang-tidy and clang-tidy's exported fix-its (tools/clang_tidy), and the
+# docker-compose files that tools/deploy's tests check. The configuration files are textprotos and need no YAML.
 pyyaml
 
 # The remote_control GUI's Xbox controller support.

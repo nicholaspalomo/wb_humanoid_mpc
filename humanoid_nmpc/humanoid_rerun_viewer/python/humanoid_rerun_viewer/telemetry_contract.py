@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """The plots' paths and series names: the contract between the producer of viz/telemetry and the bridge's blueprint.
 
 Every humanoid_mpc_msgs.ScalarGroup of a TelemetrySeries becomes the entity telemetry/<path> with one series per name.
@@ -6,8 +33,8 @@ series replace the ROS 2 telemetry topics of the ROS-era telemetry publishers, a
 topic it replaces; the panel tabs keep the layout of the ROS-era plots, panel for panel and in the same colors:
 
 - PANEL_GROUPS: one small group per panel, whose names are the panel's curves ("measured" and "reference", or "mpc"
-  and "measured"). The blueprint plots each panel from its group alone. The values also appear in the complete groups; the duplication costs a few doubles per message and
-  keeps every panel independent of the robot's joint names.
+  and "measured"). The blueprint plots each panel from its group alone. The values also appear in the complete groups;
+  the duplication costs a few doubles per message and keeps every panel independent of the robot's joint names.
 - The complete groups: every joint (JOINT_GROUPS), every generalized coordinate, velocity and force (DOF_GROUPS), both
   contact wrenches (CONTACT_WRENCH_GROUPS), every tracked frame (frame_groups(), one set per frame of the task file's
   telemetryFrames) and the MPC observation (MPC_OBSERVATION_GROUPS). Together with PANEL_GROUPS they carry every series
@@ -22,16 +49,15 @@ visualization publisher (humanoid_nmpc/humanoid_common_mpc_app/visualization). T
 contract.
 """
 
+from collections.abc import Iterable
 import dataclasses
 import re
-from typing import Dict, Iterable, Optional, Tuple
 
 from humanoid_rerun_viewer import palette
 
 # The names of the panel groups' series.
 MEASURED = "measured"
 REFERENCE = "reference"
-TARGET = "target"
 MPC = "mpc"
 PLAN = "plan"
 MEASURED_VS_REFERENCE = (MEASURED, REFERENCE)
@@ -56,7 +82,7 @@ WRENCH_NAMES = (
 )
 FORCE_NAMES = ("force_x", "force_y", "force_z")
 
-# Contact 0 and 1 of ModelSettings::contactNames (CONTACT_LEFT_INDEX, CONTACT_RIGHT_INDEX).
+# Contact 0 and 1 of ModelSettings::contactNames (kContactLeftIndex, kContactRightIndex).
 LEFT = "left"
 RIGHT = "right"
 
@@ -87,10 +113,10 @@ class SeriesGroup:
     """
 
     path: str
-    names: Tuple[str, ...]
+    names: tuple[str, ...]
     unit: str
     description: str
-    colors: Tuple[str, ...] = ()
+    colors: tuple[str, ...] = ()
     names_rule: str = ""
 
     @property
@@ -103,12 +129,6 @@ class SeriesGroup:
         if self.robot_dependent:
             return _INDEX_SERIES.match(series) is not None
         return series in self.names
-
-    def color_of(self, series: str) -> Optional[str]:
-        """The color of `series`, or None when the group leaves the colors to Rerun."""
-        if not self.colors or series not in self.names:
-            return None
-        return self.colors[self.names.index(series)]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -136,8 +156,8 @@ class Panel:
     """
 
     title: str
-    paths: Tuple[str, ...]
-    curves: Tuple[Curve, ...] = ()
+    paths: tuple[str, ...]
+    curves: tuple[Curve, ...] = ()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -145,10 +165,13 @@ class Tab:
     """One tab of plots: rows top to bottom, panels left to right."""
 
     title: str
-    rows: Tuple[Tuple[Panel, ...], ...]
+    rows: tuple[tuple[Panel, ...], ...]
 
-    def panels(self) -> Tuple[Panel, ...]:
-        return tuple(panel for row in self.rows for panel in row)
+    def panels(self) -> tuple[Panel, ...]:
+        panels: list[Panel] = []
+        for row in self.rows:
+            panels.extend(row)
+        return tuple(panels)
 
 
 # ======================================================================================================================
@@ -160,8 +183,8 @@ def _pair(
     path: str,
     unit: str,
     description: str,
-    colors: Tuple[str, str],
-    names: Tuple[str, str] = MEASURED_VS_REFERENCE,
+    colors: tuple[str, str],
+    names: tuple[str, str] = MEASURED_VS_REFERENCE,
 ) -> SeriesGroup:
     return SeriesGroup(
         path=path, names=names, unit=unit, description=description, colors=colors
@@ -212,7 +235,7 @@ _FOOT_VELOCITY = (
 )
 
 # LINT.IfChange(panel_groups)
-PANEL_GROUPS: Tuple[SeriesGroup, ...] = (
+PANEL_GROUPS: tuple[SeriesGroup, ...] = (
     # Base Pose & Euler
     _pair("base_pose/position_x", "m", _BASE_POSITION, _POSITION_COLORS),
     _pair("base_pose/position_y", "m", _BASE_POSITION, _POSITION_COLORS),
@@ -305,7 +328,7 @@ def _robot_dependent(
 
 
 # LINT.IfChange(complete_groups)
-JOINT_GROUPS: Tuple[SeriesGroup, ...] = (
+JOINT_GROUPS: tuple[SeriesGroup, ...] = (
     _robot_dependent(
         "joints/position/measured",
         "rad",
@@ -346,7 +369,7 @@ JOINT_GROUPS: Tuple[SeriesGroup, ...] = (
     ),
 )
 
-DOF_GROUPS: Tuple[SeriesGroup, ...] = (
+DOF_GROUPS: tuple[SeriesGroup, ...] = (
     _robot_dependent(
         "dofs/position/measured",
         "m, rad",
@@ -397,10 +420,10 @@ DOF_GROUPS: Tuple[SeriesGroup, ...] = (
     ),
 )
 
-CONTACT_WRENCH_GROUPS: Tuple[SeriesGroup, ...] = tuple(
-    group
-    for side in (LEFT, RIGHT)
-    for group in (
+
+def _contact_wrench_groups(side: str) -> tuple[SeriesGroup, SeriesGroup]:
+    """The groups of one foot's contact wrench: the plan's, and the force sensor's."""
+    return (
         SeriesGroup(
             path=f"contact_wrenches/{side}/{MPC}",
             names=WRENCH_NAMES,
@@ -414,9 +437,13 @@ CONTACT_WRENCH_GROUPS: Tuple[SeriesGroup, ...] = tuple(
             description=f"the force sensor's force (sensors/contact_wrench/{side})",
         ),
     )
-)
 
-MPC_OBSERVATION_GROUPS: Tuple[SeriesGroup, ...] = (
+
+CONTACT_WRENCH_GROUPS: tuple[SeriesGroup, ...] = _contact_wrench_groups(
+    LEFT
+) + _contact_wrench_groups(RIGHT)
+
+MPC_OBSERVATION_GROUPS: tuple[SeriesGroup, ...] = (
     _robot_dependent(
         "mpc_observation/state",
         "",
@@ -439,7 +466,7 @@ MPC_OBSERVATION_GROUPS: Tuple[SeriesGroup, ...] = (
 
 # The groups of one tracked frame: frames/<kind>/<frame>/<source>, kind first so that a view can plot one kind of
 # every frame. <frame> is a frame of the task file's telemetryFrames (the contact frames when it lists none).
-FRAME_KINDS: Dict[str, Tuple[Tuple[str, ...], str, str]] = {
+FRAME_KINDS: dict[str, tuple[tuple[str, ...], str, str]] = {
     "pose": (
         POSE_NAMES,
         "m, rad",
@@ -466,18 +493,20 @@ FRAME_SOURCES = (MEASURED, REFERENCE, PLAN)
 # LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/README.md:complete_groups, //humanoid_nmpc/humanoid_common_mpc_app/visualization/src/TelemetryBuilder.cpp:telemetry_groups)
 
 
-def frame_groups(frame: str) -> Tuple[SeriesGroup, ...]:
+def frame_groups(frame: str) -> tuple[SeriesGroup, ...]:
     """The groups of the tracked frame `frame`: measured, of the target trajectory (reference) and of the plan."""
-    return tuple(
-        SeriesGroup(
-            path=f"frames/{kind}/{frame}/{source}",
-            names=names,
-            unit=unit,
-            description=description,
+    groups: list[SeriesGroup] = []
+    for kind, (names, unit, description) in FRAME_KINDS.items():
+        groups.extend(
+            SeriesGroup(
+                path=f"frames/{kind}/{frame}/{source}",
+                names=names,
+                unit=unit,
+                description=description,
+            )
+            for source in FRAME_SOURCES
         )
-        for kind, (names, unit, description) in FRAME_KINDS.items()
-        for source in FRAME_SOURCES
-    )
+    return tuple(groups)
 
 
 _FRAME_PATH = re.compile(
@@ -485,19 +514,19 @@ _FRAME_PATH = re.compile(
 )
 
 # Every group whose path does not depend on the robot.
-STATIC_GROUPS: Tuple[SeriesGroup, ...] = (
+STATIC_GROUPS: tuple[SeriesGroup, ...] = (
     PANEL_GROUPS
     + JOINT_GROUPS
     + DOF_GROUPS
     + CONTACT_WRENCH_GROUPS
     + MPC_OBSERVATION_GROUPS
 )
-_STATIC_GROUPS_BY_PATH: Dict[str, SeriesGroup] = {
+_STATIC_GROUPS_BY_PATH: dict[str, SeriesGroup] = {
     group.path: group for group in STATIC_GROUPS
 }
 
 
-def find_group(path: str) -> Optional[SeriesGroup]:
+def find_group(path: str) -> SeriesGroup | None:
     """The group of the contract at `path` (a frame group for any frame name), or None."""
     group = _STATIC_GROUPS_BY_PATH.get(path)
     if group is not None:
@@ -513,11 +542,12 @@ def find_group(path: str) -> Optional[SeriesGroup]:
     return None
 
 
-def all_groups(frames: Iterable[str]) -> Tuple[SeriesGroup, ...]:
+def all_groups(frames: Iterable[str]) -> tuple[SeriesGroup, ...]:
     """Every group a producer that tracks `frames` sends."""
-    return STATIC_GROUPS + tuple(
-        group for frame in frames for group in frame_groups(frame)
-    )
+    groups = STATIC_GROUPS
+    for frame in frames:
+        groups += frame_groups(frame)
+    return groups
 
 
 # ======================================================================================================================
@@ -528,7 +558,7 @@ def all_groups(frames: Iterable[str]) -> Tuple[SeriesGroup, ...]:
 def _pair_panel(
     title: str,
     path: str,
-    names: Tuple[str, str] = MEASURED_VS_REFERENCE,
+    names: tuple[str, str] = MEASURED_VS_REFERENCE,
 ) -> Panel:
     """A panel of one group of two series, "measured" against "reference" unless `names` says otherwise."""
     return Panel(
@@ -557,7 +587,7 @@ def _contact_tangential_panel(title: str, side: str) -> Panel:
 # The six tabs of the panel groups, one small plot per panel. The joint panels plot every joint of the robot, and the
 # curves name the first of them.
 # LINT.IfChange(panel_tabs)
-PANEL_TABS: Tuple[Tab, ...] = (
+PANEL_TABS: tuple[Tab, ...] = (
     Tab(
         title="Base Pose & Euler",
         rows=(
@@ -681,7 +711,7 @@ PANEL_TABS: Tuple[Tab, ...] = (
 # LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/README.md:panel_groups)
 
 # The tabs of the complete groups.
-COMPLETE_TABS: Tuple[Tab, ...] = (
+COMPLETE_TABS: tuple[Tab, ...] = (
     Tab(
         title="Generalized (all DOFs)",
         rows=(
@@ -759,4 +789,4 @@ COMPLETE_TABS: Tuple[Tab, ...] = (
     ),
 )
 
-TABS: Tuple[Tab, ...] = PANEL_TABS + COMPLETE_TABS
+TABS: tuple[Tab, ...] = PANEL_TABS + COMPLETE_TABS

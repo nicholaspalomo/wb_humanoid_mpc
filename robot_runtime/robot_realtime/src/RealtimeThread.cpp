@@ -42,7 +42,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
@@ -53,12 +55,12 @@ namespace {
 
 // The prefault touches the stack in frames of this size, one recursive call per frame: a fixed-size array per frame
 // instead of alloca() or a variable-length array, which the Google style guide does not allow.
-constexpr std::size_t kStackPrefaultChunkBytes = 16 * 1024;
+constexpr size_t kStackPrefaultChunkBytes = 16 * 1024;
 // What a frame of touchStackChunks() adds to its array (return address, saved registers, alignment), generously.
-constexpr std::size_t kStackPrefaultFrameOverheadBytes = 256;
+constexpr size_t kStackPrefaultFrameOverheadBytes = 256;
 // Stack the prefault leaves untouched at the bottom: room for the calls the thread makes from its deepest frame, for a
 // signal handler, and for the inaccuracy of the stack bounds glibc reports for the main thread.
-constexpr std::size_t kStackSafetyMarginBytes = 64 * 1024;
+constexpr size_t kStackSafetyMarginBytes = 64 * 1024;
 
 // The soft limit of `resource`, as text for an error message.
 std::string softLimitText(int resource) {
@@ -99,9 +101,9 @@ class StepFailures {
 };
 
 // Touches `chunks` frames of kStackPrefaultChunkBytes, one page at a time, by calling itself.
-[[gnu::noinline]] void touchStackChunks(std::size_t chunks, std::size_t pageSize) {
+[[gnu::noinline]] void touchStackChunks(size_t chunks, size_t pageSize) {
   volatile unsigned char chunk[kStackPrefaultChunkBytes];
-  for (std::size_t offset = 0; offset < kStackPrefaultChunkBytes; offset += pageSize) {
+  for (size_t offset = 0; offset < kStackPrefaultChunkBytes; offset += pageSize) {
     chunk[offset] = 0;
   }
   chunk[kStackPrefaultChunkBytes - 1] = 0;
@@ -167,7 +169,7 @@ absl::Status lockProcessMemory() {
   return absl::ErrnoToStatus(error, "mlockall(MCL_CURRENT | MCL_FUTURE) failed");
 }
 
-absl::Status prefaultStack(std::size_t bytes) {
+absl::Status prefaultStack(size_t bytes) {
   if (bytes == 0) {
     return absl::OkStatus();
   }
@@ -176,8 +178,8 @@ absl::Status prefaultStack(std::size_t bytes) {
   if (error != 0) {
     return absl::ErrnoToStatus(error, "pthread_getattr_np failed");
   }
-  void* stackLowest = nullptr;
-  std::size_t stackSize = 0;
+  void* absl_nullable stackLowest = nullptr;
+  size_t stackSize = 0;
   error = pthread_attr_getstack(&attributes, &stackLowest, &stackSize);
   pthread_attr_destroy(&attributes);
   if (error != 0) {
@@ -186,19 +188,19 @@ absl::Status prefaultStack(std::size_t bytes) {
 
   // The stack grows down, from just above this frame towards stackLowest.
   const unsigned char marker = 0;
-  const std::uintptr_t current = reinterpret_cast<std::uintptr_t>(&marker);
-  const std::uintptr_t lowest = reinterpret_cast<std::uintptr_t>(stackLowest);
-  const std::size_t available = current > lowest ? static_cast<std::size_t>(current - lowest) : 0;
-  const std::size_t chunks = (bytes + kStackPrefaultChunkBytes - 1) / kStackPrefaultChunkBytes;
-  const std::size_t needed = chunks * (kStackPrefaultChunkBytes + kStackPrefaultFrameOverheadBytes) + kStackSafetyMarginBytes;
+  const uintptr_t current = reinterpret_cast<uintptr_t>(&marker);
+  const uintptr_t lowest = reinterpret_cast<uintptr_t>(stackLowest);
+  const size_t available = current > lowest ? static_cast<size_t>(current - lowest) : 0;
+  const size_t chunks = (bytes + kStackPrefaultChunkBytes - 1) / kStackPrefaultChunkBytes;
+  const size_t needed = chunks * (kStackPrefaultChunkBytes + kStackPrefaultFrameOverheadBytes) + kStackSafetyMarginBytes;
   if (needed > available) {
     return absl::OutOfRangeError(absl::StrCat("cannot prefault ", bytes, " bytes of stack: the thread's stack of ", stackSize,
                                               " bytes has ", available, " bytes left below the caller, and ", kStackSafetyMarginBytes,
                                               " of them stay untouched as a margin"));
   }
 
-  const long pageSize = sysconf(_SC_PAGESIZE);
-  touchStackChunks(chunks, pageSize > 0 ? static_cast<std::size_t>(pageSize) : 4096);
+  const int64_t pageSize = sysconf(_SC_PAGESIZE);
+  touchStackChunks(chunks, pageSize > 0 ? static_cast<size_t>(pageSize) : 4096);
   return absl::OkStatus();
 }
 
@@ -206,8 +208,8 @@ absl::Status setCurrentThreadAffinity(absl::Span<const int> cores) {
   if (cores.empty()) {
     return absl::InvalidArgumentError("no CPU cores given to pin the thread to");
   }
-  const long configuredCpus = sysconf(_SC_NPROCESSORS_CONF);
-  const int cpuCount = configuredCpus > 0 ? static_cast<int>(std::min<long>(configuredCpus, CPU_SETSIZE)) : CPU_SETSIZE;
+  const int64_t configuredCpus = sysconf(_SC_NPROCESSORS_CONF);
+  const int cpuCount = configuredCpus > 0 ? static_cast<int>(std::min<int64_t>(configuredCpus, CPU_SETSIZE)) : CPU_SETSIZE;
 
   cpu_set_t requested;
   CPU_ZERO(&requested);
@@ -252,7 +254,7 @@ absl::Status setCurrentThreadName(absl::string_view name) {
     return absl::InvalidArgumentError(
         absl::StrCat("thread name \"", name, "\" has ", name.size(), " characters; Linux keeps 1 to ", kMaxThreadNameLength));
   }
-  if (name.find('\0') != absl::string_view::npos) {
+  if (absl::StrContains(name, '\0')) {
     return absl::InvalidArgumentError("a thread name cannot contain a NUL character");
   }
   char terminated[kMaxThreadNameLength + 1] = {};

@@ -28,29 +28,29 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
 #include <vector>
 
+#include "gtest/gtest.h"
+
+#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/PinocchioFrameConversions.h"
 
-#include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
-
 namespace ocs2::humanoid {
 
 class TestPinocchioFrameConversions : public ::testing::Test {
  protected:
-  CentroidalTestingModelInterface testingModelInterface = CentroidalTestingModelInterface();
-  PinocchioInterface pinocchioInterface = testingModelInterface.getPinocchioInterface();
-  const CentroidalMpcRobotModel<scalar_t>& mpcRobotModel = testingModelInterface.getMpcRobotModel();
-  vector_t q = vector_t::Zero(mpcRobotModel.getGenCoordinatesDim());
+  CentroidalTestingModelInterface testingModelInterface_ = CentroidalTestingModelInterface();
+  PinocchioInterface pinocchioInterface_ = testingModelInterface_.getPinocchioInterface();
+  const CentroidalMpcRobotModel<scalar_t>& mpcRobotModel_ = testingModelInterface_.getMpcRobotModel();
+  vector_t q_ = vector_t::Zero(mpcRobotModel_.getGenCoordinatesDim());
 
   void SetUp() override {
-    q = vector_t::Zero(mpcRobotModel.getGenCoordinatesDim());
-    q[2] = 0.8415;
+    q_ = vector_t::Zero(mpcRobotModel_.getGenCoordinatesDim());
+    q_[2] = 0.8415;
   }
 
   void TearDown() override {
@@ -59,11 +59,11 @@ class TestPinocchioFrameConversions : public ::testing::Test {
 };
 
 TEST_F(TestPinocchioFrameConversions, rotateVectorLocalToWorld3D) {
-  updateFramePlacements<scalar_t>(q, pinocchioInterface);
+  updateFramePlacements<scalar_t>(q_, pinocchioInterface_);
 
-  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface, mpcRobotModel)) {
+  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface_, mpcRobotModel_)) {
     vector3_t testVector = vector3_t::Random();
-    EXPECT_TRUE(testVector.isApprox(rotateVectorLocalToWorld<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex)));
+    EXPECT_TRUE(testVector.isApprox(rotateVectorLocalToWorld<scalar_t>(testVector, pinocchioInterface_.getData(), contactIndex)));
   }
 
   // Both contact frames are checked against the same expected rotation below, so BOTH legs have to be rotated by it.
@@ -72,25 +72,25 @@ TEST_F(TestPinocchioFrameConversions, rotateVectorLocalToWorld3D) {
   // so the two hip pitches are q[6] and q[12]. Setting only q[6] leaves the right foot at identity, which is what
   // made this assertion fail for the right foot once the loop actually started iterating.
   scalar_t hipPitchAngle = 0.5;
-  q[6] = hipPitchAngle;
-  q[12] = hipPitchAngle;
+  q_[6] = hipPitchAngle;
+  q_[12] = hipPitchAngle;
 
   matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(vector3_t(0.0, hipPitchAngle, 0.0));
-  updateFramePlacements<scalar_t>(q, pinocchioInterface);
+  updateFramePlacements<scalar_t>(q_, pinocchioInterface_);
 
-  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface, mpcRobotModel)) {
+  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface_, mpcRobotModel_)) {
     vector3_t testVector = vector3_t::Random();
     vector3_t testVectorRotated = R_l_w * testVector;
-    EXPECT_TRUE(testVectorRotated.isApprox(rotateVectorLocalToWorld<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex)));
+    EXPECT_TRUE(testVectorRotated.isApprox(rotateVectorLocalToWorld<scalar_t>(testVector, pinocchioInterface_.getData(), contactIndex)));
   }
 }
 
 TEST_F(TestPinocchioFrameConversions, rotateVectorWorldToLocal3D) {
-  updateFramePlacements<scalar_t>(q, pinocchioInterface);
+  updateFramePlacements<scalar_t>(q_, pinocchioInterface_);
 
-  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface, mpcRobotModel)) {
+  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface_, mpcRobotModel_)) {
     vector3_t testVector = vector3_t::Random();
-    EXPECT_TRUE(testVector.isApprox(rotateVectorWorldToLocal<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex)));
+    EXPECT_TRUE(testVector.isApprox(rotateVectorWorldToLocal<scalar_t>(testVector, pinocchioInterface_.getData(), contactIndex)));
   }
 
   // Both contact frames are checked against the same expected rotation below, so BOTH legs have to be rotated by it.
@@ -99,41 +99,41 @@ TEST_F(TestPinocchioFrameConversions, rotateVectorWorldToLocal3D) {
   // so the two hip pitches are q[6] and q[12]. Setting only q[6] leaves the right foot at identity, which is what
   // made this assertion fail for the right foot once the loop actually started iterating.
   scalar_t hipPitchAngle = 0.5;
-  q[6] = hipPitchAngle;
-  q[12] = hipPitchAngle;
+  q_[6] = hipPitchAngle;
+  q_[12] = hipPitchAngle;
 
   matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(vector3_t(0.0, -hipPitchAngle, 0.0));
-  updateFramePlacements<scalar_t>(q, pinocchioInterface);
+  updateFramePlacements<scalar_t>(q_, pinocchioInterface_);
 
-  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface, mpcRobotModel)) {
+  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface_, mpcRobotModel_)) {
     vector3_t testVector = vector3_t::Random();
     vector3_t testVectorRotated = R_l_w * testVector;
-    EXPECT_TRUE(testVectorRotated.isApprox(rotateVectorWorldToLocal<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex)));
+    EXPECT_TRUE(testVectorRotated.isApprox(rotateVectorWorldToLocal<scalar_t>(testVector, pinocchioInterface_.getData(), contactIndex)));
   }
 }
 
 TEST_F(TestPinocchioFrameConversions, backAndForthVector3D) {
   for (int i = 0; i < 25; ++i) {
-    vector_t q = vector_t::Random(mpcRobotModel.getGenCoordinatesDim());
+    vector_t q = vector_t::Random(mpcRobotModel_.getGenCoordinatesDim());
     q[2] = 0.88;
 
-    updateFramePlacements<scalar_t>(q, pinocchioInterface);
+    updateFramePlacements<scalar_t>(q, pinocchioInterface_);
 
-    for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface, mpcRobotModel)) {
+    for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface_, mpcRobotModel_)) {
       vector3_t testVector = vector3_t::Random();
       EXPECT_TRUE(testVector.isApprox(
-          rotateVectorWorldToLocal<scalar_t>(rotateVectorLocalToWorld<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex),
-                                             pinocchioInterface.getData(), contactIndex)));
+          rotateVectorWorldToLocal<scalar_t>(rotateVectorLocalToWorld<scalar_t>(testVector, pinocchioInterface_.getData(), contactIndex),
+                                             pinocchioInterface_.getData(), contactIndex)));
     }
   }
 }
 
 TEST_F(TestPinocchioFrameConversions, rotateVectorLocalToWorld6D) {
-  updateFramePlacements<scalar_t>(q, pinocchioInterface);
+  updateFramePlacements<scalar_t>(q_, pinocchioInterface_);
 
-  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface, mpcRobotModel)) {
+  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface_, mpcRobotModel_)) {
     vector6_t testVector = vector6_t::Random();
-    EXPECT_TRUE(testVector.isApprox(rotateVectorLocalToWorld<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex)));
+    EXPECT_TRUE(testVector.isApprox(rotateVectorLocalToWorld<scalar_t>(testVector, pinocchioInterface_.getData(), contactIndex)));
   }
 
   // Both contact frames are checked against the same expected rotation below, so BOTH legs have to be rotated by it.
@@ -142,26 +142,26 @@ TEST_F(TestPinocchioFrameConversions, rotateVectorLocalToWorld6D) {
   // so the two hip pitches are q[6] and q[12]. Setting only q[6] leaves the right foot at identity, which is what
   // made this assertion fail for the right foot once the loop actually started iterating.
   scalar_t hipPitchAngle = 0.5;
-  q[6] = hipPitchAngle;
-  q[12] = hipPitchAngle;
+  q_[6] = hipPitchAngle;
+  q_[12] = hipPitchAngle;
 
   matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(vector3_t(0.0, hipPitchAngle, 0.0));
-  updateFramePlacements<scalar_t>(q, pinocchioInterface);
+  updateFramePlacements<scalar_t>(q_, pinocchioInterface_);
 
-  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface, mpcRobotModel)) {
+  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface_, mpcRobotModel_)) {
     vector6_t testVector = vector6_t::Random();
     vector6_t testVectorRotated(6);
     testVectorRotated << R_l_w * testVector.head(3), R_l_w * testVector.tail(3);
-    EXPECT_TRUE(testVectorRotated.isApprox(rotateVectorLocalToWorld<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex)));
+    EXPECT_TRUE(testVectorRotated.isApprox(rotateVectorLocalToWorld<scalar_t>(testVector, pinocchioInterface_.getData(), contactIndex)));
   }
 }
 
 TEST_F(TestPinocchioFrameConversions, rotateVectorWorldToLocal6D) {
-  updateFramePlacements<scalar_t>(q, pinocchioInterface);
+  updateFramePlacements<scalar_t>(q_, pinocchioInterface_);
 
-  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface, mpcRobotModel)) {
+  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface_, mpcRobotModel_)) {
     vector6_t testVector = vector6_t::Random();
-    EXPECT_TRUE(testVector.isApprox(rotateVectorWorldToLocal<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex)));
+    EXPECT_TRUE(testVector.isApprox(rotateVectorWorldToLocal<scalar_t>(testVector, pinocchioInterface_.getData(), contactIndex)));
   }
 
   // Both contact frames are checked against the same expected rotation below, so BOTH legs have to be rotated by it.
@@ -170,32 +170,32 @@ TEST_F(TestPinocchioFrameConversions, rotateVectorWorldToLocal6D) {
   // so the two hip pitches are q[6] and q[12]. Setting only q[6] leaves the right foot at identity, which is what
   // made this assertion fail for the right foot once the loop actually started iterating.
   scalar_t hipPitchAngle = 0.5;
-  q[6] = hipPitchAngle;
-  q[12] = hipPitchAngle;
+  q_[6] = hipPitchAngle;
+  q_[12] = hipPitchAngle;
 
   matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(vector3_t(0.0, -hipPitchAngle, 0.0));
-  updateFramePlacements<scalar_t>(q, pinocchioInterface);
+  updateFramePlacements<scalar_t>(q_, pinocchioInterface_);
 
-  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface, mpcRobotModel)) {
+  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface_, mpcRobotModel_)) {
     vector6_t testVector = vector6_t::Random();
     vector6_t testVectorRotated(6);
     testVectorRotated << R_l_w * testVector.head(3), R_l_w * testVector.tail(3);
-    EXPECT_TRUE(testVectorRotated.isApprox(rotateVectorWorldToLocal<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex)));
+    EXPECT_TRUE(testVectorRotated.isApprox(rotateVectorWorldToLocal<scalar_t>(testVector, pinocchioInterface_.getData(), contactIndex)));
   }
 }
 
 TEST_F(TestPinocchioFrameConversions, backAndForthVector6D) {
   for (int i = 0; i < 25; ++i) {
-    vector_t q = vector_t::Random(mpcRobotModel.getGenCoordinatesDim());
+    vector_t q = vector_t::Random(mpcRobotModel_.getGenCoordinatesDim());
     q[2] = 0.88;
 
-    updateFramePlacements<scalar_t>(q, pinocchioInterface);
+    updateFramePlacements<scalar_t>(q, pinocchioInterface_);
 
-    for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface, mpcRobotModel)) {
+    for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface_, mpcRobotModel_)) {
       vector6_t testVector = vector6_t::Random();
       EXPECT_TRUE(testVector.isApprox(
-          rotateVectorWorldToLocal<scalar_t>(rotateVectorLocalToWorld<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex),
-                                             pinocchioInterface.getData(), contactIndex)));
+          rotateVectorWorldToLocal<scalar_t>(rotateVectorLocalToWorld<scalar_t>(testVector, pinocchioInterface_.getData(), contactIndex),
+                                             pinocchioInterface_.getData(), contactIndex)));
     }
   }
 }
@@ -238,26 +238,21 @@ TEST_F(TestPinocchioFrameConversions, backAndForthVector6D) {
 
 TEST_F(TestPinocchioFrameConversions, transformPointBackAndForth) {
   for (int i = 0; i < 25; ++i) {
-    vector_t q = vector_t::Random(mpcRobotModel.getGenCoordinatesDim());
+    vector_t q = vector_t::Random(mpcRobotModel_.getGenCoordinatesDim());
     q[2] = 0.88;
 
-    updateFramePlacements<scalar_t>(q, pinocchioInterface);
+    updateFramePlacements<scalar_t>(q, pinocchioInterface_);
 
-    for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface, mpcRobotModel)) {
+    for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface_, mpcRobotModel_)) {
       vector3_t testPoint = vector3_t::Random();
       // transformPoint* carries the frame translation as well as its rotation, so the inverse of
       // transformPointLocalToWorld is transformPointWorldToLocal - not rotateVectorWorldToLocal, which drops the
       // translation and so cannot round-trip a point.
       EXPECT_TRUE(testPoint.isApprox(
-          transformPointLocalToWorld<scalar_t>(transformPointWorldToLocal<scalar_t>(testPoint, pinocchioInterface.getData(), contactIndex),
-                                               pinocchioInterface.getData(), contactIndex)));
+          transformPointLocalToWorld<scalar_t>(transformPointWorldToLocal<scalar_t>(testPoint, pinocchioInterface_.getData(), contactIndex),
+                                               pinocchioInterface_.getData(), contactIndex)));
     }
   }
-}
-
-int main(int argc, char** argv) {
-  ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
 }
 
 }  // namespace ocs2::humanoid

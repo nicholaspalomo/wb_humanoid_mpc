@@ -33,6 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
+
 #include "mujoco_sim_interface/visualization/MujocoVisualization.h"
 
 namespace robot::mujoco_sim_interface {
@@ -47,17 +49,17 @@ struct VisualizationInfo {
 /** Every visualization the viewer knows, in the order they are drawn. */
 std::vector<VisualizationInfo> availableVisualizations();
 
-/** Names enabled when the task file does not list any (`simVisualizations` absent): the viewer's historical set. */
+/** Names enabled by a MujocoSimConfig that sets no list of its own: the viewer's historical set. */
 std::vector<std::string> defaultVisualizationNames();
 
 /** Creates the visualization registered under `name`, or nullptr if there is none. */
 std::unique_ptr<MujocoVisualization> createVisualization(const std::string& name);
 
 /**
- * Creates the visualizations listed in `names` (task file `simVisualizations`), in registry order regardless of the
+ * Creates the visualizations listed in `names` (task file `sim_visualizations`), in registry order regardless of the
  * order of the list, each enabled. Unknown and repeated names are skipped with a message appended to `errors`.
  */
 std::vector<std::unique_ptr<MujocoVisualization>> createVisualizations(const std::vector<std::string>& names,
-                                                                       std::vector<std::string>* errors);
+                                                                       std::vector<std::string>* absl_nullable errors);
 
 }  // namespace robot::mujoco_sim_interface

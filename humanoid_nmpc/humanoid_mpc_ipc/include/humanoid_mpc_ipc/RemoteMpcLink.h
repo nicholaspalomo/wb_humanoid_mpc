@@ -34,15 +34,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdint>
 #include <memory>
 
+#include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/status/statusor.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
-
-#include <ocs2_core/Types.h>
-#include <ocs2_core/reference/TargetTrajectories.h>
-#include <ocs2_mpc/MRT_BASE.h>
-#include <ocs2_mpc/SystemObservation.h>
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/MRT_BASE.h"
+#include "ocs2_mpc/SystemObservation.h"
 
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
 #include "humanoid_mpc_ipc/MpcMessageConversions.h"
@@ -118,13 +118,15 @@ class RemoteMpcLink final : public MRT_BASE {
     ModelDimensions dimensions;
     /**
      * [s, robot clock] Link loss: once a policy has been received, the link reads unhealthy when the robot clock passes
-     * the time of the observation the newest one was solved from by more than this. mpcLink.policyTimeout of the task
+     * the time of the observation the newest one was solved from by more than this. mpc_link.policy_timeout of the task
      * file. Longer than one TCP retransmission (Linux: at least 200 ms) with margin, so that a single lost packet on the
      * bus is not a lost link (RobotProcessSettings::mpcLinkPolicyTimeout).
      */
     // LINT.IfChange(policy_timeout_default)
     scalar_t policyTimeout = 0.5;
-    // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/RobotProcessSettings.h:policy_timeout_default)
+    // clang-format off
+    // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/RobotProcessSettings.h:policy_timeout_default, //humanoid_nmpc/humanoid_mpc_config/mpc_link_config.proto:policy_timeout_default)
+    // clang-format on
     /** How often the IO thread takes the newest observation, publishes it, and checks the policy timeout. */
     absl::Duration pollPeriod = absl::Milliseconds(1);
   };
@@ -210,7 +212,7 @@ class RemoteMpcLink final : public MRT_BASE {
   /** What the callbacks on the bus reach the link through, cleared by the destructor. */
   struct CallbackGuard {
     absl::Mutex mutex;
-    RemoteMpcLink* link ABSL_GUARDED_BY(mutex) = nullptr;
+    RemoteMpcLink* absl_nullable link ABSL_GUARDED_BY(mutex) = nullptr;
   };
 
   /** One observation in the triple buffer: what the realtime thread wrote, and the how-many-th it was. */

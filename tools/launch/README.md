@@ -53,7 +53,7 @@ editors and formatters the schema:
 
 # Optional, repeated: a name and a string value.
 variables { name: "config_dir" value: "robot_models/unitree_g1/g1_centroidal_mpc/config" }
-variables { name: "task_file" value: "{config_dir}/mpc/task.yaml" }   # a variable may refer to other variables
+variables { name: "task_file" value: "{config_dir}/mpc/task.textproto" }   # a variable may refer to other variables
 
 shutdown {                     # optional; --sigint_grace_period / --sigterm_grace_period override it
   sigint_grace_period: 5.0     # seconds after SIGINT before SIGTERM (default 5)
@@ -120,7 +120,7 @@ bazel run //tools/launch:export_script -- robot_models/drc_atlas/drc_atlas_centr
   relative to the script's directory), which `{repo_root}` names.
 - Every variable becomes a shell variable `<env_prefix><NAME>` that the environment may set (unset or empty: the
   file's value, after `--set`), assigned in dependency order: overriding `config_dir` moves the `task_file` written
-  as `{config_dir}/mpc/task.yaml` along.
+  as `{config_dir}/mpc/task.textproto` along.
 - The process's environment is exported, its delay slept, and its command `exec`ed, so the process takes the script's
   PID and receives its signals.
 - A machine with more or fewer than one process, or a `terminal: true` process, is refused: several processes need a

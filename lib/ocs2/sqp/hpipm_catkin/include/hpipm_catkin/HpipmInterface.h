@@ -33,6 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 extern "C" {
 #include <hpipm_common.h>
+
+#include "absl/base/nullability.h"
 }
 
 #include <ocs2_core/Types.h>
@@ -85,7 +87,7 @@ class HpipmInterface {
   hpipm_status solve(const vector_t& x0,
                      std::vector<VectorFunctionLinearApproximation>& dynamics,
                      std::vector<ScalarFunctionQuadraticApproximation>& cost,
-                     std::vector<VectorFunctionLinearApproximation>* constraints,
+                     std::vector<VectorFunctionLinearApproximation>* absl_nullable constraints,
                      vector_array_t& stateTrajectory,
                      vector_array_t& inputTrajectory,
                      bool verbose = false);

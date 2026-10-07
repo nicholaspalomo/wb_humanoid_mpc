@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """The command line of tools/launch: resolves the launch file, then prints it (--dry_run) or runs it.
 
     bazel run //tools/launch -- <launch file> [--machine robot|laptop] [--set name=value ...] [--dry_run]
@@ -16,12 +43,13 @@ Exit status: that of a required process that failed, 0 otherwise, and 2 for an i
 """
 
 import argparse
+from collections.abc import Mapping, Sequence
 import os
 import shlex
 import signal
 import sys
-from types import FrameType
-from typing import List, Mapping, Optional, Sequence, TextIO
+import types
+from typing import TextIO
 
 import launch_file
 import process_supervisor
@@ -33,8 +61,18 @@ SHUTDOWN_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
 
 
 def resolve_launch_file_path(path: str, environment: Mapping[str, str]) -> str:
-    """The launch file named on the command line: relative to the directory the launcher was started from (also
-    under `bazel run`, which changes into the runfiles tree), else relative to the workspace of `bazel run`.
+    """The launch file named on the command line, as an absolute path.
+
+    A relative path is relative to the directory the launcher was started from (also under `bazel run`, which changes
+    into the runfiles tree), else relative to the workspace of `bazel run`.
+
+    Args:
+        path: The path as the command line gives it.
+        environment: The environment, for BUILD_WORKING_DIRECTORY and BUILD_WORKSPACE_DIRECTORY.
+
+    Returns:
+        `path` when it is absolute, else the first candidate that exists, or the first candidate when none exists, so
+        that the error names the path the user meant.
     """
     if os.path.isabs(path):
         return path
@@ -50,7 +88,8 @@ def resolve_launch_file_path(path: str, environment: Mapping[str, str]) -> str:
     return os.path.abspath(candidates[0])
 
 
-def _directory_with_marker(start: str) -> Optional[str]:
+def _directory_with_marker(start: str) -> str | None:
+    """The nearest directory at or above `start` that holds REPO_ROOT_MARKER, or None."""
     directory = os.path.abspath(start)
     while True:
         if os.path.isfile(os.path.join(directory, REPO_ROOT_MARKER)):
@@ -62,7 +101,7 @@ def _directory_with_marker(start: str) -> Optional[str]:
 
 
 def find_repo_root(
-    explicit: Optional[str], launch_file_path: str, environment: Mapping[str, str]
+    explicit: str | None, launch_file_path: str, environment: Mapping[str, str]
 ) -> str:
     """The directory the launcher runs every process in (see the module comment for the order of the candidates)."""
     if explicit:
@@ -111,6 +150,7 @@ def format_dry_run(
 
 
 def _non_negative_seconds(text: str) -> float:
+    """An argparse type: a number of seconds that is not negative; NaN is rejected too (AGENTS.md, Python)."""
     value = float(text)
     if not value >= 0.0:
         raise argparse.ArgumentTypeError(
@@ -120,6 +160,7 @@ def _non_negative_seconds(text: str) -> float:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """The launcher's command line."""
     parser = argparse.ArgumentParser(
         prog="launch",
         description="Start the processes of a launch file and stop them together.",
@@ -181,11 +222,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(
-    argv: Optional[Sequence[str]] = None,
+    argv: Sequence[str] | None = None,
     out: TextIO = sys.stdout,
     err: TextIO = sys.stderr,
-    environment: Optional[Mapping[str, str]] = None,
+    environment: Mapping[str, str] | None = None,
 ) -> int:
+    """Resolves the launch file of the command line `argv` and prints it or runs it; returns the exit status."""
     args = build_parser().parse_args(argv)
     environment = dict(os.environ if environment is None else environment)
     try:
@@ -203,7 +245,7 @@ def main(
     if not processes:
         err.write(f"launch: no process of {path} runs on machine '{args.machine}'\n")
         return EXIT_USAGE
-    terminal_command: List[str] = shlex.split(args.terminal_command)
+    terminal_command: list[str] = shlex.split(args.terminal_command)
     if not terminal_command:
         err.write("launch: --terminal_command must not be empty\n")
         return EXIT_USAGE
@@ -236,7 +278,7 @@ def main(
         environment=environment,
     )
 
-    def forward(signum: int, frame: Optional[FrameType]) -> None:
+    def forward(signum: int, frame: types.FrameType | None) -> None:
         del frame
         supervisor.request_shutdown(signum)
 

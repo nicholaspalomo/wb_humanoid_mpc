@@ -27,16 +27,20 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <filesystem>
 #include <fstream>
+#include <memory>
+#include <string>
+#include <system_error>
+#include <vector>
 
-#include <robot_model/RobotDescription.h>
-#include <robot_model/RobotStateContactEstimator.h>
+#include "absl/status/statusor.h"
+#include "gtest/gtest.h"
 
-using namespace robot::model;
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotStateContactEstimator.h"
 
+namespace robot::model {
 namespace {
 
 class RobotStateContactEstimatorTest : public ::testing::Test {
@@ -76,8 +80,9 @@ class RobotStateContactEstimatorTest : public ::testing::Test {
 };
 
 TEST_F(RobotStateContactEstimatorTest, reportsTheFlagsOfTheRobotState) {
-  RobotDescription description(urdfPath_.string());
-  RobotState state(description, /*contactSize=*/2);
+  const absl::StatusOr<RobotDescription> description = RobotDescription::Create(urdfPath_.string());
+  ASSERT_TRUE(description.ok()) << description.status();
+  RobotState state(*description, /*contactSize=*/2);
   RobotStateContactEstimator estimator;
   EXPECT_EQ(estimator.getName(), "RobotStateContactEstimator");
 
@@ -100,3 +105,4 @@ TEST_F(RobotStateContactEstimatorTest, reportsTheFlagsOfTheRobotState) {
 }
 
 }  // namespace
+}  // namespace robot::model

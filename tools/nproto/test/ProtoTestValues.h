@@ -32,13 +32,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <gtest/gtest.h>
-
 #include <string>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
-
 #include "google/protobuf/message.h"
+#include "gtest/gtest.h"
 
 namespace nproto::test_support {
 
@@ -59,7 +58,7 @@ struct TestValueOptions {
  * `repeatedSize` elements per repeated field and map, map keys that depend on the index only. Messages deeper than
  * eight levels are left empty.
  */
-void FillWithTestValues(const TestValueOptions& options, google::protobuf::Message* message);
+void FillWithTestValues(const TestValueOptions& options, google::protobuf::Message* absl_nonnull message);
 
 /** `message` serialized with maps in key order, so that equal messages give equal bytes. */
 std::string DeterministicBytes(const google::protobuf::Message& message);

@@ -27,14 +27,21 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <robot_model/ContactEstimatorRegistry.h>
+#include "robot_model/ContactEstimatorRegistry.h"
 
 #include <algorithm>
-#include <cctype>
-#include <stdexcept>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
-#include <robot_model/AlwaysInContactEstimator.h>
-#include <robot_model/RobotStateContactEstimator.h>
+#include "absl/base/nullability.h"
+#include "absl/log/absl_check.h"
+#include "absl/strings/ascii.h"
+#include "absl/strings/str_join.h"
+
+#include "robot_model/AlwaysInContactEstimator.h"
+#include "robot_model/RobotStateContactEstimator.h"
 
 namespace robot::model {
 
@@ -46,52 +53,46 @@ ContactEstimatorRegistry::ContactEstimatorRegistry() {
       [] { return std::make_shared<AlwaysInContactEstimator>(); });
 }
 // clang-format off
-// LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:contact_estimator, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml:contact_estimator, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml:contact_estimator, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.yaml:contact_estimator, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:contact_estimator)
+// LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:contact_estimator, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto:contact_estimator, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto:contact_estimator, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto:contact_estimator, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto:contact_estimator, //humanoid_nmpc/humanoid_mpc_config/task_file.proto:contact_estimator)
 // clang-format on
 
-std::string ContactEstimatorRegistry::canonicalName(const std::string& name) {
-  const auto isBlank = [](unsigned char c) { return std::isspace(c) != 0; };
-  auto begin = std::find_if_not(name.begin(), name.end(), isBlank);
-  auto end = std::find_if_not(name.rbegin(), name.rend(), isBlank).base();
-  std::string canonical = begin < end ? std::string(begin, end) : std::string();
-  std::transform(canonical.begin(), canonical.end(), canonical.begin(), [](unsigned char c) { return std::tolower(c); });
-  return canonical;
+std::string ContactEstimatorRegistry::canonicalName(absl::string_view name) {
+  return absl::AsciiStrToLower(absl::StripAsciiWhitespace(name));
 }
 
-void ContactEstimatorRegistry::add(const std::string& name, const std::string& description, Factory factory) {
+void ContactEstimatorRegistry::add(absl::string_view name, absl::string_view description, Factory factory) {
   const std::string canonical = canonicalName(name);
-  if (canonical.empty()) throw std::invalid_argument("ContactEstimatorRegistry: an estimator needs a name");
-  if (!factory) throw std::invalid_argument("ContactEstimatorRegistry: estimator '" + canonical + "' has no factory");
-  if (has(canonical)) throw std::invalid_argument("ContactEstimatorRegistry: estimator '" + canonical + "' is already registered");
-  estimators_.push_back({{canonical, description}, std::move(factory)});
+  ABSL_CHECK(!canonical.empty()) << "ContactEstimatorRegistry: an estimator needs a name";
+  ABSL_CHECK(factory != nullptr) << "ContactEstimatorRegistry: estimator '" << canonical << "' has no factory";
+  ABSL_CHECK(!has(canonical)) << "ContactEstimatorRegistry: estimator '" << canonical << "' is already registered";
+  estimators_.push_back({{.name = canonical, .description = std::string(description)}, std::move(factory)});
 }
 
-bool ContactEstimatorRegistry::has(const std::string& name) const {
+bool ContactEstimatorRegistry::has(absl::string_view name) const {
   const std::string canonical = canonicalName(name);
-  return std::any_of(estimators_.begin(), estimators_.end(), [&](const Registered& r) { return r.entry.name == canonical; });
+  return std::any_of(estimators_.begin(), estimators_.end(), [&canonical](const Registered& r) { return r.entry.name == canonical; });
 }
 
-std::shared_ptr<ContactEstimator> ContactEstimatorRegistry::create(const std::string& name) const {
+std::shared_ptr<ContactEstimator> ContactEstimatorRegistry::create(absl::string_view name) const {
   const std::string canonical = canonicalName(name);
-  for (const Registered& registered : estimators_) {
-    if (registered.entry.name == canonical) return registered.factory();
-  }
-  throw std::invalid_argument("ContactEstimatorRegistry: unknown contact estimator '" + name + "'; available: " + availableNames());
+  const std::vector<Registered>::const_iterator found =
+      std::find_if(estimators_.begin(), estimators_.end(), [&canonical](const Registered& r) { return r.entry.name == canonical; });
+  ABSL_CHECK(found != estimators_.end()) << "ContactEstimatorRegistry: unknown contact estimator '" << name
+                                         << "'; available: " << availableNames()
+                                         << ". Check has() first: a name from a file is the caller's to validate.";
+  return found->factory();
 }
 
 std::vector<ContactEstimatorRegistry::Entry> ContactEstimatorRegistry::available() const {
   std::vector<Entry> entries;
+  entries.reserve(estimators_.size());
   for (const Registered& registered : estimators_) entries.push_back(registered.entry);
   return entries;
 }
 
 std::string ContactEstimatorRegistry::availableNames() const {
-  std::string names;
-  for (const Registered& registered : estimators_) {
-    if (!names.empty()) names += ", ";
-    names += registered.entry.name;
-  }
-  return names;
+  return absl::StrJoin(estimators_, ", ",
+                       [](std::string* absl_nonnull out, const Registered& registered) { out->append(registered.entry.name); });
 }
 
 }  // namespace robot::model

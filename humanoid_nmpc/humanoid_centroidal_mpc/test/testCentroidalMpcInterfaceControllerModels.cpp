@@ -27,14 +27,13 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <memory>
 #include <string>
 
 #include "absl/status/statusor.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 
@@ -53,9 +52,9 @@ struct RobotFiles {
   std::string reference;
 };
 
-const RobotFiles kAtlas{"robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml",
-                        "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
-                        "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml"};
+const RobotFiles kAtlas{.task = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto",
+                        .urdf = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
+                        .reference = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.textproto"};
 
 TEST(CentroidalMpcInterfaceControllerModels, BuildsTheControllersModelsAndNoProblem) {
   absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created =

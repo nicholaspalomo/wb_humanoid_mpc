@@ -30,53 +30,105 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 
+#include <cmath>
 #include <functional>
 #include <limits>
-#include <optional>
-#include <stdexcept>
+#include <map>
+#include <memory>
 #include <string>
+#include <utility>
 
-#include <ocs2_core/misc/LoadData.h>
-#include <ocs2_core/misc/PropertyTree.h>
-
-#include <cmath>
-#include "humanoid_common_mpc/gait/GaitScheduleUpdater.h"
-#include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
-
+#include "absl/log/absl_check.h"
 #include "absl/log/log.h"
+#include "absl/memory/memory.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
+
+#include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/config/reference/GaitFromConfig.h"
+#include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
+#include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
+#include "humanoid_common_mpc/gait/GaitScheduleUpdater.h"
+#include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
+#include "humanoid_mpc_config/gait_file.nproto.h"
+#include "humanoid_mpc_config/reference_file.nproto.h"
 
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-ProceduralMpcMotionManager::ProceduralMpcMotionManager(const std::string& gaitFile,
-                                                       const std::string& referenceFile,
-                                                       std::shared_ptr<SwitchedModelReferenceManager> switchedModelReferenceManagerPtr,
+absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> ProceduralMpcMotionManager::Create(
+    const mpc_config::GaitFile& gaitFile,
+    const ReferenceSettings& referenceSettings,
+    std::shared_ptr<SwitchedModelReferenceManager> switchedModelReferenceManagerPtr,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    VelocityTargetToTargetTrajectories velocityTargetToTargetTrajectories) {
+  // The constructor is private, so std::make_unique cannot reach it.
+  std::unique_ptr<ProceduralMpcMotionManager> manager = absl::WrapUnique(new ProceduralMpcMotionManager(
+      std::move(switchedModelReferenceManagerPtr), mpcRobotModel, std::move(velocityTargetToTargetTrajectories)));
+  RETURN_IF_ERROR(manager->applyCommandLimits(referenceSettings));
+  ASSIGN_OR_RETURN(manager->gaitMap_, gaitMapFromConfig(gaitFile));
+  RETURN_IF_ERROR(checkEveryGaitIsLoaded(manager->gaitMap_, manager->gaitModeStates_, "(gait_list and gaits)"));
+  return manager;
+}
+
+absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> ProceduralMpcMotionManager::Create(
+    const std::string& gaitFile,
+    const std::string& referenceFile,
+    std::shared_ptr<SwitchedModelReferenceManager> switchedModelReferenceManagerPtr,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    VelocityTargetToTargetTrajectories velocityTargetToTargetTrajectories) {
+  ASSIGN_OR_RETURN(const mpc_config::GaitFile gait, loadGaitFile(gaitFile));
+  ASSIGN_OR_RETURN(const mpc_config::ReferenceFile reference, loadReferenceFile(referenceFile));
+  absl::StatusOr<ReferenceSettings> referenceSettings = referenceSettingsFromConfig(reference);
+  if (!referenceSettings.ok()) {
+    return withConfigFile(referenceSettings.status(), referenceFile);
+  }
+  absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> manager = Create(
+      gait, *referenceSettings, std::move(switchedModelReferenceManagerPtr), mpcRobotModel, std::move(velocityTargetToTargetTrajectories));
+  if (!manager.ok()) {
+    return withConfigFile(manager.status(), gaitFile);
+  }
+  return manager;
+}
+
+ProceduralMpcMotionManager::ProceduralMpcMotionManager(std::shared_ptr<SwitchedModelReferenceManager> switchedModelReferenceManagerPtr,
                                                        const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                                        VelocityTargetToTargetTrajectories velocityTargetToTargetTrajectories)
-    : velocityTargetToTargetTrajectoriesFun_(std::move(velocityTargetToTargetTrajectories)),
-      switchedModelReferenceManagerPtr_(switchedModelReferenceManagerPtr),
+    : switchedModelReferenceManagerPtr_(std::move(switchedModelReferenceManagerPtr)),
       gaitSchedulePtr_(switchedModelReferenceManagerPtr_->getGaitSchedule()),
-      mpcRobotModelPtr_(&mpcRobotModel) {
-  reloadCommandLimits(referenceFile);
+      mpcRobotModelPtr_(&mpcRobotModel),
+      velocityTargetToTargetTrajectoriesFun_(std::move(velocityTargetToTargetTrajectories)) {}
 
-  gaitMap_ = getGaitMap(gaitFile);
+absl::Status ProceduralMpcMotionManager::checkEveryGaitIsLoaded(const std::map<std::string, ModeSequenceTemplate>& gaitMap,
+                                                                absl::Span<const GaitModeStateConfig> gaitModeStates,
+                                                                absl::string_view gaitFile) {
+  // Every gait the velocity command can select has to be in the file: preSolverRun() switches to it by name.
+  for (const GaitModeStateConfig& gaitModeState : gaitModeStates) {
+    if (!gaitMap.contains(gaitModeState.gaitCommand)) {
+      return absl::InvalidArgumentError(absl::StrCat("[ProceduralMpcMotionManager] the gait file ", gaitFile, " has no gait '",
+                                                     gaitModeState.gaitCommand, "', which the walking velocity command selects."));
+    }
+  }
+  return absl::OkStatus();
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void ProceduralMpcMotionManager::setVelocityCommandAccelerationLimits(scalar_t maxLinearAcceleration, scalar_t maxAngularAcceleration) {
+absl::Status ProceduralMpcMotionManager::setVelocityCommandAccelerationLimits(scalar_t maxLinearAcceleration,
+                                                                              scalar_t maxAngularAcceleration) {
   if (std::isnan(maxLinearAcceleration) || std::isnan(maxAngularAcceleration)) {
-    throw std::invalid_argument("[ProceduralMpcMotionManager] the velocity command acceleration limits must be numbers");
+    return absl::InvalidArgumentError("[ProceduralMpcMotionManager] the velocity command acceleration limits must be numbers");
   }
   maxLinearAcceleration_ = maxLinearAcceleration;
   maxAngularAcceleration_ = maxAngularAcceleration;
+  return absl::OkStatus();
 }
 
 vector4_t ProceduralMpcMotionManager::rateLimitVelocityCommand(
@@ -99,46 +151,15 @@ vector4_t ProceduralMpcMotionManager::rateLimitVelocityCommand(
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void ProceduralMpcMotionManager::reloadCommandLimits(const std::string& referenceFile) {
-  // See TargetTrajectoriesCalculatorBase::reloadCommandLimits: loadData writes through a reference, which an atomic
-  // cannot give it, so each limit round-trips through a local seeded with its current value.
-  const std::function<void(const std::string&, std::atomic<scalar_t>&)> load = [&referenceFile](const std::string& key,
-                                                                                                std::atomic<scalar_t>& target) {
-    scalar_t value = target.load();
-    loadData::loadCppDataType(referenceFile, key, value);
-    target.store(value);
-  };
-  load("maxDisplacementVelocityX", maxDisplacementVelocityX_);
-  load("maxDisplacementVelocityY", maxDisplacementVelocityY_);
-  load("maxDeltaPelvisHeight", maxDeltaPelvisHeight_);
-  load("maxRotationVelocity", maxRotationVelocity_);
-  // Optional: absent keys keep the ramps off (the historical behavior, an unramped reference).
-  PropertyTree pt;
-  loadData::readPropertyTree(referenceFile, pt);
-  setVelocityCommandAccelerationLimits(pt.get<scalar_t>("maxLinearAcceleration", /*defaultValue=*/0.0),
-                                       pt.get<scalar_t>("maxAngularAcceleration", /*defaultValue=*/0.0));
-  // Optional as well, off when absent. The reloaders of reference.yaml report a bad value by throwing.
-  const absl::StatusOr<scalar_t> breakFrequency = loadVelocityCommandFilterBreakFrequency(referenceFile);
-  if (!breakFrequency.ok()) throw std::invalid_argument(std::string(breakFrequency.status().message()));
-  const absl::Status applied = velocityCommandFilter_.setBreakFrequency(*breakFrequency);
-  if (!applied.ok()) throw std::invalid_argument(std::string(applied.message()));
-}
-
-absl::StatusOr<scalar_t> ProceduralMpcMotionManager::loadVelocityCommandFilterBreakFrequency(const std::string& referenceFile) {
-  PropertyTree pt;
-  loadData::readPropertyTree(referenceFile, pt);
-  const std::optional<std::string> text = pt.getOptional<std::string>(kVelocityCommandFilterBreakFrequencyKey);
-  if (!text.has_value()) return 0.0;
-  const std::optional<scalar_t> value = pt.getOptional<scalar_t>(kVelocityCommandFilterBreakFrequencyKey);
-  const absl::Status valid =
-      value.has_value() ? BreakFrequencyAlphaFilter::validateBreakFrequency(*value) : absl::InvalidArgumentError("it is not a number.");
-  if (!valid.ok()) {
-    return absl::InvalidArgumentError(absl::StrCat("[ProceduralMpcMotionManager] ", referenceFile, ": `",
-                                                   kVelocityCommandFilterBreakFrequencyKey, ": ", *text, "` is invalid: ", valid.message(),
-                                                   " Set it to the break frequency of the command filter in Hz, or to 0 to switch the "
-                                                   "filter off."));
-  }
-  return *value;
+absl::Status ProceduralMpcMotionManager::applyCommandLimits(const ReferenceSettings& settings) {
+  // LINT.IfChange(apply_command_limits)
+  maxDisplacementVelocityX_.store(settings.maxDisplacementVelocityX);
+  maxDisplacementVelocityY_.store(settings.maxDisplacementVelocityY);
+  maxDeltaPelvisHeight_.store(settings.maxDeltaPelvisHeight);
+  maxRotationVelocity_.store(settings.maxRotationVelocity);
+  RETURN_IF_ERROR(setVelocityCommandAccelerationLimits(settings.maxLinearAcceleration, settings.maxAngularAcceleration));
+  return velocityCommandFilter_.setBreakFrequency(settings.velocityCommandFilterBreakFrequency);
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/reference/ReferenceFromConfig.cpp:hot_reference_file_fields)
 }
 
 void ProceduralMpcMotionManager::reset() {
@@ -218,9 +239,9 @@ bool ProceduralMpcMotionManager::transitionToSlowerGait(const vector4_t& velComm
 void ProceduralMpcMotionManager::preSolverRun(scalar_t initTime,
                                               scalar_t finalTime,
                                               const vector_t& initState,
-                                              const ReferenceManagerInterface& referenceManager) {
+                                              const ReferenceManagerInterface& /*referenceManager*/) {
   WalkingVelocityCommand incommingVelCommand = getScaledWalkingVelocityCommand();
-  // The command filter runs on the solver time (off unless reference.yaml sets its break frequency).
+  // The command filter runs on the solver time (off unless reference.textproto sets its break frequency).
   vector4_t filteredVelCommand = velocityCommandFilter_.update(initTime, incommingVelCommand.toVector());
   // Acceleration limit on the reference (off by default). The first solve, the first after a reset, and a solve after
   // time ran backwards start the ramp at the filtered command itself.
@@ -251,14 +272,14 @@ void ProceduralMpcMotionManager::preSolverRun(scalar_t initTime,
     if (currentGaitMode_ + 1 < gaitModeStates_.size() && transitionToFasterGait(filteredVelCommand, baseVelocity, currentCfg)) {
       LOG(INFO) << "filteredVelCommand: " << filteredVelCommand.transpose();
       LOG(INFO) << "Linear limits: " << currentCfg.minLinVelCmd << ", " << currentCfg.maxLinVelCmd;
-      currentGaitMode_++;
+      ++currentGaitMode_;
       currentGaitCommand_ = gaitModeStates_[currentGaitMode_].gaitCommand;
       LOG(INFO) << "ProceduralMpcMotionManager: Increasing to gait:" << currentGaitCommand_;
       lastGaitChangeTime_ = initTime;
     } else if (currentGaitMode_ > 0 && transitionToSlowerGait(filteredVelCommand, baseVelocity, currentCfg)) {
       LOG(INFO) << "filteredVelCommand: " << filteredVelCommand.transpose();
       LOG(INFO) << "Linear limits: " << currentCfg.minLinVelCmd << ", " << currentCfg.maxLinVelCmd;
-      currentGaitMode_--;
+      --currentGaitMode_;
       currentGaitCommand_ = gaitModeStates_[currentGaitMode_].gaitCommand;
       LOG(INFO) << "ProceduralMpcMotionManager: Decreasing to gait:" << currentGaitCommand_;
       lastGaitChangeTime_ = initTime;
@@ -266,9 +287,11 @@ void ProceduralMpcMotionManager::preSolverRun(scalar_t initTime,
   }
 
   if (currentGaitCommand_ != lastGaitCommand_) {
-    ModeSequenceTemplate modeSequenceTemplate = gaitMap_.at(currentGaitCommand_);
+    // loadGaits() refused a gait file without every gait of gaitModeStates_, which currentGaitCommand_ is one of.
+    const std::map<std::string, ModeSequenceTemplate>::const_iterator gait = gaitMap_.find(currentGaitCommand_);
+    ABSL_CHECK(gait != gaitMap_.end()) << "no gait " << currentGaitCommand_;
 
-    GaitScheduleUpdater::updateGaitSchedule(gaitSchedulePtr_, modeSequenceTemplate, initTime, finalTime);
+    updateGaitSchedule(*gaitSchedulePtr_, gait->second, initTime, finalTime);
     lastGaitCommand_ = currentGaitCommand_;
   }
 }

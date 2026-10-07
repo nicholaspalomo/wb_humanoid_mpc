@@ -35,14 +35,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <pinocchio/multibody/data.hpp>
-#include <pinocchio/multibody/model.hpp>
-
-#include <ocs2_mpc/SystemObservation.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/multibody/data.hpp"
+#include "pinocchio/multibody/model.hpp"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -61,13 +60,13 @@ namespace ocs2::humanoid::visualization {
 /** What one scene is drawn from; any of them may be absent. */
 struct SceneInputs {
   /** The latest MPC observation: the contact markers and the collision spheres are drawn at its state. */
-  const SystemObservation* observation = nullptr;
+  const SystemObservation* absl_nullable observation = nullptr;
   /** The latest MPC solution: the plan, the terminal robots, and the contact wrenches at the observation. */
-  const PolicySnapshot* policy = nullptr;
+  const PolicySnapshot* absl_nullable policy = nullptr;
   /** Changes with every new policy; the plan is computed again only when it does. */
   uint64_t policyVersion = 0;
   /** The latest robot/state sample: the measured robot, with every joint. Without one, the observation's state. */
-  const msgs::RobotStateSample* robotState = nullptr;
+  const msgs::RobotStateSample* absl_nullable robotState = nullptr;
 };
 
 /**
@@ -84,7 +83,7 @@ struct SceneInputs {
  *     state-aware world-frame accessors, so that they are right for every input parameterization, and not the
  *     observation's input, which the MuJoCo simulations leave zero. A stance foot whose normal force
  *     is below kMinNormalForceForCop has its center of pressure at its contact frame rather than NaN;
- *   - the plan: the paths of the task file's rerunPlanFrames, of the base and of the CoM projected to the ground, and
+ *   - the plan: the paths of the task file's rerun_plan_frames, of the base and of the CoM projected to the ground, and
  *     the footholds where a foot lands within the horizon.
  *
  * Every scene carries every marker path, empty when there is nothing to draw, so that what is no longer true
@@ -98,7 +97,8 @@ class SceneBuilder {
   /**
    * @return InvalidArgument when the model is not the MPC's (checkVisualizationModel()), when the URDF does not parse,
    *         when a frame of config.planFrames or a contact frame is not in the MPC's model, or when the task file's
-   *         contact polygons are not rectangles whose corner frames the model has.
+   *         contact polygons do not load or are not rectangles whose corner frames the model has. Collision spheres
+   *         that do not load are not an error: none is drawn.
    */
   static absl::StatusOr<std::unique_ptr<SceneBuilder>> Create(const VisualizationModel& model, const VisualizationConfig& config);
 
@@ -108,10 +108,9 @@ class SceneBuilder {
    *
    * @return FailedPrecondition, with `scene` cleared, when there is neither an observation nor a sample to draw.
    */
-  absl::Status build(const SceneInputs& inputs, humanoid_mpc_msgs::VisualizationScene* scene);
+  absl::Status build(const SceneInputs& inputs, humanoid_mpc_msgs::VisualizationScene* absl_nonnull scene);
 
-  /** The links of each robot instance: the BODY frames of the full URDF model and of the MPC's model, in frame order. */
-  const std::vector<std::string>& measuredLinkNames() const { return fullLinkNames_; }
+  /** The links of the MPC's robot instance: the BODY frames of the MPC's model, in frame order. */
   const std::vector<std::string>& mpcLinkNames() const { return mpcLinkNames_; }
 
  private:
@@ -132,11 +131,11 @@ class SceneBuilder {
   SceneBuilder(const VisualizationModel& model, const VisualizationConfig& config);
   absl::Status initialize(const VisualizationModel& model, const VisualizationConfig& config);
 
-  void writeMeasuredFromSample(const msgs::RobotStateSample& sample, humanoid_mpc_msgs::RobotModelInstance* instance);
+  void writeMeasuredFromSample(const msgs::RobotStateSample& sample, humanoid_mpc_msgs::RobotModelInstance* absl_nonnull instance);
   void updateGroundHeight(size_t mode);
   void writeObservationMarkers(const SystemObservation& observation,
-                               const PolicySnapshot* policy,
-                               humanoid_mpc_msgs::VisualizationScene* scene);
+                               const PolicySnapshot* absl_nullable policy,
+                               humanoid_mpc_msgs::VisualizationScene* absl_nonnull scene);
   void computePlan(const PolicySnapshot& policy);
   void clearPlan();
 

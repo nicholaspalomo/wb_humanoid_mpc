@@ -27,14 +27,13 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -42,17 +41,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/log/globals.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopMetricsSchema.h"
 #include "humanoid_mpc_validation/closed_loop/LockstepClosedLoop.h"
 #include "humanoid_mpc_validation/io/GoldenIo.h"
 #include "humanoid_mpc_validation/io/JsonValue.h"
-
-extern char** environ;
 
 /*
  * The lockstep closed loop is reproducible: runs of the short smoke scenario on the Unitree G1 centroidal MPC, with one
@@ -61,16 +60,20 @@ extern char** environ;
  * makes a closed-loop comparison across a code change (M0 against M1, Step 6's bitwise rerun) mean something, and those
  * comparisons always come from separate processes: a per-process source of nondeterminism, such as Abseil's hash seed,
  * which orders RobotDescription's joint list differently from one process to the next, shows only across processes.
- * With more threads the order of the per-thread cost sums varies, so the production comparisons use the configured
- * threads and the bands of section 4.5 instead.
  *
- * Only the first run compiles: the others load the CppAD libraries it generated. Tagged exclusive.
+ * Only the first run compiles: the others load the CppAD libraries it generated, so this test cannot see a difference
+ * between two generations of them. That was what made the production runs differ in their last bits from one run to
+ * the next, not their solver threads: CppAD's recorder hashed a CppADCodeGen constant by its bytes, a heap address
+ * among them, so the generated sources of six whole-body models followed the heap's layout, and every sandboxed run
+ * generates its libraries afresh. The vendored CppADCodeGen now hashes a constant by its value (lib/ocs2/README.md,
+ * test_cppad_codegen_determinism), and the production runs, with the configured threads, repeat bit for bit; their
+ * comparisons across a code change use the bands of section 4.5. Tagged exclusive.
  */
 
 namespace ocs2::humanoid::validation {
 namespace {
 
-constexpr double kTolerance = 1e-9;
+constexpr double kTolerance = 1.0e-9;
 
 /** Every difference between two documents beyond kTolerance, skipping what measures the machine. */
 void collectDifferences(const JsonValue& a, const JsonValue& b, const std::string& path, std::vector<std::string>& differences) {
@@ -91,17 +94,18 @@ void collectDifferences(const JsonValue& a, const JsonValue& b, const std::strin
     }
   } else if (a.isArray()) {
     if (a.size() != b.size()) differences.push_back(absl::StrCat(path, ": different lengths"));
-    for (size_t i = 0; i < a.size() && i < b.size(); ++i)
+    for (size_t i = 0; i < a.size() && i < b.size(); ++i) {
       collectDifferences(a.at(i), b.at(i), absl::StrCat(path, "[", i, "]"), differences);
+    }
   } else if (a != b) {
     differences.push_back(absl::StrCat(path, ": ", a.serialize(), " against ", b.serialize()));
   }
 }
 
 /** The environment variable that makes this binary the child of ARunInAProcessOfItsOwnAgrees: where it writes its run. */
-constexpr const char* kChildOutputVariable = "LOCKSTEP_DETERMINISM_CHILD_OUTPUT";
-constexpr const char* kChildTestName = "LockstepDeterminism.ChildProcessRun";
-constexpr const char* kFinalStateLabel = "final_observation_state";
+constexpr char kChildOutputVariable[] = "LOCKSTEP_DETERMINISM_CHILD_OUTPUT";
+constexpr char kChildTestName[] = "LockstepDeterminism.ChildProcessRun";
+constexpr char kFinalStateLabel[] = "final_observation_state";
 
 /** The smoke run of every test here: the Unitree G1 centroidal MPC, one solver thread. */
 absl::StatusOr<LockstepResult> runSmoke() {
@@ -153,7 +157,7 @@ void expectRunsAgree(const JsonValue& firstMetrics,
  */
 int runChildProcess(const std::string& outputPrefix) {
   std::vector<std::string> environment;
-  for (char** variable = environ; *variable != nullptr; ++variable) {
+  for (char* absl_nullable* absl_nonnull variable = environ; *variable != nullptr; ++variable) {
     const std::string entry(*variable);
     if (absl::StartsWith(entry, "XML_OUTPUT_FILE=") || absl::StartsWith(entry, "GTEST_") ||
         absl::StartsWith(entry, "TEST_PREMATURE_EXIT_FILE=") || absl::StartsWith(entry, "TEST_SHARD_STATUS_FILE=") ||
@@ -163,13 +167,13 @@ int runChildProcess(const std::string& outputPrefix) {
     environment.push_back(entry);
   }
   environment.push_back(absl::StrCat(kChildOutputVariable, "=", outputPrefix));
-  std::vector<char*> envp;
+  std::vector<char* absl_nullable> envp;
   for (std::string& entry : environment) envp.push_back(entry.data());
   envp.push_back(nullptr);
 
   std::string program = std::filesystem::read_symlink("/proc/self/exe").string();
   std::string filter = absl::StrCat("--gtest_filter=", kChildTestName);
-  std::vector<char*> argv = {program.data(), filter.data(), nullptr};
+  std::vector<char* absl_nullable> argv = {program.data(), filter.data(), nullptr};
   pid_t child = 0;
   if (posix_spawn(&child, program.c_str(), /*file_actions=*/nullptr, /*attrp=*/nullptr, argv.data(), envp.data()) != 0) return -1;
   int status = 0;
@@ -179,13 +183,13 @@ int runChildProcess(const std::string& outputPrefix) {
 
 TEST(LockstepDeterminism, ChildProcessRun) {
   // Only as the child of ARunInAProcessOfItsOwnAgrees, which names where the run goes.
-  const char* outputPrefix = std::getenv(kChildOutputVariable);
+  const char* absl_nullable outputPrefix = std::getenv(kChildOutputVariable);
   if (outputPrefix == nullptr) GTEST_SKIP() << "the child process of ARunInAProcessOfItsOwnAgrees";
   const absl::StatusOr<LockstepResult> run = runSmoke();
   ASSERT_TRUE(run.ok()) << run.status();
   ASSERT_TRUE(writeJsonFile(absl::StrCat(outputPrefix, ".json"), run->metrics).ok());
   GoldenFile series = run->timeSeries;
-  series.entries.push_back(GoldenEntry{kFinalStateLabel, golden_matrix_t(run->finalObservationState.transpose())});
+  series.entries.push_back(GoldenEntry{.label = kFinalStateLabel, .value = golden_matrix_t(run->finalObservationState.transpose())});
   ASSERT_TRUE(writeGoldenFile(absl::StrCat(outputPrefix, "_series.txt"), series).ok());
 }
 
@@ -213,7 +217,7 @@ TEST(LockstepDeterminism, TwoRunsWithOneSolverThreadAgree) {
 TEST(LockstepDeterminism, ARunInAProcessOfItsOwnAgrees) {
   const absl::StatusOr<LockstepResult> here = runSmoke();
   ASSERT_TRUE(here.ok()) << here.status();
-  const char* tmp = std::getenv("TEST_TMPDIR");
+  const char* absl_nullable tmp = std::getenv("TEST_TMPDIR");
   const std::string outputPrefix = (std::filesystem::path(tmp != nullptr ? tmp : "/tmp") / "lockstep_determinism_child").string();
   ASSERT_EQ(runChildProcess(outputPrefix), 0) << "the child process failed";
 
@@ -221,7 +225,7 @@ TEST(LockstepDeterminism, ARunInAProcessOfItsOwnAgrees) {
   ASSERT_TRUE(childMetrics.ok()) << childMetrics.status();
   absl::StatusOr<GoldenFile> childSeries = readGoldenFile(absl::StrCat(outputPrefix, "_series.txt"));
   ASSERT_TRUE(childSeries.ok()) << childSeries.status();
-  const golden_matrix_t* childFinalState = childSeries->find(kFinalStateLabel);
+  const golden_matrix_t* absl_nullable childFinalState = childSeries->find(kFinalStateLabel);
   ASSERT_NE(childFinalState, nullptr);
   const vector_t childFinal = childFinalState->row(0).transpose();
   childSeries->entries.pop_back();

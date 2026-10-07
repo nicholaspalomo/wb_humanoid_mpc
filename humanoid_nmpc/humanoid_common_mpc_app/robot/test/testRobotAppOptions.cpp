@@ -27,12 +27,14 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <memory>
+#include <string>
+#include <utility>
 #include <vector>
 
-#include <ocs2_mpc/SystemObservation.h>
+#include "absl/base/nullability.h"
+#include "gtest/gtest.h"
+#include "ocs2_mpc/SystemObservation.h"
 
 #include "humanoid_common_mpc_app/robot/RemoteMpcLinkAdapter.h"
 #include "humanoid_common_mpc_app/robot/RobotAppOptions.h"
@@ -48,7 +50,7 @@ namespace {
 
 TEST(RobotAppOptions, TheRetiredMpcLinkFlagIsRefusedWithItsReplacement) {
   EXPECT_TRUE(checkRetiredMpcLinkFlag("").ok()) << "not given";
-  for (const char* value : {"in_process", "remote", "ros"}) {
+  for (const char* absl_nonnull value : {"in_process", "remote", "ros"}) {
     const absl::Status refused = checkRetiredMpcLinkFlag(value);
     EXPECT_EQ(refused.code(), absl::StatusCode::kFailedPrecondition) << value;
     EXPECT_NE(refused.message().find("MPC node"), std::string::npos) << "the error names the replacement: " << refused.message();
@@ -59,7 +61,7 @@ TEST(RobotAppOptions, CoreLists) {
   const std::vector<int> defaults{4, 5};
   EXPECT_EQ(*parseCoreList("default", defaults), defaults);
   EXPECT_TRUE(parseCoreList("none", defaults)->empty());
-  EXPECT_TRUE(parseCoreList("", defaults)->empty());
+  EXPECT_TRUE(parseCoreList(/*value=*/"", defaults)->empty());
   EXPECT_EQ(*parseCoreList("2, 3,7", defaults), (std::vector<int>{2, 3, 7}));
   EXPECT_FALSE(parseCoreList("2,x", defaults).ok());
   EXPECT_FALSE(parseCoreList("-1", defaults).ok());
@@ -71,7 +73,7 @@ TEST(RemoteMpcLinkAdapter, IsCreatedBeforeTheBusRunsAndHandedOverOnce) {
   config.dimensions = ipc::ModelDimensions{.stateDim = 3, .inputDim = 2, .numModes = 4};
   absl::StatusOr<std::unique_ptr<RemoteMpcLinkAdapter>> adapter = RemoteMpcLinkAdapter::Create(*bus, config);
   ASSERT_TRUE(adapter.ok()) << adapter.status();
-  RemoteMpcLinkAdapter* link = adapter->get();
+  RemoteMpcLinkAdapter* absl_nonnull link = adapter->get();
   EXPECT_TRUE(link->isHealthy());
   EXPECT_FALSE(link->initialPolicyReceived());
 

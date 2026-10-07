@@ -36,13 +36,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include "google/protobuf/text_format.h"
-
+#include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/ascii.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "google/protobuf/text_format.h"
 
 #include "robot_ipc/NodeEndpoint.h"
 #include "robot_ipc_proto/network_config.pb.h"
@@ -163,7 +163,7 @@ std::string NodeEndpoint::connectEndpoint() const {
   return absl::StrCat("tcp://", address, ":", port);
 }
 
-const NodeEndpoint* NetworkConfig::find(absl::string_view name) const {
+const NodeEndpoint* absl_nullable NetworkConfig::find(absl::string_view name) const {
   for (const NodeEndpoint& node : nodes) {
     if (node.name == name) {
       return &node;
@@ -234,11 +234,11 @@ absl::StatusOr<NetworkConfig> parseNetworkConfig(absl::string_view text, absl::s
 
 absl::StatusOr<NetworkConfig> loadNetworkConfig(const std::string& path) {
   robot_ipc_proto::NetworkConfig message;
-  const absl::Status loaded = loadTextproto(path, message);
+  absl::Status loaded = loadTextproto(path, message);
   if (absl::IsNotFound(loaded)) {
     return absl::NotFoundError(absl::StrCat("cannot open the network file '", path, "'"));
   }
-  ROBOT_IPC_RETURN_IF_ERROR(loaded);
+  if (!loaded.ok()) return loaded;
   absl::StatusOr<NetworkConfig> config = fromProto(message);
   if (!config.ok()) {
     return withSource(path, config.status());
@@ -273,6 +273,7 @@ NetworkConfig localhostNetworkConfig() {
       NodeEndpoint{.name = "mpc", .host = "127.0.0.1", .port = 5610},
       NodeEndpoint{.name = "operator", .host = "127.0.0.1", .port = 5620},
       NodeEndpoint{.name = "teleop", .host = "127.0.0.1", .port = 5621},
+      NodeEndpoint{.name = "config_push", .host = "127.0.0.1", .port = 5622},
   };
   return config;
 }

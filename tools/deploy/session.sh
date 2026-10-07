@@ -12,8 +12,9 @@
 # (docker-compose.robot.yaml) with the MuJoCo viewer added, its realtime settings, the shipped localhost network - and
 # follows its log as [robot], then runs the laptop side (the MPC node, the GUI, the Rerun bridge) in the dev container
 # over the remote MPC link. When the laptop side ends (Ctrl-C, or its MPC exits) the robot container stops too. The
-# robot container reads this checkout's robot_models (mounted read-only over the image's copy), as the MPC node does, so
-# that the PD gains file and the task file's controller-side keys reload live, as in the old sims.
+# robot container's bundled files are this checkout's robot_models (mounted read-only over the image's copy), which seed
+# its stored configuration at every start: it starts on the files the MPC node reads, and the GUI's Save reaches it over
+# the bus while it runs, as on the robot.
 # `laptop` runs only the laptop side of a launch file (the dummy simulator, the MPC against a robot, the sandbox).
 #
 # The bus's ports (config/ipc/network.textproto) are the host's: a session refuses to start while another holds them -
@@ -41,7 +42,7 @@ PID_FILE=".deploy/laptop_side.pid"
 LAUNCHER=".bazel/bin/tools/launch/launch"
 
 usage() {
-    sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+    sed -n '2,27p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
     exit 2
 }
 
@@ -216,6 +217,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 export ROBOT="${robot}" NETEM="${netem}" DISPLAY="${DISPLAY:-:99}"
 export WB_ROBOT_HEADLESS="${headless}"
+# The checkout's robot_models, the seeds of the simulated robot's stored configuration (docker-compose.robot.sim.yaml).
 # LINT.IfChange(sim_models)
 WB_ROBOT_SIM_MODELS="${WB_HOST_CHECKOUT:-$(host_checkout)}/robot_models"
 # LINT.ThenChange(//docker-compose.robot.sim.yaml:sim_models_mount)

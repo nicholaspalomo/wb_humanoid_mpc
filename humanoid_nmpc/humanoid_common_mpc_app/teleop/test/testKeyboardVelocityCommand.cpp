@@ -27,8 +27,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <unistd.h>
 
 #include <atomic>
@@ -40,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -47,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc_app/teleop/KeyboardVelocityCommand.h"
 #include "humanoid_common_mpc_app/teleop/LineReader.h"
@@ -60,8 +60,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_ipc/NodeEndpoint.h"
 
 /*
- * The keyboard velocity teleoperation: the command limits it reads from reference.yaml (the ones the MPC scales the
- * command back with), a typed line, the normalized message, the line reader that does not block a shutdown, and the
+ * The keyboard velocity teleoperation: the command limits it reads from reference.textproto (the ones the MPC scales
+ * the command back with), a typed line, the normalized message, the line reader that does not block a shutdown, and the
  * republication of the latest command at the topic's rate.
  */
 
@@ -69,18 +69,18 @@ namespace ocs2::humanoid::teleop {
 namespace {
 
 std::string writeTemporaryFile(const std::string& name, const std::string& content) {
-  const char* directory = std::getenv("TEST_TMPDIR");
+  const char* absl_nullable directory = std::getenv("TEST_TMPDIR");
   const std::string path = absl::StrCat(directory != nullptr ? directory : "/tmp", "/", name);
   std::ofstream(path) << content;
   return path;
 }
 
 TEST(KeyboardCommandLimits, EveryShippedReferenceFileHasPositiveLimits) {
-  for (const char* file : {"robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml",
-                           "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/command/reference.yaml",
-                           "robot_models/unitree_g1/g1_centroidal_mpc/config/command/reference.yaml",
-                           "robot_models/unitree_g1/g1_wb_mpc/config/command/reference.yaml",
-                           "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/command/reference.yaml"}) {
+  for (const char* absl_nonnull file : {"robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.textproto",
+                                        "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/command/reference.textproto",
+                                        "robot_models/unitree_g1/g1_centroidal_mpc/config/command/reference.textproto",
+                                        "robot_models/unitree_g1/g1_wb_mpc/config/command/reference.textproto",
+                                        "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/command/reference.textproto"}) {
     const absl::StatusOr<std::string> path = robot::resolveResourcePath(file);
     ASSERT_TRUE(path.ok()) << path.status();
     const absl::StatusOr<KeyboardCommandLimits> limits = loadKeyboardCommandLimits(*path);
@@ -90,28 +90,35 @@ TEST(KeyboardCommandLimits, EveryShippedReferenceFileHasPositiveLimits) {
   }
 }
 
-TEST(KeyboardCommandLimits, RefusesAMissingKeyALimitThatIsNotPositiveAndAMissingFile) {
+TEST(KeyboardCommandLimits, RefusesAMissingFieldALimitThatIsNotPositiveAnUnknownFieldAndAMissingFile) {
   const std::string complete =
-      "maxDisplacementVelocityX: 0.6\nmaxDisplacementVelocityY: 0.3\nmaxDeltaPelvisHeight: 0.2\nmaxRotationVelocity: 0.8\n"
-      "defaultBaseHeight: 0.75\n";
-  const absl::StatusOr<KeyboardCommandLimits> loaded = loadKeyboardCommandLimits(writeTemporaryFile("complete.yaml", complete));
+      "max_displacement_velocity_x: 0.6\nmax_displacement_velocity_y: 0.3\nmax_delta_pelvis_height: 0.2\n"
+      "max_rotation_velocity: 0.8\ndefault_base_height: 0.75\n";
+  const absl::StatusOr<KeyboardCommandLimits> loaded = loadKeyboardCommandLimits(writeTemporaryFile("complete.textproto", complete));
   ASSERT_TRUE(loaded.ok()) << loaded.status();
   EXPECT_EQ(loaded->limits(0), 0.6);
   EXPECT_EQ(loaded->limits(3), 0.8);
   EXPECT_EQ(loaded->defaultBaseHeight, 0.75);
 
-  const absl::StatusOr<KeyboardCommandLimits> missing =
-      loadKeyboardCommandLimits(writeTemporaryFile("missing.yaml", "maxDisplacementVelocityX: 0.6\n"));
+  const std::string missingFile = writeTemporaryFile("missing.textproto", "max_displacement_velocity_x: 0.6\n");
+  const absl::StatusOr<KeyboardCommandLimits> missing = loadKeyboardCommandLimits(missingFile);
   EXPECT_EQ(missing.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(missing.status().message(), "maxDisplacementVelocityY")) << missing.status();
+  EXPECT_TRUE(absl::StartsWith(missing.status().message(), missingFile)) << missing.status();
+  EXPECT_TRUE(absl::StrContains(missing.status().message(), "max_displacement_velocity_y")) << missing.status();
 
   std::string zero = complete;
   zero.replace(zero.find("0.3"), 3, "0.0");
-  const absl::StatusOr<KeyboardCommandLimits> notPositive = loadKeyboardCommandLimits(writeTemporaryFile("zero.yaml", zero));
+  const absl::StatusOr<KeyboardCommandLimits> notPositive = loadKeyboardCommandLimits(writeTemporaryFile("zero.textproto", zero));
   EXPECT_EQ(notPositive.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(notPositive.status().message(), "maxDisplacementVelocityY")) << notPositive.status();
+  EXPECT_TRUE(absl::StrContains(notPositive.status().message(), "max_displacement_velocity_y")) << notPositive.status();
 
-  EXPECT_EQ(loadKeyboardCommandLimits("/nonexistent/reference.yaml").status().code(), absl::StatusCode::kNotFound);
+  // The file is read strictly: a field the schema does not have is refused where it is written.
+  const std::string unknownFile = writeTemporaryFile("unknown.textproto", absl::StrCat(complete, "max_speed: 2\n"));
+  const absl::StatusOr<KeyboardCommandLimits> unknown = loadKeyboardCommandLimits(unknownFile);
+  EXPECT_EQ(unknown.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(unknown.status().message(), absl::StrCat(unknownFile, ":6:"))) << unknown.status();
+
+  EXPECT_EQ(loadKeyboardCommandLimits("/nonexistent/reference.textproto").status().code(), absl::StatusCode::kNotFound);
 }
 
 TEST(ParseKeyboardCommandLine, ReadsUpToFourNumbersAndZerosTheRest) {
@@ -184,7 +191,7 @@ TEST(LineReader, GivesUpWaitingOnceTheStopPredicateHolds) {
 std::unique_ptr<robot::ipc::Bus> loopbackBus(const std::string& name) {
   robot::ipc::BusOptions options;
   options.nodeName = name;
-  options.network.nodes = {robot::ipc::NodeEndpoint{.name = name, .host = "127.0.0.1", .port = robot::ipc::kEphemeralPort}};
+  options.network.nodes = {robot::ipc::NodeEndpoint{.name = name, .host = "127.0.0.1", .port = robot::ipc::kEphemeralPort, .bindHost = ""}};
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
   EXPECT_TRUE(bus.ok()) << bus.status();
   return *std::move(bus);
@@ -223,7 +230,8 @@ TEST(VelocityCommandRepeater, PublishesNothingBeforeTheFirstCommandAndThenTheLat
   ASSERT_GE(receivedCount.load(), 3);
   {
     absl::MutexLock lock(mutex);
-    ASSERT_TRUE(received.has_value());
+    // An if, not ASSERT_TRUE: clang-tidy sees the check (bugprone-unchecked-optional-access) only through an if.
+    if (!received.has_value()) FAIL() << "no command";
     EXPECT_EQ(received->linear_velocity_x(), 0.5);
   }
   // Repeated at about 25 Hz, not as fast as the IO thread can.

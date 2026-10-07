@@ -1,33 +1,51 @@
-#!/usr/bin/env python3
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Include spelling: quotes and full paths for everything but the C, C++ and POSIX system headers.
 
-Two checks:
+`include-style` (Google C++ style, Names and order of includes): only C and C++ standard library headers and
+POSIX/Linux system headers use angle brackets; everything else, third-party libraries included, uses quotes and its
+full path (`#include "pinocchio/fwd.hpp"`, `#include "humanoid_common_mpc/common/Types.h"`). A first-party header is
+never included by its bare file name. The fix rewrites the brackets; clang-format then regroups the includes.
 
-- `include-style` (Google C++ style, Names and order of includes): only C and C++ standard library headers and
-  POSIX/Linux system headers use angle brackets; everything else, third-party libraries included, uses quotes and its
-  full path (`#include "pinocchio/fwd.hpp"`, `#include "humanoid_common_mpc/common/Types.h"`). A first-party header is
-  never included by its bare file name. The fix rewrites the brackets; clang-format then regroups the includes.
-- `include-abseil-quotes`, the original rule, kept on its own until include-style is enforced:
-
-Bazel makes the @abseil-cpp headers visible through `-iquote` paths, which only a quoted include searches. An angle
-include, `#include <absl/log/log.h>`, skips them and falls through to the system include directories, which hold a
-different Abseil release or none. The dev image once built Abseil 20240722 into /usr/local (removed from
-docker/Dockerfile since), so such a file compiled there against headers of another version than the one it links
-against, and failed in CI's clean ros:jazzy container with `absl/log/log.h: No such file or directory`. Write
-`#include "absl/..."`.
+For Abseil the brackets are a build error waiting to happen, not only a style matter, and the finding says so. Bazel
+makes the @abseil-cpp headers visible through `-iquote` paths, which only a quoted include searches. An angle include,
+`#include <absl/log/log.h>`, skips them and falls through to the system include directories, which hold a different
+Abseil release or none. The dev image once built Abseil 20240722 into /usr/local (removed from docker/Dockerfile
+since), so such a file compiled there against headers of another version than the one it links against, and failed in
+CI's clean ros:jazzy container with `absl/log/log.h: No such file or directory`.
 """
 
-import os
 import re
-import sys
-from typing import Iterable, List, NamedTuple
 
 from tools.hooks import check_types
 from tools.hooks import cpp_source
 from tools.hooks import lint_files
 
-# The original rule, enforced on its own until the general include-style check below leaves PENDING (M1).
-ABSEIL_NAME = "include-abseil-quotes"
 NAME = "include-style"
 
 # The C++ standard library headers (cpplint's _CPP_HEADERS, without its pre-standard names).
@@ -63,59 +81,25 @@ C_SYSTEM_HEADERS = frozenset(
 C_SYSTEM_DIRECTORIES = frozenset(
     "sys arpa asm asm-generic bits gnu net netinet protocols rpc rpcsvc scsi drm linux misc mtd rdma sound video xen".split()
 )
-# Third-party headers that have no directory of their own (cppzmq, libzmq).
+# Third-party headers that have no directory of their own: cppzmq and libzmq, and HPIPM and BLASFEO, which install their
+# headers flat (bazel/system_libs.bzl). .clang-format's include categories sort them with the other libraries.
+# LINT.IfChange(directoryless_third_party)
 DIRECTORYLESS_THIRD_PARTY = frozenset({"zmq.hpp", "zmq_addon.hpp", "zmq.h"})
+_DIRECTORYLESS_THIRD_PARTY_PATTERN = re.compile(r"^(hpipm|blasfeo)_[a-z0-9_]+\.h$")
+# LINT.ThenChange(//.clang-format:include_categories)
+
+
+def is_directoryless_third_party(header: str) -> bool:
+    """True for a third-party header that its library installs without a directory, such as `zmq.hpp`."""
+    return header in DIRECTORYLESS_THIRD_PARTY or bool(
+        _DIRECTORYLESS_THIRD_PARTY_PATTERN.match(header)
+    )
+
 
 _INCLUDE = re.compile(
     r'^(?P<lead>[ \t]*#[ \t]*include[ \t]*)(?P<open>[<"])(?P<header>[^>"\n]+)(?P<close>[>"])',
     re.MULTILINE,
 )
-
-_ANGLE_ABSL = re.compile(r"^\s*#\s*include\s*<(absl/[^>]+)>")
-
-
-class Violation(NamedTuple):
-    path: str
-    line: int
-    header: str
-
-    def __str__(self) -> str:
-        return (
-            f'{self.path}:{self.line}: `#include <{self.header}>` - write `#include "{self.header}"`: Bazel exposes '
-            "@abseil-cpp to quoted includes only, and an angle include finds a system Abseil or none (see "
-            "tools/hooks/include_style.py)."
-        )
-
-
-def check_source(source: str, path: str = "<source>") -> List[Violation]:
-    violations = []
-    for number, line in enumerate(source.splitlines(), start=1):
-        match = _ANGLE_ABSL.match(line)
-        if match:
-            violations.append(Violation(path, number, match.group(1)))
-    return violations
-
-
-def check_files(paths: Iterable[str], root: str) -> List[Violation]:
-    violations: List[Violation] = []
-    for path in paths:
-        with open(path, encoding="utf-8", errors="ignore") as f:
-            violations += check_source(f.read(), os.path.relpath(path, root))
-    return violations
-
-
-def _abseil_findings(source: str, path: str) -> List[check_types.Finding]:
-    return [
-        check_types.Finding(
-            path,
-            v.line,
-            1,
-            ABSEIL_NAME,
-            f'`#include <{v.header}>`: write `#include "{v.header}"`. Bazel exposes @abseil-cpp to quoted includes '
-            "only, and an angle include finds a system Abseil or none.",
-        )
-        for v in check_source(source, path)
-    ]
 
 
 def is_system_header(header: str) -> bool:
@@ -144,25 +128,36 @@ def _without_comments(source: str) -> str:
     return cpp_source.mask(source)[0]
 
 
-def _style_findings(source: str, path: str) -> List[check_types.Finding]:
+_BRACKETS_REASON = "Angle brackets are for the C, C++ and POSIX system headers only (Google C++ style, Names and order of includes)."
+# Why an angle Abseil include is worse than a style slip (the module docstring).
+_ABSEIL_REASON = (
+    "Bazel exposes @abseil-cpp to quoted includes only, and an angle include finds a system Abseil or none "
+    "(tools/hooks/include_style.py)."
+)
+
+
+def _style_findings(source: str, path: str) -> list[check_types.Finding]:
+    """The include-style findings of `source`: an angle include of a non-system header, or a directory-less one."""
     findings = []
     for line, column, match in _includes(source):
         header = match.group("header")
         if match.group("open") == "<" and not is_system_header(header):
+            reason = _BRACKETS_REASON
+            if header.startswith("absl/"):
+                reason = _ABSEIL_REASON
             findings.append(
                 check_types.Finding(
                     path,
                     line,
                     column,
                     NAME,
-                    f'`#include <{header}>`: write `#include "{header}"`. Angle brackets are for the C, C++ and POSIX '
-                    "system headers only (Google C++ style, Names and order of includes).",
+                    f'`#include <{header}>`: write `#include "{header}"`. {reason}',
                 )
             )
         elif (
             match.group("open") == '"'
             and "/" not in header
-            and header not in DIRECTORYLESS_THIRD_PARTY
+            and not is_directoryless_third_party(header)
         ):
             findings.append(
                 check_types.Finding(
@@ -204,18 +199,4 @@ CHECKS = [
         hint="`make format` (or lint_code --fix --only include-style) rewrites the brackets; a bare file name needs its "
         "full path by hand.",
     ),
-    check_types.Check(
-        name=ABSEIL_NAME,
-        languages=frozenset({check_types.Language.CPP}),
-        scope=lint_files.Scope.FIRST_PARTY,
-        check_source=_abseil_findings,
-        description="Abseil headers are included with quotes, as Bazel exposes them (tools/hooks/include_style.py).",
-    ),
 ]
-
-
-if __name__ == "__main__":
-    found = check_files(sys.argv[1:], os.getcwd())
-    for violation in found:
-        print(violation)
-    sys.exit(1 if found else 0)

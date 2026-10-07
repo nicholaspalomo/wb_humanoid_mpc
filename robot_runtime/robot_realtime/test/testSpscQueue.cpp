@@ -27,8 +27,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -38,7 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <thread>
 #include <vector>
 
-#include <Eigen/Core>
+#include "Eigen/Core"
+#include "gtest/gtest.h"
 
 #include "robot_realtime/SpscQueue.h"
 
@@ -124,7 +123,7 @@ TEST(SpscQueueTest, everySlotStartsAsACopyOfThePrototype) {
   const std::vector<double> prototype(16, 1.5);
   SpscQueue<std::vector<double>> queue(/*capacity=*/2, prototype);
   for (int i = 0; i < 2; ++i) {
-    std::size_t slotSize = 0;
+    size_t slotSize = 0;
     double slotValue = 0.0;
     ASSERT_TRUE(queue.tryPushInPlace([&slotSize, &slotValue](std::vector<double>& slot) {
       slotSize = slot.size();
@@ -178,15 +177,15 @@ TEST(SpscQueueDeathTest, refusesAZeroCapacity) {
 // A payload of two cache lines whose words all repeat the sequence number, so that a slot read while it is being
 // written (a missing acquire or release) shows up as words that disagree.
 struct SequencedPayload {
-  std::uint64_t sequence = 0;
-  std::array<std::uint64_t, 15> copies{};
+  uint64_t sequence = 0;
+  std::array<uint64_t, 15> copies{};
 
-  void set(std::uint64_t value) {
+  void set(uint64_t value) {
     sequence = value;
     copies.fill(value);
   }
   bool consistent() const {
-    for (const std::uint64_t copy : copies) {
+    for (const uint64_t copy : copies) {
       if (copy != sequence) {
         return false;
       }
@@ -196,10 +195,10 @@ struct SequencedPayload {
 };
 
 struct StressResult {
-  std::uint64_t received = 0;
-  std::uint64_t outOfOrder = 0;
-  std::uint64_t torn = 0;
-  std::uint64_t producerFailures = 0;
+  uint64_t received = 0;
+  uint64_t outOfOrder = 0;
+  uint64_t torn = 0;
+  uint64_t producerFailures = 0;
 };
 
 /**
@@ -207,12 +206,12 @@ struct StressResult {
  * producer retries a push until it succeeds, as a non-realtime producer may; without, it drops the value and moves on,
  * as the realtime thread does.
  */
-StressResult runStress(SpscQueue<SequencedPayload>& queue, std::uint64_t messages, bool retryWhenFull) {
+StressResult runStress(SpscQueue<SequencedPayload>& queue, uint64_t messages, bool retryWhenFull) {
   StressResult result;
   std::atomic<bool> producerDone{false};
   std::thread producer([&queue, &result, &producerDone, messages, retryWhenFull]() {
     SequencedPayload payload;
-    for (std::uint64_t sequence = 0; sequence < messages; ++sequence) {
+    for (uint64_t sequence = 0; sequence < messages; ++sequence) {
       payload.set(sequence);
       while (!queue.tryPush(payload)) {
         ++result.producerFailures;
@@ -227,7 +226,7 @@ StressResult runStress(SpscQueue<SequencedPayload>& queue, std::uint64_t message
 
   SequencedPayload popped;
   bool first = true;
-  std::uint64_t previous = 0;
+  uint64_t previous = 0;
   for (;;) {
     if (queue.tryPop(popped)) {
       ++result.received;
@@ -250,7 +249,7 @@ StressResult runStress(SpscQueue<SequencedPayload>& queue, std::uint64_t message
 }
 
 TEST(SpscQueueStressTest, aProducerThatRetriesLosesNothingAndKeepsOrder) {
-  constexpr std::uint64_t kMessages = 1'000'000;
+  constexpr uint64_t kMessages = 1'000'000;
   auto queue = std::make_unique<SpscQueue<SequencedPayload>>(/*capacity=*/256);
   const StressResult result = runStress(*queue, kMessages, /*retryWhenFull=*/true);
 
@@ -261,7 +260,7 @@ TEST(SpscQueueStressTest, aProducerThatRetriesLosesNothingAndKeepsOrder) {
 }
 
 TEST(SpscQueueStressTest, aSingleSlotQueueStillHandsOverEveryValue) {
-  constexpr std::uint64_t kMessages = 100'000;
+  constexpr uint64_t kMessages = 100'000;
   auto queue = std::make_unique<SpscQueue<SequencedPayload>>(/*capacity=*/1);
   const StressResult result = runStress(*queue, kMessages, /*retryWhenFull=*/true);
 
@@ -272,7 +271,7 @@ TEST(SpscQueueStressTest, aSingleSlotQueueStillHandsOverEveryValue) {
 }
 
 TEST(SpscQueueStressTest, aProducerThatNeverWaitsLosesExactlyWhatItWasToldWasDropped) {
-  constexpr std::uint64_t kMessages = 1'000'000;
+  constexpr uint64_t kMessages = 1'000'000;
   auto queue = std::make_unique<SpscQueue<SequencedPayload>>(/*capacity=*/16);
   const StressResult result = runStress(*queue, kMessages, /*retryWhenFull=*/false);
 
@@ -286,11 +285,11 @@ TEST(SpscQueueStressTest, aProducerThatNeverWaitsLosesExactlyWhatItWasToldWasDro
 // last - watched by a third thread: sizeApprox() must never report a size the queue did not hold. Loading the write
 // index before the read index, as it once did, reported a full queue whenever a push and a pop fell between the loads.
 TEST(SpscQueueStressTest, sizeApproxNeverReportsASizeTheQueueDidNotHold) {
-  constexpr std::uint64_t kMessages = 100'000;
-  auto queue = std::make_unique<SpscQueue<std::uint64_t>>(/*capacity=*/64);
-  std::atomic<std::uint64_t> consumed{0};
+  constexpr uint64_t kMessages = 100'000;
+  auto queue = std::make_unique<SpscQueue<uint64_t>>(/*capacity=*/64);
+  std::atomic<uint64_t> consumed{0};
   std::thread producer([&queue, &consumed]() {
-    for (std::uint64_t value = 0; value < kMessages; ++value) {
+    for (uint64_t value = 0; value < kMessages; ++value) {
       while (consumed.load(std::memory_order_acquire) != value) {
         std::this_thread::yield();
       }
@@ -298,7 +297,7 @@ TEST(SpscQueueStressTest, sizeApproxNeverReportsASizeTheQueueDidNotHold) {
     }
   });
   std::thread consumer([&queue, &consumed]() {
-    std::uint64_t value = 0;
+    uint64_t value = 0;
     while (consumed.load(std::memory_order_relaxed) < kMessages) {
       if (queue->tryPop(value)) {
         // Only this thread writes the counter.
@@ -309,8 +308,8 @@ TEST(SpscQueueStressTest, sizeApproxNeverReportsASizeTheQueueDidNotHold) {
     }
   });
 
-  std::size_t largest = 0;
-  std::uint64_t observations = 0;
+  size_t largest = 0;
+  uint64_t observations = 0;
   while (consumed.load(std::memory_order_acquire) < kMessages) {
     largest = std::max(largest, queue->sizeApprox());
     ++observations;

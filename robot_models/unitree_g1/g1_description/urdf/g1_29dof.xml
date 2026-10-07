@@ -273,6 +273,15 @@
     <motor name="right_wrist_yaw_joint" joint="right_wrist_yaw_joint"/>
   </actuator>
 
+  <!-- Virtual gantry. A real weld the constraint solver satisfies inside mj_step, so the base is supported
+       WHILE the dynamics are integrated. MujocoSimInterface drives eq_active from the lock state and writes
+       the suspension height into the relpose translation, so the values here are only a starting point.
+       Without this the simulator falls back to overwriting qpos/qvel around mj_step, which leaves the robot in
+       free fall during the step and makes gravity compensation drive the limbs into their joint stops. -->
+  <equality>
+    <weld name="gantry" body1="world" body2="pelvis" relpose="0 0 0.793 1 0 0 0" active="false"/>
+  </equality>
+
   <sensor>
     <gyro name="imu-torso-angular-velocity" site="imu_in_torso" noise="5e-4" cutoff="34.9"/>
     <accelerometer name="imu-torso-linear-acceleration" site="imu_in_torso" noise="1e-2" cutoff="157"/>

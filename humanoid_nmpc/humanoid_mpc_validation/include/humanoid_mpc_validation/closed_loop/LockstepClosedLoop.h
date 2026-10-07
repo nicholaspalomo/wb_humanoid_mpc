@@ -31,7 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstddef>
 
+#include "Eigen/Core"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopDriver.h"
@@ -41,6 +43,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
 #include "humanoid_mpc_validation/io/GoldenIo.h"
 #include "humanoid_mpc_validation/io/JsonValue.h"
+#include "robot_core/Types.h"
+#include "robot_model/RobotJointAction.h"
+#include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid::validation {
 
@@ -74,11 +79,11 @@ struct LockstepResult {
  * formulation's MRT joint controller as the robot process drives it, and the MPC's solver iterations called
  * synchronously (InProcessMpcLink::Execution::kCaller), all on the calling thread.
  *
- * Every control cycle (1 / mrtDesiredFrequency of the task file, a whole number of simulation steps) runs in the order
+ * Every control cycle (1 / mpc.mrt_desired_frequency of the task file, a whole number of simulation steps) runs in the order
  * of RobotProcess::cycle(): the runner reads the simulator's state, hands the controller the mode and the JOINT_PD
- * posture, computes the joint action, applies the controller-side keys of the task file, serves the operator's commands
+ * posture, computes the joint action, applies the controller-side settings of the task file, serves the operator's commands
  * of this cycle (which take effect from the next one) and applies the action last. A solve is due every
- * 1 / mpcDesiredFrequency of simulation time; it runs in the cycle it falls in, after the action, on that cycle's
+ * 1 / mpc.mpc_desired_frequency of simulation time; it runs in the cycle it falls in, after the action, on that cycle's
  * observation, and its policy is in use from the next cycle on. A failed solve's pause before the next attempt ends
  * when its delay has passed or a reset is requested after it, as on the solver thread (LockstepSolveSchedule). The
  * solve takes no simulation time: the closed loop measures the controller, not the machine or the bus, and so is
@@ -88,8 +93,9 @@ struct LockstepResult {
  * once settled, has the gantry released as the robot process releases it (unlockGantry() and a reset of the MPC) once
  * the entry is over, stands for the scenario's standingTime, and then runs the scenario's commands, over which the
  * metrics are evaluated. The commands start at the top of the cycle in which the standing time is over: the GUI's
- * message is no FSM command of the robot process, so the operator's sequence does not delay it. A tilt beyond the task file's
- * simMaxBaseTiltAngle (1 rad without one), a base below half its initial height or a reset by the simulator is a fall; the run ends there.
+ * message is no FSM command of the robot process, so the operator's sequence does not delay it. A tilt beyond the task
+ * file's sim_max_base_tilt_angle (1 rad without one), a base below half its initial height or a reset by the simulator
+ * is a fall; the run ends there.
  */
 class LockstepClosedLoop {
  public:
@@ -106,5 +112,14 @@ class LockstepClosedLoop {
   RobotConfiguration configuration_;
   LockstepOptions options_;
 };
+
+/**
+ * The total feedback torque (JointAction::getTotalFeedbackTorque()) that `action` commands at `state` for each of
+ * `joints`, in their order: what a control cycle of the run records. An internal error names the first joint `action`
+ * holds no action for.
+ */
+absl::StatusOr<Eigen::VectorXd> jointFeedbackTorques(const robot::model::RobotJointAction& action,
+                                                     const robot::model::RobotState& state,
+                                                     absl::Span<const robot::joint_index_t> joints);
 
 }  // namespace ocs2::humanoid::validation

@@ -30,31 +30,31 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include <gtest/gtest.h>
-
-#include <ocs2_mpc/CommandData.h>
-#include <ocs2_oc/oc_data/PrimalSolution.h>
-
+#include "absl/base/nullability.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "gtest/gtest.h"
+#include "ocs2_mpc/CommandData.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 
-#include "VisualizationTestRobot.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc_app/visualization/PolicySnapshot.h"
 #include "humanoid_common_mpc_app/visualization/RobotStateDecoder.h"
 #include "humanoid_common_mpc_app/visualization/TelemetryBuilder.h"
 #include "humanoid_common_mpc_app/visualization/VisualizationConfig.h"
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.pb.h"
+#include "humanoid_nmpc/humanoid_common_mpc_app/visualization/test/VisualizationTestRobot.h"
 
 namespace ocs2::humanoid::visualization {
 namespace {
 
-constexpr scalar_t kTolerance = 1e-9;
+constexpr scalar_t kTolerance = 1.0e-9;
 
-const humanoid_mpc_msgs::ScalarGroup* findGroup(const humanoid_mpc_msgs::TelemetrySeries& series, const std::string& path) {
+const humanoid_mpc_msgs::ScalarGroup* absl_nullable findGroup(const humanoid_mpc_msgs::TelemetrySeries& series, const std::string& path) {
   for (const humanoid_mpc_msgs::ScalarGroup& group : series.groups()) {
     if (group.path() == path) {
       return &group;
@@ -65,7 +65,7 @@ const humanoid_mpc_msgs::ScalarGroup* findGroup(const humanoid_mpc_msgs::Telemet
 
 /** The value `name` of the group at `path`. */
 double valueOf(const humanoid_mpc_msgs::TelemetrySeries& series, const std::string& path, const std::string& name) {
-  const humanoid_mpc_msgs::ScalarGroup* group = findGroup(series, path);
+  const humanoid_mpc_msgs::ScalarGroup* absl_nullable group = findGroup(series, path);
   if (group == nullptr) {
     ADD_FAILURE() << "no group " << path;
     return NAN;
@@ -81,7 +81,7 @@ double valueOf(const humanoid_mpc_msgs::TelemetrySeries& series, const std::stri
 
 /** Every value of the group at `path`. */
 vector_t valuesOf(const humanoid_mpc_msgs::TelemetrySeries& series, const std::string& path) {
-  const humanoid_mpc_msgs::ScalarGroup* group = findGroup(series, path);
+  const humanoid_mpc_msgs::ScalarGroup* absl_nullable group = findGroup(series, path);
   if (group == nullptr) {
     ADD_FAILURE() << "no group " << path;
     return vector_t();
@@ -142,8 +142,8 @@ std::vector<std::string> contractPaths(const std::vector<std::string>& frames) {
                                     "mpc_observation/input",
                                     "mpc_observation/mode"};
   for (const std::string& frame : frames) {
-    for (const char* kind : {"pose", "twist", "acceleration", "wrench"}) {
-      for (const char* source : {"measured", "reference", "plan"}) {
+    for (const char* absl_nonnull kind : {"pose", "twist", "acceleration", "wrench"}) {
+      for (const char* absl_nonnull source : {"measured", "reference", "plan"}) {
         paths.push_back(absl::StrCat("frames/", kind, "/", frame, "/", source));
       }
     }
@@ -169,7 +169,7 @@ class TelemetryBuilderTest : public ::testing::Test {
     PrimalSolution solution;
     robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/21, /*normalForce=*/300.0, vector2_t(0.02, -0.01), &command, &solution);
     policy_.assign(command, solution);
-    observation_ = robot_->observation(/*time=*/0.0, ModeNumber::STANCE);
+    observation_ = robot_->observation(/*time=*/0.0, ModeNumber::kStance);
   }
 
   DecodedRobotState decode(const humanoid_mpc_msgs::RobotStateSample& proto) {
@@ -201,10 +201,10 @@ TEST_F(TelemetryBuilderTest, TheGroupsAreTheContractsInItsOrder) {
     EXPECT_GT(group.names_size(), 0) << group.path();
   }
   const std::vector<std::string>& joints = robot_->modelSettings().fullJointNames;
-  const humanoid_mpc_msgs::ScalarGroup* jointPositions = findGroup(series, "joints/position/measured");
+  const humanoid_mpc_msgs::ScalarGroup* absl_nullable jointPositions = findGroup(series, "joints/position/measured");
   ASSERT_NE(jointPositions, nullptr);
   EXPECT_EQ(std::vector<std::string>(jointPositions->names().begin(), jointPositions->names().end()), joints);
-  const humanoid_mpc_msgs::ScalarGroup* dofs = findGroup(series, "dofs/position/plan");
+  const humanoid_mpc_msgs::ScalarGroup* absl_nullable dofs = findGroup(series, "dofs/position/plan");
   ASSERT_NE(dofs, nullptr);
   EXPECT_EQ(dofs->names(0), "base_x");
   EXPECT_EQ(dofs->names(3), "base_yaw");
@@ -289,18 +289,18 @@ TEST_F(TelemetryBuilderTest, ThePlanIsThePolicyAtTheSamplesTime) {
   samplePlan(policy_, time, &state, &input);
   const MpcRobotModelBase<scalar_t>& model = robot_->robotModel();
   EXPECT_TRUE(valuesOf(series, "dofs/position/plan").isApprox(model.getGeneralizedCoordinates(state), kTolerance));
-  const vector6_t left = model.getContactWrenchInWorldFrame(state, input, CONTACT_LEFT_INDEX);
+  const vector6_t left = model.getContactWrenchInWorldFrame(state, input, kContactLeftIndex);
   EXPECT_TRUE(valuesOf(series, "contact_wrenches/left/mpc").isApprox(left, kTolerance));
   // Written as 300 N up and 15 N forward on each stance foot (world-frame wrench inputs).
-  EXPECT_NEAR(valueOf(series, "contact_forces/left_normal", "mpc"), 300.0, 1e-9);
-  EXPECT_NEAR(valueOf(series, "contact_forces/left_tangential", "mpc_x"), 15.0, 1e-9);
+  EXPECT_NEAR(valueOf(series, "contact_forces/left_normal", "mpc"), 300.0, 1.0e-9);
+  EXPECT_NEAR(valueOf(series, "contact_forces/left_tangential", "mpc_x"), 15.0, 1.0e-9);
   EXPECT_TRUE(valuesOf(series, "frames/wrench/foot_l_contact/plan").isApprox(left, kTolerance));
   EXPECT_TRUE(valuesOf(series, "frames/wrench/pelvis/plan").isZero());
 }
 
 TEST_F(TelemetryBuilderTest, TheMeasuredWrenchesAreTheSensors) {
   humanoid_mpc_msgs::RobotStateSample proto = robot_->robotState(/*time=*/0.1, vector3_t::Zero(), vector3_t::Zero());
-  humanoid_mpc_msgs::Wrench* left = proto.mutable_measured_contact_wrenches(0);
+  humanoid_mpc_msgs::Wrench* absl_nonnull left = proto.mutable_measured_contact_wrenches(0);
   left->mutable_force()->set_x(5.0);
   left->mutable_force()->set_y(-6.0);
   left->mutable_force()->set_z(310.0);
@@ -322,8 +322,8 @@ TEST_F(TelemetryBuilderTest, TheMeasuredAccelerationIsTheDifferenceOfConsecutive
   proto.mutable_base_linear_velocity_local()->set_z(0.1);
   const humanoid_mpc_msgs::TelemetrySeries& series = builder_->build(decode(proto), /*observation=*/nullptr, /*policy=*/nullptr);
   // 0.1 m/s more in 10 ms, at the root link, which does not rotate.
-  EXPECT_NEAR(valueOf(series, "frames/acceleration/pelvis/measured", "linear_z"), 10.0, 1e-6);
-  EXPECT_NEAR(valueOf(series, "frames/acceleration/pelvis/measured", "linear_x"), 0.0, 1e-9);
+  EXPECT_NEAR(valueOf(series, "frames/acceleration/pelvis/measured", "linear_z"), 10.0, 1.0e-6);
+  EXPECT_NEAR(valueOf(series, "frames/acceleration/pelvis/measured", "linear_x"), 0.0, 1.0e-9);
 
   // The robot's clock went back (a simulation restarted): no acceleration from a sample of the previous run.
   proto.set_time(0.5);
@@ -338,7 +338,7 @@ TEST_F(TelemetryBuilderTest, TheMeasuredAccelerationIsTheDifferenceOfConsecutive
 
 TEST_F(TelemetryBuilderTest, TheObservationGroupsAreTheObservationAndThePolicysInputThere) {
   observation_.time = 0.2;
-  observation_.mode = ModeNumber::LF;
+  observation_.mode = ModeNumber::kLf;
   const humanoid_mpc_msgs::TelemetrySeries& series =
       builder_->build(decode(robot_->robotState(/*time=*/0.25, vector3_t::Zero(), vector3_t::Zero())), &observation_, &policy_);
   vector_t state;
@@ -346,7 +346,7 @@ TEST_F(TelemetryBuilderTest, TheObservationGroupsAreTheObservationAndThePolicysI
   samplePlan(policy_, observation_.time, &state, &input);
   EXPECT_EQ(valuesOf(series, "mpc_observation/state"), observation_.state);
   EXPECT_TRUE(valuesOf(series, "mpc_observation/input").isApprox(input, kTolerance));
-  EXPECT_EQ(valueOf(series, "mpc_observation/mode", "mode"), static_cast<double>(ModeNumber::LF));
+  EXPECT_EQ(valueOf(series, "mpc_observation/mode", "mode"), static_cast<double>(ModeNumber::kLf));
 }
 
 TEST_F(TelemetryBuilderTest, TheJointGroupsAreTheDecodedJoints) {
@@ -372,7 +372,8 @@ TEST_F(TelemetryBuilderTest, TheJointGroupsAreTheDecodedJoints) {
 }
 
 TEST_F(TelemetryBuilderTest, EveryValueIsFinite) {
-  for (const PolicySnapshot* policy : {static_cast<const PolicySnapshot*>(nullptr), static_cast<const PolicySnapshot*>(&policy_)}) {
+  for (const PolicySnapshot* absl_nullable policy :
+       {static_cast<const PolicySnapshot*>(nullptr), static_cast<const PolicySnapshot*>(&policy_)}) {
     for (const scalar_t time : {-1.0, 0.0, 0.3, 0.6, 2.0}) {
       const humanoid_mpc_msgs::TelemetrySeries& series =
           builder_->build(decode(robot_->robotState(time, vector3_t(0.0, 0.0, 0.7), vector3_t(0.0, 0.1, 0.0))), &observation_, policy);
@@ -398,7 +399,7 @@ TEST_F(TelemetryBuilderTest, EveryFormulationGivesTheContractsGroups) {
     vector_t input;
     samplePlan(policy_, /*time=*/0.1, &state, &input);
     EXPECT_TRUE(valuesOf(series, "contact_wrenches/right/mpc")
-                    .isApprox(robot_->robotModel().getContactWrenchInWorldFrame(state, input, CONTACT_RIGHT_INDEX), kTolerance));
+                    .isApprox(robot_->robotModel().getContactWrenchInWorldFrame(state, input, kContactRightIndex), kTolerance));
     for (const humanoid_mpc_msgs::ScalarGroup& group : series.groups()) {
       for (const double value : group.values()) {
         ASSERT_TRUE(std::isfinite(value)) << group.path();

@@ -7,17 +7,19 @@
 
 #include <cstddef>
 
+#include "absl/base/nullability.h"
+
 namespace ocs2::humanoid::acom {
 
 struct AcomSirenWeightsG1 {
   static constexpr double omega_0 = 30.0;
-  static constexpr std::size_t num_layers = 3;
-  static constexpr std::size_t input_dim = 23;
-  static constexpr std::size_t output_dim = 3;
+  static constexpr size_t num_layers = 3;
+  static constexpr size_t input_dim = 23;
+  static constexpr size_t output_dim = 3;
 
   // Joint ordering the network was trained on. Must match the
   // MPC's Pinocchio joint ordering exactly.
-  static inline const char* const joint_names[23] = {
+  static inline const char* absl_nonnull const joint_names[23] = {
       "left_hip_pitch_joint",      "left_hip_roll_joint",      "left_hip_yaw_joint",      "left_knee_joint",
       "left_ankle_pitch_joint",    "left_ankle_roll_joint",    "right_hip_pitch_joint",   "right_hip_roll_joint",
       "right_hip_yaw_joint",       "right_knee_joint",         "right_ankle_pitch_joint", "right_ankle_roll_joint",
@@ -26,8 +28,8 @@ struct AcomSirenWeightsG1 {
       "right_shoulder_roll_joint", "right_shoulder_yaw_joint", "right_elbow_joint"};
 
   // Layer 0: (64 x 23)
-  static constexpr std::size_t W0_rows = 64;
-  static constexpr std::size_t W0_cols = 23;
+  static constexpr size_t W0_rows = 64;
+  static constexpr size_t W0_cols = 23;
   static inline const double W0[1472] = {
       -6.9464468397e-03, 2.5925410228e-05,  4.7010937706e-03,  3.1087673269e-03,  1.7596352336e-05,  -9.7902324342e-05, 1.4761382481e-03,
       -2.1750184242e-03, -1.7715935828e-03, -1.2738569640e-03, -6.9840221840e-05, -2.0952104023e-05, 2.8965480160e-03,  1.6515094321e-03,
@@ -253,8 +255,8 @@ struct AcomSirenWeightsG1 {
       -8.4380418062e-02};
 
   // Layer 1: (64 x 64)
-  static constexpr std::size_t W1_rows = 64;
-  static constexpr std::size_t W1_cols = 64;
+  static constexpr size_t W1_rows = 64;
+  static constexpr size_t W1_cols = 64;
   static inline const double W1[4096] = {
       -4.0519167669e-03, -1.0794976261e-03, -1.4345676173e-03, -2.8981405776e-03, -2.0672390237e-03, -4.1222306900e-03, -2.9797081370e-03,
       -4.0446803905e-03, 2.6815778110e-03,  1.0118608363e-02,  -6.4569042297e-04, 3.9865318686e-03,  -1.3780771988e-03, 1.7105786828e-03,
@@ -855,8 +857,8 @@ struct AcomSirenWeightsG1 {
       -4.3388221413e-02};
 
   // Layer 2: (3 x 64)
-  static constexpr std::size_t W2_rows = 3;
-  static constexpr std::size_t W2_cols = 64;
+  static constexpr size_t W2_rows = 3;
+  static constexpr size_t W2_cols = 64;
   static inline const double W2[192] = {
       -1.1125748605e-01, 3.6903787404e-02,  6.6398873925e-02,  -1.6765400767e-02, 6.2424134463e-02,  -3.5791147500e-02, 1.7071329057e-02,
       1.4882089570e-02,  1.2683563866e-02,  2.6196617633e-02,  -4.9423407763e-02, -4.5902285725e-02, 4.6344198287e-02,  -6.6272944212e-02,

@@ -45,12 +45,12 @@ namespace robot::realtime {
  * only, so that robot_runtime does not depend on the estimator; the estimator's binaries can move to this target. A
  * binary must link only one of the two, since both define malloc.
  */
-std::size_t heapAllocationCount();
+size_t heapAllocationCount();
 
 /**
  * The number of heap allocations the calling thread has made so far. For a call on one thread of a process whose other
  * threads allocate at the same time (a bus's IO thread, a solver), where heapAllocationCount() would count theirs too.
  */
-std::size_t heapAllocationCountOnThisThread();
+size_t heapAllocationCountOnThisThread();
 
 }  // namespace robot::realtime

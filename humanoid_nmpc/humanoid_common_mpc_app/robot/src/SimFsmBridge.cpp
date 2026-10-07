@@ -30,6 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/SimFsmBridge.h"
 
 #include <optional>
+#include <string>
+
+#include "absl/base/nullability.h"
 
 #include "humanoid_common_mpc/mrt/ControlMode.h"
 
@@ -39,11 +42,11 @@ SimFsmBridge::SimFsmBridge(const robot::model::RobotDescription& robotDescriptio
                            const robot::model::RobotState& initState,
                            OperatorCommandMailbox& commands,
                            FsmStateMailbox& fsmStates,
-                           RealtimeEventLog* eventLog)
+                           RealtimeEventLog* absl_nullable eventLog)
     : commands_(commands), fsmStates_(fsmStates), eventLog_(eventLog) {
   nominalJointPositions_.resize(robotDescription.getNumJoints(), 0.0);
   for (size_t i = 0; i < robotDescription.getNumJoints(); ++i) {
-    nominalJointPositions_[i] = initState.getJointPosition(i);
+    nominalJointPositions_[i] = initState.getCheckedJointPosition(i);
   }
   // The initial state: zero torque, held by the gantry.
   publishFsmState(control_mode::kZeroTorque, /*gantryLocked=*/true);

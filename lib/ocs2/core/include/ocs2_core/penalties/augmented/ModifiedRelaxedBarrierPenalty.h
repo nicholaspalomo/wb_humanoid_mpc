@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include "ocs2_core/penalties/augmented/AugmentedPenaltyBase.h"
 
 namespace ocs2 {
@@ -80,7 +82,7 @@ class ModifiedRelaxedBarrierPenalty final : public AugmentedPenaltyBase {
   }
 
   ~ModifiedRelaxedBarrierPenalty() override = default;
-  ModifiedRelaxedBarrierPenalty* clone() const override { return new ModifiedRelaxedBarrierPenalty(*this); }
+  ModifiedRelaxedBarrierPenalty* absl_nonnull clone() const override { return new ModifiedRelaxedBarrierPenalty(*this); }
   std::string name() const override { return "ModifiedRelaxedBarrierPenalty"; }
 
   scalar_t getValue(scalar_t t, scalar_t l, scalar_t h) const override {

@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_oc/oc_data/StateTrajectoryInterpolation.h>
 #include <ocs2_oc/rollout/TimeTriggeredRollout.h>
 
+#include "absl/base/nullability.h"
 #include "absl/log/log.h"
 
 namespace ocs2 {
@@ -113,7 +114,7 @@ const PerformanceIndex& MRT_BASE::getPerformanceIndices() const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void MRT_BASE::initRollout(const RolloutBase* rolloutPtr) {
+void MRT_BASE::initRollout(const RolloutBase* absl_nonnull rolloutPtr) {
   rolloutPtr_.reset(rolloutPtr->clone());
 }
 

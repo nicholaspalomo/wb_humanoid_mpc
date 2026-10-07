@@ -34,9 +34,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include <ocs2_core/Types.h>
-
-#include <ocs2_robotic_tools/end_effector/EndEffectorKinematics.h>
+#include "absl/base/nullability.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_robotic_tools/end_effector/EndEffectorKinematics.h"
 
 namespace ocs2 {
 
@@ -52,9 +52,11 @@ class EndEffectorDynamics : public EndEffectorKinematics<SCALAR_T> {
   using quaternion_t = Eigen::Quaternion<SCALAR_T>;
 
   EndEffectorDynamics() = default;
-  virtual ~EndEffectorDynamics() = default;
-  virtual EndEffectorDynamics* clone() const = 0;
+  ~EndEffectorDynamics() override = default;
+  EndEffectorDynamics* absl_nonnull clone() const override = 0;
   EndEffectorDynamics& operator=(const EndEffectorDynamics&) = delete;
+  EndEffectorDynamics(EndEffectorDynamics&&) = delete;
+  EndEffectorDynamics& operator=(EndEffectorDynamics&&) = delete;
 
   /**
    * Get linear end-effector accelerations in world frame
@@ -112,6 +114,10 @@ class EndEffectorDynamics : public EndEffectorKinematics<SCALAR_T> {
    */
   virtual std::vector<VectorFunctionLinearApproximation> getAccelerationsLinearApproximation(const vector_t& state,
                                                                                              const vector_t& input) const = 0;
+
+ protected:
+  // For the clone() of a derived class.
+  EndEffectorDynamics(const EndEffectorDynamics&) = default;
 };
 
 }  // namespace ocs2

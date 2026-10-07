@@ -32,7 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // observation into objects it keeps. A binary of its own, because the allocation counter replaces malloc for the whole
 // process.
 
-#include <gtest/gtest.h>
+#include "gtest/gtest.h"
 
 #include "humanoid_mpc_msgs/fsm_state.nproto.pb.h"
 #include "humanoid_mpc_msgs/loop_timing.nproto.pb.h"

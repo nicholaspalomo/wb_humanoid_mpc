@@ -30,7 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_validation/io/GoldenIo.h"
 
 #include <cmath>
-#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -39,12 +38,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
 #include "absl/strings/ascii.h"
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/strip.h"
 
@@ -77,9 +78,7 @@ bool hasLineBreak(absl::string_view text) {
 std::string formatValue(double value) {
   if (std::isnan(value)) return "nan";
   if (std::isinf(value)) return value > 0.0 ? "inf" : "-inf";
-  char buffer[32];
-  std::snprintf(buffer, sizeof(buffer), "%.17g", value);
-  return buffer;
+  return absl::StrFormat("%.17g", value);
 }
 
 absl::Status lineError(size_t lineNumber, absl::string_view what) {
@@ -88,7 +87,7 @@ absl::Status lineError(size_t lineNumber, absl::string_view what) {
 
 }  // namespace
 
-const golden_matrix_t* GoldenFile::find(absl::string_view label) const {
+const golden_matrix_t* absl_nullable GoldenFile::find(absl::string_view label) const {
   for (const GoldenEntry& entry : entries) {
     if (entry.label == label) return &entry.value;
   }
@@ -190,15 +189,16 @@ absl::StatusOr<GoldenFile> parseGoldenFile(absl::string_view text) {
       entry.value.resize(rows, cols);
       if (cols > 0) {
         for (int64_t row = 0; row < rows; ++row) {
-          if (index >= lines.size())
+          if (index >= lines.size()) {
             return lineError(lineNumber, absl::StrCat("'", entry.label, "' ends after ", row, " of ", rows, " rows"));
+          }
           const std::vector<absl::string_view> values = absl::StrSplit(lines[index], ' ');
           if (static_cast<int64_t>(values.size()) != cols) {
             return lineError(index + 1, absl::StrCat("expected ", cols, " values of '", entry.label, "', found ", values.size()));
           }
           for (int64_t col = 0; col < cols; ++col) {
             const std::string value(values[col]);
-            char* end = nullptr;
+            char* absl_nullable end = nullptr;
             entry.value(row, col) = std::strtod(value.c_str(), &end);
             if (value.empty() || end != value.c_str() + value.size()) {
               return lineError(index + 1, absl::StrCat("'", value, "' is not a number"));

@@ -29,28 +29,53 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "hpipm_catkin/HpipmInterfaceSettings.h"
 
-#include <ocs2_core/misc/LoadData.h>
+#include <algorithm>
+#include <string>
 
 namespace ocs2 {
 namespace hpipm_interface {
+
+namespace {
+
+/** Prints one setting as " #### 'name'......value", with " (default)" after a value that is the default. */
+template <typename T>
+void printValue(std::ostream& stream, const T& value, const std::string& name, bool updated) {
+  constexpr long kPrintWidth = 80;
+  const std::string nameString = " #### '" + name + "'";
+  stream << nameString;
+
+  const long printWidth = std::max<long>(kPrintWidth, static_cast<long>(nameString.size()) + 15);
+  stream.width(printWidth - static_cast<long>(nameString.size()));
+  const char fill = stream.fill('.');
+
+  if (updated) {
+    stream << value << '\n';
+  } else {
+    stream << value << " (default)\n";
+  }
+
+  stream.fill(fill);
+}
+
+}  // namespace
 
 std::ostream& operator<<(std::ostream& stream, const Settings& settings) {
   Settings defaultSettings;
 
   stream << "\n #### HPIPM Settings:";
   stream << "\n #### =============================================================================\n";
-  loadData::printValue(stream, settings.hpipmMode, "mode", settings.hpipmMode != defaultSettings.hpipmMode);
-  loadData::printValue(stream, settings.iter_max, "iter_max", settings.iter_max != defaultSettings.iter_max);
-  loadData::printValue(stream, settings.alpha_min, "alpha_min", settings.alpha_min != defaultSettings.alpha_min);
-  loadData::printValue(stream, settings.mu0, "mu0", settings.mu0 != defaultSettings.mu0);
-  loadData::printValue(stream, settings.tol_stat, "tol_stat", settings.tol_stat != defaultSettings.tol_stat);
-  loadData::printValue(stream, settings.tol_eq, "tol_eq", settings.tol_eq != defaultSettings.tol_eq);
-  loadData::printValue(stream, settings.tol_ineq, "tol_ineq", settings.tol_ineq != defaultSettings.tol_ineq);
-  loadData::printValue(stream, settings.tol_comp, "tol_comp", settings.tol_comp != defaultSettings.tol_comp);
-  loadData::printValue(stream, settings.reg_prim, "reg_prim", settings.reg_prim != defaultSettings.reg_prim);
-  loadData::printValue(stream, settings.warm_start, "warm_start", settings.warm_start != defaultSettings.warm_start);
-  loadData::printValue(stream, settings.pred_corr, "pred_corr", settings.pred_corr != defaultSettings.pred_corr);
-  loadData::printValue(stream, settings.ric_alg, "ric_alg", settings.ric_alg != defaultSettings.ric_alg);
+  printValue(stream, settings.hpipmMode, "mode", settings.hpipmMode != defaultSettings.hpipmMode);
+  printValue(stream, settings.iter_max, "iter_max", settings.iter_max != defaultSettings.iter_max);
+  printValue(stream, settings.alpha_min, "alpha_min", settings.alpha_min != defaultSettings.alpha_min);
+  printValue(stream, settings.mu0, "mu0", settings.mu0 != defaultSettings.mu0);
+  printValue(stream, settings.tol_stat, "tol_stat", settings.tol_stat != defaultSettings.tol_stat);
+  printValue(stream, settings.tol_eq, "tol_eq", settings.tol_eq != defaultSettings.tol_eq);
+  printValue(stream, settings.tol_ineq, "tol_ineq", settings.tol_ineq != defaultSettings.tol_ineq);
+  printValue(stream, settings.tol_comp, "tol_comp", settings.tol_comp != defaultSettings.tol_comp);
+  printValue(stream, settings.reg_prim, "reg_prim", settings.reg_prim != defaultSettings.reg_prim);
+  printValue(stream, settings.warm_start, "warm_start", settings.warm_start != defaultSettings.warm_start);
+  printValue(stream, settings.pred_corr, "pred_corr", settings.pred_corr != defaultSettings.pred_corr);
+  printValue(stream, settings.ric_alg, "ric_alg", settings.ric_alg != defaultSettings.ric_alg);
   stream << " #### =============================================================================" << std::endl;
   return stream;
 }

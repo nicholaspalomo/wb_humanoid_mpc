@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/penalties/penalties/PenaltyBase.h>
 
 namespace ocs2 {
@@ -54,7 +56,7 @@ class DoubleSidedPenalty final : public PenaltyBase {
       : lowerBound_(lowerBound), upperBound_(upperBound), penaltyPtr_(std::move(penalty)) {}
 
   ~DoubleSidedPenalty() override = default;
-  DoubleSidedPenalty* clone() const override { return new DoubleSidedPenalty(*this); }
+  DoubleSidedPenalty* absl_nonnull clone() const override { return new DoubleSidedPenalty(*this); }
   std::string name() const override { return "DoubleSidedPenalty"; }
 
   scalar_t getValue(scalar_t t, scalar_t h) const override {

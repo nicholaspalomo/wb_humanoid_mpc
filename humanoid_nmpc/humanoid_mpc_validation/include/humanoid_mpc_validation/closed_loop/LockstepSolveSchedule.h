@@ -48,7 +48,7 @@ class LockstepSolveSchedule {
  public:
   /**
    * @param firstSolveTime [s] When the first solve is due.
-   * @param period         [s] 1 / mpcDesiredFrequency; <= 0: a solve in every control cycle, as the solver thread
+   * @param period         [s] 1 / mpc.mpc_desired_frequency; <= 0: a solve in every control cycle, as the solver thread
    *                       runs back to back without a frequency.
    * @param timeTolerance  [s] Times this close are the same: the clock is a sum of simulation steps.
    */

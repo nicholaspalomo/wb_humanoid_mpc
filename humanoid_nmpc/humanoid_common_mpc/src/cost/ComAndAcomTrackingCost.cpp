@@ -1,23 +1,53 @@
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
 
-#include <ocs2_centroidal_model/AccessHelperFunctions.h>
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
-#include <pinocchio/algorithm/center-of-mass.hpp>
-#include <pinocchio/multibody/data.hpp>
-#include <pinocchio/multibody/model.hpp>
-
 #include <cstddef>
-#include <stdexcept>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
+#include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_centroidal_model/AccessHelperFunctions.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/multibody/data.hpp"
+#include "pinocchio/multibody/model.hpp"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 
@@ -30,10 +60,10 @@ namespace {
 /// so the generalized coordinates always start at index 6, and the base
 /// orientation at index 9. These constants keep the magic numbers out of the
 /// Jacobian assembly below.
-constexpr std::size_t kGeneralizedCoordinatesStartIndex = 6;
-constexpr std::size_t kBasePositionStateIndex = kGeneralizedCoordinatesStartIndex;
-constexpr std::size_t kBaseOrientationStateIndex = kGeneralizedCoordinatesStartIndex + 3;
-constexpr std::size_t kJointStateIndex = kGeneralizedCoordinatesStartIndex + 6;
+constexpr size_t kGeneralizedCoordinatesStartIndex = 6;
+constexpr size_t kBasePositionStateIndex = kGeneralizedCoordinatesStartIndex;
+constexpr size_t kBaseOrientationStateIndex = kGeneralizedCoordinatesStartIndex + 3;
+constexpr size_t kJointStateIndex = kGeneralizedCoordinatesStartIndex + 6;
 
 /// Generalized coordinates of the floating base: 3 translations and 3 ZYX Euler angles.
 constexpr int kGeneralizedBaseDim = 6;
@@ -65,22 +95,22 @@ absl::StatusOr<std::vector<std::string>> ComAndAcomTrackingCost::actuatedJointNa
   }
   // model.names starts with the universe and the floating-base joint; the actuated joints are the rest, in the order
   // the state stores them. Counting from the end keeps this independent of how many joints the base is built from.
-  const std::size_t numActuated = static_cast<std::size_t>(info.actuatedDofNum);
+  const size_t numActuated = static_cast<size_t>(info.actuatedDofNum);
   if (model.names.size() < numActuated) {
     return absl::InvalidArgumentError(absl::StrCat("[ComAndAcomTrackingCost] the Pinocchio model names ", model.names.size(),
                                                    " joints, fewer than actuatedDofNum (", numActuated, ")."));
   }
-  return std::vector<std::string>(model.names.end() - static_cast<std::ptrdiff_t>(numActuated), model.names.end());
+  return std::vector<std::string>(model.names.end() - static_cast<ptrdiff_t>(numActuated), model.names.end());
 }
 
 absl::Status ComAndAcomTrackingCost::validateWeights(const matrix_t& Q_com, const matrix_t& Q_acom) {
   if (Q_com.rows() != 3 || Q_com.cols() != 3) {
     return absl::InvalidArgumentError(
-        absl::StrCat("[ComAndAcomTrackingCost] Q_com in task.yaml must be 3x3, got ", Q_com.rows(), "x", Q_com.cols(), "."));
+        absl::StrCat("[ComAndAcomTrackingCost] Q_com, the weight of com_weights, must be 3x3, got ", Q_com.rows(), "x", Q_com.cols(), "."));
   }
   if (Q_acom.rows() != 3 || Q_acom.cols() != 3) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("[ComAndAcomTrackingCost] Q_acom in task.yaml must be 3x3, got ", Q_acom.rows(), "x", Q_acom.cols(), "."));
+    return absl::InvalidArgumentError(absl::StrCat("[ComAndAcomTrackingCost] Q_acom, the weight of acom_weights, must be 3x3, got ",
+                                                   Q_acom.rows(), "x", Q_acom.cols(), "."));
   }
   return absl::OkStatus();
 }
@@ -90,22 +120,8 @@ absl::StatusOr<std::unique_ptr<ComAndAcomTrackingCost>> ComAndAcomTrackingCost::
   RETURN_IF_ERROR(validateWeights(Q_com, Q_acom));
   ASSIGN_OR_RETURN(std::unique_ptr<AngularCenterOfMass> acom, createCheckedAcom(pinocchioInterface, info, robotName));
   // The constructor is private, so std::make_unique cannot reach it.
-  return std::unique_ptr<ComAndAcomTrackingCost>(
+  return absl::WrapUnique(
       new ComAndAcomTrackingCost(std::move(Q_com), std::move(Q_acom), std::move(pinocchioInterface), std::move(info), std::move(acom)));
-}
-
-ComAndAcomTrackingCost::ComAndAcomTrackingCost(
-    matrix_t Q_com, matrix_t Q_acom, PinocchioInterface pinocchioInterface, CentroidalModelInfo info, const std::string& robotName)
-    : Q_com_(std::move(Q_com)), Q_acom_(std::move(Q_acom)), pinocchioInterface_(std::move(pinocchioInterface)), info_(std::move(info)) {
-  const absl::Status weights = validateWeights(Q_com_, Q_acom_);
-  if (!weights.ok()) {
-    throw std::runtime_error(std::string(weights.message()));
-  }
-  absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> acom = createCheckedAcom(pinocchioInterface_, info_, robotName);
-  if (!acom.ok()) {
-    throw std::runtime_error(std::string(acom.status().message()));
-  }
-  acom_ = *std::move(acom);
 }
 
 ComAndAcomTrackingCost::ComAndAcomTrackingCost(matrix_t Q_com,
@@ -128,7 +144,7 @@ ComAndAcomTrackingCost::ComAndAcomTrackingCost(const ComAndAcomTrackingCost& rhs
       // A deep copy of the already-checked evaluator: the clone runs the same network without re-resolving it.
       acom_(std::make_unique<AngularCenterOfMass>(*rhs.acom_)) {}
 
-ComAndAcomTrackingCost* ComAndAcomTrackingCost::clone() const {
+ComAndAcomTrackingCost* absl_nonnull ComAndAcomTrackingCost::clone() const {
   return new ComAndAcomTrackingCost(*this);
 }
 
@@ -154,7 +170,7 @@ vector3_t ComAndAcomTrackingCost::computeAcomError(const vector_t& state, const 
 scalar_t ComAndAcomTrackingCost::getValue(scalar_t time,
                                           const vector_t& state,
                                           const TargetTrajectories& targetTrajectories,
-                                          const PreComputation& preComp) const {
+                                          const PreComputation& /*preComp*/) const {
   const vector_t stateRef = targetTrajectories.getDesiredState(time);
   const vector_t q = centroidal_model::getGeneralizedCoordinates(state, info_);
   const vector_t qRef = centroidal_model::getGeneralizedCoordinates(stateRef, info_);
@@ -175,7 +191,7 @@ scalar_t ComAndAcomTrackingCost::getValue(scalar_t time,
 ScalarFunctionQuadraticApproximation ComAndAcomTrackingCost::getQuadraticApproximation(scalar_t time,
                                                                                        const vector_t& state,
                                                                                        const TargetTrajectories& targetTrajectories,
-                                                                                       const PreComputation& preComp) const {
+                                                                                       const PreComputation& /*preComp*/) const {
   ScalarFunctionQuadraticApproximation approx;
 
   const vector_t stateRef = targetTrajectories.getDesiredState(time);
@@ -237,13 +253,11 @@ void ComAndAcomTrackingCost::zeroBasePoseWeights(matrix_t& Q) {
   Q.block(kBasePoseStateIndex, kBasePoseStateIndex, kBasePoseDim, kBasePoseDim).setZero();
 }
 
-void ComAndAcomTrackingCost::setWeights(matrix_t Q_com, matrix_t Q_acom) {
-  const absl::Status status = validateWeights(Q_com, Q_acom);
-  if (!status.ok()) {
-    throw std::invalid_argument(std::string(status.message()));
-  }
+absl::Status ComAndAcomTrackingCost::setWeights(matrix_t Q_com, matrix_t Q_acom) {
+  RETURN_IF_ERROR(validateWeights(Q_com, Q_acom));
   Q_com_ = std::move(Q_com);
   Q_acom_ = std::move(Q_acom);
+  return absl::OkStatus();
 }
 
 }  // namespace ocs2::humanoid

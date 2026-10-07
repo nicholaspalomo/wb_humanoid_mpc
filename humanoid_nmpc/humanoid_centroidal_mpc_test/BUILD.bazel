@@ -2,6 +2,7 @@
 
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 # humanoid_centroidal_mpc_test - Test package for centroidal MPC
 
 package(default_visibility = ["//visibility:public"])
@@ -13,6 +14,7 @@ _TEST_DEPS = [
     "//robot_runtime/robot_model",
     "@eigen",
     "@pinocchio",
+    "@abseil-cpp//absl/base:nullability",
     "@abseil-cpp//absl/status",
     "@abseil-cpp//absl/status:statusor",
     "@abseil-cpp//absl/strings",
@@ -28,15 +30,11 @@ _TEST_DATA = [
 ]
 # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc_test/include/humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h:testing_model_files)
 
-_TEST_COPTS = [
-    "-std=c++20",
-]
-
 cc_test(
     name = "test_centroidal_mpc_robot_model",
     size = "small",
     srcs = ["src/testCentroidalMpcRobotModel.cpp"],
-    copts = _TEST_COPTS,
+    copts = FIRST_PARTY_COPTS,
     data = _TEST_DATA,
     deps = _TEST_DEPS,
 )
@@ -45,7 +43,7 @@ cc_test(
     name = "test_pinocchio_frame_conversions",
     size = "small",
     srcs = ["src/testPinocchioFrameConversions.cpp"],
-    copts = _TEST_COPTS,
+    copts = FIRST_PARTY_COPTS,
     data = _TEST_DATA,
     deps = _TEST_DEPS,
 )
@@ -54,7 +52,7 @@ cc_test(
     name = "test_dynamics_helper_functions",
     size = "small",
     srcs = ["src/testDynamicsHelperFunctions.cpp"],
-    copts = _TEST_COPTS,
+    copts = FIRST_PARTY_COPTS,
     data = _TEST_DATA,
     deps = _TEST_DEPS,
 )
@@ -64,7 +62,7 @@ cc_test(
     name = "test_centroidal_conversions",
     size = "small",
     srcs = ["src/testCentroidalConversions.cpp"],
-    copts = _TEST_COPTS,
+    copts = FIRST_PARTY_COPTS,
     data = _TEST_DATA,
     deps = _TEST_DEPS,
 )
@@ -73,7 +71,7 @@ cc_test(
     name = "test_contact_wrench_cone_constraint",
     size = "small",
     srcs = ["src/testContactWrenchConeConstraint.cpp"],
-    copts = _TEST_COPTS,
+    copts = FIRST_PARTY_COPTS,
     data = _TEST_DATA,
     deps = _TEST_DEPS,
 )
@@ -82,7 +80,7 @@ cc_test(
     name = "test_angular_center_of_mass",
     size = "small",
     srcs = ["src/testAngularCenterOfMass.cpp"],
-    copts = _TEST_COPTS,
+    copts = FIRST_PARTY_COPTS,
     data = _TEST_DATA,
     deps = _TEST_DEPS,
 )
@@ -91,9 +89,17 @@ cc_test(
     name = "test_mpc_parameter_updater_module",
     size = "large",
     srcs = ["src/testMpcParameterUpdaterModule.cpp"],
-    copts = _TEST_COPTS,
+    copts = FIRST_PARTY_COPTS,
     data = _TEST_DATA,
-    deps = _TEST_DEPS + ["@abseil-cpp//absl/log:scoped_mock_log"],
+    deps = _TEST_DEPS + [
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_sqp",
+        "@abseil-cpp//absl/log:scoped_mock_log",
+    ],
 )
 # The controller's observation, passive modes and WB_MPC hold allocate nothing; a binary of its own, because the
 # allocation counter replaces malloc for the whole binary.
@@ -101,7 +107,7 @@ cc_test(
     name = "test_centroidal_mpc_mrt_joint_controller_allocations",
     size = "small",
     srcs = ["src/testCentroidalMpcMrtJointControllerAllocations.cpp"],
-    copts = _TEST_COPTS,
+    copts = FIRST_PARTY_COPTS,
     data = _TEST_DATA,
     linkstatic = True,
     deps = _TEST_DEPS + [
@@ -114,9 +120,9 @@ cc_test(
     name = "test_centroidal_mpc_mrt_joint_controller",
     size = "small",
     srcs = ["src/testCentroidalMpcMrtJointController.cpp"],
-    copts = _TEST_COPTS,
+    copts = FIRST_PARTY_COPTS,
     data = _TEST_DATA,
-    deps = _TEST_DEPS,
+    deps = _TEST_DEPS + ["//lib/ocs2:ocs2_mpc_test_support"],
 )
 
 
@@ -125,16 +131,20 @@ cc_test(
     name = "test_active_in_stance",
     size = "large",
     srcs = ["src/testActiveInStance.cpp"],
-    copts = _TEST_COPTS,
+    copts = FIRST_PARTY_COPTS,
     data = _TEST_DATA,
-    deps = _TEST_DEPS,
+    deps = _TEST_DEPS + [
+        "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//tools/nproto:nproto_runtime",
+    ],
 )
 
 cc_test(
     name = "test_basis_scaling_non_negativity_constraint",
     size = "small",
     srcs = ["src/testBasisScalingNonNegativityConstraint.cpp"],
-    copts = _TEST_COPTS,
+    copts = FIRST_PARTY_COPTS,
     data = _TEST_DATA,
     deps = _TEST_DEPS,
 )
@@ -145,7 +155,7 @@ cc_test(
     name = "test_basis_inputs_formulation",
     size = "large",
     srcs = ["src/testBasisInputsFormulation.cpp"],
-    copts = _TEST_COPTS,
+    copts = FIRST_PARTY_COPTS,
     data = _TEST_DATA,
     deps = _TEST_DEPS,
 )
@@ -154,9 +164,13 @@ cc_library(
     name = "humanoid_centroidal_mpc_test_headers",
     testonly = True,
     hdrs = glob(["include/**"], allow_empty = True),
+    copts = FIRST_PARTY_COPTS,
     includes = ["include"],
     deps = [
         "//humanoid_nmpc/humanoid_centroidal_mpc",
+        # The shipped robots' typed configuration files (support/TypedConfigFiles.h).
+        "//humanoid_nmpc/humanoid_centroidal_mpc:typed_config_support",
         "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/base:nullability",
     ],
 )

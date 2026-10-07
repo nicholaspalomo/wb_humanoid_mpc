@@ -38,7 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/Core"
 #include "Eigen/Geometry"
 #include "GL/glew.h"
-#include "GLFW/glfw3.h"  // NOLINT(misc-include-cleaner): included to compile it under the flags
+#include "GLFW/glfw3.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -46,20 +46,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "cppad/cg.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "hpipm_d_ocp_qp_ipm.h"  // NOLINT(include-style): hpipm installs its headers in no directory
-#include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
-#include "humanoid_mpc_msgs/robot_state_sample.pb.h"
+#include "hpipm_d_ocp_qp_ipm.h"  // NOLINT(build/include_subdir): HPIPM installs its headers in no directory
 #include "mujoco/mujoco.h"
 #include "ocs2_core/Types.h"
-#include "ocs2_core/misc/LoadData.h"  // NOLINT(misc-include-cleaner): included to compile it under the flags
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/multibody/data.hpp"
 #include "pinocchio/multibody/model.hpp"
-#include "urdf_parser/urdf_parser.h"  // NOLINT(misc-include-cleaner): included to compile it under the flags
-#include "yaml-cpp/node/node.h"
-#include "yaml-cpp/node/parse.h"
-#include "yaml-cpp/yaml.h"  // NOLINT(misc-include-cleaner): included to compile it under the flags
-#include "zmq.hpp"
+#include "urdf_parser/urdf_parser.h"
+#include "zmq.hpp"  // NOLINT(build/include_subdir): cppzmq installs its header in no directory
+
+#include "humanoid_mpc_msgs/robot_state_sample.nproto.h"
+#include "humanoid_mpc_msgs/robot_state_sample.pb.h"
 
 namespace wb_humanoid_mpc::copts_probe {
 
@@ -81,13 +78,12 @@ int instantiateThirdPartyTemplates() {
   const std::string serialized = message.SerializeAsString();
   ocs2::humanoid::msgs::RobotStateSample sample;
 
-  const YAML::Node node = YAML::Load("probe: 1");
   const zmq::message_t frame(serialized.data(), serialized.size());
   const CppAD::cg::CG<double> constant(1.0);
   const CppAD::AD<CppAD::cg::CG<double>> taped(constant);
   const ::testing::Matcher<int> matcher = ::testing::Eq(1);
 
-  const size_t total = counts.size() + serialized.size() + node.size() + frame.size() + static_cast<size_t>(sample.joint_positions.size());
+  const size_t total = counts.size() + serialized.size() + frame.size() + static_cast<size_t>(sample.joint_positions.size());
   return static_cast<int>(total) + static_cast<int>(rotated.x() + state.sum()) + (status.ok() ? 1 : 0) + (matcher.Matches(1) ? 1 : 0) +
          (CppAD::Variable(taped) ? 1 : 0) + model.nq;
 }

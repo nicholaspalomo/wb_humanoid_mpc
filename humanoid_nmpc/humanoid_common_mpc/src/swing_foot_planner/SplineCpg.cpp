@@ -37,8 +37,8 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 SplineCpg::SplineCpg(CubicSpline::Node liftOff, scalar_t midHeight, CubicSpline::Node touchDown)
     : midTime_((liftOff.time + touchDown.time) / 2),
-      leftSpline_(liftOff, CubicSpline::Node{midTime_, midHeight, 0.0}),
-      rightSpline_(CubicSpline::Node{midTime_, midHeight, 0.0}, touchDown) {}
+      leftSpline_(liftOff, CubicSpline::Node{.time = midTime_, .position = midHeight, .velocity = 0.0}),
+      rightSpline_(CubicSpline::Node{.time = midTime_, .position = midHeight, .velocity = 0.0}, touchDown) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/

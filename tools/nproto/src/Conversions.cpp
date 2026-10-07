@@ -34,13 +34,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/ascii.h"
 #include "absl/strings/escaping.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-
 #include "google/protobuf/repeated_ptr_field.h"
 
 namespace nproto::internal {
@@ -54,11 +54,11 @@ bool isNameCharacter(char character) {
 // "positions[\"a b\"]: ...", rather than with the reason of an error, "7 is not ...". A path is field names joined by
 // '.', each followed by any number of [index] or ["key"] segments.
 bool startsWithPath(absl::string_view message) {
-  std::size_t position = 0;
+  size_t position = 0;
   bool expectName = message.empty() || message.front() != '[';
   while (position < message.size()) {
     if (expectName) {
-      const std::size_t start = position;
+      const size_t start = position;
       while (position < message.size() && isNameCharacter(message[position])) {
         ++position;
       }
@@ -108,7 +108,7 @@ absl::Status prefixed(absl::string_view prefix, const absl::Status& status) {
 
 }  // namespace
 
-absl::Status UnknownEnumValueError(std::int32_t number, absl::string_view enumName) {
+absl::Status UnknownEnumValueError(int32_t number, absl::string_view enumName) {
   return absl::InvalidArgumentError(absl::StrCat(number, " is not a value of ", enumName));
 }
 
@@ -132,16 +132,16 @@ std::string FormatKey(bool key) {
   return key ? "true" : "false";
 }
 
-void StringsFromProto(const google::protobuf::RepeatedPtrField<std::string>& proto, std::vector<std::string>* value) {
-  value->resize(static_cast<std::size_t>(proto.size()));
+void StringsFromProto(const google::protobuf::RepeatedPtrField<std::string>& proto, std::vector<std::string>* absl_nonnull value) {
+  value->resize(static_cast<size_t>(proto.size()));
   for (int index = 0; index < proto.size(); ++index) {
-    (*value)[static_cast<std::size_t>(index)] = proto.Get(index);
+    (*value)[static_cast<size_t>(index)] = proto.Get(index);
   }
 }
 
-void StringsToProto(const std::vector<std::string>& value, google::protobuf::RepeatedPtrField<std::string>* proto) {
+void StringsToProto(const std::vector<std::string>& value, google::protobuf::RepeatedPtrField<std::string>* absl_nonnull proto) {
   ResizeRepeatedPtrField(static_cast<int>(value.size()), proto);
-  for (std::size_t index = 0; index < value.size(); ++index) {
+  for (size_t index = 0; index < value.size(); ++index) {
     *proto->Mutable(static_cast<int>(index)) = value[index];
   }
 }

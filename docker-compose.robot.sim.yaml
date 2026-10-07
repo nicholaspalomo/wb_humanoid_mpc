@@ -8,12 +8,13 @@
 # or the host's display after `xhost +SI:localuser:root`); the container reaches the X server through its abstract
 # socket on the host's network, without a mount. WB_ROBOT_HEADLESS=true turns the viewer off.
 #
-# One difference from the robot, for tuning: the checkout's robot_models (WB_ROBOT_SIM_MODELS, which session.sh sets to
-# the host's path of it) is mounted read-only over the image's copy, so that the robot process reads the files the MPC
-# node, the GUI's "Save to YAML" and an editor use, and its watchers reload joint_pd_gains.yaml and the task file's
-# controller-side keys (contactEstimator, contact_wrench_gate) live, as the old sims did. On the robot the process
-# reads the copy deployed with the image, and the GUI's bus messages (operator/pd_gains, operator/mpc_parameters) are
-# what reaches it.
+# The checkout's robot_models (WB_ROBOT_SIM_MODELS, which session.sh sets to the host's path of it) is mounted
+# read-only over the image's copy: the robot's bundled files - the seeds of its stored configuration - are the ones the
+# MPC node reads. The stored configuration is the named volume robot_config instead of the robot's host directory, and
+# it is seeded from the checkout at every start (WB_ROBOT_CONFIG_SEED=every_start), so the simulated robot starts on the
+# checkout's files. While it runs, the GUI's Save reaches it over the bus (operator/config_save), as on the robot, and so
+# do the live updates (operator/pd_gains, operator/mpc_parameters); an editor's save of a checkout file reaches it at the
+# next start, or at once with `bazel run //humanoid_nmpc/remote_control:push_robot_config -- <file>`.
 # ==============================================================================
 
 services:
@@ -27,7 +28,14 @@ services:
         source: ${WB_ROBOT_SIM_MODELS:-./robot_models}
         target: /opt/wb-humanoid-robot/robot_models
         read_only: true
-    # LINT.ThenChange(//tools/deploy/session.sh:sim_models, //tools/deploy/test_deploy_files.py:sim_models_mount)
+      # LINT.ThenChange(//tools/deploy/session.sh:sim_models, //tools/deploy/test_deploy_files.py:sim_models_mount)
+      # LINT.IfChange(robot_config_store)
+      # In place of the base file's bind mount of the same target: a volume of this compose project, which survives
+      # `down`.
+      - type: volume
+        source: robot_config
+        target: /var/lib/wb-humanoid-robot/config
+      # LINT.ThenChange(//docker-compose.robot.yaml:robot_config_store, //tools/deploy/test_deploy_files.py:sim_config_store)
     environment:
       DISPLAY: ${DISPLAY:-:99}
       # Mesa's software renderer: the container has no GPU device. Its threads are not pinned, so they are bounded,
@@ -35,3 +43,8 @@ services:
       LIBGL_ALWAYS_SOFTWARE: "1"
       GALLIUM_DRIVER: llvmpipe
       LP_NUM_THREADS: ${LP_NUM_THREADS:-2}
+      # The checkout's files at every start (the robot's default keeps its saves until a deploy changes a file).
+      WB_ROBOT_CONFIG_SEED: ${WB_ROBOT_CONFIG_SEED:-every_start}
+
+volumes:
+  robot_config: {}

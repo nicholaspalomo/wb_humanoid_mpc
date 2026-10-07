@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """The network file of the bus, as robot_ipc/NetworkConfig.h reads it in C++.
 
 The file is a textproto of robot_ipc_proto.NetworkConfig (robot_runtime/robot_ipc/proto/network_config.proto):
@@ -14,10 +41,8 @@ The nodes are then validated, and an error names the node and its field, e.g.
 
 import dataclasses
 import re
-from typing import Dict, List, Optional, Tuple
 
 from google.protobuf import text_format
-
 from robot_ipc_proto import network_config_pb2
 
 # A port that only a network built in code may name (never a network file, where a port of 0 is a missing port): the
@@ -88,16 +113,16 @@ class NodeEndpoint:
 class NetworkConfig:
     """The nodes of the bus, in the order of the file."""
 
-    nodes: Tuple[NodeEndpoint, ...]
+    nodes: tuple[NodeEndpoint, ...]
 
-    def find(self, name: str) -> Optional[NodeEndpoint]:
+    def find(self, name: str) -> NodeEndpoint | None:
         """The node of that name, or None."""
         for node in self.nodes:
             if node.name == name:
                 return node
         return None
 
-    def node_names(self) -> List[str]:
+    def node_names(self) -> list[str]:
         return [node.name for node in self.nodes]
 
 
@@ -132,13 +157,16 @@ def validate_network_config(config: NetworkConfig) -> None:
     At least one node, valid and unique names, valid hosts, ports in [1, MAX_PORT] or EPHEMERAL_PORT, and no two nodes
     on one endpoint.
 
+    Args:
+        config: The network to check.
+
     Raises:
         NetworkConfigError: naming the offending node and field.
     """
     if not config.nodes:
         raise NetworkConfigError(f"{NODES_FIELD}: names no node")
-    names: Dict[str, int] = {}
-    endpoints: Dict[str, str] = {}
+    names: dict[str, int] = {}
+    endpoints: dict[str, str] = {}
     for index, node in enumerate(config.nodes):
         name_key = _field_key(index, node.name, _NAME_FIELD)
         if not isinstance(node.name, str) or not _NODE_NAME.match(node.name):
@@ -215,6 +243,13 @@ def _parse_error_text(error: text_format.ParseError, source: str) -> str:
 def parse_network_config(text: str, source: str = "<string>") -> NetworkConfig:
     """Parses and validates the text of a network file; `source` names it in the error messages.
 
+    Args:
+        text: The textproto of a robot_ipc_proto.NetworkConfig.
+        source: The file the text came from, which every error message starts with.
+
+    Returns:
+        The validated network.
+
     Raises:
         NetworkConfigError: naming the line and column of a malformed file, or the offending node.
     """
@@ -233,6 +268,12 @@ def parse_network_config(text: str, source: str = "<string>") -> NetworkConfig:
 def load_network_config(path: str) -> NetworkConfig:
     """Reads and validates a network file.
 
+    Args:
+        path: The network file, such as config/ipc/network.textproto.
+
+    Returns:
+        The validated network.
+
     Raises:
         FileNotFoundError: the file does not exist (OSError for other failures to read it).
         NetworkConfigError: naming the line and column of a malformed file, or the offending node.
@@ -245,6 +286,12 @@ def format_network_config(config: NetworkConfig) -> str:
     """The network file of `config`, one line per node.
 
     parse_network_config() reads it back as `config` when it is valid and names no EPHEMERAL_PORT.
+
+    Args:
+        config: The network to write.
+
+    Returns:
+        The textproto, each node on a line of its own.
     """
     lines = []
     for node in config.nodes:
@@ -260,7 +307,7 @@ def format_network_config(config: NetworkConfig) -> str:
 
 
 def localhost_network_config() -> NetworkConfig:
-    """The shipped network file, config/ipc/network.textproto: robot, mpc, operator and teleop on 127.0.0.1."""
+    """The shipped network file, config/ipc/network.textproto: robot, mpc, operator, teleop and config_push on 127.0.0.1."""
     # LINT.IfChange(localhost_nodes)
     return NetworkConfig(
         nodes=(
@@ -268,6 +315,7 @@ def localhost_network_config() -> NetworkConfig:
             NodeEndpoint(name="mpc", host="127.0.0.1", port=5610),
             NodeEndpoint(name="operator", host="127.0.0.1", port=5620),
             NodeEndpoint(name="teleop", host="127.0.0.1", port=5621),
+            NodeEndpoint(name="config_push", host="127.0.0.1", port=5622),
         )
     )
     # LINT.ThenChange(//config/ipc/network.textproto:localhost_nodes, //robot_runtime/robot_ipc/src/NetworkConfig.cpp:localhost_nodes)

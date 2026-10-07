@@ -28,18 +28,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 // The solution time window that the MPC node cuts every policy to before it sends it, whatever the solver does with the
-// final time it is given (SqpSolver ignores it): GaussNewtonDDP's rule, on the solutions of the multiple-shooting solvers.
-
-#include <gtest/gtest.h>
+// final time it is given (SqpSolver ignores it): upstream OCS2 GaussNewtonDDP's rule, on the solutions of the multiple-shooting
+// solvers.
 
 #include <cstddef>
 #include <random>
 
-#include <ocs2_core/Types.h>
-#include <ocs2_core/control/ControllerType.h>
-#include <ocs2_core/control/FeedforwardController.h>
-#include <ocs2_core/control/LinearController.h>
-#include <ocs2_oc/oc_data/PrimalSolution.h>
+#include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/control/ControllerType.h"
+#include "ocs2_core/control/FeedforwardController.h"
+#include "ocs2_core/control/LinearController.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 
 #include "humanoid_mpc_ipc/SolutionTimeWindow.h"
 #include "humanoid_nmpc/humanoid_mpc_ipc/test/PolicyTestData.h"

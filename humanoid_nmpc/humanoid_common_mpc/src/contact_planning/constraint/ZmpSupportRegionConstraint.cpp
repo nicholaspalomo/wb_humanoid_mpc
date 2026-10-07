@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -27,12 +31,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 #include <functional>
+#include <string>
 
 #include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
-static_assert(N_CONTACTS == 2, "the support region rows are written for a biped");
+static_assert(kNumContacts == 2, "the support region rows are written for a biped");
 
 std::string ZmpSupportRegionConstraint::describe() const {
   return absl::StrCat("zmp in the support region, box half-widths (", halfWidthX_, ", ", halfWidthY_,
@@ -53,33 +58,35 @@ void ZmpSupportRegionConstraint::addRows(const ContactPlanningContext& ctx, int 
   const std::function<void(size_t, int, scalar_t, Coefficients&, Coefficients&)> zmpMinusFoot = [&](size_t foot, int axis, scalar_t sign,
                                                                                                     Coefficients& xc, Coefficients& uc) {
     for (int w = 0; w < 2; ++w) {
-      xc.push_back({idx_.foot[foot][w], -sign * axes[static_cast<size_t>(axis)](w)});
-      uc.push_back({idx_.zmp[w], sign * axes[static_cast<size_t>(axis)](w)});
+      xc.emplace_back(idx_.foot[foot][w], -sign * axes[static_cast<size_t>(axis)](w));
+      uc.emplace_back(idx_.zmp[w], sign * axes[static_cast<size_t>(axis)](w));
     }
   };
   // Single-support boxes: +-e_j'(zmp - p_i) <= r_j + M (1 - c_i) + M c_other.
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     const size_t other = 1 - foot;
     for (int axis = 0; axis < 2; ++axis) {
       for (const scalar_t sign : {1.0, -1.0}) {
-        Coefficients xc, uc;
+        Coefficients xc;
+        Coefficients uc;
         zmpMinusFoot(foot, axis, sign, xc, uc);
-        uc.push_back({idx_.contact[foot], M});
-        uc.push_back({idx_.contact[other], -M});
+        uc.emplace_back(idx_.contact[foot], M);
+        uc.emplace_back(idx_.contact[other], -M);
         rows.addSoft(xc, uc, -kLipLooseBound, halfWidth[static_cast<size_t>(axis)] + M, penalty_);
       }
     }
   }
   // Double support, heading axis: +-e_x'(zmp - (p_L + p_R) / 2) <= r_x + M (1 - c_L) + M (1 - c_R).
   for (const scalar_t sign : {1.0, -1.0}) {
-    Coefficients xc, uc;
+    Coefficients xc;
+    Coefficients uc;
     for (int w = 0; w < 2; ++w) {
-      xc.push_back({idx_.foot[0][w], -0.5 * sign * axes[0](w)});
-      xc.push_back({idx_.foot[1][w], -0.5 * sign * axes[0](w)});
-      uc.push_back({idx_.zmp[w], sign * axes[0](w)});
+      xc.emplace_back(idx_.foot[0][w], -0.5 * sign * axes[0](w));
+      xc.emplace_back(idx_.foot[1][w], -0.5 * sign * axes[0](w));
+      uc.emplace_back(idx_.zmp[w], sign * axes[0](w));
     }
-    uc.push_back({idx_.contact[0], M});
-    uc.push_back({idx_.contact[1], M});
+    uc.emplace_back(idx_.contact[0], M);
+    uc.emplace_back(idx_.contact[1], M);
     rows.addSoft(xc, uc, -kLipLooseBound, halfWidth[0] + 2.0 * M, penalty_);
   }
   // Double support, lateral axis: upper bound from the left foot, lower bound from the right foot.
@@ -93,17 +100,19 @@ void ZmpSupportRegionConstraint::addRows(const ContactPlanningContext& ctx, int 
   // most of a stride. Relaxing by the other foot as well removes the duplicate without loosening anything: in single
   // support the surviving constraint is the single-support box, which is the same inequality.
   {
-    Coefficients xc, uc;  // e_y'(zmp - p_L) <= r + M (1 - c_L) + M (1 - c_R)
+    Coefficients xc;
+    Coefficients uc;  // e_y'(zmp - p_L) <= r + M (1 - c_L) + M (1 - c_R)
     zmpMinusFoot(/*foot=*/0, /*axis=*/1, /*sign=*/1.0, xc, uc);
-    uc.push_back({idx_.contact[0], M});
-    uc.push_back({idx_.contact[1], M});
+    uc.emplace_back(idx_.contact[0], M);
+    uc.emplace_back(idx_.contact[1], M);
     rows.addSoft(xc, uc, -kLipLooseBound, halfWidth[1] + 2.0 * M, penalty_);
   }
   {
-    Coefficients xc, uc;  // -e_y'(zmp - p_R) <= r + M (1 - c_L) + M (1 - c_R)
+    Coefficients xc;
+    Coefficients uc;  // -e_y'(zmp - p_R) <= r + M (1 - c_L) + M (1 - c_R)
     zmpMinusFoot(/*foot=*/1, /*axis=*/1, /*sign=*/-1.0, xc, uc);
-    uc.push_back({idx_.contact[0], M});
-    uc.push_back({idx_.contact[1], M});
+    uc.emplace_back(idx_.contact[0], M);
+    uc.emplace_back(idx_.contact[1], M);
     rows.addSoft(xc, uc, -kLipLooseBound, halfWidth[1] + 2.0 * M, penalty_);
   }
 }

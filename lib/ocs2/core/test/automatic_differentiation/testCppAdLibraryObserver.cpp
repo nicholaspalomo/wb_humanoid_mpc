@@ -43,13 +43,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/automatic_differentiation/CppAdInterface.h>
 
 namespace ocs2 {
 namespace {
 
 std::string testFolder(const std::string& name) {
-  const char* tmp = std::getenv("TEST_TMPDIR");
+  const char* absl_nullable tmp = std::getenv("TEST_TMPDIR");
   const std::filesystem::path folder = std::filesystem::path(tmp != nullptr ? tmp : "/tmp") / ("cppad_library_observer_" + name);
   std::filesystem::remove_all(folder);
   return folder.string();

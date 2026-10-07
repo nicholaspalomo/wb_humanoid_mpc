@@ -37,10 +37,12 @@ py_library(
     ],
 )
 
-# The registry: every check module below, concatenated.
+# The registry: every check module below, concatenated. //tools/nproto/test:test_generated_code runs every check over
+# the generated code, which make lint cannot see.
 py_library(
     name = "checks",
     srcs = ["checks.py"],
+    visibility = ["//tools/nproto/test:__pkg__"],
     deps = [
         ":american_spelling",
         ":argument_comments",
@@ -50,6 +52,7 @@ py_library(
         ":cpp_totw",
         ":include_style",
         ":inclusive_language",
+        ":license_header",
         ":lint_files",
         ":no_auto",
         ":nolint",
@@ -59,7 +62,9 @@ py_library(
         ":python_docstrings",
         ":python_imports",
         ":python_language",
+        ":textproto_headers",
         ":todo_format",
+        ":yaml_usage",
     ],
 )
 
@@ -79,6 +84,7 @@ py_library(
     deps = [
         ":check_types",
         ":checks",
+        ":lint_code",
         ":lint_files",
     ],
 )
@@ -146,8 +152,18 @@ py_test(
     deps = [
         ":check_test_support",
         ":checks",
+        ":format_code",
         ":lint_code",
     ],
+)
+
+# The pre-commit hook's staging, in a temporary repository with stand-ins for make and the linter.
+py_test(
+    name = "test_pre_commit",
+    size = "small",
+    srcs = ["test_pre_commit.py"],
+    data = ["pre-commit"],
+    deps = [":check_test_support"],
 )
 
 # The Makefile, the pre-commit hook and CI run the hooks as modules from the repository root.
@@ -197,6 +213,7 @@ py_library(
     srcs = ["include_style.py"],
     deps = [
         ":check_types",
+        ":cpp_source",
         ":lint_files",
     ],
 )
@@ -298,10 +315,59 @@ py_test(
     ],
 )
 
+py_library(
+    name = "textproto_headers",
+    srcs = ["textproto_headers.py"],
+    deps = [
+        ":check_types",
+        ":lint_files",
+        ":proto_file_layout",
+    ],
+)
+
+# The checkout (through MODULE.bazel's runfiles link) resolves a shipped file's header against the real .proto files.
+py_test(
+    name = "test_textproto_headers",
+    size = "small",
+    srcs = ["test_textproto_headers.py"],
+    data = [
+        "//:MODULE.bazel",
+        "//tools/nproto/test:testdata/scalars.textproto",
+    ],
+    deps = [
+        ":check_test_support",
+        ":textproto_headers",
+    ],
+)
+
+py_library(
+    name = "yaml_usage",
+    srcs = ["yaml_usage.py"],
+    deps = [
+        ":check_types",
+        ":cpp_source",
+        ":lint_files",
+        ":nolint",
+    ],
+)
+
+py_test(
+    name = "test_yaml_usage",
+    size = "small",
+    srcs = ["test_yaml_usage.py"],
+    deps = [
+        ":check_test_support",
+        ":yaml_usage",
+    ],
+)
+
 # The checks of the Google style guides and the Tips of the Week (AGENTS.md "Style guides").
 py_library(
     name = "pointer_nullability",
     srcs = ["pointer_nullability.py"],
+    # Generators are held to the rules through their output: the test of the aCOM weight header exporter runs this check
+    # over what it generates (the nproto generator's test runs the whole registry, :checks).
+    visibility = ["//humanoid_learning/acom/tests:__pkg__"],
     deps = [
         ":check_types",
         ":cpp_source",
@@ -337,6 +403,27 @@ py_test(
     deps = [
         ":check_test_support",
         ":no_auto",
+    ],
+)
+
+py_library(
+    name = "license_header",
+    srcs = ["license_header.py"],
+    deps = [
+        ":check_types",
+        ":cpp_source",
+        ":lint_files",
+    ],
+)
+
+py_test(
+    name = "test_license_header",
+    size = "small",
+    srcs = ["test_license_header.py"],
+    data = ["//:LICENCE.txt"],  # NOLINT(american-spelling): the license file's name.
+    deps = [
+        ":check_test_support",
+        ":license_header",
     ],
 )
 
@@ -446,6 +533,7 @@ py_library(
     srcs = ["python_docstrings.py"],
     deps = [
         ":check_types",
+        ":license_header",
         ":lint_files",
     ],
 )
@@ -546,29 +634,62 @@ py_test(
     ],
 )
 
-# First-party BUILD files keep headers at their source paths, which the clang-tidy aspect's header filter matches. It
-# reads every BUILD file of the checkout, which it finds through MODULE.bazel's runfiles link.
+# First-party BUILD files keep headers at their source paths, which the clang-tidy aspect's header filter matches, and
+# compile every C++ target with FIRST_PARTY_COPTS and no warning flag of their own. It reads every BUILD and .bzl file
+# of the checkout, which it finds through MODULE.bazel's runfiles link.
 py_test(
     name = "test_first_party_build_files",
     size = "small",
     srcs = ["test_first_party_build_files.py"],
-    data = ["//:MODULE.bazel"],
+    data = [
+        "//:MODULE.bazel",
+        "//bazel:copts.bzl",
+    ],
     deps = [
         ":check_test_support",
         ":lint_files",
     ],
 )
 
-# AGENTS.md names only checks that exist: registry checks, clang-tidy checks of the sweep (which holds the enforced ones
-# too) and the GCC flags of bazel/copts.bzl.
+# Every rule is enforced: no pending list, no sweep configuration, no relaxed mypy module, one clang-tidy configuration,
+# and make lint, the pre-commit hook and CI run every check. It reads the checkout through MODULE.bazel's runfiles link
+# for what must not exist, and its data for the rest.
+py_test(
+    name = "test_lint_enforcement",
+    size = "small",
+    srcs = ["test_lint_enforcement.py"],
+    data = [
+        "pre-commit",
+        "//:.bazelrc",
+        "//:.clang-tidy",
+        "//:.github/workflows/format_test.yml",
+        "//:.isort.cfg",
+        "//:.pylintrc",
+        "//:CPPLINT.cfg",
+        "//:MODULE.bazel",
+        "//:Makefile",
+        "//:mypy.ini",
+        "//tools/clang_tidy:clang_tidy.bzl",
+    ],
+    deps = [
+        ":check_test_support",
+        ":check_types",
+        ":checks",
+        ":lint_code",
+        ":lint_files",
+    ],
+)
+
+# AGENTS.md names only checks that exist: registry checks, clang-tidy checks of //:.clang-tidy and the GCC flags of
+# bazel/copts.bzl.
 py_test(
     name = "test_agents_style_sections",
     size = "small",
     srcs = ["test_agents_style_sections.py"],
     data = [
+        "//:.clang-tidy",
         "//:AGENTS.md",
         "//bazel:copts.bzl",
-        "//tools/clang_tidy:sweep.clang-tidy",
     ],
     deps = [
         ":check_test_support",

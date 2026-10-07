@@ -34,13 +34,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <ocs2_robotic_tools/common/RotationDerivativesTransforms.h>
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
-
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_robotic_tools/common/RotationDerivativesTransforms.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
@@ -163,9 +162,10 @@ absl::StatusOr<vector_t> stateFromTuningLayout(const vector_t& tuningVector, con
   RETURN_IF_ERROR(checkRotationSegments(layout, "stateFromTuningLayout"));
   const size_t tuningDim = getTuningLayoutDim(layout);
   if (static_cast<size_t>(tuningVector.size()) != tuningDim) {
-    return absl::InvalidArgumentError(absl::StrCat("[stateFromTuningLayout] the vector has ", tuningVector.size(), " entries, but the ",
-                                                   describeLayout(layout, /*inState=*/false), " has ", tuningDim,
-                                                   ". Each row of task.yaml's initialState, Q and Q_final is one row of this layout."));
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[stateFromTuningLayout] the vector has ", tuningVector.size(), " entries, but the ", describeLayout(layout, /*inState=*/false),
+        " has ", tuningDim,
+        ". Each coordinate of the task file's initial_state, state_weights and final_state_weights is one row of this layout."));
   }
   vector_t state(static_cast<Eigen::Index>(getTuningLayoutStateDim(layout)));
   Eigen::Index tuningRow = 0;

@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -65,8 +66,8 @@ constexpr absl::string_view kMainRepository = "_main";
  */
 constexpr std::array<absl::string_view, 7> kDataDirectories = {"config", "launch", "materials", "meshes", "test", "testdata", "urdf"};
 
-std::string environmentVariable(const char* name) {
-  const char* value = std::getenv(name);
+std::string environmentVariable(const char* absl_nonnull name) {
+  const char* absl_nullable value = std::getenv(name);
   return value == nullptr ? std::string() : std::string(value);
 }
 
@@ -100,7 +101,7 @@ std::string owningPackageLabel(absl::string_view path) {
       break;
     }
   }
-  const std::vector<absl::string_view> package(components.begin(), components.begin() + static_cast<std::ptrdiff_t>(packageLength));
+  const std::vector<absl::string_view> package(components.begin(), components.begin() + static_cast<ptrdiff_t>(packageLength));
   return absl::StrCat("//", absl::StrJoin(package, "/"));
 }
 
@@ -153,7 +154,7 @@ std::optional<std::string> executablePath() {
 }  // namespace
 
 absl::StatusOr<std::string> resolveResourcePath(absl::string_view repositoryRelativePath) {
-  const absl::Status valid = validateRepositoryRelativePath(repositoryRelativePath);
+  absl::Status valid = validateRepositoryRelativePath(repositoryRelativePath);
   if (!valid.ok()) return valid;
 
   const std::string runfilesPath = absl::StrCat(kMainRepository, "/", repositoryRelativePath);

@@ -1,12 +1,42 @@
-"""Tests for launch_script.py: a machine's process of a launch file exported as a POSIX sh script runs the command the
-launcher would run, takes its variables from the environment, and refuses what a script cannot do."""
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+"""Tests for launch_script.py: a machine's process of a launch file exported as a POSIX sh script.
+
+The script runs the command the launcher would run, takes its variables from the environment, and refuses what a script
+cannot do.
+"""
+
+import io
 import os
 import stat
 import subprocess
 import tempfile
 import unittest
-from typing import Dict, List, Optional
 
 import launch_file
 import launch_script
@@ -21,7 +51,10 @@ PRINT_ARGUMENTS = (
 
 
 class ScriptTestCase(unittest.TestCase):
+    """A temporary directory for the launch file and the exported script, and the runs of the script."""
+
     def setUp(self) -> None:
+        # pylint: disable-next=consider-using-with  # tearDown() deletes it.
         self._directory = tempfile.TemporaryDirectory()
         self.directory = self._directory.name
 
@@ -43,17 +76,22 @@ class ScriptTestCase(unittest.TestCase):
         return script
 
     def run_script(
-        self, script: str, environment: Optional[Dict[str, str]] = None
+        self, script: str, environment: dict[str, str] | None = None
     ) -> subprocess.CompletedProcess:
         env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
         env.update(environment or {})
         return subprocess.run(
-            [script], capture_output=True, text=True, env=env, timeout=30
+            [script],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=30,
+            check=False,  # The tests check the return code.
         )
 
     def arguments(
-        self, script: str, environment: Optional[Dict[str, str]] = None
-    ) -> List[str]:
+        self, script: str, environment: dict[str, str] | None = None
+    ) -> list[str]:
         result = self.run_script(script, environment)
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.splitlines()
@@ -103,18 +141,20 @@ class VariableTest(ScriptTestCase):
     def test_a_variable_follows_the_one_it_refers_to(self) -> None:
         path = self.launch(
             'variables { name: "config_dir" value: "robots/a" }\n'
-            'variables { name: "task_file" value: "{config_dir}/task.yaml" }',
+            'variables { name: "task_file" value: "{config_dir}/task.textproto" }',
             PRINT_ARGUMENTS + ', "--task_file={task_file}"',
         )
         script = self.export(path, env_prefix="WB_ROBOT_")
-        self.assertEqual(self.arguments(script), ["--task_file=robots/a/task.yaml"])
         self.assertEqual(
-            self.arguments(script, {"WB_ROBOT_CONFIG_DIR": "/elsewhere"}),
-            ["--task_file=/elsewhere/task.yaml"],
+            self.arguments(script), ["--task_file=robots/a/task.textproto"]
         )
         self.assertEqual(
-            self.arguments(script, {"WB_ROBOT_TASK_FILE": "mine.yaml"}),
-            ["--task_file=mine.yaml"],
+            self.arguments(script, {"WB_ROBOT_CONFIG_DIR": "/elsewhere"}),
+            ["--task_file=/elsewhere/task.textproto"],
+        )
+        self.assertEqual(
+            self.arguments(script, {"WB_ROBOT_TASK_FILE": "mine.textproto"}),
+            ["--task_file=mine.textproto"],
         )
 
     def test_the_dependency_order_does_not_depend_on_the_file_order(self) -> None:
@@ -152,7 +192,9 @@ class VariableTest(ScriptTestCase):
 
     def test_the_process_runs_in_the_root(self) -> None:
         os.makedirs(os.path.join(self.directory, "data"))
-        with open(os.path.join(self.directory, "data", "file.txt"), "w") as stream:
+        with open(
+            os.path.join(self.directory, "data", "file.txt"), "w", encoding="utf-8"
+        ) as stream:
             stream.write("found\n")
         path = self.launch("", '["cat", "data/file.txt"')
         self.assertEqual(self.arguments(self.export(path, root="..")), ["found"])
@@ -174,8 +216,8 @@ class VariableTest(ScriptTestCase):
         # exec: the process has the script's PID, so it receives the signals sent to the script (docker stop).
         path = self.launch("", '["sh", "-c", "echo $$"')
         script = self.export(path)
-        process = subprocess.Popen([script], stdout=subprocess.PIPE, text=True)
-        output, _ = process.communicate(timeout=30)
+        with subprocess.Popen([script], stdout=subprocess.PIPE, text=True) as process:
+            output, _ = process.communicate(timeout=30)
         self.assertEqual(process.returncode, 0)
         self.assertEqual(output.strip(), str(process.pid))
 
@@ -217,18 +259,15 @@ class CommandLineTest(ScriptTestCase):
 
     def test_an_invalid_launch_file_is_a_usage_error_naming_its_line(self) -> None:
         path = self.write_launch_file('processes { name: "robot" requried: true }\n')
-        errors = []
-
-        class Collect:
-            def write(self, text: str) -> None:
-                errors.append(text)
-
+        errors = io.StringIO()
         status = launch_script.main(
             [path, "--machine", "robot", "--output", os.path.join(self.directory, "x")],
-            err=Collect(),
+            err=errors,
         )
         self.assertEqual(status, launch_script.EXIT_USAGE)
-        self.assertRegex("".join(errors), r"test\.launch\.textproto:1:\d+: .*requried")
+        self.assertRegex(
+            errors.getvalue(), r"test\.launch\.textproto:1:\d+: .*requried"
+        )
 
 
 if __name__ == "__main__":

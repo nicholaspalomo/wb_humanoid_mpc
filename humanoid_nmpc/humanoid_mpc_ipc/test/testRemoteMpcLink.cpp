@@ -32,26 +32,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // updatePolicy(), evaluatePolicy() and the predicates, as CentroidalMpcMrtJointController does. A gate in the server's
 // annotations provider holds a solved policy in flight; a relay between the robot and the MPC loses observations.
 
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/log/check.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-
-#include <ocs2_core/Types.h>
-#include <ocs2_core/reference/TargetTrajectories.h>
-#include <ocs2_mpc/CommandData.h>
-#include <ocs2_oc/oc_data/PrimalSolution.h>
+#include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/CommandData.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
 #include "humanoid_mpc_ipc/MpcServer.h"
@@ -156,11 +157,13 @@ class RemoteMpcLinkTest : public ::testing::Test {
     link_ = std::move(*link);
     MpcServer::Hooks hooks;
     hooks.annotationsProvider = [this](const CommandData& /*command*/, const PrimalSolution& /*solution*/,
-                                       humanoid_mpc_msgs::ViewerAnnotations* annotations) {
+                                       humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations) {
       annotations->set_scaled_velocity_x(0.5);
       gate_.pass();
+      return absl::OkStatus();
     };
-    absl::StatusOr<std::unique_ptr<MpcServer>> server = MpcServer::Create(*mpcBus_, *mpc_, resetTargetsFor, serverConfig, hooks);
+    absl::StatusOr<std::unique_ptr<MpcServer>> server =
+        MpcServer::Create(*mpcBus_, *mpc_, resetTargetsFor, std::move(serverConfig), std::move(hooks));
     CHECK_OK(server.status());
     server_ = std::move(*server);
 
@@ -271,10 +274,10 @@ TEST_F(RemoteMpcLinkTest, TheFirstPolicyArrivesAndEvaluatesAsTheSolverPlannedIt)
   size_t mode = 99;
   link_->evaluatePolicy(initTime + 0.5, vector_t::Constant(test_support::kStateDim, 2.0), state, input, mode);
   ASSERT_EQ(state.size(), static_cast<Eigen::Index>(test_support::kStateDim));
-  EXPECT_NEAR(state(0), 2.5, 1e-12);
+  EXPECT_NEAR(state(0), 2.5, 1.0e-12);
   EXPECT_EQ(input, vector_t::Zero(test_support::kInputDim));
   EXPECT_EQ(mode, 0u);
-  EXPECT_NEAR(link_->getPolicy().timeTrajectory_.back(), initTime + 1.0, 1e-12);
+  EXPECT_NEAR(link_->getPolicy().timeTrajectory_.back(), initTime + 1.0, 1.0e-12);
 
   const MpcServer::Statistics server = server_->statistics();
   EXPECT_EQ(server.fullResets, 1u) << "one start-up reset, before the first solve";
@@ -423,7 +426,7 @@ TEST_F(RemoteMpcLinkTest, SolverFailuresMakeTheRobotUnhealthyUntilASolveSucceeds
   build(linkConfig);
   warmUp();
 
-  mpc_->solver().failEverySolve(true);
+  mpc_->solver().failEverySolve(/*fail=*/true);
   ASSERT_TRUE(runRobotUntil([&]() { return !robotSupervisor_.isHealthy(); }));
   const RemoteMpcLink::Statistics failing = link_->statistics();
   EXPECT_FALSE(failing.solverHealthy);
@@ -433,7 +436,7 @@ TEST_F(RemoteMpcLinkTest, SolverFailuresMakeTheRobotUnhealthyUntilASolveSucceeds
   EXPECT_FALSE(robotSupervisor_.hasOutstandingReset()) << "the MPC side resets itself; the robot requested nothing";
   EXPECT_FALSE(server_->statistics().healthy);
 
-  mpc_->solver().failEverySolve(false);
+  mpc_->solver().failEverySolve(/*fail=*/false);
   ASSERT_TRUE(runRobotUntil([&]() { return robotSupervisor_.isHealthy() && postResetPolicyActive(); }));
   EXPECT_TRUE(link_->statistics().solverHealthy);
   EXPECT_EQ(robotSupervisor_.numConsecutiveFailures(), 0u);

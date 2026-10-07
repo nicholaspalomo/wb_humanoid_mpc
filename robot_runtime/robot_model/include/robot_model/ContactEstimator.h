@@ -29,10 +29,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <robot_model/RobotState.h>
-
 #include <string>
 #include <vector>
+
+#include "robot_model/RobotState.h"
 
 namespace robot::model {
 

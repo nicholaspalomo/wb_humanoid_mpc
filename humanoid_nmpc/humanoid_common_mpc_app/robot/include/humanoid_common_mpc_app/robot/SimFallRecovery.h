@@ -34,12 +34,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <humanoid_common_mpc/common/Types.h>
-#include <mujoco_sim_interface/MujocoSimInterface.h>
-#include <robot_model/RobotState.h>
+#include "absl/base/nullability.h"
 
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc_app/robot/FallRecoveryTypes.h"
 #include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
+#include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid {
 
@@ -75,9 +76,9 @@ namespace ocs2::humanoid {
 class SimFallRecovery {
  public:
   struct Config {
-    /// [rad] Tilt of the base past which the robot is caught (task.yaml `simMaxBaseTiltAngle`); <= 0 disables the catch.
+    /// [rad] Tilt of the base past which the robot is caught (task.textproto `sim_max_base_tilt_angle`); <= 0 disables the catch.
     scalar_t maxBaseTiltAngle = 0.0;
-    /// [m] How far the gantry lifts a caught robot to let it settle (task.yaml `simGantryCatchLift`); <= 0: no sequence.
+    /// [m] How far the gantry lifts a caught robot to let it settle (task.textproto `sim_gantry_catch_lift`); <= 0: no sequence.
     scalar_t catchLift = 0.0;
     // LINT.IfChange(settle_defaults)
     /// [m/s] Rate the gantry height is moved at during the sequence, up and down.
@@ -105,7 +106,7 @@ class SimFallRecovery {
     bool discontinuity = false;
     DiscontinuityCause cause = DiscontinuityCause::kNone;
     /// The simulator's reset epoch this cycle (kSimulatorReset) and the tilt that was caught [rad] (kTiltCaught).
-    std::uint64_t resetEpoch = 0;
+    uint64_t resetEpoch = 0;
     scalar_t tilt = 0.0;
     /// The gantry was released since the previous cycle.
     bool gantryUnlocked = false;
@@ -122,7 +123,7 @@ class SimFallRecovery {
   SimFallRecovery(const Config& config,
                   const robot::mujoco_sim_interface::MujocoSimInterface& robotInterface,
                   std::vector<size_t> restJointIndices,
-                  RealtimeEventLog* eventLog = nullptr);
+                  RealtimeEventLog* absl_nullable eventLog = nullptr);
 
   /**
    * Once per control cycle, after the operator's commands were processed (SimFsmBridge::processCommands()), with the
@@ -161,16 +162,16 @@ class SimFallRecovery {
                           const std::vector<scalar_t>& nominalJointPositions,
                           robot::mujoco_sim_interface::MujocoSimInterface& robotInterface);
   void report(RealtimeEventCode code,
-              std::int32_t detail = 0,
+              int32_t detail = 0,
               absl::string_view text = {},
               double value0 = 0.0,
               double value1 = 0.0,
               double value2 = 0.0,
-              std::uint64_t count = 0);
+              uint64_t count = 0);
 
   const Config config_;
   const std::vector<size_t> restJointIndices_;
-  RealtimeEventLog* const eventLog_;
+  RealtimeEventLog* absl_nullable const eventLog_;
   uint64_t lastResetEpoch_ = 0;
   bool lastGantryLocked_ = false;
 

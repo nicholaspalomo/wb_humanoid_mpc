@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -33,7 +37,7 @@ namespace ocs2::humanoid {
 
 matrix_t contactForceInputJacobian(const MpcRobotModelBase<scalar_t>& mpcRobotModel, size_t contactPointIndex) {
   constexpr size_t kForceDim = 3;
-  constexpr scalar_t kLinearityTolerance = 1e-12;
+  constexpr scalar_t kLinearityTolerance = 1.0e-12;
 
   const size_t inputDim = mpcRobotModel.getInputDim();
   const vector_t zeroInput = vector_t::Zero(inputDim);
@@ -45,15 +49,15 @@ matrix_t contactForceInputJacobian(const MpcRobotModelBase<scalar_t>& mpcRobotMo
   matrix_t jacobian = matrix_t::Zero(kForceDim, inputDim);
   for (size_t index = 0; index < inputDim; ++index) {
     vector_t probe = vector_t::Zero(inputDim);
-    probe(static_cast<long>(index)) = 1.0;
-    jacobian.col(static_cast<long>(index)) = mpcRobotModel.getContactForce(probe, contactPointIndex);
+    probe(static_cast<Eigen::Index>(index)) = 1.0;
+    jacobian.col(static_cast<Eigen::Index>(index)) = mpcRobotModel.getContactForce(probe, contactPointIndex);
   }
   return jacobian;
 }
 
 vector_t normalContactForceRow(const MpcRobotModelBase<scalar_t>& mpcRobotModel, size_t contactPointIndex) {
-  constexpr long kNormalRow = 2;
-  constexpr scalar_t kSignTolerance = 1e-12;
+  constexpr Eigen::Index kNormalRow = 2;
+  constexpr scalar_t kSignTolerance = 1.0e-12;
 
   const vector_t row = contactForceInputJacobian(mpcRobotModel, contactPointIndex).row(kNormalRow);
   CHECK((row.array() >= -kSignTolerance).all()) << "[normalContactForceRow] the normal contact force must be non-negative in the "

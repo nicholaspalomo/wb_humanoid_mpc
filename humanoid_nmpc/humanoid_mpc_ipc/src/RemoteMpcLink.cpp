@@ -39,13 +39,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 
 #include "absl/log/log.h"
+#include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
-
-#include <ocs2_mpc/CommandData.h>
-#include <ocs2_oc/oc_data/PerformanceIndex.h>
-#include <ocs2_oc/oc_data/PrimalSolution.h>
+#include "ocs2_mpc/CommandData.h"
+#include "ocs2_oc/oc_data/PerformanceIndex.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_mpc_ipc/Topics.h"
@@ -83,7 +83,7 @@ absl::Status validateConfig(const RemoteMpcLink::Config& config) {
   }
   if (!std::isfinite(config.policyTimeout) || config.policyTimeout <= 0.0) {
     return absl::InvalidArgumentError(absl::StrCat(
-        "RemoteMpcLink: Config::policyTimeout (mpcLink.policyTimeout) must be a positive number of seconds, got ", config.policyTimeout));
+        "RemoteMpcLink: Config::policyTimeout (mpc_link.policy_timeout) must be a positive number of seconds, got ", config.policyTimeout));
   }
   if (config.pollPeriod <= absl::ZeroDuration()) {
     return absl::InvalidArgumentError(absl::StrCat("RemoteMpcLink: Config::pollPeriod must be positive, got ", config.pollPeriod));
@@ -98,7 +98,7 @@ absl::StatusOr<std::unique_ptr<RemoteMpcLink>> RemoteMpcLink::Create(robot::ipc:
   if (bus.isRunning()) {
     return absl::FailedPreconditionError("RemoteMpcLink: the bus is running; create the link before Bus::start()");
   }
-  std::unique_ptr<RemoteMpcLink> link(new RemoteMpcLink(bus, supervisor, std::move(config)));
+  std::unique_ptr<RemoteMpcLink> link = absl::WrapUnique(new RemoteMpcLink(bus, supervisor, config));
   RETURN_IF_ERROR(link->registerOnBus());
   return link;
 }
@@ -108,7 +108,7 @@ absl::StatusOr<std::unique_ptr<RemoteMpcLink>> RemoteMpcLink::Create(robot::ipc:
                                                                      Config config) {
   RETURN_IF_ERROR(validateConfig(config));
   ASSIGN_OR_RETURN(std::unique_ptr<robot::ipc::Bus> bus, robot::ipc::Bus::Create(std::move(busOptions)));
-  std::unique_ptr<RemoteMpcLink> link(new RemoteMpcLink(*bus, supervisor, std::move(config)));
+  std::unique_ptr<RemoteMpcLink> link = absl::WrapUnique(new RemoteMpcLink(*bus, supervisor, config));
   link->ownedBus_ = std::move(bus);
   RETURN_IF_ERROR(link->registerOnBus());
   RETURN_IF_ERROR(link->ownedBus_->start());
@@ -118,7 +118,7 @@ absl::StatusOr<std::unique_ptr<RemoteMpcLink>> RemoteMpcLink::Create(robot::ipc:
 RemoteMpcLink::RemoteMpcLink(robot::ipc::Bus& bus, MpcResetSupervisor& supervisor, Config config)
     : bus_(bus),
       supervisor_(supervisor),
-      config_(std::move(config)),
+      config_(config),
       guard_(std::make_shared<CallbackGuard>()),
       observations_(
           ObservationSlot{.observation = SystemObservation{.mode = 0,

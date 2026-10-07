@@ -27,16 +27,18 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <cmath>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
+#include "absl/base/nullability.h"
+#include "gtest/gtest.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/constraint/EndEffectorKinematicsLinearVelConstraint.h"
 #include "humanoid_common_mpc/constraint/EndEffectorKinematicsTwistConstraint.h"
 
 /**
@@ -52,11 +54,11 @@ namespace {
 
 constexpr size_t kStateDim = 6;  // [position(3), rotation vector(3)]
 constexpr size_t kInputDim = 6;  // [linear velocity(3), angular velocity(3)]
-constexpr scalar_t kTol = 1e-9;
+constexpr scalar_t kTol = 1.0e-9;
 
 matrix3_t rotationFromRotationVector(const vector3_t& rotationVector) {
   const scalar_t angle = rotationVector.norm();
-  if (angle < 1e-12) return matrix3_t::Identity();
+  if (angle < 1.0e-12) return matrix3_t::Identity();
   return Eigen::AngleAxis<scalar_t>(angle, rotationVector / angle).toRotationMatrix();
 }
 
@@ -68,7 +70,8 @@ matrix3_t rotationFromRotationVector(const vector3_t& rotationVector) {
 class AnalyticEndEffectorKinematics final : public EndEffectorKinematics<scalar_t> {
  public:
   AnalyticEndEffectorKinematics() : ids_{"test_foot"} {}
-  AnalyticEndEffectorKinematics* clone() const override { return new AnalyticEndEffectorKinematics(*this); }
+  explicit AnalyticEndEffectorKinematics(std::vector<std::string> ids) : ids_(std::move(ids)) {}
+  AnalyticEndEffectorKinematics* absl_nonnull clone() const override { return new AnalyticEndEffectorKinematics(*this); }
   const std::vector<std::string>& getIds() const override { return ids_; }
 
   static vector3_t positionOf(const vector_t& state) { return state.head<3>(); }
@@ -128,9 +131,10 @@ class AnalyticEndEffectorKinematics final : public EndEffectorKinematics<scalar_
     VectorFunctionLinearApproximation approx;
     approx.f = getOrientationErrorWrtPlane(state, planeNormals).front();
     approx.dfdx = matrix_t::Zero(3, state.size());
-    const scalar_t eps = 1e-6;
+    const scalar_t eps = 1.0e-6;
     for (Eigen::Index i = 0; i < state.size(); ++i) {
-      vector_t plus = state, minus = state;
+      vector_t plus = state;
+      vector_t minus = state;
       plus(i) += eps;
       minus(i) -= eps;
       approx.dfdx.col(i) =
@@ -225,8 +229,8 @@ TEST_F(TwistConstraintTest, YawRateAboutTheContactNormalIsConstrained) {
     const vector_t atRest = constraint.getValue(/*time=*/0.0, state, makeInput(vector3_t::Zero(), vector3_t::Zero()), PreComputation());
     const vector_t spinning = constraint.getValue(/*time=*/0.0, state, makeInput(vector3_t::Zero(), 0.5 * footNormal), PreComputation());
 
-    EXPECT_GT((spinning - atRest).norm(), 1e-4) << "spinning about the contact normal must violate the constraint";
-    EXPECT_NEAR(spinning(5) - atRest(5), 0.01 * 0.5 * 0.5, 1e-9)
+    EXPECT_GT((spinning - atRest).norm(), 1.0e-4) << "spinning about the contact normal must violate the constraint";
+    EXPECT_NEAR(spinning(5) - atRest(5), 0.01 * 0.5 * 0.5, 1.0e-9)
         << "the yaw row should be the angular velocity gain times half the rate about the contact normal";
   }
 }
@@ -272,16 +276,16 @@ TEST_F(TwistConstraintTest, TiltRowsStillActAsAProportionalDerivativeLaw) {
   const vector3_t omega = angularBlock.fullPivLu().solve(-residualAtRest);
 
   const vector_t value = constraint.getValue(/*time=*/0.0, state, makeInput(vector3_t::Zero(), omega), PreComputation());
-  EXPECT_TRUE(value.tail(3).isZero(1e-9)) << "orientation rows should vanish at the PD solution: " << value.tail(3).transpose();
-  EXPECT_GT(error.norm(), 1e-3) << "the test state should actually be tilted";
+  EXPECT_TRUE(value.tail(3).isZero(1.0e-9)) << "orientation rows should vanish at the PD solution: " << value.tail(3).transpose();
+  EXPECT_GT(error.norm(), 1.0e-3) << "the test state should actually be tilted";
   // Removing the tilt requires rotating about an axis perpendicular to the plane normal.
-  EXPECT_GT(omega.head<2>().norm(), 1e-3);
+  EXPECT_GT(omega.head<2>().norm(), 1.0e-3);
 }
 
 // ==================== Value and linearization agree ====================
 
 TEST_F(TwistConstraintTest, LinearApproximationMatchesTheValue) {
-  for (size_t numConstraints : {size_t(3), size_t(6)}) {
+  for (const size_t numConstraints : {size_t{3}, size_t{6}}) {
     EndEffectorKinematicsTwistConstraint constraint(kinematics_, numConstraints, makeFootConfig());
     const vector_t state = makeState(vector3_t(0.2, 0.1, 0.03), vector3_t(0.1, -0.05, 0.6));
     const vector_t input = makeInput(vector3_t(0.4, -0.2, 0.1), vector3_t(0.3, 0.2, -0.5));
@@ -290,7 +294,7 @@ TEST_F(TwistConstraintTest, LinearApproximationMatchesTheValue) {
     const VectorFunctionLinearApproximation approx = constraint.getLinearApproximation(/*time=*/0.0, state, input, PreComputation());
     EXPECT_EQ(constraint.getNumConstraints(0.0), numConstraints);
     EXPECT_EQ(static_cast<size_t>(value.size()), numConstraints);
-    EXPECT_TRUE(approx.f.isApprox(value, 1e-9))
+    EXPECT_TRUE(approx.f.isApprox(value, 1.0e-9))
         << "n=" << numConstraints << ": value " << value.transpose() << " vs approximation " << approx.f.transpose();
   }
 }
@@ -303,16 +307,19 @@ TEST_F(TwistConstraintTest, InputJacobianMatchesFiniteDifferences) {
 
   const VectorFunctionLinearApproximation approx = constraint.getLinearApproximation(/*time=*/0.0, state, input, PreComputation());
   matrix_t finiteDifference = matrix_t::Zero(6, kInputDim);
-  const scalar_t eps = 1e-6;
+  const scalar_t eps = 1.0e-6;
   for (size_t i = 0; i < kInputDim; ++i) {
-    vector_t plus = input, minus = input;
+    vector_t plus = input;
+    vector_t minus = input;
     plus(i) += eps;
     minus(i) -= eps;
     finiteDifference.col(i) = (constraint.getValue(/*time=*/0.0, state, plus, PreComputation()) -
                                constraint.getValue(/*time=*/0.0, state, minus, PreComputation())) /
                               (2.0 * eps);
   }
-  EXPECT_TRUE(approx.dfdu.isApprox(finiteDifference, 1e-6)) << "dfdu =\n" << approx.dfdu << "\nfinite differences =\n" << finiteDifference;
+  EXPECT_TRUE(approx.dfdu.isApprox(finiteDifference, 1.0e-6)) << "dfdu =\n"
+                                                              << approx.dfdu << "\nfinite differences =\n"
+                                                              << finiteDifference;
 }
 
 TEST_F(TwistConstraintTest, OffDiagonalGainsAreAppliedByBothValueAndLinearization) {
@@ -329,19 +336,22 @@ TEST_F(TwistConstraintTest, OffDiagonalGainsAreAppliedByBothValueAndLinearizatio
   const vector_t input = makeInput(vector3_t(0.4, -0.2, 0.1), vector3_t(0.3, 0.2, -0.5));
   const vector_t value = constraint.getValue(/*time=*/0.0, state, input, PreComputation());
   const VectorFunctionLinearApproximation approx = constraint.getLinearApproximation(/*time=*/0.0, state, input, PreComputation());
-  EXPECT_TRUE(approx.f.isApprox(value, 1e-9)) << "value " << value.transpose() << " vs approximation " << approx.f.transpose();
+  EXPECT_TRUE(approx.f.isApprox(value, 1.0e-9)) << "value " << value.transpose() << " vs approximation " << approx.f.transpose();
 
   matrix_t finiteDifference = matrix_t::Zero(6, kInputDim);
-  const scalar_t eps = 1e-6;
+  const scalar_t eps = 1.0e-6;
   for (size_t i = 0; i < kInputDim; ++i) {
-    vector_t plus = input, minus = input;
+    vector_t plus = input;
+    vector_t minus = input;
     plus(i) += eps;
     minus(i) -= eps;
     finiteDifference.col(i) = (constraint.getValue(/*time=*/0.0, state, plus, PreComputation()) -
                                constraint.getValue(/*time=*/0.0, state, minus, PreComputation())) /
                               (2.0 * eps);
   }
-  EXPECT_TRUE(approx.dfdu.isApprox(finiteDifference, 1e-6)) << "dfdu =\n" << approx.dfdu << "\nfinite differences =\n" << finiteDifference;
+  EXPECT_TRUE(approx.dfdu.isApprox(finiteDifference, 1.0e-6)) << "dfdu =\n"
+                                                              << approx.dfdu << "\nfinite differences =\n"
+                                                              << finiteDifference;
 }
 
 // ==================== Translation-only behavior is unchanged ====================
@@ -389,14 +399,25 @@ TEST_F(TwistConstraintTest, GroundPlaneNormalIsRespected) {
   const scalar_t angle = std::asin(axis.norm());
   const vector_t alignedState = makeState(vector3_t::Zero(), axis.normalized() * angle);
   const vector_t value = constraint.getValue(/*time=*/0.0, alignedState, makeInput(vector3_t::Zero(), vector3_t::Zero()), PreComputation());
-  EXPECT_TRUE(value.tail(3).isZero(1e-9)) << "a foot aligned with the slope should have no orientation error: "
-                                          << value.tail(3).transpose();
+  EXPECT_TRUE(value.tail(3).isZero(1.0e-9)) << "a foot aligned with the slope should have no orientation error: "
+                                            << value.tail(3).transpose();
 
   // Spinning about the slope normal is still detected.
   const vector3_t footNormal = AnalyticEndEffectorKinematics::rotationOf(alignedState) * vector3_t::UnitZ();
   const vector_t spinning =
       constraint.getValue(/*time=*/0.0, alignedState, makeInput(vector3_t::Zero(), 0.4 * footNormal), PreComputation());
-  EXPECT_GT(std::abs(spinning(5)), 1e-6);
+  EXPECT_GT(std::abs(spinning(5)), 1.0e-6);
+}
+
+// Both constraints act on one end effector; kinematics of two is a programming error the constructors refuse with an
+// ABSL_CHECK, which ends the process with its message.
+TEST(EndEffectorKinematicsConstraintDeathTest, ConstructorsRefuseMoreThanOneEndEffector) {
+  const AnalyticEndEffectorKinematics twoFeet({"left_foot", "right_foot"});
+  EXPECT_DEATH(EndEffectorKinematicsTwistConstraint(twoFeet, /*numConstraints=*/6, makeFootConfig()), "only accepts a single end-effector");
+  EndEffectorKinematicsLinearVelConstraint::Config linearConfig;
+  linearConfig.b = vector_t::Zero(1);
+  linearConfig.Av = matrix_t::Zero(1, 3);
+  EXPECT_DEATH(EndEffectorKinematicsLinearVelConstraint(twoFeet, /*numConstraints=*/1, linearConfig), "only accepts a single end-effector");
 }
 
 }  // namespace

@@ -32,7 +32,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 
-#include <ocs2_core/constraint/StateInputConstraint.h>
+#include "absl/base/nullability.h"
+#include "absl/status/statusor.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
 
 #include "humanoid_wb_mpc/end_effector/EndEffectorDynamics.h"
 
@@ -56,19 +58,26 @@ class EndEffectorDynamicsLinearAccConstraint final : public StateInputConstraint
   };
 
   /**
-   * Constructor
-   * @param [in] endEffectorKinematics: The kinematic interface to the target end-effector.
+   * Makes the constraint on the end effector of `endEffectorDynamics`, which it clones.
+   * @param [in] endEffectorDynamics: The dynamics interface to the target end-effector; it has exactly one end effector.
    * @param [in] numConstraints: The number of constraints {1, 2, 3}
    * @param [in] config: The constraint coefficients, g(xee, vee, aee) = Ax * xee + Av * vee + Aa *aee + b
+   * @return InvalidArgument naming the end effectors when `endEffectorDynamics` has other than one.
    */
-  EndEffectorDynamicsLinearAccConstraint(const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
-                                         size_t numConstraints,
-                                         Config config = Config());
+  static absl::StatusOr<std::unique_ptr<EndEffectorDynamicsLinearAccConstraint>> Create(
+      const EndEffectorDynamics<scalar_t>& endEffectorDynamics, size_t numConstraints, Config config = Config());
 
   ~EndEffectorDynamicsLinearAccConstraint() override = default;
-  EndEffectorDynamicsLinearAccConstraint* clone() const override { return new EndEffectorDynamicsLinearAccConstraint(*this); }
+  EndEffectorDynamicsLinearAccConstraint& operator=(const EndEffectorDynamicsLinearAccConstraint&) = delete;
+  EndEffectorDynamicsLinearAccConstraint(EndEffectorDynamicsLinearAccConstraint&&) = delete;
+  EndEffectorDynamicsLinearAccConstraint& operator=(EndEffectorDynamicsLinearAccConstraint&&) = delete;
+  EndEffectorDynamicsLinearAccConstraint* absl_nonnull clone() const override { return new EndEffectorDynamicsLinearAccConstraint(*this); }
 
-  /** Sets a new constraint coefficients. */
+  /**
+   * Sets new constraint coefficients, unchecked (the pre-computation sets them on every evaluation): `config.b` has
+   * getNumConstraints() rows, and each of Ax, Av and Aa is empty or getNumConstraints() x 3, at least one of Ax and Av
+   * not empty.
+   */
   void configure(Config&& config);
   /** Sets a new constraint coefficients. */
   void configure(const Config& config) { this->configure(Config(config)); }
@@ -76,7 +85,7 @@ class EndEffectorDynamicsLinearAccConstraint final : public StateInputConstraint
   /** Gets the underlying end-effector kinematics interface. */
   EndEffectorDynamics<scalar_t>& getEndEffectorDynamics() { return *endEffectorDynamicsPtr_; }
 
-  size_t getNumConstraints(scalar_t time) const override { return numConstraints_; }
+  size_t getNumConstraints(scalar_t /*time*/) const override { return numConstraints_; }
   vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
   VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
                                                            const vector_t& state,
@@ -84,6 +93,7 @@ class EndEffectorDynamicsLinearAccConstraint final : public StateInputConstraint
                                                            const PreComputation& preComp) const override;
 
  private:
+  EndEffectorDynamicsLinearAccConstraint(const EndEffectorDynamics<scalar_t>& endEffectorDynamics, size_t numConstraints, Config config);
   EndEffectorDynamicsLinearAccConstraint(const EndEffectorDynamicsLinearAccConstraint& rhs);
 
   std::unique_ptr<EndEffectorDynamics<scalar_t>> endEffectorDynamicsPtr_;

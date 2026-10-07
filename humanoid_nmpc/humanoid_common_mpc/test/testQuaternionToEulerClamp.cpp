@@ -27,14 +27,13 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cmath>
 #include <random>
 
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
+#include "gtest/gtest.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
@@ -89,9 +88,9 @@ TEST(QuaternionToEulerClamp, IsFiniteWhereTheSineOfThePitchRoundsPastOne) {
     EXPECT_EQ(euler(1), sign * M_PI_2) << "sign " << sign;
     // At the singularity only yaw - roll (pitch +90) or yaw + roll (pitch -90) is defined, so the angles are checked
     // through the rotation they describe rather than one by one.
-    EXPECT_TRUE(rotationOf(euler).isApprox(quat.toRotationMatrix(), /*prec=*/1e-12)) << "sign " << sign << "\n"
-                                                                                     << rotationOf(euler) << "\nvs\n"
-                                                                                     << quat.toRotationMatrix();
+    EXPECT_TRUE(rotationOf(euler).isApprox(quat.toRotationMatrix(), /*prec=*/1.0e-12)) << "sign " << sign << "\n"
+                                                                                       << rotationOf(euler) << "\nvs\n"
+                                                                                       << quat.toRotationMatrix();
   }
 }
 
@@ -99,7 +98,7 @@ TEST(QuaternionToEulerClamp, IsFiniteForAMeasuredQuaternionSlightlyLongerThanOne
   // A simulator or an estimator hands over quaternions normalized only to round-off. Scaled up by a part in 1e12 near
   // a pitch of 90 degrees, the sine of the pitch exceeds 1 by far more than one rounding step.
   const scalar_t halfSqrt2 = std::sqrt(0.5);
-  for (const scalar_t scale : {1.0 + 1e-12, 1.0 + 1e-9}) {
+  for (const scalar_t scale : {1.0 + 1.0e-12, 1.0 + 1.0e-9}) {
     const quaternion_t quat = quaternionFromCoeffs(/*x=*/0.0, /*y=*/scale * halfSqrt2, /*z=*/0.0, /*w=*/scale * halfSqrt2);
     ASSERT_GT(sinPitchOf(quat), 1.0) << "scale " << scale;
     const vector3_t euler = quaternionToEulerZYX(quat);
@@ -140,7 +139,7 @@ TEST(QuaternionToEulerClamp, DescribesTheRotationOfTheQuaternion) {
     const quaternion_t quat(rotationOf(euler));
     const vector3_t converted = quaternionToEulerZYX(quat);
     ASSERT_TRUE(converted.allFinite()) << "sample " << sample;
-    EXPECT_TRUE(rotationOf(converted).isApprox(quat.toRotationMatrix(), /*prec=*/1e-9)) << "sample " << sample;
+    EXPECT_TRUE(rotationOf(converted).isApprox(quat.toRotationMatrix(), /*prec=*/1.0e-9)) << "sample " << sample;
     EXPECT_LE(std::abs(converted(1)), M_PI_2) << "sample " << sample;
   }
 }

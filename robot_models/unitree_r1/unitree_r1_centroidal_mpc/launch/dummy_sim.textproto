@@ -10,10 +10,10 @@
 variables { name: "bin_dir" value: ".bazel/bin" }
 variables { name: "robot_dir" value: "robot_models/unitree_r1" }
 variables { name: "config_dir" value: "{robot_dir}/unitree_r1_centroidal_mpc/config" }
-variables { name: "task_file" value: "{config_dir}/mpc/task.yaml" }
-variables { name: "reference_file" value: "{config_dir}/command/reference.yaml" }
+variables { name: "task_file" value: "{config_dir}/mpc/task.textproto" }
+variables { name: "reference_file" value: "{config_dir}/command/reference.textproto" }
 variables { name: "urdf_file" value: "{robot_dir}/unitree_r1_description/urdf/R1.urdf" }
-variables { name: "gait_file" value: "humanoid_nmpc/humanoid_common_mpc/config/command/gait.yaml" }
+variables { name: "gait_file" value: "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto" }
 # The bus's network file: the shipped one is every node on this machine (config/ipc/network.textproto).
 variables { name: "network_file" value: "config/ipc/network.textproto" }
 # SCHED_FIFO priority of the MPC's solver thread; 0 = the time-sharing scheduler.

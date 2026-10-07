@@ -1,5 +1,31 @@
-"""Exports the process of one machine of a launch file as a POSIX sh script, for a machine that cannot run the
-launcher.
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""Exports the process of one machine of a launch file as a POSIX sh script, for a machine without the launcher.
 
     bazel run //tools/launch:export_script -- <launch file> --machine robot --output robot.sh \
         [--set name=value ...] [--env_prefix WB_ROBOT_] [--root ..]
@@ -23,15 +49,17 @@ with `terminal: true` is refused, because there is no terminal to open.
 """
 
 import argparse
+from collections.abc import Mapping, Sequence
 import os
 import re
 import shlex
 import string
 import sys
-from typing import Dict, List, Mapping, Optional, Sequence, TextIO, Tuple
+from typing import TextIO
+
+from launch_proto import launch_file_pb2
 
 import launch_file
-from launch_proto import launch_file_pb2
 
 EXIT_USAGE = 2
 DEFAULT_ENV_PREFIX = "LAUNCH_"
@@ -47,7 +75,7 @@ def shell_variable(env_prefix: str, name: str) -> str:
     return env_prefix + name.upper()
 
 
-def _pieces(template: str) -> List[Tuple[str, Optional[str]]]:
+def _pieces(template: str) -> list[tuple[str, str | None]]:
     """A template as (literal text, variable name or None) pairs; `{{` and `}}` are already single braces."""
     return [
         (literal, field_name)
@@ -81,15 +109,24 @@ def template_as_word(template: str, env_prefix: str) -> str:
     return "".join(parts) or "''"
 
 
-def _references(template: str) -> List[str]:
+def _references(template: str) -> list[str]:
+    """The names of the variables `template` refers to, in order."""
     return [name for _, name in _pieces(template) if name is not None]
 
 
-def _dependency_order(templates: Mapping[str, str]) -> List[str]:
-    """The variables, every one after those it refers to; file order otherwise. load_launch_file() has already
-    rejected cycles and undefined references."""
-    order: List[str] = []
-    placed = set()
+def _dependency_order(templates: Mapping[str, str]) -> list[str]:
+    """The variables in dependency order: every one after those it refers to, in file order otherwise.
+
+    load_launch_file() has already rejected cycles and undefined references.
+
+    Args:
+        templates: The value template of every variable, by name, in file order.
+
+    Returns:
+        The names of the variables.
+    """
+    order: list[str] = []
+    placed: set[str] = set()
 
     def place(name: str) -> None:
         if name in placed or name not in templates:
@@ -105,6 +142,7 @@ def _dependency_order(templates: Mapping[str, str]) -> List[str]:
 
 
 def _root_assignment(root: str) -> str:
+    """The shell assignment of the root: `root` itself when absolute, else relative to the script's directory."""
     if os.path.isabs(root):
         return f"{ROOT_SHELL_VARIABLE}={shlex.quote(os.path.normpath(root))}"
     return f'{ROOT_SHELL_VARIABLE}="$(cd "$(dirname "$0")/"{shlex.quote(root)} && pwd)"'
@@ -113,10 +151,10 @@ def _root_assignment(root: str) -> str:
 def export_script(
     path: str,
     machine: str,
-    overrides: Optional[Mapping[str, str]] = None,
+    overrides: Mapping[str, str] | None = None,
     env_prefix: str = DEFAULT_ENV_PREFIX,
     root: str = ".",
-    source_name: Optional[str] = None,
+    source_name: str | None = None,
 ) -> str:
     """The POSIX sh script of the one process `machine` runs in the launch file at `path`.
 
@@ -127,6 +165,9 @@ def export_script(
         env_prefix: the prefix of the shell variables, upper case.
         root: the directory the script changes into: absolute, or relative to the script's directory.
         source_name: how the script's header names the launch file (default: `path`).
+
+    Returns:
+        The text of the script.
 
     Raises:
         launch_file.LaunchFileError: the launch file is invalid (as the launcher reports it), the machine does not run
@@ -160,12 +201,12 @@ def export_script(
     entry: launch_file_pb2.LaunchFile.Process = next(
         candidate for candidate in document.processes if candidate.name == process.name
     )
-    templates: Dict[str, str] = {
+    templates: dict[str, str] = {
         variable.name: variable.value for variable in document.variables
     }
     templates.update(overrides)
 
-    shell_names: Dict[str, str] = {}
+    shell_names: dict[str, str] = {}
     for name in templates:
         shell_name = shell_variable(env_prefix, name)
         if shell_name in shell_names:
@@ -217,6 +258,7 @@ def export_script(
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """The command line of export_script."""
     parser = argparse.ArgumentParser(
         prog="export_script",
         description="Export the one process of a machine of a launch file as a POSIX sh script.",
@@ -260,7 +302,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[Sequence[str]] = None, err: TextIO = sys.stderr) -> int:
+def main(argv: Sequence[str] | None = None, err: TextIO = sys.stderr) -> int:
+    """Writes the script the command line `argv` asks for; returns EXIT_USAGE, after printing why, when it cannot."""
     args = build_parser().parse_args(argv)
     try:
         script = export_script(

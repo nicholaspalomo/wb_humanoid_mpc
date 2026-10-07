@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <functional>
 #include <string>
 
+#include "absl/base/nullability.h"
 #include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/mrt/ControllerEvent.h"
@@ -50,7 +51,7 @@ namespace ocs2::humanoid {
  * It posts one of these instead, a few plain values, and formatRealtimeEvent() turns it into the line the old ROS sims
  * logged from their control loops.
  */
-enum class RealtimeEventCode : std::uint8_t {
+enum class RealtimeEventCode : uint8_t {
   kTorquesDisabled,         ///< an FSM command switched the torques off; text: the command
   kTorquesEnabled,          ///< an FSM command switched the torques on; text: the command
   kGantryLockCommanded,     ///< LOCK_GANTRY
@@ -58,7 +59,7 @@ enum class RealtimeEventCode : std::uint8_t {
   kGantryUnlockedMpcReset,  ///< the gantry was released: the MPC is reset, the policy in use carries the robot
   /**
    * SimFallRecovery caught the robot and runs the settle sequence. detail: the DiscontinuityCause; count: the reset
-   * epoch; values: the tilt [rad], simMaxBaseTiltAngle [rad] and simGantryCatchLift [m].
+   * epoch; values: the tilt [rad], sim_max_base_tilt_angle [rad] and sim_gantry_catch_lift [m].
    */
   kCaughtAndSettling,
   /** SimFallRecovery put the robot in JOINT_PD and resets the controller; detail, count, values as kCaughtAndSettling. */
@@ -77,13 +78,14 @@ enum class RealtimeEventCode : std::uint8_t {
 struct RealtimeEvent {
   RealtimeEventCode code = RealtimeEventCode::kTorquesDisabled;
   /** A code-specific enumerator: the DiscontinuityCause, or the SimFallRecovery::Phase. */
-  std::int32_t detail = 0;
+  int32_t detail = 0;
   std::array<double, 3> values{};
-  std::uint64_t count = 0;
+  uint64_t count = 0;
   /** A mode, command or estimator name, NUL-terminated and cut to fit. */
   std::array<char, 32> text{};
   /** kControllerEvent: the class that reported it, a string literal (ControllerEvent::controller). */
-  const char* source = "";
+  // NOLINTNEXTLINE(totw-string-constant): a field of the event, set per event; "" is its default, not a constant.
+  const char* absl_nonnull source = "";
 };
 
 /** The line the communication thread logs for `event`; the wording of the lines the ROS sims logged. */
@@ -100,31 +102,32 @@ bool isWarningEvent(const RealtimeEvent& event);
  */
 class RealtimeEventLog final : public ControllerEventSink {
  public:
-  explicit RealtimeEventLog(std::size_t capacity = 64);
+  explicit RealtimeEventLog(size_t capacity = 64);
 
   RealtimeEventLog(const RealtimeEventLog&) = delete;
   RealtimeEventLog& operator=(const RealtimeEventLog&) = delete;
+  ~RealtimeEventLog() override = default;
 
   /** Realtime thread: copies the values into a slot. False when the queue was full (the report is dropped). */
   bool post(RealtimeEventCode code,
-            std::int32_t detail = 0,
+            int32_t detail = 0,
             absl::string_view text = {},
             double value0 = 0.0,
             double value1 = 0.0,
             double value2 = 0.0,
-            std::uint64_t count = 0);
+            uint64_t count = 0);
 
   /** Realtime thread: a report of the controller, as kControllerEvent. */
   bool post(const ControllerEvent& event) override;
 
   /** Communication thread: hands every report posted so far to `consumer`, oldest first; returns how many. */
-  std::size_t drain(const std::function<void(const RealtimeEvent&)>& consumer);
+  size_t drain(const std::function<void(const RealtimeEvent&)>& consumer);
 
   /** Communication thread: drain() into absl logging, each report at its severity. */
-  std::size_t drainToLog();
+  size_t drainToLog();
 
   /** Reports dropped because the queue was full. Any thread. */
-  std::uint64_t dropped() const { return queue_.droppedCount(); }
+  uint64_t dropped() const { return queue_.droppedCount(); }
 
  private:
   robot::realtime::SpscQueue<RealtimeEvent> queue_;

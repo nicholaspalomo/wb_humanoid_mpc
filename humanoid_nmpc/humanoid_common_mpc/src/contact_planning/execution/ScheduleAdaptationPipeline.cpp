@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -27,13 +31,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 #include <limits>
+#include <memory>
 
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
 namespace ocs2::humanoid {
 
 namespace {
-constexpr scalar_t kSameSwingTolerance = 1e-6;  // [s] lift-off times closer than this identify the same swing
+constexpr scalar_t kSameSwingTolerance = 1.0e-6;  // [s] lift-off times closer than this identify the same swing
 
 bool footInContact(const ModeSchedule& schedule, size_t phaseIndex, size_t foot) {
   return modeNumber2StanceLeg(schedule.modeSequence[phaseIndex])[foot];
@@ -54,7 +59,7 @@ feet_array_t<ContactEventReport> adaptScheduleWithRules(ModeSchedule& schedule,
   if (schedule.modeSequence.empty()) return reports;
   const scalar_t time = ctx.time;
 
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     SwingTimingLatch& latch = latches[foot];
     ContactEventReport& report = reports[foot];
 

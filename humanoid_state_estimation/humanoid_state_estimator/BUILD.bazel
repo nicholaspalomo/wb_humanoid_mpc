@@ -1,17 +1,10 @@
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 # humanoid_state_estimator - State estimation for the humanoid controllers.
 
 package(default_visibility = ["//visibility:public"])
-
-_COPTS = [
-    "-std=c++20",
-    "-Wall",
-    "-Wextra",
-    "-Wpedantic",
-    "-Werror=return-type",
-]
 
 # A linear Kalman filter whose state, inputs and measurements are organized in named channels.
 cc_library(
@@ -19,10 +12,11 @@ cc_library(
     srcs = ["src/KalmanFilter.cpp"],
     hdrs = ["include/humanoid_state_estimator/KalmanFilter.h"],
     includes = ["include"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = [
         "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
         "//lib/ocs2:ocs2_core_types",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/container:flat_hash_map",
         "@abseil-cpp//absl/functional:function_ref",
         "@abseil-cpp//absl/status",
@@ -38,9 +32,10 @@ cc_test(
     name = "test_kalman_filter",
     size = "small",
     srcs = ["test/testKalmanFilter.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":kalman_filter",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
@@ -58,9 +53,10 @@ cc_library(
     testonly = True,
     srcs = ["test/AllocationCounter.cpp"],
     hdrs = ["test/AllocationCounter.h"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     linkstatic = True,
     alwayslink = True,
+    deps = ["@abseil-cpp//absl/base:nullability"],
 )
 
 # The real-time property: once the workspace is sized, a step makes no heap allocation. A target of its own, because the
@@ -69,11 +65,12 @@ cc_test(
     name = "test_kalman_filter_allocations",
     size = "small",
     srcs = ["test/testKalmanFilterAllocations.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     linkstatic = True,
     deps = [
         ":allocation_counter",
         ":kalman_filter",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
@@ -89,13 +86,17 @@ cc_binary(
     name = "benchmark_kalman_filter",
     testonly = True,
     srcs = ["benchmark/benchmarkKalmanFilter.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":allocation_counter",
         ":kalman_filter",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/time",
         "@eigen",
         "//lib/ocs2:ocs2_core_types",
     ],

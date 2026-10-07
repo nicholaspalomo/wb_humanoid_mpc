@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 
+#include "absl/status/status.h"
+
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
@@ -51,14 +53,29 @@ namespace ocs2::humanoid {
 class ContactWrenchGate {
  public:
   struct Config {
-    scalar_t debounceTime{0.0};  // [s] >= 0
-    scalar_t rampTime{0.0};      // [s] >= 0
+    scalar_t debounceTime = 0.0;  // [s] >= 0
+    scalar_t rampTime = 0.0;      // [s] >= 0
   };
 
   ContactWrenchGate();
+  /** Dies unless validateConfig(config) is OK. */
   explicit ContactWrenchGate(const Config& config);
 
-  void setConfig(const Config& config);
+  /**
+   * InvalidArgument unless both times are non-negative (NaN is refused). Validate a configuration with it before
+   * setConfig(): a configuration read from a file or sent by the operator is input, and setConfig() takes only a valid
+   * one.
+   */
+  static absl::Status validateConfig(const Config& config);
+  /** validateConfig(config).ok(), without building a Status: allocation-free. */
+  static bool isValidConfig(const Config& config);
+
+  /**
+   * Replaces the configuration when validateConfig(config) is OK and returns true; the onsets of the feet in contact
+   * are kept. An invalid configuration keeps the one in use and returns false: the realtime thread calls this, where
+   * nothing may end the process, and the callers validate what they read, so it does not happen. Allocation-free.
+   */
+  bool setConfig(const Config& config);
   const Config& getConfig() const { return config_; }
 
   /**

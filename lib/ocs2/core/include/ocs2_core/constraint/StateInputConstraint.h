@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <type_traits>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/PreComputation.h>
 #include <ocs2_core/Types.h>
 #include <ocs2_core/constraint/ConstraintOrder.h>
@@ -42,7 +44,7 @@ class StateInputConstraint {
  public:
   explicit StateInputConstraint(ConstraintOrder order) : order_(order) {}
   virtual ~StateInputConstraint() = default;
-  virtual StateInputConstraint* clone() const = 0;
+  virtual StateInputConstraint* absl_nonnull clone() const = 0;
 
   /** Get the constraint order (Linear or Quadratic) */
   constexpr ConstraintOrder getOrder() const { return order_; };

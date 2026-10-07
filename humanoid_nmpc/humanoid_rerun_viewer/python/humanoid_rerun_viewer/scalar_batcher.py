@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Batches scalar rows and sends them to Rerun in few calls.
 
 Logging a ScalarGroup with rerun.log costs about as much as sending a batch of several rows with send_columns, so the
@@ -14,8 +41,8 @@ Every row carries the robot's clock and the bridge's wall clock; a row without a
 arrived before any robot time was known) carries the wall clock only and is sent in a batch of its own.
 """
 
+from collections.abc import Iterable, Sequence
 import dataclasses
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pyarrow as pa
@@ -33,9 +60,9 @@ DEFAULT_MAX_PENDING_ROWS = 1000
 @dataclasses.dataclass
 class _Batch:
     width: int
-    robot_times: List[float]
-    wall_times: List[float]
-    rows: List[Sequence[float]]
+    robot_times: list[float]
+    wall_times: list[float]
+    rows: list[Sequence[float]]
 
 
 class ScalarBatcher:
@@ -54,7 +81,7 @@ class ScalarBatcher:
         self._recording = recording
         self._max_pending_rows = max_pending_rows
         # Keyed by (entity path, whether the rows carry a robot time).
-        self._batches: Dict[Tuple[str, bool], _Batch] = {}
+        self._batches: dict[tuple[str, bool], _Batch] = {}
         self._pending_rows = 0
         self.rows_sent = 0
         self.batches_sent = 0
@@ -66,13 +93,19 @@ class ScalarBatcher:
     def append(
         self,
         path: str,
-        robot_time: Optional[float],
+        robot_time: float | None,
         wall_time: float,
         values: Sequence[float],
     ) -> None:
         """Buffers one row of `values` for the entity `path` at the given times.
 
         A row of another width than the rows already buffered for `path` sends those first.
+
+        Args:
+            path: the entity.
+            robot_time: the robot's clock [s], or None when no robot time is known yet.
+            wall_time: the bridge's wall clock [s since the epoch].
+            values: the row; an empty one is dropped.
         """
         width = len(values)
         if width == 0:
@@ -100,7 +133,8 @@ class ScalarBatcher:
             sent += self._send(key, batch)
         return sent
 
-    def _send(self, key: Tuple[str, bool], batch: _Batch) -> int:
+    def _send(self, key: tuple[str, bool], batch: _Batch) -> int:
+        """Sends the rows of `batch`, buffered under `key`, with one send_columns call; returns how many."""
         del self._batches[key]
         count = len(batch.rows)
         if count == 0:
@@ -170,8 +204,8 @@ def _nanoseconds(seconds: Sequence[float]) -> pa.Array:
 class _Column:
     """The rows one entity has in the frames of a FrameBatcher: their frame indices and values."""
 
-    frames: List[int]
-    values: List[Sequence[float]]
+    frames: list[int]
+    values: list[Sequence[float]]
     # The width of every row, or -1 when they differ.
     width: int
 
@@ -191,10 +225,10 @@ class FrameBatcher:
             raise ValueError("max_pending_frames must be positive")
         self._recording = recording
         self._max_pending_frames = max_pending_frames
-        self._robot_times: List[float] = []
-        self._wall_times: List[float] = []
-        self._columns: Dict[str, _Column] = {}
-        self._fields: Dict[str, pa.Field] = {}
+        self._robot_times: list[float] = []
+        self._wall_times: list[float] = []
+        self._columns: dict[str, _Column] = {}
+        self._fields: dict[str, pa.Field] = {}
         self.rows_sent = 0
         self.batches_sent = 0
 
@@ -206,11 +240,16 @@ class FrameBatcher:
         self,
         robot_time: float,
         wall_time: float,
-        rows: Iterable[Tuple[str, Sequence[float]]],
+        rows: Iterable[tuple[str, Sequence[float]]],
     ) -> None:
         """Buffers one frame: for each (entity path, values) of `rows`, one row of that entity at the given times.
 
         An entity appears at most once per frame; one that is missing from a frame has no row at its times.
+
+        Args:
+            robot_time: the robot's clock [s].
+            wall_time: the bridge's wall clock [s since the epoch].
+            rows: the frame's (entity path, values) pairs.
         """
         frame = len(self._robot_times)
         self._robot_times.append(robot_time)
@@ -247,7 +286,7 @@ class FrameBatcher:
                 0, frames * column.width + 1, column.width, dtype=np.int32
             )
             return pa.ListArray.from_arrays(pa.array(offsets), pa.array(values))
-        rows: List[Optional[List[float]]] = [None] * frames
+        rows: list[list[float] | None] = [None] * frames
         for frame, values in zip(column.frames, column.values):
             rows[frame] = [float(value) for value in values]
         return pa.array(rows, type=_SCALARS_TYPE)

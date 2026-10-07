@@ -1,57 +1,82 @@
-"""****************************************************************************
-Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-* Redistributions of source code must retain the above copyright notice, this
-  list of conditions and the following disclaimer.
-
-* Redistributions in binary form must reproduce the above copyright notice,
-  this list of conditions and the following disclaimer in the documentation
-  and/or other materials provided with the distribution.
-
-* Neither the name of the copyright holder nor the names of its
-  contributors may be used to endorse or promote products derived from
-  this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-****************************************************************************"""
+"""The Joint Targets tab: per-joint position sliders that publish operator/joint_targets in JOINT_PD mode."""
 
 import math
-import os
 import re
-import tkinter as tk
 from tkinter import ttk
-from typing import Dict, Optional
-
-import yaml
+import tkinter as tk
+from typing import Any
 
 from humanoid_mpc_ipc import topics
-from remote_control.operator_bus import joint_targets
-from remote_control.tk_app.scrollable_frame import ScrollableFrame
-from remote_control.tk_app.slider_row import SliderRow
+from remote_control import config_files
+from remote_control import operator_bus
+from remote_control.tk_app import scrollable_frame
+from remote_control.tk_app import slider_row
+
+
+def _classify_joint_section(joint_name: str) -> str:
+    """Classify a joint name into a limb section for grouping."""
+    name_lower = joint_name.lower()
+    if re.search(r"waist|spine|torso|back", name_lower):
+        return "Torso & Spine"
+    if re.search(r"left.*leg|l_leg|left.*hip|left.*knee|left.*ankle", name_lower):
+        return "Left Leg"
+    if re.search(r"right.*leg|r_leg|right.*hip|right.*knee|right.*ankle", name_lower):
+        return "Right Leg"
+    if re.search(r"left.*arm|l_arm|left.*shoulder|left.*elbow|left.*wrist", name_lower):
+        return "Left Arm"
+    if re.search(
+        r"right.*arm|r_arm|right.*shoulder|right.*elbow|right.*wrist", name_lower
+    ):
+        return "Right Arm"
+    if re.search(r"neck|head", name_lower):
+        return "Head & Neck"
+    return "Other Joints"
 
 
 class JointTargetsTab(ttk.Frame):
-    """
-    Joint target position tuning tab for JOINT_PD mode.
+    """Joint target position tuning tab for JOINT_PD mode.
 
     Provides per-joint position sliders (in radians) that publish a JointTargets
     message on operator/joint_targets. The robot merges these into the nominal
     position vector used by the JOINT_PD controller.
 
     Sliders are enabled only when the FSM mode is ``JOINT_PD``.
-    Default values are loaded from ``reference.yaml``'s ``defaultJointState``.
+    Default values are the reference file's ``default_joint_state``, by joint name.
+
+    Args:
+        parent: the notebook the tab is added to.
+        pd_gains_file: the joint PD gains file whose joint_gains name the joints; None: no joints.
+        reference_file: the reference file whose default_joint_state holds the defaults; None: every default is 0.
+        fsm_mode_var: the GUI's FSM mode; the sliders are enabled while it is JOINT_PD. None: never.
+        param_publisher: the publisher of operator/joint_targets; None: nothing is published.
+        **kwargs: the options of the tab's ttk.Frame.
     """
 
     # The topic the tab's publisher publishes (operator_bus.OperatorBus.joint_targets).
@@ -61,34 +86,35 @@ class JointTargetsTab(ttk.Frame):
 
     def __init__(
         self,
-        parent,
-        pd_gains_file: Optional[str] = None,
-        reference_file: Optional[str] = None,
-        fsm_mode_var: Optional[tk.StringVar] = None,
-        param_publisher=None,
-        *args,
-        **kwargs,
-    ):
-        super().__init__(parent, *args, **kwargs)
+        parent: tk.Misc,
+        pd_gains_file: str | None = None,
+        reference_file: str | None = None,
+        fsm_mode_var: tk.StringVar | None = None,
+        param_publisher: operator_bus.TopicPublisher | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(parent, **kwargs)
         self.configure(style="TFrame")
 
-        self.pd_gains_file = pd_gains_file
-        self.reference_file = reference_file
+        self.pd_gains_file = pd_gains_file if pd_gains_file else None
+        self.reference_file = reference_file if reference_file else None
         self.fsm_mode_var = fsm_mode_var
         # The publisher of operator/joint_targets (operator_bus.TopicPublisher): publish(JointTargets).
         self.param_publisher = param_publisher
 
-        self.joint_names: list = []
-        self.default_positions: Dict[str, float] = {}
-        self.slider_rows: Dict[str, SliderRow] = {}
-        self.section_frames: Dict[str, ttk.LabelFrame] = {}
-        self._debounce_publish_id = None
+        self.joint_names: list[str] = []
+        self.default_positions: dict[str, float] = {}
+        self.slider_rows: dict[str, slider_row.SliderRow] = {}
+        self.section_frames: dict[str, ttk.LabelFrame] = {}
+        self._debounce_publish_id: str | None = None
 
         self._build_header_ui()
         self._build_search_ui()
 
         # Scrollable container for joint sliders
-        self.scroll_container = ScrollableFrame(self, bg_color="#2c2c2c")
+        self.scroll_container = scrollable_frame.ScrollableFrame(
+            self, bg_color="#2c2c2c"
+        )
         self.scroll_container.pack(fill="both", expand=True, padx=10, pady=(0, 10))
 
         # Load joint names from PD gains file and defaults from reference
@@ -98,7 +124,8 @@ class JointTargetsTab(ttk.Frame):
         # Initial mode check
         self._update_enabled_state()
 
-    def _build_header_ui(self):
+    def _build_header_ui(self) -> None:
+        """The title, the reset button, the status line and the banner shown outside JOINT_PD."""
         toolbar = ttk.Frame(self)
         toolbar.pack(fill="x", padx=10, pady=(10, 5))
 
@@ -131,7 +158,8 @@ class JointTargetsTab(ttk.Frame):
         )
         # Will be shown/hidden by _update_enabled_state
 
-    def _build_search_ui(self):
+    def _build_search_ui(self) -> None:
+        """The filter box: only the rows whose joint name contains its text are shown."""
         search_frame = ttk.Frame(self)
         search_frame.pack(fill="x", padx=10, pady=(0, 6))
 
@@ -152,7 +180,8 @@ class JointTargetsTab(ttk.Frame):
         )
         clear_btn.pack(side="left")
 
-    def _on_search_filter(self, *args):
+    def _on_search_filter(self, *args: object) -> None:
+        del args  # Unused: the arguments of Tk's variable trace.
         query = self.search_var.get().strip().lower()
         for joint_key, row in self.slider_rows.items():
             if not query or query in joint_key.lower():
@@ -160,106 +189,14 @@ class JointTargetsTab(ttk.Frame):
             else:
                 row.pack_forget()
 
-    @staticmethod
-    def _classify_joint_section(joint_name: str) -> str:
-        """Classify a joint name into a limb section for grouping."""
-        name_lower = joint_name.lower()
-        if re.search(r"waist|spine|torso|back", name_lower):
-            return "Torso & Spine"
-        if re.search(r"left.*leg|l_leg|left.*hip|left.*knee|left.*ankle", name_lower):
-            return "Left Leg"
-        if re.search(
-            r"right.*leg|r_leg|right.*hip|right.*knee|right.*ankle", name_lower
-        ):
-            return "Right Leg"
-        if re.search(
-            r"left.*arm|l_arm|left.*shoulder|left.*elbow|left.*wrist", name_lower
-        ):
-            return "Left Arm"
-        if re.search(
-            r"right.*arm|r_arm|right.*shoulder|right.*elbow|right.*wrist", name_lower
-        ):
-            return "Right Arm"
-        if re.search(r"neck|head", name_lower):
-            return "Head & Neck"
-        return "Other Joints"
+    def _load_joint_data(self) -> None:
+        """The joints of the PD gains file, and their default positions in the reference file."""
+        self.joint_names = config_files.read_pd_gains_joint_names(self.pd_gains_file)
+        self.default_positions = config_files.read_default_joint_state(
+            self.reference_file
+        )
 
-    @staticmethod
-    def _parse_reference_defaults(reference_file: str) -> Dict[str, float]:
-        """Parse defaultJointState from reference.yaml, extracting joint names from comments.
-
-        The reference.yaml format uses indexed keys like "(0,0)" with inline
-        comments naming the joint:
-            "(0,0)": -0.15  # left_hip_pitch_joint
-        """
-        defaults = {}
-        if not reference_file or not os.path.exists(reference_file):
-            return defaults
-
-        try:
-            with open(reference_file, "r") as f:
-                data = yaml.safe_load(f)
-        except Exception:
-            return defaults
-
-        joint_state = data.get("defaultJointState", {})
-        if not joint_state:
-            return defaults
-
-        # Read the raw file to extract inline comments with joint names
-        try:
-            with open(reference_file, "r") as f:
-                lines = f.readlines()
-        except Exception:
-            return defaults
-
-        in_joint_state = False
-        for line in lines:
-            stripped = line.strip()
-            if stripped.startswith("defaultJointState"):
-                in_joint_state = True
-                continue
-            if in_joint_state:
-                # End of section: non-indented non-empty line that isn't a comment
-                if (
-                    stripped
-                    and not stripped.startswith("#")
-                    and not stripped.startswith('"')
-                ):
-                    # Check if it looks like a new top-level key (not indented)
-                    if line[0] not in (" ", "\t") and ":" in stripped:
-                        break
-
-                # Parse lines like:  "(0,0)": -0.15  # left_hip_pitch_joint
-                match = re.match(r'\s*"[^"]+"\s*:\s*(-?[\d.]+)\s*#\s*(\S+)', stripped)
-                if match:
-                    value = float(match.group(1))
-                    joint_name = match.group(2).strip()
-                    defaults[joint_name] = value
-
-        return defaults
-
-    def _load_joint_data(self):
-        """Load joint names from PD gains YAML and default positions from reference."""
-        self.joint_names = []
-        self.default_positions = {}
-
-        # 1. Joint names from pd_gains_file
-        if self.pd_gains_file and os.path.exists(self.pd_gains_file):
-            try:
-                with open(self.pd_gains_file, "r") as f:
-                    data = yaml.safe_load(f)
-                joint_gains = data.get("joint_gains", {})
-                self.joint_names = [
-                    k for k, v in joint_gains.items() if isinstance(v, dict)
-                ]
-            except Exception as e:
-                print(f"[JointTargetsTab] Error loading PD gains file: {e}")
-
-        # 2. Default positions from reference.yaml
-        self.default_positions = self._parse_reference_defaults(self.reference_file)
-
-    def _populate_sliders(self):
+    def _populate_sliders(self) -> None:
         """Create one slider per joint, grouped by limb section."""
         # Clear existing widgets
         for widget in self.scroll_container.scrollable_content.winfo_children():
@@ -295,14 +232,14 @@ class JointTargetsTab(ttk.Frame):
             self.section_frames[sec] = lf
 
         for jname in self.joint_names:
-            sec_name = self._classify_joint_section(jname)
+            sec_name = _classify_joint_section(jname)
             parent_frame = self.section_frames.get(
                 sec_name, self.section_frames["Other Joints"]
             )
 
             default_val = self.default_positions.get(jname, 0.0)
 
-            row = SliderRow(
+            row = slider_row.SliderRow(
                 parent_frame,
                 name=jname,
                 initial_value=default_val,
@@ -321,11 +258,11 @@ class JointTargetsTab(ttk.Frame):
             if lf.winfo_children():
                 lf.pack(fill="x", padx=6, pady=4)
 
-    def on_mode_changed(self):
+    def on_mode_changed(self) -> None:
         """Called when the FSM mode changes. Enable/disable sliders accordingly."""
         self._update_enabled_state()
 
-    def _update_enabled_state(self):
+    def _update_enabled_state(self) -> None:
         """Enable sliders only in JOINT_PD mode."""
         is_joint_pd = (
             self.fsm_mode_var is not None and self.fsm_mode_var.get() == "JOINT_PD"
@@ -342,20 +279,21 @@ class JointTargetsTab(ttk.Frame):
             for row in self.slider_rows.values():
                 row.set_state("disabled")
 
-    def reset_all_defaults(self):
-        """Reset all sliders to their default (reference.yaml) positions."""
+    def reset_all_defaults(self) -> None:
+        """Reset all sliders to their default positions (the reference file's default_joint_state)."""
         for jname, row in self.slider_rows.items():
             default_val = self.default_positions.get(jname, 0.0)
             row.set_value(default_val)
         self._show_status("All targets reset to default joint state")
 
-    def _on_any_slider_change(self, name: str, value: float):
+    def _on_any_slider_change(self, name: str, value: float | None) -> None:
         """Called on every slider move; debounces the publish."""
+        del name, value  # Unused: the publish reads every slider.
         if self._debounce_publish_id is not None:
             self.after_cancel(self._debounce_publish_id)
         self._debounce_publish_id = self.after(100, self._publish_to_topic)
 
-    def _publish_to_topic(self):
+    def _publish_to_topic(self) -> None:
         """Publishes every slider's position as a JointTargets message on operator/joint_targets."""
         self._debounce_publish_id = None
         if not self.param_publisher:
@@ -369,12 +307,13 @@ class JointTargetsTab(ttk.Frame):
             targets = {
                 jname: row.get_value() for jname, row in self.slider_rows.items()
             }
-            self.param_publisher.publish(joint_targets(targets))
+            self.param_publisher.publish(operator_bus.joint_targets(targets))
+        # pylint: disable-next=broad-exception-caught  # Shown to the operator: a Tk callback must not raise.
         except Exception as e:
             print(f"[JointTargetsTab] ERROR in _publish_to_topic: {e}")
             self._show_status(f"Error publishing: {e}", error=True)
 
-    def _show_status(self, msg: str, error: bool = False):
+    def _show_status(self, msg: str, error: bool = False) -> None:
         color = "#e74c3c" if error else "#27ae60"
         self.status_label.configure(text=msg, foreground=color)
         self.after(5000, lambda: self.status_label.configure(text=""))

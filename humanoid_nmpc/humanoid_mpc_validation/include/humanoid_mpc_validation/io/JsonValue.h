@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -57,7 +58,7 @@ class JsonValue {
   static JsonValue boolean(bool value);
   static JsonValue number(double value);
   /** number(*value), or null when there is no value. */
-  static JsonValue optionalNumber(const std::optional<double>& value);
+  static JsonValue optionalNumber(std::optional<double> value);
   static JsonValue string(std::string value);
   static JsonValue array();
   static JsonValue object();
@@ -89,9 +90,9 @@ class JsonValue {
   JsonValue& append(JsonValue value);
 
   /** Member `key` of an object; nullptr when absent or when this is not an object. */
-  const JsonValue* find(absl::string_view key) const;
+  const JsonValue* absl_nullable find(absl::string_view key) const;
   /** The value at a dotted path of object keys ("solve_time_ms.total.p99"); nullptr when any part is absent. */
-  const JsonValue* findPath(absl::string_view dottedPath) const;
+  const JsonValue* absl_nullable findPath(absl::string_view dottedPath) const;
 
   /** The document with two-space indentation, without a trailing newline. */
   std::string serialize() const;

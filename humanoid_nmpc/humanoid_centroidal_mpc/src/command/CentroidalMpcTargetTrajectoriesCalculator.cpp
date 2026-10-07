@@ -31,27 +31,79 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h"
 
 #include <cmath>
+#include <memory>
+#include <optional>
+#include <string>
+#include <utility>
 
-#include <pinocchio/algorithm/center-of-mass.hpp>
-#include <pinocchio/algorithm/centroidal.hpp>
-
-#include <ocs2_core/misc/LoadData.h>
+#include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/algorithm/centroidal.hpp"
+
+#include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
 
 namespace ocs2::humanoid {
 
-CentroidalMpcTargetTrajectoriesCalculator::CentroidalMpcTargetTrajectoriesCalculator(const std::string& referenceFile,
+absl::StatusOr<std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator>> CentroidalMpcTargetTrajectoriesCalculator::Create(
+    const std::string& referenceFile,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    PinocchioInterface pinocchioInterface,
+    const CentroidalModelInfo& info,
+    scalar_t mpcHorizon) {
+  ASSIGN_OR_RETURN(const mpc_config::ReferenceFile file, loadReferenceFile(referenceFile));
+  absl::StatusOr<std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator>> calculator =
+      Create(file, mpcRobotModel, std::move(pinocchioInterface), info, mpcHorizon);
+  if (!calculator.ok()) {
+    return withConfigFile(calculator.status(), referenceFile);
+  }
+  return calculator;
+}
+
+absl::StatusOr<std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator>> CentroidalMpcTargetTrajectoriesCalculator::Create(
+    const mpc_config::ReferenceFile& referenceFile,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    PinocchioInterface pinocchioInterface,
+    const CentroidalModelInfo& info,
+    scalar_t mpcHorizon) {
+  ASSIGN_OR_RETURN(const ReferenceSettings referenceSettings, referenceSettingsFromConfig(referenceFile));
+  const ModelSettings& modelSettings = mpcRobotModel.modelSettings;
+  ASSIGN_OR_RETURN(const vector_t defaultJointState,
+                   defaultJointStateFromConfig(referenceFile, modelSettings.mpcModelJointNames, modelSettings.fixedJointNames));
+  // The joint-state filter's time constant, which the centroidal MPC requires (the whole-body MPC does not read it); a
+  // time constant that is not positive would make the filter grow rather than decay.
+  const std::optional<scalar_t> timeConstant = referenceSettings.targetJointStateInterpolationTimeConstant;
+  if (!timeConstant.has_value()) {
+    return absl::InvalidArgumentError(
+        "[CentroidalMpcTargetTrajectoriesCalculator] target_joint_state_interpolation_time_constant is required by the centroidal MPC, "
+        "but the reference file does not give it.");
+  }
+  if (!(*timeConstant > 0.0)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[CentroidalMpcTargetTrajectoriesCalculator] target_joint_state_interpolation_time_constant is ", *timeConstant,
+                     ", but it must be positive."));
+  }
+  return absl::WrapUnique(new CentroidalMpcTargetTrajectoriesCalculator(referenceSettings, defaultJointState, *timeConstant, mpcRobotModel,
+                                                                        std::move(pinocchioInterface), info, mpcHorizon));
+}
+
+CentroidalMpcTargetTrajectoriesCalculator::CentroidalMpcTargetTrajectoriesCalculator(const ReferenceSettings& referenceSettings,
+                                                                                     const vector_t& defaultJointState,
+                                                                                     scalar_t targetJointStateInterpolationTimeConstant,
                                                                                      const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                                                                      PinocchioInterface pinocchioInterface,
                                                                                      const CentroidalModelInfo& info,
                                                                                      scalar_t mpcHorizon)
-    : TargetTrajectoriesCalculatorBase(referenceFile, mpcRobotModel, mpcHorizon),
-      pinocchioInterface_(pinocchioInterface),
+    : TargetTrajectoriesCalculatorBase(referenceSettings, defaultJointState, mpcRobotModel, mpcHorizon),
+      pinocchioInterface_(std::move(pinocchioInterface)),
       info_(info),
-      mass_(pinocchio::computeTotalMass(pinocchioInterface.getModel())) {
-  targetJointStateInterpolationTimeConstant_ = 0.5;  // default
-  ocs2::loadData::loadCppDataType(referenceFile, "targetJointStateInterpolationTimeConstant", targetJointStateInterpolationTimeConstant_);
-}
+      mass_(pinocchio::computeTotalMass(pinocchioInterface_.getModel())),
+      targetJointStateInterpolationTimeConstant_(targetJointStateInterpolationTimeConstant) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -67,12 +119,12 @@ void CentroidalMpcTargetTrajectoriesCalculator::reset() {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-TargetTrajectories CentroidalMpcTargetTrajectoriesCalculator::commandedPositionToTargetTrajectories(const vector4_t& commadLinePoseTarget,
+TargetTrajectories CentroidalMpcTargetTrajectoriesCalculator::commandedPositionToTargetTrajectories(const vector4_t& commandLinePoseTarget,
                                                                                                     scalar_t initTime,
                                                                                                     const vector_t& initState) {
   vector_t currentPoseTarget = getCurrentBasePoseTarget(initState);
 
-  const vector_t targetPose = getDeltaBaseTarget(commadLinePoseTarget, currentPoseTarget);
+  const vector_t targetPose = getDeltaBaseTarget(commandLinePoseTarget, currentPoseTarget);
 
   scalar_t targetReachingTime = initTime + estimateTimeToTarget(targetPose - currentPoseTarget);
 

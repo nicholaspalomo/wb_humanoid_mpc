@@ -46,7 +46,7 @@ struct CycleTiming {
   /// TimerWakeup::lateness of the wake-up that started it.
   std::chrono::nanoseconds lateness{0};
   /// TimerWakeup::missedPeriods of that wake-up.
-  std::int64_t missedPeriods = 0;
+  int64_t missedPeriods = 0;
 };
 
 /**
@@ -84,10 +84,10 @@ class LoopTimingStats {
   // Accumulated over the open window, in integer nanoseconds so that a long window loses no precision.
   struct Window {
     std::chrono::nanoseconds start{0};
-    std::uint64_t cycles = 0;
-    std::uint64_t overruns = 0;
-    std::uint64_t missedPeriods = 0;
-    std::uint64_t periods = 0;
+    uint64_t cycles = 0;
+    uint64_t overruns = 0;
+    uint64_t missedPeriods = 0;
+    uint64_t periods = 0;
     std::chrono::nanoseconds periodSum{0};
     std::chrono::nanoseconds minPeriod{0};
     std::chrono::nanoseconds maxPeriod{0};
@@ -105,10 +105,10 @@ class LoopTimingStats {
   std::chrono::nanoseconds previousStart_{0};
   Window window_;
 
-  std::uint64_t totalCycles_ = 0;
-  std::uint64_t totalOverruns_ = 0;
-  std::uint64_t totalMissedPeriods_ = 0;
-  std::uint64_t windowsClosed_ = 0;
+  uint64_t totalCycles_ = 0;
+  uint64_t totalOverruns_ = 0;
+  uint64_t totalMissedPeriods_ = 0;
+  uint64_t windowsClosed_ = 0;
 
   LoopTimingSnapshot snapshot_;
 };

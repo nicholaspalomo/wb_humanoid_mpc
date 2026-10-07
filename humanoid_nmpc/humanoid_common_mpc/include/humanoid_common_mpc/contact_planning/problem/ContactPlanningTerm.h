@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -61,7 +65,7 @@ class ContactPlanningTerm {
 };
 
 /** Nodes of the horizon a term acts on. Node N (the terminal one) has no inputs, dynamics or ZMP. */
-enum class NodeSet { RUNNING, TERMINAL, ALL, LAST_RUNNING };
+enum class NodeSet { kRunning, kTerminal, kAll, kLastRunning };
 bool nodeSetContains(NodeSet set, int node, int numNodes);
 std::string nodeSetName(NodeSet set);
 

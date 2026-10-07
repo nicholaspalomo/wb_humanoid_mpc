@@ -6,6 +6,7 @@ load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("@rules_python//python:defs.bzl", "py_library", "py_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 
 # robot_ipc - the ZeroMQ bus of the distributed runtime (humanoid_nmpc/docs/distributed_runtime/README.md), in C++
 # and in Python. Generic: it knows nothing of the humanoid's topics or messages, which live in humanoid_nmpc.
@@ -48,9 +49,11 @@ py_proto_library(
 cc_library(
     name = "textproto",
     srcs = ["src/Textproto.cpp"],
+    copts = FIRST_PARTY_COPTS,
     hdrs = ["src/Textproto.h"],
     visibility = ["//visibility:private"],
     deps = [
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/strings",
         "@protobuf",
@@ -65,14 +68,17 @@ cc_library(
         "src/NetworkConfig.cpp",
         "src/StatusMacros.h",
     ],
+    copts = FIRST_PARTY_COPTS,
     hdrs = glob(["include/robot_ipc/*.h"]),
     includes = ["include"],
     deps = [
         ":network_config_cc_proto",
         ":textproto",
         "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/container:flat_hash_map",
         "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/memory",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
@@ -136,9 +142,11 @@ cc_test(
     name = "network_config_test",
     size = "small",
     srcs = ["test/testNetworkConfig.cpp"],
+    copts = FIRST_PARTY_COPTS,
     data = ["//config/ipc:network.textproto"],
     deps = [
         ":robot_ipc",
+        "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
     ],
 )
@@ -147,9 +155,11 @@ cc_test(
     name = "textproto_test",
     size = "small",
     srcs = ["test/testTextproto.cpp"],
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":test_messages_cc_proto",
         ":textproto",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
@@ -160,9 +170,11 @@ cc_test(
     name = "bus_test",
     size = "small",
     srcs = ["test/testBus.cpp"],
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":robot_ipc",
         ":test_messages_cc_proto",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/synchronization",
         "@abseil-cpp//absl/time",
         "@cppzmq",
@@ -176,9 +188,11 @@ cc_binary(
     name = "bus_echo",
     testonly = True,
     srcs = ["test/BusEchoMain.cpp"],
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":robot_ipc",
         ":test_messages_cc_proto",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/flags:flag",
         "@abseil-cpp//absl/flags:parse",
         "@abseil-cpp//absl/log",

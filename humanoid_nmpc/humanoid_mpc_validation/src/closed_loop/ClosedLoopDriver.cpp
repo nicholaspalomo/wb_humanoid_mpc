@@ -27,39 +27,44 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopDriver.h"
 
 #include <chrono>
-#include <exception>
 #include <memory>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <pinocchio/algorithm/frames.hpp>
-#include <pinocchio/algorithm/kinematics.hpp>
-
-#include <mujoco_sim_interface/CheaterSimContactEstimator.h>
-#include <ocs2_core/misc/LoadData.h>
-
+#include "absl/base/nullability.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/time/time.h"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/kinematics.hpp"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/config/robot/ControllerSideSettingsFromConfig.h"
+#include "humanoid_common_mpc/contact/ContactWrenchGate.h"
+#include "humanoid_common_mpc/mrt/ContactEstimateIntake.h"
 #include "humanoid_common_mpc_app/node/MpcNodeRuntime.h"
 #include "humanoid_common_mpc_app/robot/InitialSimState.h"
 #include "humanoid_common_mpc_app/robot/MujocoRobotBackend.h"
 #include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
+#include "humanoid_mpc_config/reference_file.nproto.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
+#include "humanoid_mpc_validation/closed_loop/DriverSettingsFromConfig.h"
+#include "mujoco_sim_interface/CheaterSimContactEstimator.h"
 
 namespace ocs2::humanoid::validation {
 namespace {
 
-/** [s] How often the controller-side keys of the task file are checked, as RobotProcess checks them (kTaskFileCheckPeriod). */
+/** [s] How often the controller-side settings of the task file are checked, as RobotProcess checks them (kTaskFileCheckPeriod). */
 constexpr double kTaskFileCheckPeriod = 1.0;
 
 }  // namespace
@@ -111,9 +116,9 @@ DriverSolveOutcome ClosedLoopDriver::solve() {
   DriverSolveOutcome outcome;
   outcome.status = std::move(iteration.status);
   outcome.retryDelay = iteration.retryDelay.count();
-  outcome.wallTimeMs = std::chrono::duration<double, std::milli>(end - start).count();
+  outcome.wallTimeMs = absl::ToDoubleMilliseconds(absl::FromChrono(end - start));
   if (outcome.status.ok()) {
-    // The SQP runs one iteration per solve on every robot (sqpIteration: 1), so the last interval is the solve's.
+    // The SQP runs one iteration per solve on every robot (multiple_shooting.sqp_iteration: 1), so the last interval is the solve's.
     const SqpSolver::Benchmarks benchmarks = mpc_->getSolverPtr()->getBenchmarks();
     outcome.lqApproximationMs = benchmarks.linearQuadraticApproximationTime;
     outcome.solveQpMs = benchmarks.solveQpTime;
@@ -151,16 +156,21 @@ absl::Status ClosedLoopDriver::connectSimulator(const robot::mujoco_sim_interfac
   if (!contactEstimators_.has(robot::mujoco_sim_interface::kCheaterSimContactEstimatorName)) {
     robot::mujoco_sim_interface::registerCheaterSimContactEstimator(contactEstimators_, sim);
   }
+  // The controller writes the simulator's joint action at its own joint indices without a check.
+  RETURN_IF_ERROR(checkControllerRobot(*robotController_, sim.getRobotDescription()));
   const std::string canonical = robot::model::ContactEstimatorRegistry::canonicalName(settings_.contactEstimator);
   if (!contactEstimators_.has(canonical)) {
-    return absl::InvalidArgumentError(absl::StrCat("contactEstimator of the task file: there is no contact estimator '",
+    return absl::InvalidArgumentError(absl::StrCat("contact_estimator of the task file: there is no contact estimator '",
                                                    settings_.contactEstimator, "'. Available: ", contactEstimators_.availableNames(), "."));
   }
-  try {
-    robotController_->setContactEstimator(contactEstimators_.create(canonical));
-  } catch (const std::exception& error) {
-    return absl::InvalidArgumentError(error.what());
+  estimatorProbeState_.emplace(sim.getRobotState());
+  // A registered name, so create() succeeds: it ends the process only for an unknown one.
+  const std::shared_ptr<robot::model::ContactEstimator> estimator = contactEstimators_.create(canonical);
+  const absl::Status suits = checkContactEstimator(*estimator, *estimatorProbeState_, canonical);
+  if (!suits.ok()) {
+    return absl::InvalidArgumentError(absl::StrCat("contact_estimator of the task file: ", suits.message()));
   }
+  robotController_->setContactEstimator(estimator);
   contactEstimatorName_ = canonical;
   return absl::OkStatus();
 }
@@ -180,25 +190,33 @@ void ClosedLoopDriver::applyControllerSideSettings(double time) {
     taskFileWatcher_->poll();
   }
   if (!pendingControllerSideSettings_.has_value()) return;
-  const ControllerSideSettings settings = *std::move(pendingControllerSideSettings_);
+  const ControllerSideConfig settings = *std::move(pendingControllerSideSettings_);
   pendingControllerSideSettings_.reset();
   // LINT.IfChange(controller_side_updates)
-  // Touch-down shaping of the contact wrenches.
-  if (settings.contactWrenchGate.has_value()) {
+  // Touch-down shaping of the contact wrenches: the task file is the whole file.
+  const std::optional<ContactWrenchGate::Config> gate = wholeFileContactWrenchGate(settings);
+  if (gate.has_value()) {
     const ContactWrenchGate::Config& current = robotController_->contactWrenchGateConfig();
-    if (settings.contactWrenchGate->debounceTime != current.debounceTime || settings.contactWrenchGate->rampTime != current.rampTime) {
-      robotController_->setContactWrenchGateConfig(*settings.contactWrenchGate);
+    if (gate->debounceTime != current.debounceTime || gate->rampTime != current.rampTime) {
+      robotController_->setContactWrenchGateConfig(*gate);
     }
   }
   // The contact estimator, by name; an unknown name keeps the estimator in use.
-  if (settings.contactEstimator.has_value()) {
-    const std::string canonical = robot::model::ContactEstimatorRegistry::canonicalName(*settings.contactEstimator);
-    if (!contactEstimators_.has(canonical)) {
-      LOG(ERROR) << "[ClosedLoopDriver] Unknown contactEstimator '" << *settings.contactEstimator << "' in " << configuration_.taskFile
-                 << "; keeping '" << contactEstimatorName_ << "'. Available: " << contactEstimators_.availableNames() << ".";
-    } else if (canonical != contactEstimatorName_) {
-      robotController_->setContactEstimator(contactEstimators_.create(canonical));
+  const std::string canonical = robot::model::ContactEstimatorRegistry::canonicalName(settings.contactEstimator);
+  if (!contactEstimators_.has(canonical)) {
+    LOG(ERROR) << "[ClosedLoopDriver] Unknown contact_estimator '" << settings.contactEstimator << "' in " << taskFileWatcher_->file()
+               << "; keeping '" << contactEstimatorName_ << "'. Available: " << contactEstimators_.availableNames() << ".";
+  } else if (canonical != contactEstimatorName_) {
+    const std::shared_ptr<robot::model::ContactEstimator> estimator = contactEstimators_.create(canonical);
+    const absl::Status suits = estimatorProbeState_.has_value()
+                                   ? checkContactEstimator(*estimator, *estimatorProbeState_, canonical)
+                                   : absl::FailedPreconditionError("the simulator is not connected (connectSimulator())");
+    if (suits.ok()) {
+      robotController_->setContactEstimator(estimator);
       contactEstimatorName_ = canonical;
+    } else {
+      LOG(ERROR) << "[ClosedLoopDriver] Refusing the contact_estimator '" << settings.contactEstimator << "' of "
+                 << taskFileWatcher_->file() << "; keeping '" << contactEstimatorName_ << "'. " << suits.message();
     }
   }
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotProcess.cpp:controller_side_updates)
@@ -216,19 +234,22 @@ absl::Status ClosedLoopDriver::initializeShared(const RobotConfiguration& config
                                                 const PinocchioInterface& pinocchioInterface,
                                                 const vector_t& initialMpcState) {
   configuration_ = configuration;
-  // The robot binaries' keys, retired ones refused with their replacement.
+  // The robot binaries' settings, a retired field refused with its replacement.
   ASSIGN_OR_RETURN(settings_, loadRobotProcessSettings(configuration.taskFile));
-  robotDescription_ = std::make_unique<robot::model::RobotDescription>(configuration.urdfFile);
+  ASSIGN_OR_RETURN(robot::model::RobotDescription robotDescription, robot::model::RobotDescription::Create(configuration.urdfFile));
+  robotDescription_ = std::make_unique<robot::model::RobotDescription>(std::move(robotDescription));
   modelSettings_ = &modelSettings;
-  mpcJointIndices_ = robotDescription_->getJointIndices(modelSettings.mpcModelJointNames);
+  ASSIGN_OR_RETURN(mpcJointIndices_, robotDescription_->findJointIndices(modelSettings.mpcModelJointNames));
   mpcFrequency_ = mpcSettings.mpcDesiredFrequency_;
   mrtFrequency_ = mpcSettings.mrtDesiredFrequency_;
   if (mpcFrequency_ <= 0.0 || mrtFrequency_ <= 0.0) {
-    return absl::InvalidArgumentError(absl::StrCat("[ClosedLoopDriver] ", configuration.taskFile,
-                                                   " must set positive mpcDesiredFrequency and mrtDesiredFrequency for a lockstep run"));
+    return absl::InvalidArgumentError(
+        absl::StrCat("[ClosedLoopDriver] ", configuration.taskFile,
+                     " must set positive mpc.mpc_desired_frequency and mpc.mrt_desired_frequency for a lockstep run"));
   }
   initialMpcState_ = initialMpcState;
-  initialRobotState_.emplace(createInitialSimState(*robotDescription_, modelSettings, robotModel, initialMpcState_));
+  initialRobotState_ = std::make_unique<const robot::model::RobotState>(
+      createInitialSimState(*robotDescription_, modelSettings, robotModel, initialMpcState_));
 
   // The MPC of the MPC node, with the solver threads of the options.
   sqp::Settings settings = sqpSettings;
@@ -251,14 +272,19 @@ absl::Status ClosedLoopDriver::initializeShared(const RobotConfiguration& config
     contactFrameIds_[contact] = measurementPinocchio_->getModel().getFrameId(frame);
   }
 
-  // The robot process's watcher of the controller-side keys: an unchanged file never reports.
+  // The robot process's watcher of the controller-side settings (RobotProcess::onTaskFileChanged()): an unchanged file
+  // never reports, and a changed one is read typed.
   taskFileWatcher_ = std::make_unique<TaskFileWatcher>(configuration.taskFile, [this](const std::string& file) {
-    absl::StatusOr<ControllerSideSettings> loaded = loadControllerSideSettings(file);
-    if (!loaded.ok()) {
-      LOG(WARNING) << "[ClosedLoopDriver] Not applying the controller-side keys of " << file << ": " << loaded.status().message();
+    const absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(file);
+    if (!task.ok()) {
+      LOG(WARNING) << "[ClosedLoopDriver] Not applying the controller-side settings of " << file << ": " << task.status().message();
       return;
     }
-    pendingControllerSideSettings_ = *std::move(loaded);
+    ControllerSideConfig settings = controllerSideSettingsFromConfig(*task);
+    for (const std::string& problem : settings.problems) {
+      LOG(WARNING) << "[ClosedLoopDriver] " << file << ": " << problem << "; the contact wrench gate in use is kept";
+    }
+    pendingControllerSideSettings_ = std::move(settings);
   });
   return absl::OkStatus();
 }
@@ -268,23 +294,21 @@ absl::Status ClosedLoopDriver::initializeCommandPath(std::unique_ptr<TargetTraje
                                                      const MpcRobotModelBase<scalar_t>& commandModel) {
   calculator_ = std::move(calculator);
   // The GUI's command limits and pelvis height, from the same file the motion manager scales with.
-  loadData::loadCppDataType(configuration_.referenceFile, "maxDisplacementVelocityX", commandLimits_(0));
-  loadData::loadCppDataType(configuration_.referenceFile, "maxDisplacementVelocityY", commandLimits_(1));
-  loadData::loadCppDataType(configuration_.referenceFile, "maxRotationVelocity", commandLimits_(2));
-  loadData::loadCppDataType(configuration_.referenceFile, "defaultBaseHeight", defaultPelvisHeight_);
-  if ((commandLimits_.array() <= 0.0).any()) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("[ClosedLoopDriver] the command limits of ", configuration_.referenceFile, " must be positive"));
+  ASSIGN_OR_RETURN(const mpc_config::ReferenceFile referenceFile, loadReferenceFile(configuration_.referenceFile));
+  absl::StatusOr<GuiCommandScaling> scaling = guiCommandScalingFromConfig(referenceFile);
+  if (!scaling.ok()) {
+    return withConfigFile(scaling.status(), configuration_.referenceFile);
   }
+  guiCommandScaling_ = *std::move(scaling);
 
   // LINT.IfChange(command_path)
-  TargetTrajectoriesCalculatorBase* calculatorPtr = calculator_.get();
+  TargetTrajectoriesCalculatorBase* absl_nonnull calculatorPtr = calculator_.get();
   ProceduralMpcMotionManager::VelocityTargetToTargetTrajectories targetTrajectories =
       [calculatorPtr](const vector4_t& velocityTarget, scalar_t initTime, scalar_t /*finalTime*/, const vector_t& initState) {
         return calculatorPtr->commandedVelocityToTargetTrajectories(velocityTarget, initTime, initState);
       };
-  motionManager_ = std::make_shared<ProceduralMpcMotionManager>(configuration_.gaitFile, configuration_.referenceFile,
-                                                                std::move(referenceManager), commandModel, targetTrajectories);
+  ASSIGN_OR_RETURN(motionManager_, ProceduralMpcMotionManager::Create(configuration_.gaitFile, configuration_.referenceFile,
+                                                                      std::move(referenceManager), commandModel, targetTrajectories));
   // A reset of the MPC resets the command path with it, as the MPC nodes wire it.
   motionManager_->setResetHook([calculatorPtr]() { calculatorPtr->reset(); });
   mpc_->getSolverPtr()->addSynchronizedModule(motionManager_);

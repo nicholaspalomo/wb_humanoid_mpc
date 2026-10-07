@@ -34,8 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <Eigen/Core>
-
+#include "Eigen/Core"
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -68,22 +68,22 @@ inline constexpr absl::string_view kConservativeInnerApproximationGeneratorSet =
  */
 inline constexpr absl::string_view kExactWrenchConeGeneratorSet = "exact_wrench_cone";
 // clang-format off
-// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact/ContactWrenchConeBasisMatrix.cpp:basis_generator_set_registry, //humanoid_nmpc/docs/contact_basis_vectors/README.md:generator_set_names, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:basis_generator_set_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:basis_generator_set_config)
+// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact/ContactWrenchConeBasisMatrix.cpp:basis_generator_set_registry, //humanoid_nmpc/docs/contact_basis_vectors/README.md:generator_set_names, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:basis_generator_set_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto:basis_generator_set_config, //humanoid_nmpc/humanoid_mpc_config/contacts_config.proto:basis_generator_set)
 // clang-format on
 
 /** The set used when nothing names one. It stays the shipped set until the exact one has been validated in closed loop. */
 inline constexpr absl::string_view kDefaultBasisGeneratorSet = kConservativeInnerApproximationGeneratorSet;
 
-/** The task-file key naming the generator set (loadContactWrenchConeBases); the registry's error messages name it. */
-inline constexpr absl::string_view kBasisGeneratorSetKey = "contacts.basisGeneratorSet";
+/** The task-file field naming the generator set (contactWrenchConeBasesFromConfig); the registry's error messages name it. */
+inline constexpr absl::string_view kBasisGeneratorSetKey = "contacts.basis_generator_set";
 
 /**
  * Builds the 6 x numBasis generator matrix of one foot, in its local contact frame. `config` and `contactRectangle`
  * have already passed the checks every set shares (ContactWrenchConeBasisMatrix::Create); a builder reports only the
  * problems specific to its own construction.
  */
-using BasisGeneratorSetBuilder = absl::StatusOr<matrix_t> (*)(const ContactWrenchConeConstraint::Config& config,
-                                                              const ContactRectangle& contactRectangle);
+using BasisGeneratorSetBuilder = absl::StatusOr<matrix_t> (*absl_nonnull)(const ContactWrenchConeConstraint::Config& config,
+                                                                          const ContactRectangle& contactRectangle);
 
 /** Every registered generator-set name, in registration order. */
 std::vector<std::string> basisGeneratorSetNames();
@@ -132,7 +132,7 @@ class ContactWrenchConeBasisMatrix {
 
   /**
    * Builds the basis of the named generator set. Configuration errors are an InvalidArgumentError naming the
-   * task-file key to change (contacts.contactWrenchConeSoftConstraint.*, contacts.contact_rectangle.*,
+   * task-file field to change (contacts.contact_wrench_cone_soft_constraint.*, contacts.contact_rectangle.*,
    * kBasisGeneratorSetKey); a generator outside the cone is an InternalError.
    */
   static absl::StatusOr<ContactWrenchConeBasisMatrix> Create(const ContactWrenchConeConstraint::Config& config,
@@ -165,19 +165,6 @@ class ContactWrenchConeBasisMatrix {
   matrix_t B_pinv_local_;        // numBasis x 6
   matrix_t nullSpaceProjector_;  // numBasis x numBasis
 };
-
-/**
- * The basis of every contact as a task file configures the basis-vector contact inputs: the generator set named by
- * kBasisGeneratorSetKey (kDefaultBasisGeneratorSet when the key is absent), built from the
- * contacts.contactWrenchConeSoftConstraint block (ContactWrenchConeConstraint::loadConfig, every key required) and each
- * contact's contacts.contact_rectangle. CentroidalMpcInterface builds its parameterization through this function, and so
- * does every test that wants the bases the shipped robot runs.
- *
- * @return InvalidArgument naming the task-file key to change; NotFound when the file cannot be read.
- */
-absl::StatusOr<feet_array_t<ContactWrenchConeBasisMatrix>> loadContactWrenchConeBases(const std::string& taskFile,
-                                                                                      const ModelSettings& modelSettings,
-                                                                                      bool verbose = false);
 
 /**
  * Non-negative least squares, argmin ||A x - b|| subject to x >= 0, by the Lawson-Hanson active-set method. Returns an

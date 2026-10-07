@@ -11,14 +11,14 @@ exports_files(["system_libs.bzl"])
 exports_files(["copts.bzl"])
 
 # Proves in every build of //... that FIRST_PARTY_COPTS (copts.bzl) is clean on every third-party header family that
-# first-party code includes. GCC reports those flags inside them, because they arrive as -I / -iquote, not as system
-# headers (copts.bzl says why), so a flag that fails on this target is dropped from copts.bzl, with a comment naming the
-# header. Nothing links it.
+# first-party code includes: they are system headers (-isystem, copts.bzl says how), and -Werror makes every warning one
+# of them would still trip, the -Wall / -Wextra / -Wpedantic ones included, a failure here. A flag that fails on this
+# target is dropped from copts.bzl, with a comment naming the header. Nothing links it.
 cc_library(
     name = "first_party_copts_probe",
     srcs = ["first_party_copts_probe.cpp"],
     hdrs = ["first_party_copts_probe.h"],
-    copts = FIRST_PARTY_COPTS,
+    copts = FIRST_PARTY_COPTS + ["-Werror"],
     deps = [
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto",
@@ -36,6 +36,5 @@ cc_library(
         "@hpipm",
         "@pinocchio",
         "@urdf",
-        "@yaml_cpp",
     ],
 )

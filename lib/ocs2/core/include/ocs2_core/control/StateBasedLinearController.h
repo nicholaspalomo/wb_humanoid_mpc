@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/control/ControllerBase.h>
 #include <ocs2_core/control/LinearController.h>
 
@@ -48,7 +50,7 @@ class StateBasedLinearController final : public ControllerBase {
    *
    * @param[in] ctrlPtr: pointer to the provided controller
    */
-  void setController(ControllerBase* ctrlPtr);
+  void setController(ControllerBase* absl_nullable ctrlPtr);
 
   /**
    * Computes the control input based on the trajectory spreading scheme.
@@ -59,12 +61,14 @@ class StateBasedLinearController final : public ControllerBase {
    * @param [in] ctrlPtr: Pointer to the actual controller
    * @retrun control input vector
    */
-  static vector_t computeTrajectorySpreadingInput(scalar_t t, const vector_t& x, const scalar_array_t& ctrlEventTimes,
-                                                  ControllerBase* ctrlPtr);
+  static vector_t computeTrajectorySpreadingInput(scalar_t t,
+                                                  const vector_t& x,
+                                                  const scalar_array_t& ctrlEventTimes,
+                                                  ControllerBase* absl_nonnull ctrlPtr);
 
   vector_t computeInput(scalar_t t, const vector_t& x) override;
 
-  void concatenate(const ControllerBase* nextController, int index, int length) override;
+  void concatenate(const ControllerBase* absl_nonnull nextController, int index, int length) override;
 
   int size() const override;
 
@@ -76,10 +80,10 @@ class StateBasedLinearController final : public ControllerBase {
 
   void display() const override;
 
-  StateBasedLinearController* clone() const override;
+  StateBasedLinearController* absl_nonnull clone() const override;
 
  private:
-  ControllerBase* ctrlPtr_ = nullptr;
+  ControllerBase* absl_nullable ctrlPtr_ = nullptr;
   scalar_array_t ctrlEventTimes_{0};
 };
 

@@ -29,12 +29,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <memory>
 
+#include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 
+#include "humanoid_common_mpc/parameter_update/MpcParameterUpdaterModule.h"
 #include "humanoid_common_mpc_app/robot/MrtRobotController.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopDriver.h"
 #include "humanoid_wb_mpc/WBMpcInterface.h"
@@ -44,8 +46,8 @@ namespace ocs2::humanoid::validation {
 
 /**
  * The whole-body MPC as its MPC node builds it (WBMpcNode::Create()): the interface and the SQP MPC with the motion
- * manager as its synchronized module. And WBMpcMrtJointController as its robot binary builds it (WBMpcRobotMain.cpp),
- * with the task file's controller settings, behind MrtRobotController with the binary's CycleInputOrder.
+ * manager and the parameter updater as its synchronized modules. And WBMpcMrtJointController as its robot binary builds it
+ * (WBMpcRobotMain.cpp), with the task file's controller settings, behind MrtRobotController with the binary's CycleInputOrder.
  */
 class WholeBodyClosedLoopDriver final : public ClosedLoopDriver {
  public:
@@ -53,6 +55,9 @@ class WholeBodyClosedLoopDriver final : public ClosedLoopDriver {
                                                                            const ClosedLoopDriverOptions& options);
 
   ~WholeBodyClosedLoopDriver() override;
+
+  WholeBodyClosedLoopDriver(const WholeBodyClosedLoopDriver&) = delete;
+  WholeBodyClosedLoopDriver& operator=(const WholeBodyClosedLoopDriver&) = delete;
 
   bool isEnteringMpc() const override { return controller_->controller().isHolding(); }
   const SystemObservation& currentObservation() const override { return controller_->controller().getCurrentObservation(); }
@@ -64,7 +69,10 @@ class WholeBodyClosedLoopDriver final : public ClosedLoopDriver {
   absl::Status initialize(const RobotConfiguration& configuration, const ClosedLoopDriverOptions& options);
 
   std::unique_ptr<WBMpcInterface> interface_;
-  MrtRobotController<WBMpcMrtJointController>* controller_ = nullptr;  ///< robotController_, typed
+  // Watches the task and reference files as the node's does; shared because OCS2's addSynchronizedModule() takes a
+  // std::shared_ptr.
+  std::shared_ptr<MpcParameterUpdaterModule> parameterUpdater_;
+  MrtRobotController<WBMpcMrtJointController>* absl_nullable controller_ = nullptr;  ///< robotController_, typed
 };
 
 }  // namespace ocs2::humanoid::validation

@@ -5,11 +5,11 @@ package nproto_test;
 import "nproto/options.proto";
 
 // proto2: explicit defaults become the default member initializers, optional fields without one become std::optional.
-// Next ID: 17
+// Next ID: 18
 message Defaults {
   option (nproto.generate_struct) = "nproto::test::Defaults";
 
-  reserved 17 to max;
+  reserved 18 to max;
 
   // A closed enum: proto2 messages cannot use proto3 enums.
   enum Level {
@@ -30,6 +30,8 @@ message Defaults {
   optional double floor = 11 [default = -inf];
   optional int32 smallest32 = 12 [default = -2147483648];
   optional float tiny = 13 [default = 1e-3];
+  // protoc spells it `1e-08`: the generated literal still has a radix point.
+  optional double epsilon = 17 [default = 1.0e-8];
   // No default: absent has no value of its own.
   optional int32 no_default = 14;
   optional Level no_default_level = 15;

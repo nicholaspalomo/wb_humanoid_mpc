@@ -27,61 +27,67 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <atomic>
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
-#include <regex>
 #include <sstream>
 #include <string>
 #include <thread>
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-
-#include <ocs2_core/misc/LoadData.h>
-#include <ocs2_mpc/SystemObservation.h>
-#include <ocs2_mpc_test/ScriptedMpc.h>
-#include <robot_model/RobotDescription.h>
+#include "gtest/gtest.h"
+#include "ocs2_core/cost/QuadraticStateInputCost.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_mpc_test/ScriptedMpc.h"
+#include "ocs2_sqp/SqpSolver.h"
 
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
+#include "humanoid_centroidal_mpc/mrt/CentroidalMpcParameterUpdater.h"
 #include "humanoid_centroidal_mpc_app/CentroidalMpcNode.h"
+#include "humanoid_common_mpc/common/CostTermNames.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/config/OperatorPayloadChecks.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "humanoid_common_mpc/mrt/MpcLink.h"
 #include "humanoid_common_mpc_app/node/DummySimLoop.h"
 #include "humanoid_common_mpc_app/node/MpcFiles.h"
 #include "humanoid_common_mpc_app/node/MpcNodeRuntime.h"
-#include "humanoid_common_mpc_app/node/test_support/ScriptedRobot.h"
-#include "humanoid_common_mpc_app/robot/test_support/ChildProcess.h"
-#include "humanoid_common_mpc_app/robot/test_support/LoopbackNetwork.h"
-#include "humanoid_common_mpc_app/robot/test_support/ScriptedOperator.h"
 #include "humanoid_common_mpc_app/teleop/KeyboardVelocityCommand.h"
 #include "humanoid_common_mpc_app/visualization/VisualizationPublisher.h"
+#include "humanoid_mpc_config/mpc_parameter_update.pb.h"
+#include "humanoid_mpc_config/task_file.pb.h"
 #include "humanoid_mpc_ipc/Topics.h"
 #include "humanoid_mpc_msgs/fsm_state.pb.h"
 #include "humanoid_mpc_msgs/loop_timing.pb.h"
 #include "humanoid_mpc_msgs/mpc_status.pb.h"
 #include "humanoid_mpc_msgs/robot_state_sample.pb.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
-#include "humanoid_mpc_msgs/yaml_document.pb.h"
+#include "humanoid_nmpc/humanoid_common_mpc_app/node/test/ScriptedRobot.h"
+#include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/ChildProcess.h"
+#include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/LoopbackNetwork.h"
+#include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/ScriptedOperator.h"
+#include "nproto/Textproto.h"
 #include "robot_core/ResourcePaths.h"
 #include "robot_ipc/Bus.h"
 #include "robot_ipc/BusOptions.h"
 #include "robot_ipc/NetworkConfig.h"
 #include "robot_ipc/NodeEndpoint.h"
+#include "robot_model/RobotDescription.h"
 
 /*
  * The centroidal MPC node on the DRC Atlas task file, with the real SQP solver, served over loopback buses: to a robot
@@ -98,17 +104,18 @@ using node::test_support::ScriptedRobot;
 node::MpcFiles atlasFiles() {
   node::MpcFiles files;
   // A file missing from the runfiles throws here, naming the data dependency to add (robot::resolveResourcePath).
-  files.taskFile = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml").value();
-  files.referenceFile = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml").value();
+  files.taskFile = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto").value();
+  files.referenceFile =
+      robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.textproto").value();
   files.urdfFile = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf").value();
-  files.gaitFile = robot::resolveResourcePath("humanoid_nmpc/humanoid_common_mpc/config/command/gait.yaml").value();
+  files.gaitFile = robot::resolveResourcePath("humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto").value();
   return files;
 }
 
 std::unique_ptr<robot::ipc::Bus> loopbackBus(const std::string& name) {
   robot::ipc::BusOptions options;
   options.nodeName = name;
-  options.network.nodes = {robot::ipc::NodeEndpoint{.name = name, .host = "127.0.0.1", .port = robot::ipc::kEphemeralPort}};
+  options.network.nodes = {robot::ipc::NodeEndpoint{.name = name, .host = "127.0.0.1", .port = robot::ipc::kEphemeralPort, .bindHost = ""}};
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
   EXPECT_TRUE(bus.ok()) << bus.status();
   return *std::move(bus);
@@ -128,6 +135,8 @@ class NodeHarness {
     EXPECT_TRUE(node_->start().ok());
   }
 
+  NodeHarness(const NodeHarness&) = delete;
+  NodeHarness& operator=(const NodeHarness&) = delete;
   ~NodeHarness() { node_->stop(); }
 
   /** The task file's standing state at `time`. */
@@ -136,7 +145,7 @@ class NodeHarness {
     observation.time = time;
     observation.state = node_->interface().getInitialState();
     observation.input = vector_t::Zero(node_->interface().getEffectiveMpcRobotModel().getInputDim());
-    observation.mode = ModeNumber::STANCE;
+    observation.mode = ModeNumber::kStance;
     return observation;
   }
 
@@ -159,7 +168,7 @@ TEST(CentroidalMpcNode, SolvesTheRobotsObservationsServesTheResetsTheyRequestAnd
   const ipc::ModelDimensions dimensions = harness.node().dimensions();
 
   std::optional<humanoid_mpc_msgs::MpcPolicy> policy = harness.solve(/*time=*/0.0, /*sequence=*/1);
-  ASSERT_TRUE(policy.has_value());
+  if (!policy.has_value()) GTEST_FAIL() << "the node served no policy";
   EXPECT_TRUE(policy->solver_status().healthy());
   ASSERT_GT(policy->time_trajectory_size(), 1);
   EXPECT_EQ(policy->time_trajectory(0), 0.0);
@@ -169,11 +178,11 @@ TEST(CentroidalMpcNode, SolvesTheRobotsObservationsServesTheResetsTheyRequestAnd
 
   // A solver reset, then a full one, requested through the observation's counters.
   policy = harness.solve(/*time=*/0.02, /*sequence=*/2, /*requested=*/1, /*fullRequested=*/0);
-  ASSERT_TRUE(policy.has_value());
+  if (!policy.has_value()) GTEST_FAIL() << "the node served no policy";
   EXPECT_EQ(policy->resets_served(), 1);
   EXPECT_EQ(policy->full_resets_served(), 0);
   policy = harness.solve(/*time=*/0.04, /*sequence=*/3, /*requested=*/2, /*fullRequested=*/1);
-  ASSERT_TRUE(policy.has_value());
+  if (!policy.has_value()) GTEST_FAIL() << "the node served no policy";
   EXPECT_EQ(policy->resets_served(), 2);
   EXPECT_EQ(policy->full_resets_served(), 1);
 
@@ -207,7 +216,7 @@ TEST(CentroidalMpcNode, TheVelocityCommandReachesTheMotionManager) {
   EXPECT_LT(scaled.angular_velocity_z, 0.0);
   // The next policy carries it.
   const std::optional<humanoid_mpc_msgs::MpcPolicy> policy = harness.solve(/*time=*/0.02, /*sequence=*/2);
-  ASSERT_TRUE(policy.has_value());
+  if (!policy.has_value()) GTEST_FAIL() << "the node served no policy";
   EXPECT_EQ(policy->annotations().scaled_velocity_x(), scaled.linear_velocity_x);
   EXPECT_EQ(policy->annotations().scaled_yaw_rate(), scaled.angular_velocity_z);
 }
@@ -219,29 +228,86 @@ std::string readFile(const std::string& path) {
   return content.str();
 }
 
+/** The SQP solver of the node's MPC. */
+SqpSolver& solverOf(CentroidalMpcNode& node) {
+  return dynamic_cast<SqpSolver&>(*node.mpc().getSolverPtr());
+}
+
+/** Q of the running problem's quadratic state cost (the Atlas lists stateQuadraticCost). */
+matrix_t runningStateWeights(CentroidalMpcNode& node) {
+  matrix_t Q;
+  matrix_t R;
+  matrix_t P;
+  solverOf(node).getOcpDefinitions().front().costPtr->get<QuadraticStateInputCost>(kStateQuadraticCostTerm).getGains(Q, R, P);
+  return Q;
+}
+
+/**
+ * The tuning GUI's update of the node's task file with `edit` applied, as it publishes it: the whole file, typed, with
+ * the schema fingerprint and the file's configuration path `configPath`.
+ */
+humanoid_mpc_config::MpcParameterUpdate parameterUpdateOf(const std::string& taskFile,
+                                                          const std::function<void(humanoid_mpc_config::TaskFile&)>& edit,
+                                                          const std::string& configPath) {
+  const absl::StatusOr<humanoid_mpc_config::TaskFile> task =
+      nproto::ParseTextproto<humanoid_mpc_config::TaskFile>(readFile(taskFile), "task");
+  EXPECT_TRUE(task.ok()) << task.status();
+  humanoid_mpc_config::MpcParameterUpdate update;
+  if (!task.ok()) return update;
+  *update.mutable_task() = *task;
+  edit(*update.mutable_task());
+  update.set_schema_fingerprint(mpcParameterUpdateSchemaFingerprint());
+  update.set_config_path(configPath);
+  return update;
+}
+
 TEST(CentroidalMpcNode, AParameterUpdateIsAppliedBeforeTheNextSolve) {
   NodeHarness harness;
   ASSERT_TRUE(harness.solve(/*time=*/0.0, /*sequence=*/1).has_value());
-  MpcParameterUpdaterModule& updater = harness.node().parameterUpdater();
-  // Whatever the start-up read of the task file recorded.
-  updater.takeContactEstimatorUpdate();
+  const matrix_t shippedQ = runningStateWeights(harness.node());
+  const size_t shippedIterations = solverOf(harness.node()).getSettings().sqpIteration;
 
-  // The tuning GUI sends the whole task file; this one selects another contact estimator, which the updater records.
-  const std::string taskText = readFile(harness.files().taskFile);
-  const std::string edited =
-      std::regex_replace(taskText, std::regex("\ncontactEstimator: [a-z_]+"), "\ncontactEstimator: always_in_contact");
-  ASSERT_NE(edited, taskText) << "the task file has no top-level contactEstimator to edit";
-  humanoid_mpc_msgs::YamlDocument document;
-  document.set_yaml(edited);
-  ASSERT_TRUE(harness.robot().sendAsOperator(topics::kOperatorMpcParameters, document,
+  // The tuning GUI sends the whole task file, typed; this one doubles the state weights and adds an SQP iteration.
+  const humanoid_mpc_config::MpcParameterUpdate update = parameterUpdateOf(
+      harness.files().taskFile,
+      [](humanoid_mpc_config::TaskFile& task) {
+        task.mutable_state_weights()->set_scaling(2.0 * task.state_weights().scaling());
+        task.mutable_multiple_shooting()->set_sqp_iteration(task.multiple_shooting().sqp_iteration() + 1);
+      },
+      configFileIdentity(harness.files().taskFile));
+  ASSERT_TRUE(harness.robot().sendAsOperator(topics::kOperatorMpcParameters, update,
                                              [&]() { return harness.node().runtime().statistics().parameterUpdatesReceived > 0; }));
   // Received, not yet applied: no observation has come since, so nothing has been solved.
-  EXPECT_FALSE(updater.takeContactEstimatorUpdate().has_value());
+  EXPECT_TRUE(runningStateWeights(harness.node()) == shippedQ) << "the update was applied before a solve";
 
   ASSERT_TRUE(harness.solve(/*time=*/0.02, /*sequence=*/2).has_value());
-  const std::optional<std::string> applied = updater.takeContactEstimatorUpdate();
-  ASSERT_TRUE(applied.has_value());
-  EXPECT_EQ(*applied, "always_in_contact");
+  EXPECT_EQ(harness.node().runtime().statistics().parameterUpdatesRejected, 0U);
+  EXPECT_TRUE(runningStateWeights(harness.node()).isApprox(2.0 * shippedQ, 1.0e-12)) << "the edited state weights were not applied";
+  EXPECT_EQ(solverOf(harness.node()).getSettings().sqpIteration, shippedIterations + 1);
+}
+
+TEST(CentroidalMpcNode, AnUpdateOfAnotherConfigurationIsRefused) {
+  // The whole-body G1 and the centroidal G1 share robot_name "g1": the configuration path tells them apart. An update of
+  // another task file than the node's is counted as rejected and reaches no solver.
+  NodeHarness harness;
+  ASSERT_TRUE(harness.solve(/*time=*/0.0, /*sequence=*/1).has_value());
+  const matrix_t shippedQ = runningStateWeights(harness.node());
+  const humanoid_mpc_config::MpcParameterUpdate update = parameterUpdateOf(
+      harness.files().taskFile,
+      [](humanoid_mpc_config::TaskFile& task) { task.mutable_state_weights()->set_scaling(3.0 * task.state_weights().scaling()); },
+      "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto");
+  ASSERT_TRUE(harness.robot().sendAsOperator(topics::kOperatorMpcParameters, update,
+                                             [&]() { return harness.node().runtime().statistics().parameterUpdatesRejected > 0; }));
+  ASSERT_TRUE(harness.solve(/*time=*/0.02, /*sequence=*/2).has_value());
+  EXPECT_EQ(harness.node().runtime().statistics().parameterUpdatesRejected, 1U);
+  EXPECT_TRUE(runningStateWeights(harness.node()) == shippedQ) << "an update of another configuration was applied";
+}
+
+TEST(CentroidalMpcNode, TheUpdaterAppliesTheCentroidalFormulationsHotFields) {
+  // The instantiated updater applies exactly the static list of the formulation, which the reload-class coverage test
+  // compares with the schema without building an MPC.
+  NodeHarness harness;
+  EXPECT_EQ(harness.node().parameterUpdater().appliedFields(), centroidalHotFieldNames());
 }
 
 void expectSameTarget(const TargetTrajectories& expected, const TargetTrajectories& actual) {
@@ -257,7 +323,9 @@ void expectSameTarget(const TargetTrajectories& expected, const TargetTrajectori
 TEST(CentroidalMpcNode, ResetsToTheTargetTheControllerHandsItsInProcessLink) {
   NodeHarness harness;
   CentroidalMpcInterface& interface = harness.node().interface();
-  const robot::model::RobotDescription description(harness.files().urdfFile);
+  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus = robot::model::RobotDescription::Create(harness.files().urdfFile);
+  ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
+  const robot::model::RobotDescription& description = *descriptionOrStatus;
   // The controller as the robot process builds it, with a link that keeps the reset target the controller hands it.
   mpc_test::ScriptedMpc scriptedMpc(interface.mpcSettings(), interface.getEffectiveMpcRobotModel().getInputDim());
   MpcLink::ResetTargetFunction controllerResetTarget;
@@ -265,9 +333,11 @@ TEST(CentroidalMpcNode, ResetsToTheTargetTheControllerHandsItsInProcessLink) {
     controllerResetTarget = resetTarget;
     return std::make_unique<InProcessMpcLink>(scriptedMpc, std::move(resetTarget), InProcessMpcLink::Config());
   };
-  const CentroidalMpcMrtJointController controller(description, interface.modelSettings(), interface.getMpcRobotModel(), capturing,
-                                                   interface.getPinocchioInterface(), /*pdGainsFile=*/"",
-                                                   &interface.getEffectiveMpcRobotModel());
+  absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = CentroidalMpcMrtJointController::Create(
+      description, interface.modelSettings(), interface.getMpcRobotModel(), capturing, interface.getPinocchioInterface(),
+      /*pdGainsFile=*/"", &interface.getEffectiveMpcRobotModel());
+  // The controller, which owns the link the factory captured, lives in controllerOrStatus for the whole test.
+  ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
   ASSERT_TRUE(controllerResetTarget);
   for (const scalar_t time : {0.0, 1.5, 12.25}) {
     SystemObservation observation = harness.standing(time);
@@ -295,7 +365,7 @@ class DummySimRunner {
     initialObservation_.time = 0.0;
     initialObservation_.state = node.interface().getInitialState();
     initialObservation_.input = vector_t::Zero(node.dimensions().inputDim);
-    initialObservation_.mode = ModeNumber::STANCE;
+    initialObservation_.mode = ModeNumber::kStance;
   }
 
   /** Runs the loop for `duration` of wall time once its first policy has arrived, then stops it. */
@@ -322,7 +392,7 @@ class DummySimRunner {
 TEST(CentroidalMpcNode, TheDummySimulatorStandsOnTheNodesPoliciesWithoutAReset) {
   const node::MpcFiles files = atlasFiles();
   std::unique_ptr<robot::ipc::Bus> mpcBus = loopbackBus("mpc");
-  robot::ipc::Bus* mpcBusPointer = mpcBus.get();
+  robot::ipc::Bus* absl_nonnull mpcBusPointer = mpcBus.get();
   absl::StatusOr<std::unique_ptr<CentroidalMpcNode>> node =
       CentroidalMpcNode::Create(files, std::move(mpcBus), CentroidalMpcNode::Options());
   ASSERT_TRUE(node.ok()) << node.status();
@@ -360,12 +430,32 @@ TEST(CentroidalMpcNode, TheDummySimulatorStandsOnTheNodesPoliciesWithoutAReset) 
   EXPECT_TRUE(latest.state.allFinite());
 }
 
-constexpr const char* kNodeBinary = "humanoid_nmpc/humanoid_centroidal_mpc_app/humanoid_centroidal_mpc_node";
-constexpr const char* kRobotBinary = "humanoid_nmpc/humanoid_centroidal_mpc_app/humanoid_centroidal_mpc_robot";
+constexpr char kNodeBinary[] = "humanoid_nmpc/humanoid_centroidal_mpc_app/humanoid_centroidal_mpc_node";
+constexpr char kRobotBinary[] = "humanoid_nmpc/humanoid_centroidal_mpc_app/humanoid_centroidal_mpc_robot";
 /** [m] How far the base may sink below, or rise above, its standing height while the robot is up. */
 constexpr double kBaseHeightTolerance = 0.1;
 /** How long the operator lets a mode settle before the next command. */
 constexpr absl::Duration kSettleTime = absl::Seconds(1);
+
+/** The latest FSM state the operator received: a test failure and an empty state when none has come. */
+humanoid_mpc_msgs::FsmState fsmStateOf(const test_support::ScriptedOperator& remoteControl) {
+  std::optional<humanoid_mpc_msgs::FsmState> state = remoteControl.fsmState();
+  if (!state.has_value()) {
+    ADD_FAILURE() << "the operator has received no FSM state";
+    return humanoid_mpc_msgs::FsmState();
+  }
+  return *std::move(state);
+}
+
+/** The latest loop timing the operator received: a test failure and an empty one when none has come. */
+humanoid_mpc_msgs::LoopTiming timingOf(const test_support::ScriptedOperator& remoteControl) {
+  std::optional<humanoid_mpc_msgs::LoopTiming> timing = remoteControl.timing();
+  if (!timing.has_value()) {
+    ADD_FAILURE() << "the operator has received no loop timing";
+    return humanoid_mpc_msgs::LoopTiming();
+  }
+  return *std::move(timing);
+}
 
 /** The base position of the newest robot/state sample. */
 vector3_t basePosition(const test_support::ScriptedOperator& remoteControl) {
@@ -410,7 +500,7 @@ TEST(CentroidalMpcNodeEndToEnd, TheRobotProcessStandsAndWalksOnTheNodeBinarysPol
   // The robot on the gantry, and the node's first healthy solve of its observations (minutes on a cold CppAD cache).
   ASSERT_TRUE(test_support::waitFor([&]() { return remoteControl.fsmState().has_value() || !robotProcess.running(); }, absl::Seconds(60)));
   ASSERT_TRUE(robotProcess.running()) << "the robot process exited on start-up";
-  EXPECT_EQ(remoteControl.fsmState()->mode(), "ZERO_TORQUE");
+  EXPECT_EQ(fsmStateOf(remoteControl).mode(), "ZERO_TORQUE");
   ASSERT_TRUE(test_support::waitFor(
       [&]() {
         const std::optional<humanoid_mpc_msgs::MpcStatus> status = remoteControl.mpcStatus();
@@ -420,18 +510,19 @@ TEST(CentroidalMpcNodeEndToEnd, TheRobotProcessStandsAndWalksOnTheNodeBinarysPol
   ASSERT_TRUE(mpcNode.running()) << "the MPC node exited on start-up";
 
   // Into WB_MPC on the gantry, then released, as an operator does it: JOINT_PD until the posture has settled from the
-  // slump of ZERO_TORQUE, WB_MPC until its entry ramp from the JOINT_PD action (the task file's mpcEntryBlendTime) is
+  // slump of ZERO_TORQUE, WB_MPC until its entry ramp from the JOINT_PD action (the task file's mpc_entry_blend_time) is
   // over.
-  scalar_t entryBlendTime = 0.0;
-  loadData::loadCppDataType(files.taskFile, "mpcEntryBlendTime", entryBlendTime);
+  const absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(files.taskFile);
+  ASSERT_TRUE(task.ok()) << task.status();
+  const scalar_t entryBlendTime = task->mpc_entry_blend_time.value_or(0.0);
   ASSERT_TRUE(remoteControl.enterMode("JOINT_PD"));
   absl::SleepFor(kSettleTime);
   ASSERT_TRUE(remoteControl.enterMode("WB_MPC"));
   absl::SleepFor(kSettleTime + absl::Seconds(entryBlendTime));
-  ASSERT_TRUE(remoteControl.fsmState()->mpc_healthy());
+  ASSERT_TRUE(fsmStateOf(remoteControl).mpc_healthy());
   ASSERT_TRUE(
       remoteControl.sendFsmCommand("UNLOCK_GANTRY", [](const humanoid_mpc_msgs::FsmState& state) { return !state.gantry_locked(); }));
-  const uint64_t resetsAtRelease = remoteControl.fsmState()->controller_resets();
+  const uint64_t resetsAtRelease = fsmStateOf(remoteControl).controller_resets();
   const vector3_t released = basePosition(remoteControl);
   ASSERT_TRUE(released.allFinite());
 
@@ -448,7 +539,7 @@ TEST(CentroidalMpcNodeEndToEnd, TheRobotProcessStandsAndWalksOnTheNodeBinarysPol
   EXPECT_GT(heights.min, released.z() - kBaseHeightTolerance) << "the robot fell";
   EXPECT_LT(heights.max, released.z() + kBaseHeightTolerance);
   EXPECT_GT(walkEnd.x() - walkStart.x(), 0.3) << "a fifth of the commanded 1.5 m at least";
-  const humanoid_mpc_msgs::FsmState state = *remoteControl.fsmState();
+  const humanoid_mpc_msgs::FsmState state = fsmStateOf(remoteControl);
   EXPECT_EQ(state.mode(), "WB_MPC");
   EXPECT_FALSE(state.gantry_locked());
   EXPECT_EQ(state.controller_resets(), resetsAtRelease) << "the fall recovery caught the robot";
@@ -456,7 +547,7 @@ TEST(CentroidalMpcNodeEndToEnd, TheRobotProcessStandsAndWalksOnTheNodeBinarysPol
 
   // The loop held its period and used fresh policies of the node, whose visualization reached the bus.
   ASSERT_TRUE(remoteControl.timing().has_value());
-  const humanoid_mpc_msgs::LoopTiming timing = *remoteControl.timing();
+  const humanoid_mpc_msgs::LoopTiming timing = timingOf(remoteControl);
   EXPECT_LE(timing.overruns(), timing.cycles() / 100) << timing.overruns() << " overruns in " << timing.cycles() << " cycles";
   // A period lost to a late wake-up overruns nothing: the skipped periods are checked on their own.
   EXPECT_LE(timing.missed_periods(), timing.cycles() / 100) << timing.missed_periods() << " skipped periods in " << timing.cycles()

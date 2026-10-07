@@ -35,7 +35,7 @@ message LaunchFile {
 
     // A Python identifier, unique in the file. `repo_root` is built in and cannot be declared.
     string name = 1;
-    // May refer to other variables: "{config_dir}/mpc/task.yaml".
+    // May refer to other variables: "{config_dir}/mpc/task.textproto".
     string value = 2;
   }
 

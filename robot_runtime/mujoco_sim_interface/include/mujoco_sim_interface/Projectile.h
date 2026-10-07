@@ -33,17 +33,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <mujoco/mujoco.h>
-
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "mujoco/mujoco.h"
 
 namespace robot::mujoco_sim_interface {
 
 /**
  * A ball that can be thrown at the robot: the physical properties of one projectile, selected by name in the robot's
- * task file (`simProjectile`).
+ * task file (`sim_projectile`).
  *
  * A value type rather than a class family, because a projectile has no behavior of its own - the simulator throws
  * it and MuJoCo does the rest. What it has is the handful of numbers that decide what being hit by it feels like.
@@ -52,15 +52,15 @@ namespace robot::mujoco_sim_interface {
  */
 struct Projectile {
   std::string name;
-  double radius{0.0};           // [m]
-  double mass{0.0};             // [kg] nominal; the GUI's mass slider overrides it per throw
-  double restitution{0.0};      // [-] coefficient of restitution against a rigid surface, in [0, 1)
-  double friction{0.0};         // [-] sliding friction of the ball's surface
-  double rollingFriction{0.0};  // [m] rolling (and torsional) resistance, which is what brings a rolling ball to rest
+  double radius = 0.0;           // [m]
+  double mass = 0.0;             // [kg] nominal; the GUI's mass slider overrides it per throw
+  double restitution = 0.0;      // [-] coefficient of restitution against a rigid surface, in [0, 1)
+  double friction = 0.0;         // [-] sliding friction of the ball's surface
+  double rollingFriction = 0.0;  // [m] rolling (and torsional) resistance, which is what brings a rolling ball to rest
   std::array<float, 4> rgba{{0.85f, 0.15f, 0.15f, 1.0f}};
 };
 
-/** Names `simProjectile` accepts, in registry order, for the error messages and the task-file comments. */
+/** Names `sim_projectile` accepts, in registry order, for the error messages and the task-file comments. */
 const std::vector<std::string>& availableProjectiles();
 
 /**
@@ -127,7 +127,7 @@ inline constexpr double kProjectileContactTimeConstant = 0.02;
  * condim 6 with rolling and torsional friction, so that a ball rolling across the floor comes to rest (in about seven
  * seconds from 3 m/s) instead of rolling on forever at 5/7 of its speed, as a condim-3 sphere does.
  */
-absl::Status addProjectileToSpec(mjSpec* spec, const Projectile& projectile, absl::string_view bodyName);
+absl::Status addProjectileToSpec(mjSpec* absl_nullable spec, const Projectile& projectile, absl::string_view bodyName);
 
 /**
  * Switches a projectile body's collisions on or off in a COMPILED model, so a parked ball can neither be hit nor rest
@@ -142,7 +142,7 @@ absl::Status addProjectileToSpec(mjSpec* spec, const Projectile& projectile, abs
  *
  * Does nothing for a negative body id, so callers need not check whether the scene has a projectile at all.
  */
-void setProjectileCollisionEnabled(mjModel* model, int bodyId, bool enabled);
+void setProjectileCollisionEnabled(mjModel* absl_nullable model, int bodyId, bool enabled);
 
 /**
  * [kg] What the mass slider is allowed to ask for. A topic can be published by hand, so everything on the simulator
@@ -183,10 +183,10 @@ double clampProjectileMass(double mass);
  * what addProjectileToSpec builds. That check is strict on purpose: a mistargeted call would otherwise retune a robot
  * link and nothing downstream would notice.
  */
-absl::Status setProjectileMass(mjModel* model, int bodyId, double mass);
+absl::Status setProjectileMass(mjModel* absl_nullable model, int bodyId, double mass);
 
 /** True when `dof` is one of the six free dofs of the projectile body `projectileBodyId` (false for a negative id). */
-bool isProjectileDof(const mjModel* model, int projectileBodyId, int dof);
+bool isProjectileDof(const mjModel* absl_nullable model, int projectileBodyId, int dof);
 
 /**
  * Sets the joint damping of every ROBOT joint - dofs 6 to nv, after the robot's own free joint - to `damping`, and
@@ -196,13 +196,13 @@ bool isProjectileDof(const mjModel* model, int projectileBodyId, int dof);
  * default, the zero-torque ragdoll boost and disableTorques(), as it once did: 20 N s/m on a thrown ball's free joint
  * brings it to a 0.2 m/s terminal speed within a few centimeters of where it was thrown from.
  */
-void setRobotJointDamping(mjModel* model, int projectileBodyId, double damping);
+void setRobotJointDamping(mjModel* absl_nullable model, int projectileBodyId, double damping);
 
 /** A throw in world coordinates: where the ball starts, how fast, and how long until it reaches the base. */
 struct ProjectileLaunch {
   std::array<double, 3> position{{0.0, 0.0, 0.0}};  // [m] world frame
   std::array<double, 3> velocity{{0.0, 0.0, 0.0}};  // [m/s] world frame
-  double flightTime{0.0};                           // [s] until it reaches the base it was aimed at
+  double flightTime = 0.0;                          // [s] until it reaches the base it was aimed at
 };
 
 /** [m] How far a spawning ball must be from every other collidable geom, the floor included. */
@@ -229,8 +229,11 @@ inline constexpr double kProjectileSpawnClearance = 0.02;
  * Returns FailedPreconditionError, naming the slider to change, when no point in that window clears, and
  * InvalidArgumentError when `projectileBodyId` is not a projectile.
  */
-absl::StatusOr<ProjectileLaunch> clearProjectileLaunch(
-    const mjModel* model, mjData* data, int projectileBodyId, const ProjectileLaunch& requested, double gravity);
+absl::StatusOr<ProjectileLaunch> clearProjectileLaunch(const mjModel* absl_nullable model,
+                                                       mjData* absl_nullable data,
+                                                       int projectileBodyId,
+                                                       const ProjectileLaunch& requested,
+                                                       double gravity);
 
 /**
  * The momentum a ball carries when it reaches the base: m (v_launch - g t z), with the mass clamped by
@@ -265,8 +268,8 @@ class ProjectileRestMonitor {
   bool update(double speed, double dt);
 
  private:
-  double slowTime_{0.0};
-  double timeInPlay_{0.0};
+  double slowTime_ = 0.0;
+  double timeInPlay_ = 0.0;
 };
 
 /**

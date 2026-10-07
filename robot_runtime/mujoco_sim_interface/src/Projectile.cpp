@@ -30,11 +30,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco_sim_interface/Projectile.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <string>
+#include <vector>
 
+#include "absl/base/no_destructor.h"
+#include "absl/base/nullability.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 
 namespace robot::mujoco_sim_interface {
 
@@ -48,7 +55,7 @@ constexpr double kClearanceSearchBackward = 1.0;
 constexpr double kClearanceSearchForwardFraction = 0.8;
 
 /** OK when `bodyId` is exactly what addProjectileToSpec builds; see setProjectileMass for why this is strict. */
-absl::Status checkIsProjectile(const mjModel* model, int bodyId, absl::string_view caller) {
+absl::Status checkIsProjectile(const mjModel* absl_nullable model, int bodyId, absl::string_view caller) {
   if (model == nullptr) return absl::InvalidArgumentError(absl::StrCat(caller, ": the model is null."));
   if (bodyId <= 0 || bodyId >= model->nbody) {
     return absl::InvalidArgumentError(absl::StrCat(caller, ": body ", bodyId, " is not a body of a model with ", model->nbody,
@@ -57,8 +64,8 @@ absl::Status checkIsProjectile(const mjModel* model, int bodyId, absl::string_vi
   const bool oneFreeJoint = model->body_jntnum[bodyId] == 1 && model->jnt_type[model->body_jntadr[bodyId]] == mjJNT_FREE;
   const bool oneSphere = model->body_geomnum[bodyId] == 1 && model->geom_type[model->body_geomadr[bodyId]] == mjGEOM_SPHERE;
   const bool ownTree = model->body_parentid[bodyId] == 0;
-  const mjtNum* centerOfMass = &model->body_ipos[3 * bodyId];
-  const bool centered = std::abs(centerOfMass[0]) < 1e-9 && std::abs(centerOfMass[1]) < 1e-9 && std::abs(centerOfMass[2]) < 1e-9;
+  const mjtNum* absl_nonnull centerOfMass = &model->body_ipos[3 * bodyId];
+  const bool centered = std::abs(centerOfMass[0]) < 1.0e-9 && std::abs(centerOfMass[1]) < 1.0e-9 && std::abs(centerOfMass[2]) < 1.0e-9;
   if (!oneFreeJoint || !oneSphere || !ownTree || !centered) {
     return absl::InvalidArgumentError(absl::StrCat(
         caller, ": body ", bodyId, " is not a projectile. A projectile is one free joint and one sphere, a direct child of the world, ",
@@ -85,7 +92,7 @@ ProjectileLaunch alongPath(const ProjectileLaunch& launch, double tau, double gr
 }
 
 /** True when a ball centered at `position` is at least kProjectileSpawnClearance from every geom it could collide with. */
-bool isClearAt(const mjModel* model, mjData* data, int ballGeom, const std::array<double, 3>& position) {
+bool isClearAt(const mjModel* absl_nonnull model, mjData* absl_nonnull data, int ballGeom, const std::array<double, 3>& position) {
   const int ballBody = model->geom_bodyid[ballGeom];
   const double radius = model->geom_size[3 * ballGeom];
   for (int axis = 0; axis < 3; ++axis) {
@@ -103,7 +110,7 @@ bool isClearAt(const mjModel* model, mjData* data, int ballGeom, const std::arra
     // A plane has rbound 0, meaning unbounded, and is always measured.
     const double bound = model->geom_rbound[geom];
     if (bound > 0.0) {
-      const mjtNum* center = &data->geom_xpos[3 * geom];
+      const mjtNum* absl_nonnull center = &data->geom_xpos[3 * geom];
       const double separation = std::hypot(position[0] - center[0], position[1] - center[1], position[2] - center[2]);
       if (separation - bound - radius > kProjectileSpawnClearance) continue;
     }
@@ -119,11 +126,11 @@ bool isClearAt(const mjModel* model, mjData* data, int ballGeom, const std::arra
 
 const std::vector<std::string>& availableProjectiles() {
   // LINT.IfChange(projectile_names)
-  static const std::vector<std::string> names{"dodgeball"};
+  static const absl::NoDestructor<std::vector<std::string>> kNames(std::vector<std::string>{"dodgeball"});
   // clang-format off
-  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:sim_projectile, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:sim_projectile, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml:sim_projectile, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml:sim_projectile, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.yaml:sim_projectile)
+  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:sim_projectile, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto:sim_projectile, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto:sim_projectile, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto:sim_projectile, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto:sim_projectile, //humanoid_nmpc/humanoid_mpc_config/task_file.proto:sim_projectile)
   // clang-format on
-  return names;
+  return *kNames;
 }
 
 absl::StatusOr<Projectile> projectileFromName(absl::string_view name) {
@@ -144,20 +151,20 @@ absl::StatusOr<Projectile> projectileFromName(absl::string_view name) {
     // LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/tk_app/dodgeball.py:dodgeball_mass)
     return projectile;
   }
-  return absl::InvalidArgumentError(absl::StrCat("Unknown simProjectile '", name, "'. Set simProjectile in the robot task file to one of: ",
-                                                 absl::StrJoin(availableProjectiles(), ", "),
-                                                 "; or remove the key to compile the scene with no ball in it."));
+  return absl::InvalidArgumentError(
+      absl::StrCat("Unknown sim_projectile '", name, "'. Set sim_projectile in the robot task file to one of: ",
+                   absl::StrJoin(availableProjectiles(), ", "), "; or remove the field to compile the scene with no ball in it."));
 }
 
 double contactDampRatioForRestitution(double restitution) {
   // Clamped inside (0, 1): a restitution of 1 is a contact that never loses energy and never settles, and one of 0
   // would divide by a log of zero. The lower bound is the critically damped contact MuJoCo defaults to.
-  const double clamped = std::clamp(restitution, 1e-4, 0.999);
+  const double clamped = std::clamp(restitution, 1.0e-4, 0.999);
   const double logarithm = std::log(clamped);
   return -logarithm / std::sqrt(M_PI * M_PI + logarithm * logarithm);
 }
 
-absl::Status addProjectileToSpec(mjSpec* spec, const Projectile& projectile, absl::string_view bodyName) {
+absl::Status addProjectileToSpec(mjSpec* absl_nullable spec, const Projectile& projectile, absl::string_view bodyName) {
   if (spec == nullptr) return absl::InvalidArgumentError("addProjectileToSpec: the spec is null.");
   if (!(projectile.radius > 0.0) || !(projectile.mass > 0.0)) {
     return absl::InvalidArgumentError(absl::StrCat("addProjectileToSpec: '", projectile.name, "' needs a positive radius and mass, got ",
@@ -170,12 +177,12 @@ absl::Status addProjectileToSpec(mjSpec* spec, const Projectile& projectile, abs
         projectile.restitution, ", friction ", projectile.friction, " and rolling friction ", projectile.rollingFriction, "."));
   }
 
-  mjsBody* world = mjs_findBody(spec, "world");
+  mjsBody* absl_nullable world = mjs_findBody(spec, "world");
   if (world == nullptr) return absl::NotFoundError("addProjectileToSpec: the scene has no 'world' body to attach to.");
 
   // Appended last. See the header: the FIRST free-joint body in this scene is taken to be the robot by the centroidal
   // state, the viewer's camera and every read of qpos[3..6].
-  mjsBody* ball = mjs_addBody(world, /*def=*/nullptr);
+  mjsBody* absl_nullable ball = mjs_addBody(world, /*def=*/nullptr);
   if (ball == nullptr) return absl::InternalError("addProjectileToSpec: mjs_addBody failed.");
   const std::string name(bodyName);
   mjs_setName(ball->element, name.c_str());
@@ -186,13 +193,13 @@ absl::Status addProjectileToSpec(mjSpec* spec, const Projectile& projectile, abs
   // and back on when it parks the ball.
   ball->gravcomp = 1.0;
 
-  mjsJoint* joint = mjs_addFreeJoint(ball);
+  mjsJoint* absl_nullable joint = mjs_addFreeJoint(ball);
   if (joint == nullptr) return absl::InternalError("addProjectileToSpec: mjs_addFreeJoint failed.");
   // Named so that setupJointIndexMaps()'s warning about a MuJoCo joint the robot description does not know reads as
   // what it is rather than as a URDF/MJCF mismatch.
   mjs_setName(joint->element, absl::StrCat(name, "_free_joint").c_str());
 
-  mjsGeom* geom = mjs_addGeom(ball, /*def=*/nullptr);
+  mjsGeom* absl_nullable geom = mjs_addGeom(ball, /*def=*/nullptr);
   if (geom == nullptr) return absl::InternalError("addProjectileToSpec: mjs_addGeom failed.");
   mjs_setName(geom->element, absl::StrCat(name, "_geom").c_str());
   geom->type = mjGEOM_SPHERE;
@@ -222,7 +229,7 @@ absl::Status addProjectileToSpec(mjSpec* spec, const Projectile& projectile, abs
   return absl::OkStatus();
 }
 
-void setProjectileCollisionEnabled(mjModel* model, int bodyId, bool enabled) {
+void setProjectileCollisionEnabled(mjModel* absl_nullable model, int bodyId, bool enabled) {
   if (model == nullptr || bodyId < 0 || bodyId >= model->nbody) return;
   const int flag = enabled ? 1 : 0;
   for (int geom = 0; geom < model->ngeom; ++geom) {
@@ -240,8 +247,8 @@ double clampProjectileMass(double mass) {
   return std::clamp(mass, kMinProjectileMass, kMaxProjectileMass);
 }
 
-absl::Status setProjectileMass(mjModel* model, int bodyId, double mass) {
-  const absl::Status isProjectile = checkIsProjectile(model, bodyId, "setProjectileMass");
+absl::Status setProjectileMass(mjModel* absl_nullable model, int bodyId, double mass) {
+  absl::Status isProjectile = checkIsProjectile(model, bodyId, "setProjectileMass");
   if (!isProjectile.ok()) return isProjectile;
   const double radius = model->geom_size[3 * model->body_geomadr[bodyId]];
   if (!(radius > 0.0)) {
@@ -274,14 +281,14 @@ absl::Status setProjectileMass(mjModel* model, int bodyId, double mass) {
   return absl::OkStatus();
 }
 
-bool isProjectileDof(const mjModel* model, int projectileBodyId, int dof) {
+bool isProjectileDof(const mjModel* absl_nullable model, int projectileBodyId, int dof) {
   if (model == nullptr || projectileBodyId < 0 || projectileBodyId >= model->nbody) return false;
   if (model->body_jntnum[projectileBodyId] <= 0) return false;
   const int firstDof = model->jnt_dofadr[model->body_jntadr[projectileBodyId]];
   return dof >= firstDof && dof < firstDof + 6;
 }
 
-void setRobotJointDamping(mjModel* model, int projectileBodyId, double damping) {
+void setRobotJointDamping(mjModel* absl_nullable model, int projectileBodyId, double damping) {
   if (model == nullptr) return;
   for (int dof = 6; dof < model->nv; ++dof) {
     if (isProjectileDof(model, projectileBodyId, dof)) continue;
@@ -289,9 +296,12 @@ void setRobotJointDamping(mjModel* model, int projectileBodyId, double damping) 
   }
 }
 
-absl::StatusOr<ProjectileLaunch> clearProjectileLaunch(
-    const mjModel* model, mjData* data, int projectileBodyId, const ProjectileLaunch& requested, double gravity) {
-  const absl::Status isProjectile = checkIsProjectile(model, projectileBodyId, "clearProjectileLaunch");
+absl::StatusOr<ProjectileLaunch> clearProjectileLaunch(const mjModel* absl_nullable model,
+                                                       mjData* absl_nullable data,
+                                                       int projectileBodyId,
+                                                       const ProjectileLaunch& requested,
+                                                       double gravity) {
+  absl::Status isProjectile = checkIsProjectile(model, projectileBodyId, "clearProjectileLaunch");
   if (!isProjectile.ok()) return isProjectile;
   if (data == nullptr) return absl::InvalidArgumentError("clearProjectileLaunch: the data is null.");
   if (!isFinite(requested.position) || !isFinite(requested.velocity) || !std::isfinite(requested.flightTime) || !std::isfinite(gravity)) {

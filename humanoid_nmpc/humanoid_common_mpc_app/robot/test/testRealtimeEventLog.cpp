@@ -27,11 +27,15 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <string>
 #include <vector>
 
+#include "absl/base/log_severity.h"
+#include "absl/log/scoped_mock_log.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
+
+#include "humanoid_common_mpc/mrt/ContactEstimateIntake.h"
 #include "humanoid_common_mpc_app/robot/FallRecoveryTypes.h"
 #include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
 
@@ -59,19 +63,19 @@ TEST(RealtimeEventLog, DrainsTheReportsInTheOrderTheyWerePosted) {
 
 TEST(RealtimeEventLog, ACatchNamesItsCauseAndTheLift) {
   RealtimeEventLog log;
-  ASSERT_TRUE(log.post(RealtimeEventCode::kCaughtAndSettling, static_cast<std::int32_t>(DiscontinuityCause::kSimulatorReset),
+  ASSERT_TRUE(log.post(RealtimeEventCode::kCaughtAndSettling, static_cast<int32_t>(DiscontinuityCause::kSimulatorReset),
                        /*text=*/{}, /*value0=*/0.0, /*value1=*/1.0, /*value2=*/0.15, /*count=*/3));
-  ASSERT_TRUE(log.post(RealtimeEventCode::kDiscontinuity, static_cast<std::int32_t>(DiscontinuityCause::kTiltCaught), /*text=*/{},
+  ASSERT_TRUE(log.post(RealtimeEventCode::kDiscontinuity, static_cast<int32_t>(DiscontinuityCause::kTiltCaught), /*text=*/{},
                        /*value0=*/1.2, /*value1=*/1.0));
   std::vector<RealtimeEvent> events;
   log.drain([&](const RealtimeEvent& event) { events.push_back(event); });
   ASSERT_EQ(events.size(), 2u);
   const std::string caught = formatRealtimeEvent(events[0]);
   EXPECT_NE(caught.find("reset epoch 3"), std::string::npos) << caught;
-  EXPECT_NE(caught.find("0.15 m (simGantryCatchLift)"), std::string::npos) << caught;
+  EXPECT_NE(caught.find("0.15 m (sim_gantry_catch_lift)"), std::string::npos) << caught;
   EXPECT_TRUE(isWarningEvent(events[0]));
   const std::string tilted = formatRealtimeEvent(events[1]);
-  EXPECT_NE(tilted.find("the base tilted 1.2 rad, past simMaxBaseTiltAngle 1 rad"), std::string::npos) << tilted;
+  EXPECT_NE(tilted.find("the base tilted 1.2 rad, past sim_max_base_tilt_angle 1 rad"), std::string::npos) << tilted;
 }
 
 TEST(RealtimeEventLog, TheTextIsCutToFitAndTerminated) {
@@ -107,6 +111,25 @@ TEST(RealtimeEventLog, IsTheControllersSinkAndLogsItsReportsAsTheControllerDid) 
   EXPECT_NE(diverged.find("0.62"), std::string::npos) << diverged;
   EXPECT_FALSE(isWarningEvent(events[1]));
   EXPECT_NE(formatRealtimeEvent(events[1]).find("CheaterSimContactEstimator"), std::string::npos);
+}
+
+TEST(RealtimeEventLog, ARefusedContactEstimateIsLoggedOnceAsAWarning) {
+  // The controller's control thread refuses an estimate of one flag on every cycle; the communication thread logs one
+  // warning naming the estimator and both counts.
+  RealtimeEventLog log;
+  ContactEstimateIntake intake("CentroidalMpcMrtJointController");
+  intake.resetEstimator("FixedContactEstimator");
+  contact_flag_t measured{};
+  for (int cycle = 0; cycle < 3; ++cycle) {
+    EXPECT_FALSE(intake.take(/*estimated=*/{true}, measured, log));
+  }
+  absl::ScopedMockLog mockLog(absl::MockLogDefault::kIgnoreUnexpected);
+  EXPECT_CALL(mockLog, Log(absl::LogSeverity::kWarning, ::testing::_,
+                           ::testing::HasSubstr("[CentroidalMpcMrtJointController] the contact estimator 'FixedContactEstimator' "
+                                                "reported 1 contact flags, expected 2")))
+      .Times(1);
+  mockLog.StartCapturingLogs();
+  EXPECT_EQ(log.drainToLog(), 1u) << "one report for the run of refusals";
 }
 
 TEST(SettlePhaseDescription, EveryPhaseSaysWhatTheRobotWaitsFor) {

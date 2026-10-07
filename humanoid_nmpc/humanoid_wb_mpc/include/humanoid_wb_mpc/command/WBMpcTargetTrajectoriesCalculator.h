@@ -31,23 +31,53 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <functional>
+#include <memory>
+#include <string>
 
-#include <ocs2_core/reference/TargetTrajectories.h>
-#include <ocs2_mpc/SystemObservation.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
+#include "absl/status/statusor.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
-#include <humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h>
-#include <humanoid_common_mpc/common/ModelSettings.h>
-#include <humanoid_common_mpc/common/MpcRobotModelBase.h>
-#include <humanoid_common_mpc/common/Types.h>
+#include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
+#include "humanoid_mpc_config/reference_file.nproto.h"
 
 namespace ocs2::humanoid {
 
+/**
+ * The target trajectories of the whole-body MPC for a commanded pose or velocity in the pelvis frame: the base pose of
+ * the whole-body state moved over the horizon, the joints held at the reference file's default posture. Not
+ * thread-safe.
+ */
 class WBMpcTargetTrajectoriesCalculator : public TargetTrajectoriesCalculatorBase {
  public:
-  WBMpcTargetTrajectoriesCalculator(const std::string& referenceFile,
-                                    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                    scalar_t mpcHorizon);
+  // Create() comes in two forms with the same meaning: of the typed reference file (humanoid_mpc_config.ReferenceFile),
+  // and of the file at a path - a root of the MPC's configuration - which loads it strictly (loadReferenceFile()) and
+  // builds the typed form, prefixing its errors with the file.
+
+  /**
+   * The calculator of the reference file `referenceFile`, on the MPC `mpcRobotModel` (cloned) with the horizon
+   * `mpcHorizon` [s]: its command limits (referenceSettingsFromConfig()) and its default joint state, in the model's
+   * joint order (defaultJointStateFromConfig()). Nothing of the file is retained.
+   *
+   * @return The calculator; InvalidArgument naming a command limit that is absent or out of range, or listing the joints
+   *         of default_joint_state that are missing, named twice, fixed or not joints of the model.
+   */
+  static absl::StatusOr<std::unique_ptr<WBMpcTargetTrajectoriesCalculator>> Create(const mpc_config::ReferenceFile& referenceFile,
+                                                                                   const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+                                                                                   scalar_t mpcHorizon);
+
+  /**
+   * Create() of the reference file at `referenceFile`: loadReferenceFile()'s error for a file that cannot be read or
+   * does not parse (naming its line and column), and the typed form's errors, prefixed with the file.
+   */
+  static absl::StatusOr<std::unique_ptr<WBMpcTargetTrajectoriesCalculator>> Create(const std::string& referenceFile,
+                                                                                   const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+                                                                                   scalar_t mpcHorizon);
 
   /**
    * Converts command line to TargetTrajectories.
@@ -66,6 +96,13 @@ class WBMpcTargetTrajectoriesCalculator : public TargetTrajectoriesCalculatorBas
   TargetTrajectories commandedVelocityToTargetTrajectories(const vector4_t& commandedVelocities,
                                                            scalar_t initTime,
                                                            const vector_t& initState) override;
+
+ private:
+  /** The calculator of the checked `referenceSettings` and `defaultJointState` (one entry per joint of the model). */
+  WBMpcTargetTrajectoriesCalculator(const ReferenceSettings& referenceSettings,
+                                    const vector_t& defaultJointState,
+                                    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+                                    scalar_t mpcHorizon);
 };
 
 }  // namespace ocs2::humanoid

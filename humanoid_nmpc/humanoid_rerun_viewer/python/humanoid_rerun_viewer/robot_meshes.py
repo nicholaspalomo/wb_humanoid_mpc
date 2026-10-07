@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Logs the URDF's visual geometry once per robot instance, as static data that the link poses of viz/scene then move.
 
 For every visual of every link, the entity world/robots/<instance>/<link>/visual_<i> gets a static Transform3D (the
@@ -7,7 +34,6 @@ receives the temporal link poses, never static data, which would hide them.
 """
 
 import dataclasses
-from typing import Dict, Tuple
 
 import rerun as rr
 
@@ -37,13 +63,21 @@ class InstanceLogResult:
 def visual_color(
     visual: urdf_model.Visual, style: scene_contract.RobotInstanceStyle
 ) -> palette.Rgba8:
-    """The color a visual of the instance is drawn with: the instance's tint, else the URDF material, at the
-    instance's opacity."""
+    """Picks the color a visual of the instance is drawn with, at the instance's opacity.
+
+    Args:
+        visual: the URDF visual.
+        style: the robot instance it is drawn for.
+
+    Returns:
+        The instance's tint, else the URDF material's color, else white for a mesh that carries its own colors, else
+        the default mesh color.
+    """
     if style.tint is not None:
         rgb: palette.Rgb = style.tint
         alpha = style.alpha
     elif visual.color is not None:
-        rgb = visual.color[:3]  # type: ignore[assignment]
+        rgb = visual.color[:3]
         alpha = style.alpha * visual.color[3]
     elif (
         isinstance(visual.geometry, urdf_model.Mesh)
@@ -60,7 +94,7 @@ class RobotMeshes:
 
     def __init__(self, model: urdf_model.RobotModel) -> None:
         self._model = model
-        self._mesh_contents: Dict[str, bytes] = {}
+        self._mesh_contents: dict[str, bytes] = {}
 
     @property
     def model(self) -> urdf_model.RobotModel:
@@ -81,6 +115,13 @@ class RobotMeshes:
     ) -> InstanceLogResult:
         """Logs every visual of the model under world/robots/<style.name>, statically.
 
+        Args:
+            recording: where the visuals go.
+            style: the robot instance, which names the entities and colors the visuals.
+
+        Returns:
+            How many meshes and primitives it logged.
+
         Raises:
             OSError: a mesh file can no longer be read.
         """
@@ -89,7 +130,7 @@ class RobotMeshes:
             path = scene_contract.visual_path(style.name, visual.link, visual.index)
             color = visual_color(visual, style)
             geometry = visual.geometry
-            scale: Tuple[float, float, float] = (1.0, 1.0, 1.0)
+            scale: tuple[float, float, float] = (1.0, 1.0, 1.0)
             if isinstance(geometry, urdf_model.Mesh):
                 scale = geometry.scale
             recording.log(

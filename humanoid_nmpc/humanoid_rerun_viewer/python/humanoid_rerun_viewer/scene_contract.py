@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """The 3D scene's entity paths: the contract between the visualization publisher (viz/scene) and the bridge.
 
 Every path a VisualizationScene names is relative to WORLD_ROOT: an Arrows message with path "markers/contact_forces"
@@ -13,7 +40,6 @@ palette, 0.01 m arrow shafts with 0.02 m heads, 0.01 m wide lines.
 import dataclasses
 import enum
 import re
-from typing import Dict, Optional, Tuple
 
 from humanoid_rerun_viewer import palette
 
@@ -72,7 +98,7 @@ class RobotInstanceStyle:
     """
 
     name: str
-    tint: Optional[palette.Rgb]
+    tint: palette.Rgb | None
     alpha: float
     visible_by_default: bool
 
@@ -83,7 +109,7 @@ class RobotInstanceStyle:
 MEASURED = "measured"
 TERMINAL_STATE = "terminal_state"
 TERMINAL_TARGET = "terminal_target"
-ROBOT_INSTANCES: Tuple[RobotInstanceStyle, ...] = (
+ROBOT_INSTANCES: tuple[RobotInstanceStyle, ...] = (
     RobotInstanceStyle(
         name=MEASURED,
         tint=None,
@@ -145,11 +171,11 @@ class MarkerSpec:
     path: str
     kind: MarkerKind
     default_radius: float
-    default_colors: Tuple[palette.Rgba, ...]
+    default_colors: tuple[palette.Rgba, ...]
     visible_by_default: bool
 
 
-def _opaque(*colors: palette.Rgb) -> Tuple[palette.Rgba, ...]:
+def _opaque(*colors: palette.Rgb) -> tuple[palette.Rgba, ...]:
     return tuple(palette.with_alpha(color, 1.0) for color in colors)
 
 
@@ -161,7 +187,7 @@ TRAJECTORY_RADIUS = 0.005
 POINT_MARKER_RADIUS = 0.015
 
 # LINT.IfChange(markers)
-MARKERS: Tuple[MarkerSpec, ...] = (
+MARKERS: tuple[MarkerSpec, ...] = (
     MarkerSpec(
         path="markers/contact_forces",
         kind=MarkerKind.ARROWS,
@@ -221,10 +247,10 @@ MARKERS: Tuple[MarkerSpec, ...] = (
 )
 # LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/README.md:markers, //humanoid_nmpc/docs/distributed_runtime/README.md:rerun_mapping, //humanoid_nmpc/humanoid_common_mpc_app/visualization/include/humanoid_common_mpc_app/visualization/SceneContract.h:markers)
 
-MARKERS_BY_PATH: Dict[str, MarkerSpec] = {marker.path: marker for marker in MARKERS}
+MARKERS_BY_PATH: dict[str, MarkerSpec] = {marker.path: marker for marker in MARKERS}
 
 
-def hidden_by_default() -> Tuple[str, ...]:
+def hidden_by_default() -> tuple[str, ...]:
     """The entity paths the blueprint hides in the 3D view until the user shows them: clutter most of the time."""
     instances = tuple(
         instance_path(style.name)

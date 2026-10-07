@@ -27,10 +27,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include "robot_core/ResourcePaths.h"
-
-#include <gtest/gtest.h>
-
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -38,9 +34,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <optional>
 #include <string>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "gtest/gtest.h"
+
+#include "robot_core/ResourcePaths.h"
 
 namespace robot {
 namespace {
@@ -59,8 +59,8 @@ std::string readFile(const std::string& path) {
 /** Sets (or, with nullptr, unsets) an environment variable for the lifetime of the object, then restores it. */
 class ScopedEnvironmentVariable {
  public:
-  ScopedEnvironmentVariable(const char* name, const char* value) : name_(name) {
-    if (const char* previous = std::getenv(name)) previous_ = std::string(previous);
+  ScopedEnvironmentVariable(const char* absl_nonnull name, const char* absl_nullable value) : name_(name) {
+    if (const char* absl_nullable previous = std::getenv(name)) previous_ = std::string(previous);
     set(value);
   }
   ~ScopedEnvironmentVariable() { set(previous_.has_value() ? previous_->c_str() : nullptr); }
@@ -69,7 +69,7 @@ class ScopedEnvironmentVariable {
   ScopedEnvironmentVariable& operator=(const ScopedEnvironmentVariable&) = delete;
 
  private:
-  void set(const char* value) const {
+  void set(const char* absl_nullable value) const {
     if (value == nullptr) {
       unsetenv(name_.c_str());
     } else {
@@ -135,7 +135,7 @@ TEST(ResourcePathsTest, AFileMissingFromTheDataIsNotFoundNamingThePathAndTheData
 }
 
 TEST(ResourcePathsTest, TheMissingDataDependencyIsThePackageInFrontOfTheDataDirectory) {
-  const absl::StatusOr<std::string> config = resolveResourcePath("humanoid_nmpc/humanoid_common_mpc/config/command/not_shipped.yaml");
+  const absl::StatusOr<std::string> config = resolveResourcePath("humanoid_nmpc/humanoid_common_mpc/config/command/not_shipped.textproto");
   EXPECT_TRUE(absl::StrContains(config.status().message(), "Add the target of //humanoid_nmpc/humanoid_common_mpc that holds it"))
       << config.status();
 
@@ -148,8 +148,8 @@ TEST(ResourcePathsTest, TheMissingDataDependencyIsThePackageInFrontOfTheDataDire
 }
 
 TEST(ResourcePathsTest, RejectsPathsThatAreNotInsideTheRepository) {
-  for (const char* path : {"", "/etc/hostname", "../outside.txt", "robot_runtime/../../outside.txt", "robot_runtime//robot_core",
-                           "./robot_runtime", "robot_runtime/"}) {
+  for (const char* absl_nonnull path : {"", "/etc/hostname", "../outside.txt", "robot_runtime/../../outside.txt",
+                                        "robot_runtime//robot_core", "./robot_runtime", "robot_runtime/"}) {
     const absl::StatusOr<std::string> resolved = resolveResourcePath(path);
     EXPECT_EQ(resolved.status().code(), absl::StatusCode::kInvalidArgument) << "'" << path << "': " << resolved.status();
   }

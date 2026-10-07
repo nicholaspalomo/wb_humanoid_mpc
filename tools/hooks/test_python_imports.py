@@ -115,7 +115,6 @@ class ImportModulesRegistryTest(unittest.TestCase):
             "from dataclasses import dataclass\n",
             "src/a.py",
             clean="import dataclasses\n",
-            pending=True,
         )
 
 
@@ -180,14 +179,12 @@ class RelativeAliasSysPathTest(unittest.TestCase):
             "from . import a\n",
             "src/a.py",
             clean="from src import a\n",
-            pending=True,
         )
         check_test_support.assert_check_behaves(
             self,
             "py-import-alias",
             "import xml.etree.ElementTree as ET\n",
             "src/a.py",
-            pending=True,
         )
         check_test_support.assert_check_behaves(
             self,

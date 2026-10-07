@@ -67,13 +67,13 @@ struct TimerWakeup {
   /// How long after that deadline the thread woke: the scheduling latency, or the overrun when it was already past.
   std::chrono::nanoseconds lateness{0};
   /// Deadlines after `deadline` that had passed as well and that kSkipMissedPeriods dropped; 0 with kCatchUp.
-  std::int64_t missedPeriods = 0;
+  int64_t missedPeriods = 0;
 };
 
 /// Where the schedule goes after a wake-up; see advanceDeadline().
 struct DeadlineAdvance {
   std::chrono::nanoseconds nextDeadline{0};
-  std::int64_t missedPeriods = 0;
+  int64_t missedPeriods = 0;
 };
 
 /**
@@ -121,13 +121,13 @@ class PeriodicTimer {
   /// The deadline the next waitForNextPeriod() waits for.
   std::chrono::nanoseconds nextDeadline() const { return nextDeadline_; }
   /// The sum of TimerWakeup::missedPeriods since the last start.
-  std::int64_t totalMissedPeriods() const { return totalMissedPeriods_; }
+  int64_t totalMissedPeriods() const { return totalMissedPeriods_; }
 
  private:
   std::chrono::nanoseconds period_;
   OverrunPolicy overrunPolicy_;
   std::chrono::nanoseconds nextDeadline_{0};
-  std::int64_t totalMissedPeriods_ = 0;
+  int64_t totalMissedPeriods_ = 0;
   bool started_ = false;
 };
 

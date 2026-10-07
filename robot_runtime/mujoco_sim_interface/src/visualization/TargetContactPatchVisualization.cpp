@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco_sim_interface/visualization/TargetContactPatchVisualization.h"
 
 #include <array>
+#include <vector>
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 
@@ -48,26 +49,27 @@ ContactPatchStyle TargetContactPatchVisualization::styleFor(size_t contact, cons
   const std::array<float, 3>& hue = kPatchHues[contact % kPatchHues.size()];
   ContactPatchStyle style;
   switch (patch.kind) {
-    case TargetContactPatch::Kind::SWING_IN_FLIGHT:  // the step being executed: bright and filled
+    case TargetContactPatch::Kind::kSwingInFlight:  // the step being executed: bright and filled
       style.rgba = {hue[0], hue[1], hue[2], 0.85f};
       style.fill = true;
       style.arrow = true;
       style.emission = 0.8f;
-      break;
-    case TargetContactPatch::Kind::NEXT_SWING:  // the step after: translucent
+      return style;
+    case TargetContactPatch::Kind::kNextSwing:  // the step after: translucent
       style.rgba = {hue[0], hue[1], hue[2], 0.45f};
       style.fill = true;
       style.arrow = true;
       style.emission = 0.4f;
-      break;
-    case TargetContactPatch::Kind::STANCE:  // where the foot is held: a faint outline
-    default:
-      style.rgba = {hue[0], hue[1], hue[2], 0.35f};
-      style.fill = false;
-      style.arrow = false;
-      style.emission = 0.2f;
+      return style;
+    case TargetContactPatch::Kind::kStance:
       break;
   }
+  // Where the foot is held: a faint outline. Also a kind outside the enumerators, which a patch decoded from a newer
+  // controller can carry.
+  style.rgba = {hue[0], hue[1], hue[2], 0.35f};
+  style.fill = false;
+  style.arrow = false;
+  style.emission = 0.2f;
   return style;
 }
 

@@ -47,7 +47,8 @@ Each check is named `totw-<topic>` after what it enforces and cites its tips:
 - `totw-unscoped-enum` (#86): `enum class`.
 - `totw-view-member` (#180): no `string_view`, `Span`, `Eigen::Ref` or `Eigen::Map` data members.
 - `totw-friend-test` (#135): no `FRIEND_TEST` or befriended test fixtures; test through the public API or a `*Peer`.
-- `totw-std-specialization` (#99, #152, #218): nothing added to `namespace std`, no `std::hash` specializations.
+- `totw-std-specialization` (#99, #152, #218): nothing added to `namespace std`, and no specialization of a std or absl
+  template (`struct std::hash<Foo>`, `std::formatter`, `std::tuple_size`), qualified or not.
 - `totw-flag-location` (#45, #103): `ABSL_FLAG` only in `*Main.cpp`, `*AppFlags.{h,cpp}` and tests;
   `ABSL_DECLARE_FLAG` only in headers.
 - `totw-size-minus` (#227): `i + 1 < v.size()`, never `i < v.size() - 1`.
@@ -274,6 +275,10 @@ def check_enum_switch_default(source: str, path: str) -> list[check_types.Findin
             continue
         close = cpp_source.matching(code, index + 1)
         if close + 1 >= len(code) or code[close + 1].text != "{":
+            continue
+        if [t.text for t in code[close - 3 : close]] == ["index", "(", ")"]:
+            # `switch (value.shape.index())`: a std::variant's size_t index, whose labels are index constants
+            # (`case Oneofs::kRadiusIndex:`), not enumerators; nproto generates these.
             continue
         body_end = cpp_source.matching(code, close + 1)
         depth = 0
@@ -793,15 +798,54 @@ def check_friend_test(source: str, path: str) -> list[check_types.Finding]:
 TOTW_STD_SPECIALIZATION = "totw-std-specialization"
 
 
+# The std templates a type would be hooked into by a specialization, in any spelling: write AbslHashValue,
+# AbslStringify or operators next to the type instead.
+_STD_HOOKS = frozenset({"hash", "formatter", "tuple_size", "tuple_element"})
+
+
+def _is_std_specialization(code: tuple[cpp_source.Token, ...], i: int) -> bool:
+    """True for a `struct` / `class` at code[i] that specializes a std or absl template, or a std hook template.
+
+    The forms: `struct hash<Foo>` inside `namespace std`, the C++17 qualified `struct std::hash<Foo>` (also
+    `::std::`), `struct absl::X<Foo>`, and `struct formatter<Foo>` / `tuple_size<Foo>` / `tuple_element<...>`.
+
+    Args:
+      code: The code tokens of the file.
+      i: The index of a token.
+
+    Returns:
+      Whether code[i] begins such a specialization.
+    """
+    if code[i].text not in ("struct", "class"):
+        return False
+    k = i + 1
+    if k < len(code) and code[k].text == "::":
+        k += 1
+    texts = _texts(code, k, 2)
+    if len(texts) == 2 and texts[0] in _STD_HOOKS and texts[1] == "<":
+        return True
+    if not texts or texts[0] not in ("std", "absl"):
+        return False
+    # `std::hash<`, `absl::hash_internal::HashImpl<`: a qualified name whose last part takes template arguments.
+    k += 1
+    while (
+        k + 2 < len(code)
+        and code[k].text == "::"
+        and code[k + 1].kind == cpp_source.IDENTIFIER
+    ):
+        k += 2
+        if code[k].text == "<":
+            return True
+    return False
+
+
 def check_std_specialization(source: str, path: str) -> list[check_types.Finding]:
-    """`namespace std {` and `struct hash<` specializations."""
+    """`namespace std {`, and specializations of std and absl templates (`struct std::hash<Foo>`, `struct hash<`)."""
     code = cpp_source.code_tokens(source)
     findings = []
     for i in range(len(code) - 2):
         texts = _texts(code, i, 3)
-        if texts == ["namespace", "std", "{"] or (
-            texts[0] in ("struct", "class") and texts[1:] == ["hash", "<"]
-        ):
+        if texts == ["namespace", "std", "{"] or _is_std_specialization(code, i):
             findings.append(
                 _finding(
                     path,

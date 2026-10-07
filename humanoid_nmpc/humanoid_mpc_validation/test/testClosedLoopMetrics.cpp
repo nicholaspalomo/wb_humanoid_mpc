@@ -27,19 +27,18 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <string>
 #include <vector>
 
-#include <Eigen/Geometry>
-
+#include "Eigen/Geometry"
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopMetrics.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopMetricsSchema.h"
@@ -82,7 +81,7 @@ ControlCycleSample trackingSample(size_t k, double forwardVelocity, double yawRa
 }
 
 double numberAt(const JsonValue& document, const std::string& path) {
-  const JsonValue* value = document.findPath(path);
+  const JsonValue* absl_nullable value = document.findPath(path);
   EXPECT_NE(value, nullptr) << path;
   if (value == nullptr || !value->isNumber()) return std::nan("");
   return value->asNumber();
@@ -102,13 +101,13 @@ TEST(ClosedLoopMetrics, PerfectTrackingHasNoErrorAndAConstantHeightNoSpread) {
   ClosedLoopMetrics metrics;
   for (size_t k = 0; k < 200; ++k) metrics.addControlCycle(trackingSample(k, /*forwardVelocity=*/0.5, /*yawRate=*/0.3));
   const JsonValue report = reportOf(metrics);
-  EXPECT_NEAR(numberAt(report, "velocity.rms_error_mps"), 0.0, 1e-12);
-  EXPECT_NEAR(numberAt(report, "yaw_rate.rms_error_radps"), 0.0, 1e-12);
-  EXPECT_NEAR(numberAt(report, "base_height.mean_m"), 0.8, 1e-12);
-  EXPECT_NEAR(numberAt(report, "base_height.std_m"), 0.0, 1e-6);
-  EXPECT_NEAR(numberAt(report, "base_height.rms_error_m"), 0.0, 1e-12);
-  EXPECT_NEAR(numberAt(report, "tilt.max_rad"), 0.0, 1e-12) << "a level base has no tilt, whatever its heading";
-  EXPECT_NEAR(numberAt(report, "joint_torque.rms_nm"), 2.0, 1e-12);
+  EXPECT_NEAR(numberAt(report, "velocity.rms_error_mps"), 0.0, 1.0e-12);
+  EXPECT_NEAR(numberAt(report, "yaw_rate.rms_error_radps"), 0.0, 1.0e-12);
+  EXPECT_NEAR(numberAt(report, "base_height.mean_m"), 0.8, 1.0e-12);
+  EXPECT_NEAR(numberAt(report, "base_height.std_m"), 0.0, 1.0e-6);
+  EXPECT_NEAR(numberAt(report, "base_height.rms_error_m"), 0.0, 1.0e-12);
+  EXPECT_NEAR(numberAt(report, "tilt.max_rad"), 0.0, 1.0e-12) << "a level base has no tilt, whatever its heading";
+  EXPECT_NEAR(numberAt(report, "joint_torque.rms_nm"), 2.0, 1.0e-12);
   EXPECT_TRUE(report.findPath("survival.survived")->asBool());
   EXPECT_TRUE(report.findPath("quaternion_norm.max_deviation")->isNull()) << "no solves, nothing measured";
 }
@@ -122,10 +121,10 @@ TEST(ClosedLoopMetrics, TheErrorsAreTheRmsOfTheDifferences) {
     metrics.addControlCycle(sample);
   }
   const JsonValue report = reportOf(metrics);
-  EXPECT_NEAR(numberAt(report, "velocity.rms_error_mps"), 0.5, 1e-12);
-  EXPECT_NEAR(numberAt(report, "yaw_rate.rms_error_radps"), 0.2, 1e-12);
-  EXPECT_NEAR(numberAt(report, "base_height.std_m"), 0.01, 1e-9);
-  EXPECT_NEAR(numberAt(report, "base_height.rms_error_m"), 0.01, 1e-12);
+  EXPECT_NEAR(numberAt(report, "velocity.rms_error_mps"), 0.5, 1.0e-12);
+  EXPECT_NEAR(numberAt(report, "yaw_rate.rms_error_radps"), 0.2, 1.0e-12);
+  EXPECT_NEAR(numberAt(report, "base_height.std_m"), 0.01, 1.0e-9);
+  EXPECT_NEAR(numberAt(report, "base_height.rms_error_m"), 0.01, 1.0e-12);
 }
 
 TEST(ClosedLoopMetrics, TheVelocityErrorIsTakenInTheHeadingFrame) {
@@ -136,7 +135,7 @@ TEST(ClosedLoopMetrics, TheVelocityErrorIsTakenInTheHeadingFrame) {
   sample.baseQuaternion = yawQuaternion(2.0);
   sample.baseLinearVelocityWorld = Eigen::Vector3d(0.5 * std::cos(2.0), 0.5 * std::sin(2.0), 0.0);
   metrics.addControlCycle(sample);
-  EXPECT_NEAR(numberAt(reportOf(metrics), "velocity.rms_error_mps"), 0.0, 1e-12);
+  EXPECT_NEAR(numberAt(reportOf(metrics), "velocity.rms_error_mps"), 0.0, 1.0e-12);
 }
 
 TEST(ClosedLoopMetrics, TheHeadingUnwrapsThroughPlusMinusPi) {
@@ -145,9 +144,9 @@ TEST(ClosedLoopMetrics, TheHeadingUnwrapsThroughPlusMinusPi) {
   const size_t steps = 1260;
   for (size_t k = 0; k <= steps; ++k) metrics.addControlCycle(trackingSample(k, /*forwardVelocity=*/0.0, /*yawRate=*/1.0));
   const JsonValue report = reportOf(metrics);
-  EXPECT_NEAR(numberAt(report, "heading.cumulative_final_rad"), 12.6, 1e-9);
-  EXPECT_NEAR(numberAt(report, "heading.cumulative_max_rad"), 12.6, 1e-9);
-  EXPECT_NEAR(numberAt(report, "heading.cumulative_min_rad"), 0.0, 1e-12);
+  EXPECT_NEAR(numberAt(report, "heading.cumulative_final_rad"), 12.6, 1.0e-9);
+  EXPECT_NEAR(numberAt(report, "heading.cumulative_max_rad"), 12.6, 1.0e-9);
+  EXPECT_NEAR(numberAt(report, "heading.cumulative_min_rad"), 0.0, 1.0e-12);
 }
 
 TEST(ClosedLoopMetrics, TheTiltIsTheAngleOfTheBaseFromUpright) {
@@ -158,7 +157,7 @@ TEST(ClosedLoopMetrics, TheTiltIsTheAngleOfTheBaseFromUpright) {
                            Eigen::Quaterniond(Eigen::AngleAxisd(0.1, Eigen::Vector3d::UnitX())))
                               .coeffs();
   metrics.addControlCycle(sample);
-  EXPECT_NEAR(numberAt(reportOf(metrics), "tilt.max_rad"), 0.1, 1e-12);
+  EXPECT_NEAR(numberAt(reportOf(metrics), "tilt.max_rad"), 0.1, 1.0e-12);
 }
 
 TEST(ClosedLoopMetrics, APlantedFootDoesNotSlipAndASlidingOneDoes) {
@@ -178,9 +177,9 @@ TEST(ClosedLoopMetrics, APlantedFootDoesNotSlipAndASlidingOneDoes) {
     metrics.addControlCycle(sample);
   }
   const JsonValue report = reportOf(metrics);
-  EXPECT_NEAR(numberAt(report, "stance_foot_slip.max_m"), 0.049, 1e-12);
+  EXPECT_NEAR(numberAt(report, "stance_foot_slip.max_m"), 0.049, 1.0e-12);
   EXPECT_EQ(numberAt(report, "stance_foot_slip.stance_phases"), 3.0) << "the left foot's one, and two of the right foot";
-  EXPECT_NEAR(numberAt(report, "stance_foot_slip.rms_m"), std::sqrt(0.049 * 0.049 / 3.0), 1e-12);
+  EXPECT_NEAR(numberAt(report, "stance_foot_slip.rms_m"), std::sqrt(0.049 * 0.049 / 3.0), 1.0e-12);
 }
 
 TEST(ClosedLoopMetrics, SolveStatisticsAreNearestRankPercentiles) {
@@ -198,10 +197,10 @@ TEST(ClosedLoopMetrics, SolveStatisticsAreNearestRankPercentiles) {
   EXPECT_EQ(numberAt(report, "solve_time_ms.total.p50"), 50.0);
   EXPECT_EQ(numberAt(report, "solve_time_ms.total.p99"), 99.0);
   EXPECT_EQ(numberAt(report, "solve_time_ms.total.max"), 100.0);
-  EXPECT_NEAR(numberAt(report, "solve_time_ms.total.mean"), 50.5, 1e-12);
+  EXPECT_NEAR(numberAt(report, "solve_time_ms.total.mean"), 50.5, 1.0e-12);
   EXPECT_EQ(numberAt(report, "failures.failed_solves"), 1.0);
   EXPECT_EQ(numberAt(report, "initial_state_gap.max_rotation_rad"), 6.28);
-  EXPECT_NEAR(numberAt(report, "initial_state_gap.max_rotation_time_s"), 0.40, 1e-12) << "when the gap peaked";
+  EXPECT_NEAR(numberAt(report, "initial_state_gap.max_rotation_time_s"), 0.40, 1.0e-12) << "when the gap peaked";
   EXPECT_TRUE(summarizeTimes({}).find("p99")->isNull());
 }
 
@@ -221,7 +220,7 @@ TEST(ClosedLoopMetrics, EveryWrapAngleIsInMinusPiToPi) {
     const double wrapped = wrapAngle(angle);
     EXPECT_GT(wrapped, -M_PI);
     EXPECT_LE(wrapped, M_PI);
-    EXPECT_NEAR(std::remainder(wrapped - angle, 2.0 * M_PI), 0.0, 1e-12);
+    EXPECT_NEAR(std::remainder(wrapped - angle, 2.0 * M_PI), 0.0, 1.0e-12);
   }
 }
 
@@ -231,7 +230,7 @@ TEST(ClosedLoopMetricsSchema, EveryDocumentTheMetricsWriteValidates) {
   ClosedLoopMetrics metrics;
   for (size_t k = 0; k < 20; ++k) metrics.addControlCycle(trackingSample(k, /*forwardVelocity=*/0.3, /*yawRate=*/0.1));
   SolveSample solve;
-  solve.quaternionNormDeviation = 1e-12;
+  solve.quaternionNormDeviation = 1.0e-12;
   metrics.addSolve(solve);
   const JsonValue report = reportOf(metrics);
   EXPECT_TRUE(validateClosedLoopMetrics(report).ok()) << validateClosedLoopMetrics(report);
@@ -300,8 +299,8 @@ TEST(ClosedLoopMetricsSchema, EveryRecordedRunWhoseHeadingReachesPiKeepsItsTimeS
     if (entry.path().extension() != ".json") continue;
     const absl::StatusOr<JsonValue> document = readJsonFile(entry.path().string());
     ASSERT_TRUE(document.ok()) << document.status();
-    const JsonValue* peak = document->findPath("heading.cumulative_max_rad");
-    const JsonValue* trough = document->findPath("heading.cumulative_min_rad");
+    const JsonValue* absl_nullable peak = document->findPath("heading.cumulative_max_rad");
+    const JsonValue* absl_nullable trough = document->findPath("heading.cumulative_min_rad");
     const bool reachesPi = (peak != nullptr && peak->isNumber() && peak->asNumber() >= M_PI) ||
                            (trough != nullptr && trough->isNumber() && trough->asNumber() <= -M_PI);
     if (!reachesPi) continue;
@@ -325,13 +324,13 @@ TEST(ClosedLoopMetricsSchema, EveryRecordedPerSolveGapSeriesHoldsItsDocumentsMax
     if (!absl::EndsWith(name, "_timeseries.txt")) continue;
     const absl::StatusOr<GoldenFile> series = readGoldenFile(entry.path().string());
     ASSERT_TRUE(series.ok()) << series.status();
-    const golden_matrix_t* gaps = series->find(time_series::kSolveRotationGap);
+    const golden_matrix_t* absl_nullable gaps = series->find(time_series::kSolveRotationGap);
     if (gaps == nullptr) continue;
     std::filesystem::path documentFile = entry.path();
     documentFile.replace_filename(name.substr(0, name.size() - std::string("_timeseries.txt").size()) + ".json");
     const absl::StatusOr<JsonValue> document = readJsonFile(documentFile.string());
     ASSERT_TRUE(document.ok()) << document.status();
-    const JsonValue* maximum = document->findPath("initial_state_gap.max_rotation_rad");
+    const JsonValue* absl_nullable maximum = document->findPath("initial_state_gap.max_rotation_rad");
     ASSERT_TRUE(maximum != nullptr && maximum->isNumber()) << documentFile;
     ASSERT_EQ(gaps->cols(), 2) << entry.path();
     ASSERT_GT(gaps->rows(), 0) << entry.path();

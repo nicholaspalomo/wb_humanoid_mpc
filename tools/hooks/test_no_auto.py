@@ -52,6 +52,11 @@ class NoAutoTest(unittest.TestCase):
             "template <auto N> struct A {};",
             "void g() { auto p = std::make_unique; }",
             "void g() { auto* p = std::make_unique<T>(); }",
+            "void c() { auto p = std::make_unique<Foo>().get(); }",
+            "void c() { auto p = std::make_unique<Foo>()->member; }",
+            "void c() { auto p = std::make_unique<Foo>().release(); }",
+            "void c() { auto p = std::make_shared<Foo>(1), q = 3; }",
+            "void c() { auto p = std::make_shared<Foo>(1) + q; }",
         ]:
             with self.subTest(source=source):
                 self.assertGreaterEqual(_count(source), 1)
@@ -61,6 +66,8 @@ class NoAutoTest(unittest.TestCase):
         for source in [
             "void g() { auto term = std::make_unique<Term>(model, /*weight=*/0.5); }",
             "void g() { const auto shared = std::make_shared<Model>(); }",
+            "void g() { auto map = std::make_unique<std::map<int, std::vector<int>>>(f(a, b)); }",
+            "void g() { auto queue = std::make_unique<SpscQueue<Sample>>(/*capacity=*/8); }",
         ]:
             with self.subTest(source=source):
                 self.assertEqual(_count(source), 0)
@@ -77,7 +84,6 @@ class NoAutoTest(unittest.TestCase):
             "void g() {\n  auto x = f();\n}\n",
             "src/a.cpp",
             clean="void g() {\n  int x = f();\n}\n",
-            pending=True,
         )
 
 

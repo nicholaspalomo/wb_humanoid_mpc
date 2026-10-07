@@ -35,13 +35,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <gtest/gtest.h>
-
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
 
 #include "robot_ipc_test/test_settings.pb.h"
 #include "robot_runtime/robot_ipc/src/Textproto.h"
@@ -55,7 +55,7 @@ constexpr char kSource[] = "settings.textproto";
 
 // A directory the test may write to: Bazel's TEST_TMPDIR, or the working directory outside Bazel.
 std::string temporaryPath(const std::string& name) {
-  const char* directory = std::getenv("TEST_TMPDIR");
+  const char* absl_nullable directory = std::getenv("TEST_TMPDIR");
   return directory == nullptr ? name : absl::StrCat(directory, "/", name);
 }
 

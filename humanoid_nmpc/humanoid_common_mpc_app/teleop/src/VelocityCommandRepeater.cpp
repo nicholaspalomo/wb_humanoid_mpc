@@ -30,9 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/teleop/VelocityCommandRepeater.h"
 
 #include <functional>
+#include <memory>
+#include <optional>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/log/log.h"
+#include "absl/memory/memory.h"
 #include "absl/status/status.h"
 
 #include "humanoid_mpc_ipc/Topics.h"
@@ -41,8 +45,8 @@ namespace ocs2::humanoid::teleop {
 
 absl::StatusOr<std::unique_ptr<VelocityCommandRepeater>> VelocityCommandRepeater::Create(robot::ipc::Bus& bus, absl::Duration period) {
   const std::shared_ptr<State> state = std::make_shared<State>();
-  robot::ipc::Bus* busPointer = &bus;
-  const absl::Status registered = bus.addPeriodicCallback(period, [state, busPointer]() {
+  robot::ipc::Bus* absl_nonnull busPointer = &bus;
+  absl::Status registered = bus.addPeriodicCallback(period, [state, busPointer]() {
     std::optional<humanoid_mpc_msgs::WalkingVelocityCommand> command;
     {
       absl::MutexLock lock(state->mutex);
@@ -57,7 +61,7 @@ absl::StatusOr<std::unique_ptr<VelocityCommandRepeater>> VelocityCommandRepeater
     }
   });
   if (!registered.ok()) return registered;
-  return std::unique_ptr<VelocityCommandRepeater>(new VelocityCommandRepeater(state));
+  return absl::WrapUnique(new VelocityCommandRepeater(state));
 }
 
 void VelocityCommandRepeater::setCommand(const humanoid_mpc_msgs::WalkingVelocityCommand& command) {

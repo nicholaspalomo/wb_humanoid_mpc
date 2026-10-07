@@ -1,17 +1,43 @@
-"""Tests for launch_file.py: the launch file schema, the strict textproto parsing, the validation and the variable
-substitution."""
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+"""Tests for launch_file.py: the schema, the strict textproto parsing, the validation and the variable substitution."""
+
+from collections.abc import Iterator
 import dataclasses
 import os
 import re
 import tempfile
 import unittest
-from typing import Iterator, List
 
 from google.protobuf import descriptor
+from launch_proto import launch_file_pb2
 
 import launch_file
-from launch_proto import launch_file_pb2
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -172,7 +198,7 @@ class SubstitutionTest(unittest.TestCase):
     def test_variables_may_refer_to_variables_and_builtins(self) -> None:
         launch = parse(
             minimal(
-                process='command: "--task_file={config}/task.yaml" '
+                process='command: "--task_file={config}/task.textproto" '
                 'env { name: "CONFIG" value: "{config}" }',
                 extra='variables { name: "robot" value: "g1" } '
                 'variables { name: "config" value: "{repo_root}/robots/{robot}" }',
@@ -180,7 +206,7 @@ class SubstitutionTest(unittest.TestCase):
         )
         self.assertEqual(
             launch.processes[0].command,
-            ("bin/g1_mpc", "--task_file=/repo/robots/g1/task.yaml"),
+            ("bin/g1_mpc", "--task_file=/repo/robots/g1/task.textproto"),
         )
         self.assertEqual(launch.processes[0].env, (("CONFIG", "/repo/robots/g1"),))
 
@@ -419,7 +445,7 @@ class SelectMachineTest(unittest.TestCase):
 
     def test_filters_by_machine_in_file_order(self) -> None:
         launch = launch_file.load_launch_file(EXAMPLE, builtins=BUILTINS)
-        selected: List[str] = [
+        selected: list[str] = [
             p.name for p in launch_file.select_machine(launch.processes, "laptop")
         ]
         self.assertEqual(selected, ["mpc", "viewer"])

@@ -27,26 +27,25 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <stdexcept>
 #include <thread>
+#include <utility>
 #include <vector>
 
-#include <ocs2_mpc/MPC_Settings.h>
-#include <ocs2_mpc/SystemObservation.h>
-#include <ocs2_mpc_test/ScriptedMpc.h>
-#include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
-
+#include "absl/base/nullability.h"
 #include "absl/log/scoped_mock_log.h"
 #include "absl/status/status.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
+#include "ocs2_mpc/MPC_Settings.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_mpc_test/ScriptedMpc.h"
+#include "ocs2_oc/synchronized_module/SolverSynchronizedModule.h"
 
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "humanoid_common_mpc/mrt/MpcLink.h"
@@ -201,7 +200,7 @@ TEST_F(InProcessMpcLinkTest, RepeatedFailuresBackOffAndAResetRequestCutsTheWaitS
   EXPECT_CALL(log, Log(absl::LogSeverity::kError, _, HasSubstr("switch to JOINT_PD and back to WB_MPC"))).Times(1);
   log.StartCapturingLogs();
 
-  mpc_.solver().failEverySolve(true);
+  mpc_.solver().failEverySolve(/*fail=*/true);
   ASSERT_TRUE(waitFor([&link]() { return !link->isHealthy(); })) << "persistent failures never made the MPC unhealthy";
   const size_t failedWhenUnhealthy = mpc_.solver().numFailedSolves();
   EXPECT_EQ(failedWhenUnhealthy, link->getResetSupervisor().getConfig().maxConsecutiveFailures);
@@ -221,7 +220,7 @@ TEST_F(InProcessMpcLinkTest, RepeatedFailuresBackOffAndAResetRequestCutsTheWaitS
       << "a reset request did not cut the back-off short";
 
   // The first solve that succeeds makes the MPC healthy again.
-  mpc_.solver().failEverySolve(false);
+  mpc_.solver().failEverySolve(/*fail=*/false);
   EXPECT_TRUE(waitFor([&link]() { return link->isHealthy(); })) << "the MPC never recovered";
   EXPECT_TRUE(waitForCurrentPolicy(*link));
   log.StopCapturingLogs();
@@ -254,7 +253,7 @@ TEST_F(InProcessMpcLinkTest, TheSolveObserverSeesEveryAttemptAfterTheSupervisorA
   };
   std::mutex mutex;
   std::vector<Seen> seen;
-  MpcLink* linkPtr = nullptr;
+  MpcLink* absl_nullable linkPtr = nullptr;
   std::unique_ptr<InProcessMpcLink> link = makeLink(/*mpcDesiredFrequency=*/1000.0, [&](const absl::Status& status) {
     std::lock_guard<std::mutex> lock(mutex);
     seen.push_back({status.code(), linkPtr->isHealthy()});
@@ -303,15 +302,29 @@ TEST_F(InProcessMpcLinkTest, ASecondStartIsRefused) {
   EXPECT_EQ(resetTargets_.times().front(), 1.0);
 }
 
-TEST_F(InProcessMpcLinkTest, TheFactoryMakesALinkOverTheMpcAndAResetTargetIsRequired) {
+TEST_F(InProcessMpcLinkTest, TheFactoryMakesALinkOverTheMpc) {
   const MpcLinkFactory factory = InProcessMpcLink::factory(mpc_, InProcessMpcLink::Config());
   std::unique_ptr<MpcLink> link = factory(resetTargets_.function());
   ASSERT_NE(link, nullptr);
   link->start(observationAt(/*time=*/1.0));
   EXPECT_TRUE(waitForCurrentPolicy(*link));
   link->stop();
+}
 
-  EXPECT_THROW(InProcessMpcLink(mpc_, /*resetTarget=*/nullptr, InProcessMpcLink::Config()), std::invalid_argument);
+// The two programming errors the link refuses with an ABSL_CHECK, which ends the process with its message. The fixture
+// owns an MPC, so the death tests re-execute the test binary instead of forking it.
+using InProcessMpcLinkDeathTest = InProcessMpcLinkTest;
+
+TEST_F(InProcessMpcLinkDeathTest, AResetTargetIsRequired) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  EXPECT_DEATH(InProcessMpcLink(mpc_, /*resetTarget=*/nullptr, InProcessMpcLink::Config()), "a reset target function is required");
+}
+
+TEST_F(InProcessMpcLinkDeathTest, TheReportingFactoryNeedsAPlaceToReportTheLink) {
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  InProcessMpcLink::Config config;
+  config.execution = InProcessMpcLink::Execution::kCaller;
+  EXPECT_DEATH(InProcessMpcLink::factory(mpc_, config, /*created=*/nullptr), "needs a place to report the link");
 }
 
 TEST_F(InProcessMpcLinkTest, TheCallerRunsTheIterationsAndNothingSolvesWithoutThem) {
@@ -363,7 +376,7 @@ TEST_F(InProcessMpcLinkTest, TheCallersIterationsFollowTheFailurePolicyOfTheSolv
   log.StartCapturingLogs();
   // Each failure is followed by a reset served at the next iteration; the last one that makes the MPC unhealthy asks the
   // caller for a pause, which it waits out on its own clock.
-  mpc_.solver().failEverySolve(true);
+  mpc_.solver().failEverySolve(/*fail=*/true);
   const size_t maxFailures = link->getResetSupervisor().getConfig().maxConsecutiveFailures;
   InProcessMpcLink::SolverIterationResult iteration;
   for (size_t failure = 1; failure <= maxFailures; ++failure) {
@@ -378,7 +391,7 @@ TEST_F(InProcessMpcLinkTest, TheCallersIterationsFollowTheFailurePolicyOfTheSolv
   EXPECT_FALSE(link->isHealthy());
   EXPECT_GE(link->getResetSupervisor().numResetsServed(), maxFailures - 1) << "a failure's reset was not served";
 
-  mpc_.solver().failEverySolve(false);
+  mpc_.solver().failEverySolve(/*fail=*/false);
   iteration = link->runSolverIteration();
   EXPECT_TRUE(iteration.status.ok()) << iteration.status;
   EXPECT_TRUE(link->isHealthy()) << "a solve that succeeds ends it";
@@ -417,7 +430,7 @@ TEST_F(InProcessMpcLinkTest, ASecondStartOfACallersLinkIsRefused) {
 }
 
 TEST_F(InProcessMpcLinkTest, TheReportingFactoryHandsTheCallerTheLinkItMade) {
-  InProcessMpcLink* created = nullptr;
+  InProcessMpcLink* absl_nullable created = nullptr;
   InProcessMpcLink::Config config;
   config.execution = InProcessMpcLink::Execution::kCaller;
   const MpcLinkFactory factory = InProcessMpcLink::factory(mpc_, config, &created);
@@ -427,8 +440,6 @@ TEST_F(InProcessMpcLinkTest, TheReportingFactoryHandsTheCallerTheLinkItMade) {
   EXPECT_EQ(created, link.get());
   link->start(observationAt(/*time=*/1.0));
   EXPECT_TRUE(created->runSolverIteration().status.ok());
-
-  EXPECT_THROW(InProcessMpcLink::factory(mpc_, config, /*created=*/nullptr), std::invalid_argument);
 }
 
 }  // namespace

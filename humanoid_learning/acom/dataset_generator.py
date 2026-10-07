@@ -1,27 +1,29 @@
-"""****************************************************************************
-Copyright (c) 2026, Nicholas Palomo. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-* Redistributions of source code must retain the above copyright notice, this
-  list of conditions and the following disclaimer.
-
-* Redistributions in binary form must reproduce the above copyright notice,
-  this list of conditions and the following disclaimer in the documentation
-  and/or other materials provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-****************************************************************************"""
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """Dataset generator for Angular Center of Mass (aCOM).
 
@@ -33,8 +35,7 @@ using MuJoCo rigid-body dynamics.
 
 import collections
 import os
-import xml.etree.ElementTree as ET
-from typing import Dict, List, Optional, Tuple
+from xml.etree import ElementTree
 
 import mujoco
 import numpy as np
@@ -82,7 +83,29 @@ def resolve_xml_path(path: str) -> str:
     return path
 
 
-def _parse_pinocchio_joint_order(urdf_path: str) -> List[str]:
+def _joint_link(joint: ElementTree.Element, tag: str, urdf_path: str) -> str:
+    """The link that a URDF joint's <parent> or <child> element names.
+
+    Args:
+        joint: A <joint> element.
+        tag: "parent" or "child".
+        urdf_path: The URDF the joint is from, for the error message.
+
+    Returns:
+        The element's `link` attribute.
+
+    Raises:
+        ValueError: If the joint has no such element.
+    """
+    element = joint.find(tag)
+    if element is None:
+        raise ValueError(
+            f"URDF {urdf_path}: joint '{joint.attrib.get('name')}' has no <{tag}> element."
+        )
+    return element.attrib["link"]
+
+
+def _parse_pinocchio_joint_order(urdf_path: str) -> list[str]:
     """Returns the non-fixed URDF joint names in Pinocchio's joint ordering.
 
     Pinocchio's URDF parser numbers joints by a pre-order depth-first traversal
@@ -106,16 +129,19 @@ def _parse_pinocchio_joint_order(urdf_path: str) -> List[str]:
         Pinocchio orders them.
 
     Raises:
-        ValueError: If the URDF does not describe a single-rooted kinematic tree.
+        ValueError: If the URDF does not describe a single-rooted kinematic tree,
+            or names a joint without its parent or child link.
     """
-    root = ET.parse(urdf_path).getroot()
+    root = ElementTree.parse(urdf_path).getroot()
     link_names = {link.attrib["name"] for link in root.findall("link")}
 
-    children = collections.defaultdict(list)
+    children: collections.defaultdict[str, list[tuple[str, str | None, str]]] = (
+        collections.defaultdict(list)
+    )
     child_links = set()
     for joint in root.findall("joint"):
-        parent_link = joint.find("parent").attrib["link"]
-        child_link = joint.find("child").attrib["link"]
+        parent_link = _joint_link(joint, "parent", urdf_path)
+        child_link = _joint_link(joint, "child", urdf_path)
         children[parent_link].append(
             (joint.attrib["name"], joint.attrib.get("type"), child_link)
         )
@@ -131,8 +157,8 @@ def _parse_pinocchio_joint_order(urdf_path: str) -> List[str]:
     # whole subtree is emitted before any of its siblings. Siblings are visited
     # sorted by joint name, as urdfdom's std::map of joints orders them; they are
     # pushed in reverse so that they come off the stack in that order.
-    joint_order: List[str] = []
-    stack = [(None, root_links[0])]
+    joint_order: list[str] = []
+    stack: list[tuple[tuple[str, str | None] | None, str]] = [(None, root_links[0])]
     visited = set()
     while stack:
         joint_type_and_name, link = stack.pop()
@@ -159,7 +185,7 @@ class AcomDatasetGenerator:
             critical for C++ runtime parity because the MPC indexes joints via
             Pinocchio.
         fixed_joints: Joint names to hold at zero and drop from the dataset. Must
-            match the `fixedJointNames` list in the robot's MPC task.yaml, since
+            match the `model_settings.fixed_joint_names` of the robot's MPC task file, since
             the C++ runtime evaluates the network on the reduced joint vector;
             train_main.make_generator reads them from there.
 
@@ -172,8 +198,8 @@ class AcomDatasetGenerator:
     def __init__(
         self,
         xml_path: str,
-        urdf_path: Optional[str] = None,
-        fixed_joints: Optional[List[str]] = None,
+        urdf_path: str | None = None,
+        fixed_joints: list[str] | None = None,
     ):
         """Initializes generator from a MuJoCo XML file."""
         resolved_path = resolve_xml_path(xml_path)
@@ -218,7 +244,7 @@ class AcomDatasetGenerator:
             )
 
         # Collect MuJoCo internal joint names, skipping the free base joint.
-        self.mj_joint_names: List[str] = []
+        self.mj_joint_names: list[str] = []
         for j in range(1, self.model.njnt):
             name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_JOINT, j)
             self.mj_joint_names.append(name)
@@ -289,6 +315,12 @@ class AcomDatasetGenerator:
         The dataset's joint axis is Pinocchio's order when a URDF was given (and
         MuJoCo's otherwise), without the fixed joints; `active_joint_names` names
         its entries.
+
+        Args:
+            per_mj_joint: An array whose last axis runs over the MuJoCo joints.
+
+        Returns:
+            The array with its last axis in the dataset's joint order.
         """
         ordered = (
             per_mj_joint[..., self.joint_perm]
@@ -302,7 +334,7 @@ class AcomDatasetGenerator:
         ]
         return ordered[..., active]
 
-    def sampling_bounds(self) -> Tuple[np.ndarray, np.ndarray]:
+    def sampling_bounds(self) -> tuple[np.ndarray, np.ndarray]:
         """The box `generate_dataset` samples the active joints from.
 
         It is the joint-limit box itself, untrimmed, so every posture the MPC can
@@ -317,14 +349,17 @@ class AcomDatasetGenerator:
         low_mj, high_mj = self._sampling_bounds_mj()
         return self._to_dataset_order(low_mj), self._to_dataset_order(high_mj)
 
-    def _sampling_bounds_mj(self) -> Tuple[np.ndarray, np.ndarray]:
+    def _sampling_bounds_mj(self) -> tuple[np.ndarray, np.ndarray]:
         """The sampling box in MuJoCo order, including the fixed joints' ranges."""
         return self.joint_limits_lower, self.joint_limits_upper
 
     def _compute_joint_permutation(
         self, urdf_path: str
-    ) -> Tuple[List[str], np.ndarray]:
+    ) -> tuple[list[str], np.ndarray]:
         """Computes the index permutation from Pinocchio to MuJoCo joint ordering.
+
+        Args:
+            urdf_path: The URDF whose kinematic tree gives Pinocchio's order.
 
         Returns:
             pinocchio_joint_names: non-fixed joint names in Pinocchio ordering.
@@ -353,7 +388,7 @@ class AcomDatasetGenerator:
 
     def compute_centroidal_matrices(
         self, q_joints_mj: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Computes I_G, A_omega, and locked normalized A_bar_omega for a given joint configuration.
 
         Args:
@@ -364,6 +399,7 @@ class AcomDatasetGenerator:
             A_omega_j: (3, n_j) centroidal angular momentum matrix for joint velocities (MuJoCo order)
             A_bar_omega: (3, n_j) locked-inertia normalized matrix I_G^{-1} * A_omega_j (MuJoCo order)
         """
+        # pylint: disable=invalid-name  # I_G, A_omega_j, A_bar_omega: the notation of Chen et al., IROS 2023 (README.md).
         # Place the base at a nominal height with identity orientation.
         #
         # The identity orientation is LOAD-BEARING, not cosmetic. A_bar_omega is
@@ -434,7 +470,7 @@ class AcomDatasetGenerator:
 
     def generate_dataset(
         self, num_samples: int = 10000, seed: int = 42
-    ) -> Dict[str, np.ndarray]:
+    ) -> dict[str, np.ndarray]:
         """Samples random joint configurations and generates a training dataset.
 
         The joint axis of every output is in Pinocchio ordering when a URDF path
@@ -450,6 +486,7 @@ class AcomDatasetGenerator:
             'A_bar_omega' of shape (num_samples, 3, n_active), and 'I_G' of shape
             (num_samples, 3, 3).
         """
+        # pylint: disable=invalid-name  # I_G, A_bar: the notation of Chen et al., IROS 2023 (README.md).
         rng = np.random.default_rng(seed)
 
         # Sample uniformly over the full joint-limit box, in MuJoCo order. There

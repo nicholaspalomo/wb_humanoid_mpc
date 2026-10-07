@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -24,6 +28,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include "humanoid_common_mpc/contact_planning/logic/ContactSwitchCost.h"
+
+#include <string>
 
 #include "absl/strings/str_cat.h"
 
@@ -39,10 +45,10 @@ void ContactSwitchCost::configure(const ContactPlanningConfig& config) {
 
 scalar_t ContactSwitchCost::cost(const ContactLogicState& s, const MiqpAssignment& a) const {
   int numSwitches = 0;
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     int previous = s.input->contacts[foot] ? 1 : 0;
     for (int k = 0; k < s.numNodes; ++k) {
-      const std::int8_t value = a[static_cast<size_t>(ContactLogicState::contactBinaryIndex(k, foot))];
+      const int8_t value = a[static_cast<size_t>(ContactLogicState::contactBinaryIndex(k, foot))];
       if (value == kMiqpFree) continue;
       if (previous >= 0 && value != previous) ++numSwitches;
       previous = value;

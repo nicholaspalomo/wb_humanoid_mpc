@@ -33,19 +33,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/time/time.h"
 
-#include <humanoid_common_mpc/common/Types.h>
-#include <robot_model/ContactEstimatorRegistry.h>
-#include <robot_model/RobotState.h>
-
+#include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc_app/robot/ConfigFileStore.h"
 #include "humanoid_common_mpc_app/robot/FsmStateMailbox.h"
 #include "humanoid_common_mpc_app/robot/MujocoViewerAnnotator.h"
 #include "humanoid_common_mpc_app/robot/OperatorCommandMailbox.h"
@@ -65,6 +66,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_msgs/robot_state_sample.pb.h"
 #include "humanoid_mpc_msgs/viewer_annotations.nproto.h"
 #include "robot_ipc/Bus.h"
+#include "robot_model/ContactEstimatorRegistry.h"
+#include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid {
 
@@ -72,7 +75,7 @@ namespace ocs2::humanoid {
  * The robot process: the realtime loop over a robot backend and an MRT joint controller, and everything around it on
  * the bus. The same for both formulations and every backend; the binaries (humanoid_centroidal_mpc_robot,
  * humanoid_wb_mpc_robot) build the controller and its MPC link and hand them over. See
- * humanoid_nmpc/humanoid_common_mpc_app/README.md and humanoid_nmpc/docs/distributed_runtime/README.md.
+ * humanoid_nmpc/humanoid_common_mpc_app/robot/README.md and humanoid_nmpc/docs/distributed_runtime/README.md.
  *
  * THE REALTIME THREAD runs, every control period:
  *   1. read the robot state from the backend;
@@ -91,7 +94,7 @@ namespace ocs2::humanoid {
  * and no torque - instead of leaving it the action latched when the torques went off, possibly long before and in
  * another mode, for a control period. The simulator also refuses to execute an action applied before its torques came
  * back on (RobotHWInterfaceBase::discardAppliedJointAction()).
- * It talks to nothing but lock-free mailboxes: no bus, no protobuf, no YAML, no file, no lock and no log line (the
+ * It talks to nothing but lock-free mailboxes: no bus, no protobuf, no configuration parsing, no file, no lock and no log line (the
  * process's and the controller's reports go to a RealtimeEventLog); the backend's state and action go through
  * RobotHWInterfaceBase's triple buffers. The robot process adds no allocation; the controllers allocate nothing in the
  * passive modes and the holds, and executing a policy still allocates inside the model's accessors and the inverse
@@ -105,17 +108,20 @@ namespace ocs2::humanoid {
  * periodic callbacks empty the realtime thread's: the telemetry ring to the telemetry sinks (robot/state), the FSM state
  * to robot/fsm_state (on change and at 2 Hz), the loop timing to robot/loop_timing (once per reporting window), the
  * event log to the log, and the MPC's viewer annotations to the MuJoCo viewer. It also polls the PD gains file and the
- * task file's controller-side keys.
+ * task file's controller-side keys, and takes the GUI's saves of operator/config_save, which the configuration store's
+ * writer thread checks and writes into the robot's persistent copies (ConfigFileStore, Config::configStore); the
+ * watchers then apply a saved task or PD gains file as they apply an edit.
  *
  * LIFECYCLE. Create() registers everything on the bus, which must not be running; the caller starts the bus, then
  * start(): the backend comes up, the MPC link starts from the robot's state, the backend's threads start and the
- * realtime loop runs, with the robot in ZERO_TORQUE on the gantry. stop() ends the loop and then stops the bus, so no
- * callback outlives the process. The bus, the backend, the controller and the estimator registry must outlive it.
+ * realtime loop runs, with the robot in ZERO_TORQUE on the gantry, and the configuration store's writer thread. stop()
+ * ends the loop, then the writer, then the bus, so no callback outlives the process. The bus, the backend, the
+ * controller and the estimator registry must outlive it.
  */
 class RobotProcess {
  public:
   struct Config {
-    /** [Hz] The control rate (mpc.mrtDesiredFrequency). */
+    /** [Hz] The control rate (mpc.mrt_desired_frequency). */
     scalar_t controlFrequency = 500.0;
     /** SCHED_FIFO priority of the realtime thread (--realtime_priority); 0: not realtime. */
     int realtimePriority = 0;
@@ -128,6 +134,28 @@ class RobotProcess {
     std::optional<robot::model::RobotState> initialState;
     /** The task file, watched for its controller-side keys at about 1 Hz; empty: not watched. */
     std::string taskFile;
+    /**
+     * The write time `taskFile` had when `settings` were read from it (TaskFileWatcher::writeTimeOf(), taken before the
+     * read): the watcher starts from it, so that a save while the process starts is applied by its first poll. nullopt:
+     * the file's time at Create().
+     */
+    std::optional<std::filesystem::file_time_type> taskFileReadAt;
+    /**
+     * The running robot (ModelSettings::robotName): the operator mailbox refuses an MPC parameter update of another
+     * robot (OperatorCommandMailbox::Config::robotName). Empty: not checked.
+     */
+    std::string robotName;
+    /**
+     * The running configuration: configFileIdentity() of the bundled task file (RobotConfigDirectory::identity()). The
+     * operator mailbox refuses an MPC parameter update of another configuration
+     * (OperatorCommandMailbox::Config::taskFileIdentity). Empty: not checked.
+     */
+    std::string taskFileIdentity;
+    /**
+     * The persistent copies a save of operator/config_save is written to (configFileStoreConfig() of the robot's
+     * RobotConfigDirectory). The default has none: every save is answered NOT_STORED.
+     */
+    ConfigFileStore::Config configStore;
     /** The joints the fall recovery judges rest on: those of the MPC model. */
     std::vector<size_t> restJointIndices;
     /** The PD gains file is checked every this many control periods (100 centroidal, 500 whole-body, ~1 Hz). */
@@ -142,6 +170,12 @@ class RobotProcess {
     std::function<bool(msgs::ViewerAnnotations& annotations)> takeViewerAnnotations;
     /** LoopTiming's fields of the MPC link: stale_policies_dropped and policy_age_s. */
     std::function<void(humanoid_mpc_msgs::LoopTiming& loopTiming)> fillLinkStatistics;
+    /**
+     * The configuration store's check of a save (ConfigFileStore::Hooks::validateConfigFile): the binaries bind it to
+     * checkConfigFileCandidate() on the stored files with the running process's estimator registry. Runs on the store's
+     * writer thread, not the communication thread. Empty: a text that parses is stored.
+     */
+    std::function<absl::Status(const ConfigFileCandidate& candidate)> validateConfigFile;
   };
 
   /**
@@ -181,16 +215,30 @@ class RobotProcess {
    */
   absl::Status runUntilShutdown(const std::function<bool()>& shutdownRequested);
 
+  /**
+   * runUntilShutdown(), which also calls `onRunning` once, on this thread, when the realtime loop has run for
+   * `runningFor` without a fault: the binaries confirm their boot with it (RobotConfigDirectory::confirmBoot()).
+   */
+  absl::Status runUntilShutdown(const std::function<bool()>& shutdownRequested,
+                                absl::Duration runningFor,
+                                const std::function<void()>& onRunning);
+
   /** Cycles the realtime loop has run. Any thread. */
-  std::uint64_t cycles() const { return loop_.cycles(); }
+  uint64_t cycles() const { return loop_.cycles(); }
   const RealtimeLoopRunner& loop() const { return loop_; }
   OperatorCommandMailbox& mailbox() { return *mailbox_; }
-  const TelemetrySampler* telemetrySampler() const { return sampler_.get(); }
+  ConfigFileStore& configStore() { return *configStore_; }
   /** [s] The control period. */
   scalar_t controlPeriod() const { return 1.0 / config_.controlFrequency; }
 
  private:
-  RobotProcess(robot::ipc::Bus& bus, RobotBackend& backend, RobotController& controller, Config config, Hooks hooks);
+  /** `simulator` is backend.simulator(), which Create() has checked. */
+  RobotProcess(robot::ipc::Bus& bus,
+               RobotBackend& backend,
+               robot::mujoco_sim_interface::MujocoSimInterface& simulator,
+               RobotController& controller,
+               Config config,
+               Hooks hooks);
 
   absl::Status registerOnBus();
 
@@ -208,7 +256,7 @@ class RobotProcess {
 
   robot::ipc::Bus& bus_;
   RobotBackend& backend_;
-  robot::mujoco_sim_interface::MujocoSimInterface* const simulator_;
+  robot::mujoco_sim_interface::MujocoSimInterface* absl_nonnull const simulator_;
   RobotController& controller_;
   const Config config_;
   const Hooks hooks_;
@@ -216,6 +264,7 @@ class RobotProcess {
   RealtimeEventLog eventLog_;
   FsmStateMailbox fsmStates_;
   std::unique_ptr<OperatorCommandMailbox> mailbox_;
+  std::unique_ptr<ConfigFileStore> configStore_;
   std::unique_ptr<SimFsmBridge> fsmBridge_;
   std::unique_ptr<SimFallRecovery> fallRecovery_;
   std::unique_ptr<TelemetrySampler> sampler_;
@@ -229,7 +278,7 @@ class RobotProcess {
   std::string contactEstimatorName_;
   std::vector<bool> plannedContactFlags_;
   const std::vector<bool> noContactFlags_;
-  std::array<vector3_t, N_CONTACTS> measuredContactForces_;
+  std::array<vector3_t, kNumContacts> measuredContactForces_;
 
   // ---- Communication thread state.
   msgs::FsmState fsmState_;

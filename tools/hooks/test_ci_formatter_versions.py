@@ -51,7 +51,7 @@ def _repository_file(relative_path):
 
 
 def _read(relative_path):
-    with open(_repository_file(relative_path)) as f:
+    with open(_repository_file(relative_path), encoding="utf-8") as f:
         return f.read()
 
 
@@ -62,16 +62,16 @@ class CiFormatterVersionsTest(unittest.TestCase):
 
     def test_the_runner_image_is_a_fixed_release(self):
         runs_on = re.search(r"^\s*runs-on:\s*(\S+)", self.workflow, re.MULTILINE)
-        self.assertIsNotNone(runs_on)
+        assert runs_on is not None, "the format job names no runner"
         self.assertRegex(runs_on.group(1), r"^ubuntu-\d+\.\d+$")
 
     def test_clang_format_is_the_dev_images_major_version(self):
         image = re.search(
             r"^ARG CLANG_FORMAT_VERSION=(\d+)\s*$", self.dockerfile, re.MULTILINE
         )
-        self.assertIsNotNone(
-            image, "docker/Dockerfile no longer sets CLANG_FORMAT_VERSION"
-        )
+        assert (
+            image is not None
+        ), "docker/Dockerfile no longer sets CLANG_FORMAT_VERSION"
         installed = re.findall(r"apt-get install -y clang-format(\S*)", self.workflow)
         self.assertEqual(installed, [f"-{image.group(1)}"])
 

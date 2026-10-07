@@ -1,0 +1,124 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "nproto/options.proto";
+import "nproto/retired_field_options.proto";
+
+// The settings of the multiple-shooting SQP solver (the task file's multiple_shooting block): the fields of
+// ocs2::sqp::Settings that a file sets, with that struct's defaults, converted by toSqpSettings()
+// (humanoid_common_mpc/config/solver/SolverSettingsFromConfig.h). The QP subproblem's HPIPM settings are not part of
+// the file and keep their defaults.
+// Next ID: 26
+message SqpSettingsConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::SqpSettingsConfig";
+  option (nproto.retired_field) = {
+    name: "inequality_constraint_mu"
+    replacement: "nothing in the SQP solver reads it; delete the line"
+  };
+  option (nproto.retired_field) = {
+    name: "inequality_constraint_delta"
+    replacement: "nothing in the SQP solver reads it; delete the line"
+  };
+
+  reserved 26 to max;
+  // 14 and 15 were inequality_constraint_mu and inequality_constraint_delta, which no part of the solver read.
+  reserved 14, 15;
+
+  // The SQP iterations of one solve, at least 0; 1 is the real-time iteration scheme.
+  int32 sqp_iteration = 1 [default = 10, (humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  // Termination: the RMS updates of x(t) and of u(t) are both below this.
+  double delta_tol = 2 [default = 1e-6, (humanoid_mpc_config.tuning) = { reload: RELOAD_HOT log_scale: true }];
+  // Termination: the cost decreases by less than this while the constraint violation is below g_min.
+  double cost_tol = 3 [default = 1e-4, (humanoid_mpc_config.tuning) = { log_scale: true }];
+
+  // Line search: the factor the step size is multiplied by each time a step is rejected.
+  double alpha_decay = 4 [default = 0.5];
+  // Line search: the step size below which the search gives up.
+  double alpha_min = 5 [default = 1e-4, (humanoid_mpc_config.tuning) = { log_scale: true }];
+  // Step acceptance, with g the norm of the constraint violation: while g > g_max, a step must lower g by the factor
+  // (1 - gamma_c).
+  double g_max = 6 [default = 1e6, (humanoid_mpc_config.tuning) = { reload: RELOAD_HOT log_scale: true }];
+  // Step acceptance: while g < g_min before and after the step and the step descends, a step must satisfy the Armijo
+  // condition.
+  double g_min = 7 [default = 1e-6, (humanoid_mpc_config.tuning) = { reload: RELOAD_HOT log_scale: true }];
+  // The Armijo condition: c(i+1) < c(i) + armijo_factor * dc/dw(i)' * delta_w, with c the cost and w = [x; u].
+  double armijo_factor = 8 [default = 1e-4, (humanoid_mpc_config.tuning) = { log_scale: true }];
+  // Step acceptance otherwise: c(i+1) < c(i) - gamma_c * g(i), or g(i+1) < (1 - gamma_c) * g(i).
+  double gamma_c = 9 [default = 1e-6, (humanoid_mpc_config.tuning) = { log_scale: true }];
+
+  // The policy: the feedback controller of the solution (true), or its feedforward input alone (false).
+  bool use_feedback_policy = 10 [default = true];
+  // Whether the solution stores the value function.
+  bool create_value_function = 11 [default = false];
+
+  // [s] The time step of the discretization of the horizon.
+  double dt = 12 [default = 0.01, (humanoid_mpc_config.tuning) = { unit: "s" }];
+  // LINT.IfChange(integrator_names)
+  // The discretization of the dynamics and of their sensitivities: "EULER", "RK2" or "RK4" (OCS2's
+  // SensitivityIntegratorType, by name).
+  string integrator_type = 13 [default = "RK2", (humanoid_mpc_config.tuning) = { registry: "sensitivity_integrator" }];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/solver/SolverSettingsFromConfig.cpp:sensitivity_integrators)
+
+  // Whether the state-input equality constraints C x + D u + e = 0 are resolved by projection.
+  bool project_state_input_equality_constraints = 16 [default = true];
+  // Whether the Lagrange multiplier of the projected equality constraints is extracted.
+  bool extract_projection_multiplier = 17 [default = false];
+
+  // Whether the HPIPM status is printed after each QP subproblem.
+  bool print_solver_status = 18 [
+    default = false,
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "a log switch, not a tuning parameter"
+    }
+  ];
+  // Whether the timings of the multiple-shooting method are printed.
+  bool print_solver_statistics = 19 [
+    default = false,
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "a log switch, not a tuning parameter"
+    }
+  ];
+  // Whether every line-search step is printed.
+  bool print_linesearch = 20 [
+    default = false,
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "a log switch, not a tuning parameter"
+    }
+  ];
+
+  // Whether the solver logs its last log_size iterations to log_file_path.
+  bool enable_logging = 21 [
+    default = true,
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "a log switch, not a tuning parameter"
+    }
+  ];
+  int32 log_size = 22 [
+    default = 1000,
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "the size of the solver's log, not a tuning parameter"
+    }
+  ];
+  string log_file_path = 23 [
+    default = "/tmp/ocs2/sqp_log/",
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "where the solver's log goes on the MPC's machine, not a tuning parameter"
+    }
+  ];
+
+  // The worker threads of the solver, at least 0, and their real-time priority.
+  int32 n_threads = 24 [
+    default = 4,
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "a thread count of the solver, not a tuning parameter"
+    }
+  ];
+  int32 thread_priority = 25 [
+    default = 50,
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "a scheduling priority of the operating system, not a tuning parameter"
+    }
+  ];
+}

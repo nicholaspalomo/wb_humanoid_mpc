@@ -1,0 +1,177 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+
+# tools/config_dump - every value the start-up of a robot configuration builds from its files, as text: what the MPC,
+# the robot process and the lockstep driver run with (README.md):
+#
+#   bazel run //tools/config_dump -- --robot=<robot>
+
+package(default_visibility = ["//visibility:public"])
+
+# The text format of a dump: one line per value, doubles to the bit, large matrices as fingerprints.
+cc_library(
+    name = "value_dump",
+    srcs = ["ValueDump.cpp"],
+    hdrs = ["ValueDump.h"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
+        "@abseil-cpp//absl/strings:string_view",
+        "@eigen",
+    ],
+)
+
+# The settings structs the start-up builds, one line per value.
+cc_library(
+    name = "settings_dump",
+    srcs = ["SettingsDump.cpp"],
+    hdrs = ["SettingsDump.h"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":value_dump",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_process",
+        "//humanoid_nmpc/humanoid_common_mpc_app/teleop",
+        "//humanoid_nmpc/humanoid_common_mpc_app/visualization",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_sqp",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@pinocchio",
+    ],
+)
+
+# Every typed conversion of a configuration's files, without a model but the URDF's ModelSettings: cheap enough to run
+# once per value of a file.
+cc_library(
+    name = "conversion_dump",
+    srcs = ["ConversionDump.cpp"],
+    hdrs = ["ConversionDump.h"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":settings_dump",
+        ":value_dump",
+        "//humanoid_nmpc/humanoid_centroidal_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_process",
+        "//humanoid_nmpc/humanoid_common_mpc_app/teleop",
+        "//humanoid_nmpc/humanoid_common_mpc_app/visualization",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//humanoid_nmpc/humanoid_wb_mpc",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:flat_hash_set",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@pinocchio",
+    ],
+)
+
+# The stack of a configuration, built through the roots that take its files by path, and dumped.
+cc_library(
+    name = "stack_dump",
+    srcs = [
+        "ProblemDump.cpp",
+        "StackDump.cpp",
+    ],
+    hdrs = [
+        "ProblemDump.h",
+        "StackDump.h",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":settings_dump",
+        ":value_dump",
+        "//humanoid_nmpc/humanoid_centroidal_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_process",
+        "//humanoid_nmpc/humanoid_common_mpc_app/teleop",
+        "//humanoid_nmpc/humanoid_common_mpc_app/visualization",
+        "//humanoid_nmpc/humanoid_mpc_validation:closed_loop_metrics",
+        "//humanoid_nmpc/humanoid_wb_mpc",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_sqp",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@eigen",
+        "@pinocchio",
+    ],
+)
+
+# bazel run //tools/config_dump -- --robot=<robot>
+cc_binary(
+    name = "config_dump",
+    srcs = ["ConfigDumpMain.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":stack_dump",
+        "//humanoid_nmpc/humanoid_mpc_validation:closed_loop_metrics",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/flags:flag",
+        "@abseil-cpp//absl/flags:parse",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/log:globals",
+        "@abseil-cpp//absl/log:initialize",
+        "@abseil-cpp//absl/status:statusor",
+        "@pinocchio",
+    ],
+)
+
+# The dump's format: equal bits, equal lines; a matrix's fingerprint changes with any bit of it.
+cc_test(
+    name = "value_dump_test",
+    size = "small",
+    srcs = ["testValueDump.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":value_dump",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# Test T4 of humanoid_nmpc/humanoid_mpc_config/README.md: every value of the task, reference, PD gains and gait schemas
+# changes what the conversions make of the shipped files of a centroidal or of the whole-body configuration.
+cc_test(
+    name = "every_field_is_consumed_test",
+    size = "medium",
+    srcs = ["testEveryFieldIsConsumed.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    deps = [
+        ":conversion_dump",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//humanoid_nmpc/humanoid_mpc_validation:closed_loop_metrics",
+        "//tools/config_registries",
+        "//tools/nproto:nproto_runtime",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+        "@protobuf",
+    ],
+)

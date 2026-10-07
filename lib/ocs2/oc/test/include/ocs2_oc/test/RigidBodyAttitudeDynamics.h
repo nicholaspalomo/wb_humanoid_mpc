@@ -34,6 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <vector>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 #include <ocs2_core/dynamics/SystemDynamicsBase.h>
 #include <ocs2_core/manifold/ProductStateManifold.h>
@@ -62,7 +64,7 @@ class RigidBodyAttitudeDynamics final : public SystemDynamicsBase {
 
   explicit RigidBodyAttitudeDynamics(bool withPosition) : withPosition_(withPosition) { recordTapes(); }
   ~RigidBodyAttitudeDynamics() override = default;
-  RigidBodyAttitudeDynamics* clone() const override { return new RigidBodyAttitudeDynamics(withPosition_); }
+  RigidBodyAttitudeDynamics* absl_nonnull clone() const override { return new RigidBodyAttitudeDynamics(withPosition_); }
 
   size_t getStateDim() const { return withPosition_ ? 10 : 7; }
   size_t getInputDim() const { return withPosition_ ? 6 : 3; }

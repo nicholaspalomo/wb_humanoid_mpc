@@ -28,35 +28,42 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 // Pinocchio forward declarations must be included first.
-#include <pinocchio/fwd.hpp>
+#include "pinocchio/fwd.hpp"
 
 #include "humanoid_common_mpc_app/visualization/SceneBuilder.h"
 
+#include <array>
 #include <cmath>
 #include <exception>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <pinocchio/algorithm/center-of-mass.hpp>
-#include <pinocchio/algorithm/frames.hpp>
-#include <pinocchio/algorithm/joint-configuration.hpp>
-#include <pinocchio/algorithm/kinematics.hpp>
-#include <pinocchio/multibody/joint/joint-free-flyer.hpp>
-#include <pinocchio/parsers/urdf.hpp>
-
+#include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
+#include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/joint-configuration.hpp"
+#include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/multibody/joint/joint-free-flyer.hpp"
+#include "pinocchio/parsers/urdf.hpp"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/config/costs/CollisionConstraintFromConfig.h"
+#include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
 #include "humanoid_common_mpc/constraint/FootCollisionConstraint.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/PinocchioFrameConversions.h"
 #include "humanoid_common_mpc_app/visualization/SceneContract.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_msgs/arrows.pb.h"
 #include "humanoid_mpc_msgs/color.pb.h"
 #include "humanoid_mpc_msgs/pose.pb.h"
@@ -69,13 +76,13 @@ namespace {
 using Model = PinocchioInterface::Model;
 using Data = PinocchioInterface::Data;
 
-void setVector3(const vector3_t& value, humanoid_mpc_msgs::Vector3* message) {
+void setVector3(const vector3_t& value, humanoid_mpc_msgs::Vector3* absl_nonnull message) {
   message->set_x(value.x());
   message->set_y(value.y());
   message->set_z(value.z());
 }
 
-void setColor(const scene::Rgba& color, humanoid_mpc_msgs::Color* message) {
+void setColor(const scene::Rgba& color, humanoid_mpc_msgs::Color* absl_nonnull message) {
   message->set_r(color.r);
   message->set_g(color.g);
   message->set_b(color.b);
@@ -83,14 +90,16 @@ void setColor(const scene::Rgba& color, humanoid_mpc_msgs::Color* message) {
 }
 
 /** An arrow of `force` ending at `tip`: kForceScale newtons per meter. */
-void addForceArrow(const vector3_t& tip, const vector3_t& force, humanoid_mpc_msgs::Arrows* arrows) {
+void addForceArrow(const vector3_t& tip, const vector3_t& force, humanoid_mpc_msgs::Arrows* absl_nonnull arrows) {
   const vector3_t vector = force / scene::kForceScale;
   setVector3(tip - vector, arrows->add_origins());
   setVector3(vector, arrows->add_vectors());
 }
 
 /** The BODY frames of `model` (one per URDF link), without the universe. */
-void collectLinkFrames(const Model& model, std::vector<pinocchio::FrameIndex>* frames, std::vector<std::string>* names) {
+void collectLinkFrames(const Model& model,
+                       std::vector<pinocchio::FrameIndex>* absl_nonnull frames,
+                       std::vector<std::string>* absl_nonnull names) {
   frames->clear();
   names->clear();
   for (size_t frame = 0; frame < model.frames.size(); ++frame) {
@@ -106,16 +115,16 @@ void writeLinkPoses(const Data& data,
                     const std::vector<pinocchio::FrameIndex>& frames,
                     const std::vector<std::string>& names,
                     absl::string_view name,
-                    humanoid_mpc_msgs::RobotModelInstance* instance) {
+                    humanoid_mpc_msgs::RobotModelInstance* absl_nonnull instance) {
   instance->Clear();
   instance->set_name(std::string(name));
   for (size_t link = 0; link < frames.size(); ++link) {
     instance->add_link_names(names[link]);
     const pinocchio::SE3Tpl<scalar_t>& placement = data.oMf[frames[link]];
-    humanoid_mpc_msgs::Pose* pose = instance->add_link_poses();
+    humanoid_mpc_msgs::Pose* absl_nonnull pose = instance->add_link_poses();
     setVector3(placement.translation(), pose->mutable_position());
     const quaternion_t orientation(placement.rotation());
-    humanoid_mpc_msgs::Quaternion* quaternion = pose->mutable_orientation();
+    humanoid_mpc_msgs::Quaternion* absl_nonnull quaternion = pose->mutable_orientation();
     quaternion->set_w(orientation.w());
     quaternion->set_x(orientation.x());
     quaternion->set_y(orientation.y());
@@ -140,7 +149,7 @@ SceneBuilder::SceneBuilder(const VisualizationModel& model, const VisualizationC
 
 absl::StatusOr<std::unique_ptr<SceneBuilder>> SceneBuilder::Create(const VisualizationModel& model, const VisualizationConfig& config) {
   RETURN_IF_ERROR(checkVisualizationModel(model));
-  std::unique_ptr<SceneBuilder> builder(new SceneBuilder(model, config));
+  std::unique_ptr<SceneBuilder> builder = absl::WrapUnique(new SceneBuilder(model, config));
   RETURN_IF_ERROR(builder->initialize(model, config));
   return builder;
 }
@@ -149,9 +158,9 @@ absl::Status SceneBuilder::initialize(const VisualizationModel& model, const Vis
   const Model& mpcModel = pinocchioInterface_.getModel();
   collectLinkFrames(mpcModel, &mpcLinkFrames_, &mpcLinkNames_);
 
-  try {
+  try {  // NOLINT(exceptions): Pinocchio's URDF parser throws; its exception becomes a Status here.
     pinocchio::urdf::buildModel(model.urdfFile, pinocchio::JointModelFreeFlyerTpl<scalar_t>(), fullModel_);
-  } catch (const std::exception& e) {
+  } catch (const std::exception& e) {  // NOLINT(exceptions): the boundary of the try above.
     return absl::InvalidArgumentError(absl::StrCat("the URDF '", model.urdfFile, "' does not give a Pinocchio model: ", e.what()));
   }
   fullData_ = std::make_unique<Data>(fullModel_);
@@ -161,66 +170,73 @@ absl::Status SceneBuilder::initialize(const VisualizationModel& model, const Vis
   for (pinocchio::JointIndex joint = 2; joint < static_cast<pinocchio::JointIndex>(fullModel_.njoints); ++joint) {
     const int nq = fullModel_.joints[joint].nq();
     if (nq == 1 || nq == 2) {
-      fullJoints_.push_back(FullModelJoint{fullModel_.names[joint], fullModel_.joints[joint].idx_q(), nq});
+      fullJoints_.push_back(FullModelJoint{.name = fullModel_.names[joint], .idxQ = fullModel_.joints[joint].idx_q(), .nq = nq});
     }
   }
 
-  if (modelSettings_.contactNames.size() < N_CONTACTS) {
+  if (modelSettings_.contactNames.size() < kNumContacts) {
     return absl::InvalidArgumentError(absl::StrCat("the model settings name ", modelSettings_.contactNames.size(),
-                                                   " contacts; the visualization needs ", N_CONTACTS, "."));
+                                                   " contacts; the visualization needs ", kNumContacts, "."));
   }
-  for (size_t contact = 0; contact < N_CONTACTS; ++contact) {
+  // The contact polygons and the collision spheres of the typed task file.
+  const absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(model.taskFile);
+  if (!task.ok()) {
+    return absl::InvalidArgumentError(absl::StrCat("the contact polygons do not load: ", task.status().message()));
+  }
+  for (size_t contact = 0; contact < kNumContacts; ++contact) {
     ASSIGN_OR_RETURN(contactFrames_[contact], findFrame(mpcModel, modelSettings_.contactNames[contact], "contactNames"));
-    try {
-      const ContactRectangle rectangle =
-          ContactRectangle::loadContactRectangle(model.taskFile, modelSettings_, static_cast<int>(contact), /*verbose=*/false);
-      if (rectangle.getNumberOfContactPoints() != 4) {
-        return absl::InvalidArgumentError(absl::StrCat("the contact polygon of ", modelSettings_.contactNames[contact], " has ",
-                                                       rectangle.getNumberOfContactPoints(), " corners; the corner forces need 4."));
-      }
-      for (size_t corner = 0; corner < 4; ++corner) {
-        ASSIGN_OR_RETURN(cornerFrames_[contact][corner],
-                         findFrame(mpcModel, rectangle.getPolygonPointFrameName(static_cast<int>(corner)), "the contact polygon"));
-      }
-      cornerForceMappers_.emplace_back(rectangle);
-    } catch (const std::exception& e) {
-      return absl::InvalidArgumentError(
-          absl::StrCat(model.taskFile, ": the contact polygon of ", modelSettings_.contactNames[contact], " does not load: ", e.what()));
+    const absl::StatusOr<ContactRectangle> rectangle =
+        contactRectangleFromConfig(task->contacts, modelSettings_, static_cast<int>(contact));
+    if (!rectangle.ok()) {
+      return absl::InvalidArgumentError(absl::StrCat(model.taskFile, ": the contact polygon of ", modelSettings_.contactNames[contact],
+                                                     " does not load: ", rectangle.status().message()));
     }
+    if (rectangle->getNumberOfContactPoints() != 4) {
+      return absl::InvalidArgumentError(absl::StrCat("the contact polygon of ", modelSettings_.contactNames[contact], " has ",
+                                                     rectangle->getNumberOfContactPoints(), " corners; the corner forces need 4."));
+    }
+    for (size_t corner = 0; corner < 4; ++corner) {
+      ASSIGN_OR_RETURN(cornerFrames_[contact][corner],
+                       findFrame(mpcModel, rectangle->getPolygonPointFrameName(static_cast<int>(corner)), "the contact polygon"));
+    }
+    cornerForceMappers_.emplace_back(*rectangle);
   }
 
   for (const std::string& frame : config.planFrames) {
-    ASSIGN_OR_RETURN(const pinocchio::FrameIndex index, findFrame(mpcModel, frame, kRerunPlanFramesKey));
+    ASSIGN_OR_RETURN(const pinocchio::FrameIndex index, findFrame(mpcModel, frame, kRerunPlanFramesField));
     planFrames_.push_back(index);
   }
 
-  try {
-    const FootCollisionConstraint::Config collision = FootCollisionConstraint::loadFootCollisionConstraintConfig(model.taskFile);
-    const std::array<std::pair<const std::string*, scalar_t>, 10> candidates = {{
-        {&collision.leftAnkleFrame, collision.footCollisionSphereRadius},
-        {&collision.rightAnkleFrame, collision.footCollisionSphereRadius},
-        {&collision.leftFootCenterFrame, collision.footCollisionSphereRadius},
-        {&collision.rightFootCenterFrame, collision.footCollisionSphereRadius},
-        {&collision.leftFootFrame1, collision.footCollisionSphereRadius},
-        {&collision.rightFootFrame1, collision.footCollisionSphereRadius},
-        {&collision.leftFootFrame2, collision.footCollisionSphereRadius},
-        {&collision.rightFootFrame2, collision.footCollisionSphereRadius},
-        {&collision.leftKneeFrame, collision.kneeCollisionSphereRadius},
-        {&collision.rightKneeFrame, collision.kneeCollisionSphereRadius},
-    }};
-    // As HumanoidVisualizer drew them: a frame the task file leaves unnamed, or that the model lacks, has no sphere.
-    for (const std::pair<const std::string*, scalar_t>& candidate : candidates) {
-      if (!candidate.first->empty() && mpcModel.existFrame(*candidate.first) && std::isfinite(candidate.second) && candidate.second > 0.0) {
-        collisionSpheres_.push_back(CollisionSphere{mpcModel.getFrameId(*candidate.first), candidate.second});
-      }
+  const absl::StatusOr<FootCollisionConstraint::Config> loaded = footCollisionConstraintConfigFromConfig(task->collision_constraint);
+  if (!loaded.ok()) {
+    LOG(WARNING) << "[SceneBuilder] " << model.taskFile
+                 << ": the collision spheres do not load, none is drawn: " << loaded.status().message();
+    return absl::OkStatus();
+  }
+  const FootCollisionConstraint::Config& collision = *loaded;
+  const std::array<std::pair<const std::string* absl_nonnull, scalar_t>, 10> candidates = {{
+      {&collision.leftAnkleFrame, collision.footCollisionSphereRadius},
+      {&collision.rightAnkleFrame, collision.footCollisionSphereRadius},
+      {&collision.leftFootCenterFrame, collision.footCollisionSphereRadius},
+      {&collision.rightFootCenterFrame, collision.footCollisionSphereRadius},
+      {&collision.leftFootFrame1, collision.footCollisionSphereRadius},
+      {&collision.rightFootFrame1, collision.footCollisionSphereRadius},
+      {&collision.leftFootFrame2, collision.footCollisionSphereRadius},
+      {&collision.rightFootFrame2, collision.footCollisionSphereRadius},
+      {&collision.leftKneeFrame, collision.kneeCollisionSphereRadius},
+      {&collision.rightKneeFrame, collision.kneeCollisionSphereRadius},
+  }};
+  // As HumanoidVisualizer drew them: a frame the task file leaves unnamed, or that the model lacks, has no sphere.
+  for (const std::pair<const std::string* absl_nonnull, scalar_t>& candidate : candidates) {
+    if (!candidate.first->empty() && mpcModel.existFrame(*candidate.first) && std::isfinite(candidate.second) && candidate.second > 0.0) {
+      collisionSpheres_.push_back(CollisionSphere{.frame = mpcModel.getFrameId(*candidate.first), .radius = candidate.second});
     }
-  } catch (const std::exception& e) {
-    LOG(WARNING) << "[SceneBuilder] " << model.taskFile << ": the collision spheres do not load, none is drawn: " << e.what();
   }
   return absl::OkStatus();
 }
 
-void SceneBuilder::writeMeasuredFromSample(const msgs::RobotStateSample& sample, humanoid_mpc_msgs::RobotModelInstance* instance) {
+void SceneBuilder::writeMeasuredFromSample(const msgs::RobotStateSample& sample,
+                                           humanoid_mpc_msgs::RobotModelInstance* absl_nonnull instance) {
   if (!hasSampleJointIndices_ || sample.joint_names != sampleJointNames_) {
     absl::flat_hash_map<std::string, int> sampleIndices;
     for (size_t index = 0; index < sample.joint_names.size(); ++index) {
@@ -269,7 +285,7 @@ void SceneBuilder::updateGroundHeight(size_t mode) {
   const Data& data = pinocchioInterface_.getData();
   scalar_t heightSum = 0.0;
   size_t stanceFeet = 0;
-  for (size_t contact = 0; contact < N_CONTACTS; ++contact) {
+  for (size_t contact = 0; contact < kNumContacts; ++contact) {
     if (stance[contact]) {
       heightSum += data.oMf[contactFrames_[contact]].translation().z();
       ++stanceFeet;
@@ -281,15 +297,15 @@ void SceneBuilder::updateGroundHeight(size_t mode) {
 }
 
 void SceneBuilder::writeObservationMarkers(const SystemObservation& observation,
-                                           const PolicySnapshot* policy,
-                                           humanoid_mpc_msgs::VisualizationScene* scene) {
-  humanoid_mpc_msgs::Arrows* contactForces = scene->add_arrows();
+                                           const PolicySnapshot* absl_nullable policy,
+                                           humanoid_mpc_msgs::VisualizationScene* absl_nonnull scene) {
+  humanoid_mpc_msgs::Arrows* absl_nonnull contactForces = scene->add_arrows();
   contactForces->set_path(std::string(scene::kContactForces));
-  humanoid_mpc_msgs::Spheres* centerOfPressure = scene->add_spheres();
+  humanoid_mpc_msgs::Spheres* absl_nonnull centerOfPressure = scene->add_spheres();
   centerOfPressure->set_path(std::string(scene::kCenterOfPressure));
-  humanoid_mpc_msgs::Arrows* cornerForces = scene->add_arrows();
+  humanoid_mpc_msgs::Arrows* absl_nonnull cornerForces = scene->add_arrows();
   cornerForces->set_path(std::string(scene::kCornerForces));
-  humanoid_mpc_msgs::Spheres* collisionSpheres = scene->add_spheres();
+  humanoid_mpc_msgs::Spheres* absl_nonnull collisionSpheres = scene->add_spheres();
   collisionSpheres->set_path(std::string(scene::kCollisionSpheres));
 
   // The frame placements are those of the observation's state (build() updated them).
@@ -308,7 +324,7 @@ void SceneBuilder::writeObservationMarkers(const SystemObservation& observation,
   const contact_flag_t stance = modeNumber2StanceLeg(observation.mode);
   vector3_t weightedCop = vector3_t::Zero();
   scalar_t normalForceSum = 0.0;
-  for (size_t contact = 0; contact < N_CONTACTS; ++contact) {
+  for (size_t contact = 0; contact < kNumContacts; ++contact) {
     if (!stance[contact]) {
       continue;
     }
@@ -316,12 +332,12 @@ void SceneBuilder::writeObservationMarkers(const SystemObservation& observation,
     const vector6_t worldWrench = robotModel_->getContactWrenchInWorldFrame(observation.state, planInput, contact);
     const vector6_t localWrench = rotateVectorWorldToLocal<scalar_t>(worldWrench, data, frame);
     vector3_t cop = data.oMf[frame].translation();
-    if (localWrench[WRENCH_FORCE_Z_INDEX] > kMinNormalForceForCop) {
-      const vector3_t localCop(-localWrench[WRENCH_TORQUE_Y_INDEX] / localWrench[WRENCH_FORCE_Z_INDEX],
-                               localWrench[WRENCH_TORQUE_X_INDEX] / localWrench[WRENCH_FORCE_Z_INDEX], 0.0);
+    if (localWrench[kWrenchForceZIndex] > kMinNormalForceForCop) {
+      const vector3_t localCop(-localWrench[kWrenchTorqueYIndex] / localWrench[kWrenchForceZIndex],
+                               localWrench[kWrenchTorqueXIndex] / localWrench[kWrenchForceZIndex], 0.0);
       cop = data.oMf[frame].act(localCop);
-      weightedCop += worldWrench[WRENCH_FORCE_Z_INDEX] * cop;
-      normalForceSum += worldWrench[WRENCH_FORCE_Z_INDEX];
+      weightedCop += worldWrench[kWrenchForceZIndex] * cop;
+      normalForceSum += worldWrench[kWrenchForceZIndex];
     }
     addForceArrow(cop, worldWrench.head<3>(), contactForces);
 
@@ -354,8 +370,8 @@ void SceneBuilder::computePlan(const PolicySnapshot& policy) {
   for (size_t frame = 0; frame < planFrames_.size(); ++frame) {
     planEndEffectors_.add_strips();
   }
-  humanoid_mpc_msgs::LineStrip* baseStrip = planBase_.add_strips();
-  humanoid_mpc_msgs::LineStrip* comStrip = planCom_.add_strips();
+  humanoid_mpc_msgs::LineStrip* absl_nonnull baseStrip = planBase_.add_strips();
+  humanoid_mpc_msgs::LineStrip* absl_nonnull comStrip = planCom_.add_strips();
   for (const vector_t& state : policy.state) {
     const vector_t q = robotModel_->getGeneralizedCoordinates(state);
     // centerOfMass() runs the forward kinematics the frame placements below are updated from.
@@ -383,7 +399,7 @@ void SceneBuilder::computePlan(const PolicySnapshot& policy) {
     const contact_flag_t before = modeNumber2StanceLeg(schedule.modeSequence[event]);
     const contact_flag_t after = modeNumber2StanceLeg(schedule.modeSequence[event + 1]);
     bool kinematicsDone = false;
-    for (size_t contact = 0; contact < N_CONTACTS; ++contact) {
+    for (size_t contact = 0; contact < kNumContacts; ++contact) {
       if (before[contact] || !after[contact]) {
         continue;
       }
@@ -414,7 +430,7 @@ void SceneBuilder::computePlan(const PolicySnapshot& policy) {
   hasPlan_ = true;
 }
 
-absl::Status SceneBuilder::build(const SceneInputs& inputs, humanoid_mpc_msgs::VisualizationScene* scene) {
+absl::Status SceneBuilder::build(const SceneInputs& inputs, humanoid_mpc_msgs::VisualizationScene* absl_nonnull scene) {
   scene->Clear();
   const bool hasObservation =
       inputs.observation != nullptr && static_cast<size_t>(inputs.observation->state.size()) == robotModel_->getStateDim();
@@ -460,17 +476,17 @@ absl::Status SceneBuilder::build(const SceneInputs& inputs, humanoid_mpc_msgs::V
   if (hasTerminalTarget_) {
     *scene->add_robots() = terminalTarget_;
   }
-  const std::array<std::pair<absl::string_view, const humanoid_mpc_msgs::LineStrips*>, 3> lineStrips = {{
+  const std::array<std::pair<absl::string_view, const humanoid_mpc_msgs::LineStrips* absl_nonnull>, 3> lineStrips = {{
       {scene::kPlanEndEffectors, &planEndEffectors_},
       {scene::kPlanBase, &planBase_},
       {scene::kPlanCom, &planCom_},
   }};
-  for (const std::pair<absl::string_view, const humanoid_mpc_msgs::LineStrips*>& strips : lineStrips) {
-    humanoid_mpc_msgs::LineStrips* message = scene->add_line_strips();
+  for (const std::pair<absl::string_view, const humanoid_mpc_msgs::LineStrips* absl_nonnull>& strips : lineStrips) {
+    humanoid_mpc_msgs::LineStrips* absl_nonnull message = scene->add_line_strips();
     *message = *strips.second;
     message->set_path(std::string(strips.first));
   }
-  humanoid_mpc_msgs::Spheres* footholds = scene->add_spheres();
+  humanoid_mpc_msgs::Spheres* absl_nonnull footholds = scene->add_spheres();
   *footholds = planFootholds_;
   footholds->set_path(std::string(scene::kPlanFootholds));
   return absl::OkStatus();

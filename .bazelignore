@@ -2,13 +2,5 @@
 bazel-bin
 bazel-wb_humanoid_mpc
 
-# The build output of the CMake build this repository had before Bazel, which an old checkout may still hold
-build
-install
-log
-
-# External submodules (not built by Bazel directly)
-lib/mujoco
-
 # Bazel convenience symlinks and (in some setups) the output base, created with --symlink_prefix=.bazel/
 .bazel

@@ -30,16 +30,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_core/initialization/Initializer.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
+#include "absl/base/nullability.h"
+#include "ocs2_core/initialization/Initializer.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
 
-// This class is used to initialize the input policy
-
+/**
+ * Initializes the input policy of the MPC with the contact wrenches that carry the robot's weight on the feet that are
+ * in contact at each time, and holds the state.
+ *
+ * The reference manager and the robot model must outlive it. Cloned for each solver thread; a single instance is not
+ * thread-safe.
+ */
 class WeightCompInitializer final : public Initializer {
  public:
   /*
@@ -53,16 +59,19 @@ class WeightCompInitializer final : public Initializer {
                         const MpcRobotModelBase<scalar_t>& mpcRobotModel);
 
   ~WeightCompInitializer() override = default;
-  WeightCompInitializer* clone() const override;
+  WeightCompInitializer& operator=(const WeightCompInitializer&) = delete;
+  WeightCompInitializer(WeightCompInitializer&&) = delete;
+  WeightCompInitializer& operator=(WeightCompInitializer&&) = delete;
+  WeightCompInitializer* absl_nonnull clone() const override;
 
   void compute(scalar_t time, const vector_t& state, scalar_t nextTime, vector_t& input, vector_t& nextState) override;
 
  private:
   WeightCompInitializer(const WeightCompInitializer& rhs);
 
-  const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
+  const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModelPtr_;
   const PinocchioInterface& pinocchioInterface_;
-  const SwitchedModelReferenceManager* referenceManagerPtr_;
+  const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
 };
 
 }  // namespace ocs2::humanoid

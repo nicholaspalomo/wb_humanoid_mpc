@@ -39,11 +39,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/time/clock.h"
-
-#include <ocs2_core/control/FeedforwardController.h>
-#include <ocs2_mpc/CommandData.h>
-#include <ocs2_oc/oc_data/PerformanceIndex.h>
-#include <ocs2_oc/oc_data/PrimalSolution.h>
+#include "ocs2_core/control/FeedforwardController.h"
+#include "ocs2_mpc/CommandData.h"
+#include "ocs2_oc/oc_data/PerformanceIndex.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 
 #include "robot_ipc/BusOptions.h"
 #include "robot_ipc/NodeEndpoint.h"
@@ -95,7 +94,7 @@ bool waitFor(const std::function<bool()>& condition, absl::Duration timeout) {
 std::unique_ptr<robot::ipc::Bus> createNodeBus(const std::string& name) {
   robot::ipc::BusOptions options;
   options.nodeName = name;
-  options.network.nodes = {robot::ipc::NodeEndpoint{.name = name, .host = "127.0.0.1", .port = robot::ipc::kEphemeralPort}};
+  options.network.nodes = {robot::ipc::NodeEndpoint{.name = name, .host = "127.0.0.1", .port = robot::ipc::kEphemeralPort, .bindHost = ""}};
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
   CHECK_OK(bus.status());
   return std::move(*bus);
@@ -103,7 +102,7 @@ std::unique_ptr<robot::ipc::Bus> createNodeBus(const std::string& name) {
 
 std::unique_ptr<robot::ipc::Bus> createSubscriberBus(const std::string& nodeName, int port) {
   robot::ipc::BusOptions options;
-  options.network.nodes = {robot::ipc::NodeEndpoint{.name = nodeName, .host = "127.0.0.1", .port = port}};
+  options.network.nodes = {robot::ipc::NodeEndpoint{.name = nodeName, .host = "127.0.0.1", .port = port, .bindHost = ""}};
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
   CHECK_OK(bus.status());
   return std::move(*bus);

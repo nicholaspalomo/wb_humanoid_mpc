@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <iostream>
 #include <numeric>
 
+#include "absl/base/nullability.h"
 #include "absl/log/log.h"
 
 #include <ocs2_oc/multiple_shooting/Helpers.h>
@@ -88,6 +89,15 @@ SqpSolver::SqpSolver(sqp::Settings settings, const OptimalControlProblem& optima
   filterLinesearch_.g_min = settings_.g_min;
   filterLinesearch_.gamma_c = settings_.gamma_c;
   filterLinesearch_.armijoFactor = settings_.armijoFactor;
+}
+
+void SqpSolver::setLiveSettings(const LiveSettings& liveSettings) {
+  settings_.sqpIteration = liveSettings.sqpIteration;
+  settings_.deltaTol = liveSettings.deltaTol;
+  settings_.g_max = liveSettings.gMax;
+  settings_.g_min = liveSettings.gMin;
+  filterLinesearch_.g_max = liveSettings.gMax;
+  filterLinesearch_.g_min = liveSettings.gMin;
 }
 
 SqpSolver::~SqpSolver() {
@@ -225,7 +235,7 @@ void SqpSolver::runImpl(scalar_t initTime, const vector_t& initState, scalar_t f
   }
 
   // Initialize the state and input
-  const StateManifold* stateManifold = getStateManifold();
+  const StateManifold* absl_nullable stateManifold = getStateManifold();
   vector_array_t x, u;
   multiple_shooting::initializeStateInputTrajectories(initState, timeDiscretization, primalSolution_, *initializerPtr_, x, u, stateManifold);
 
@@ -631,7 +641,7 @@ sqp::StepInfo SqpSolver::takeStep(const PerformanceIndex& baseline,
   return stepInfo;
 }
 
-const StateManifold* SqpSolver::getStateManifold() const {
+const StateManifold* absl_nullable SqpSolver::getStateManifold() const {
   return ocpDefinitions_.front().stateManifoldPtr.get();
 }
 

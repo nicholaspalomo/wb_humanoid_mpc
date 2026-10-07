@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
 
@@ -162,8 +163,8 @@ TEST(ManifoldLinearController, FlattenUnFlattenRoundTrip) {
   ManifoldLinearController controller = randomController(manifold, {0.0, 0.1, 0.15, 0.25});
   const scalar_array_t& times = controller.getTimeStamps();
   std::vector<std::vector<double>> storage(times.size());
-  std::vector<std::vector<double>*> flatArrays;
-  std::vector<std::vector<double> const*> constFlatArrays;
+  std::vector<std::vector<double>* absl_nonnull> flatArrays;
+  std::vector<const std::vector<double>* absl_nonnull> constFlatArrays;
   for (std::vector<double>& array : storage) {
     flatArrays.push_back(&array);
     constFlatArrays.push_back(&array);
@@ -201,8 +202,8 @@ TEST(ManifoldLinearController, FlattenUnFlattenRoundTrip) {
 /** Flattens `controller` at `times` and reads it back as a controller whose nodes are those times. */
 ManifoldLinearController resample(const ManifoldLinearController& controller, const scalar_array_t& times) {
   std::vector<std::vector<double>> storage(times.size());
-  std::vector<std::vector<double>*> flatArrays;
-  std::vector<std::vector<double> const*> constFlatArrays;
+  std::vector<std::vector<double>* absl_nonnull> flatArrays;
+  std::vector<const std::vector<double>* absl_nonnull> constFlatArrays;
   for (std::vector<double>& array : storage) {
     flatArrays.push_back(&array);
     constFlatArrays.push_back(&array);

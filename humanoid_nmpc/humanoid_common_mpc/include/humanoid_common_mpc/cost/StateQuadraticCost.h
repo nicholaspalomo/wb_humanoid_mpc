@@ -29,7 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_core/cost/QuadraticStateInputCost.h>
+#include <utility>
+
+#include "absl/base/nullability.h"
+#include "ocs2_core/cost/QuadraticStateInputCost.h"
+
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
@@ -42,7 +46,10 @@ class StateQuadraticCost final : public QuadraticStateInputCost {
   StateQuadraticCost(matrix_t Q, size_t inputDim, const SwitchedModelReferenceManager& referenceManager);
 
   ~StateQuadraticCost() override = default;
-  StateQuadraticCost* clone() const override { return new StateQuadraticCost(*this); }
+  StateQuadraticCost& operator=(const StateQuadraticCost&) = delete;
+  StateQuadraticCost(StateQuadraticCost&&) = delete;
+  StateQuadraticCost& operator=(StateQuadraticCost&&) = delete;
+  StateQuadraticCost* absl_nonnull clone() const override { return new StateQuadraticCost(*this); }
 
  private:
   StateQuadraticCost(const StateQuadraticCost& rhs);
@@ -53,7 +60,7 @@ class StateQuadraticCost final : public QuadraticStateInputCost {
                                                        const TargetTrajectories& targetTrajectories) const override;
 
   const size_t inputDim_;
-  const SwitchedModelReferenceManager* referenceManagerPtr_;
+  const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
 };
 
 }  // namespace ocs2::humanoid

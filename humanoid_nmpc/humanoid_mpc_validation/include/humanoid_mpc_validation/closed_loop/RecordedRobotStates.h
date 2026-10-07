@@ -33,14 +33,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <Eigen/Core>
-
-#include <robot_model/RobotDescription.h>
-#include <robot_model/RobotState.h>
-
+#include "Eigen/Core"
 #include "absl/status/statusor.h"
 
 #include "humanoid_mpc_validation/io/GoldenIo.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid::validation {
 

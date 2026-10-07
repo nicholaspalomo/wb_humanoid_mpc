@@ -27,9 +27,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
@@ -38,19 +35,29 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
-#include <ocs2_centroidal_model/AccessHelperFunctions.h>
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
-#include <robot_model/RobotDescription.h>
-#include <robot_model/RobotJointAction.h>
-#include <robot_model/RobotState.h>
-
+#include "absl/base/nullability.h"
 #include "absl/log/scoped_mock_log.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/match.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
+#include "ocs2_centroidal_model/AccessHelperFunctions.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/mrt/ControllerEvent.h"
+#include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
+#include "humanoid_common_mpc/mrt/MpcLink.h"
+#include "robot_model/ContactEstimator.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotJointAction.h"
+#include "robot_model/RobotState.h"
 #include "support/AtlasReferenceStack.h"
 
 /*
@@ -67,6 +74,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
+/** The action of joint `index`; a zero action, and a failure of the test, when `action` carries none for the joint. */
+const robot::model::JointAction& jointAction(const robot::model::RobotJointAction& action, size_t index) {
+  const std::optional<robot::model::JointAction>& slot = action.at(index);
+  if (!slot.has_value()) {
+    ADD_FAILURE() << "the robot joint action carries no action for joint " << index;
+    static const robot::model::JointAction kNoAction;
+    return kNoAction;
+  }
+  return *slot;
+}
+
 using ::testing::_;
 using ::testing::HasSubstr;
 
@@ -81,16 +99,18 @@ class ControllerHarness {
    * iterations (link().runSolverIteration()), as the lockstep closed loop of humanoid_mpc_validation does.
    */
   explicit ControllerHarness(InProcessMpcLink::Execution execution = InProcessMpcLink::Execution::kSolverThread)
-      : description_(stack_.urdfFile()), robotState_(description_), action_(description_) {
+      : description_(robot::model::RobotDescription::Create(stack_.urdfFile()).value()), robotState_(description_), action_(description_) {
     if (execution == InProcessMpcLink::Execution::kCaller) {
       InProcessMpcLink::Config config;
       config.execution = execution;
-      controller_ = std::make_unique<CentroidalMpcMrtJointController>(description_, stack_.modelSettings(), stack_.model(),
-                                                                      InProcessMpcLink::factory(stack_.mpc(), std::move(config), &link_),
-                                                                      stack_.pinocchioInterface());
+      controller_ = CentroidalMpcMrtJointController::Create(description_, stack_.modelSettings(), stack_.model(),
+                                                            InProcessMpcLink::factory(stack_.mpc(), std::move(config), &link_),
+                                                            stack_.pinocchioInterface())
+                        .value();
     } else {
-      controller_ = std::make_unique<CentroidalMpcMrtJointController>(description_, stack_.modelSettings(), stack_.model(), stack_.mpc(),
-                                                                      stack_.pinocchioInterface(), kMpcFrequency);
+      controller_ = CentroidalMpcMrtJointController::Create(description_, stack_.modelSettings(), stack_.model(), stack_.mpc(),
+                                                            stack_.pinocchioInterface(), kMpcFrequency)
+                        .value();
     }
     mpcJointIndices_ = description_.getJointIndices(stack_.modelSettings().mpcModelJointNames);
     setState(stack_.initialState());
@@ -99,8 +119,6 @@ class ControllerHarness {
     for (size_t joint = 0; joint < description_.getNumJoints(); ++joint) nominal_[joint] = robotState_.getJointPosition(joint);
     controller_->setNominalJointPositions(nominal_);
   }
-
-  ~ControllerHarness() { controller_.reset(); }
 
   AtlasReferenceStack& stack() { return stack_; }
   CentroidalMpcMrtJointController& controller() { return *controller_; }
@@ -167,8 +185,11 @@ class ControllerHarness {
 
   /** The action JOINT_PD commands at the robot's current state, from a controller of its own. */
   robot::model::RobotJointAction jointPdActionHere() {
-    CentroidalMpcMrtJointController reference(description_, stack_.modelSettings(), stack_.model(), stack_.mpc(),
-                                              stack_.pinocchioInterface(), kMpcFrequency);
+    const std::unique_ptr<CentroidalMpcMrtJointController> referencePtr =
+        CentroidalMpcMrtJointController::Create(description_, stack_.modelSettings(), stack_.model(), stack_.mpc(),
+                                                stack_.pinocchioInterface(), kMpcFrequency)
+            .value();
+    CentroidalMpcMrtJointController& reference = *referencePtr;
     reference.setNominalJointPositions(nominal_);
     reference.setControlMode("JOINT_PD");
     robot::model::RobotJointAction action(description_);
@@ -181,8 +202,8 @@ class ControllerHarness {
   scalar_t maxDifference(const robot::model::RobotJointAction& a, const robot::model::RobotJointAction& b) const {
     scalar_t difference = 0.0;
     for (size_t index : mpcJointIndices_) {
-      const robot::model::JointAction& x = a.at(index).value();
-      const robot::model::JointAction& y = b.at(index).value();
+      const robot::model::JointAction& x = jointAction(a, index);
+      const robot::model::JointAction& y = jointAction(b, index);
       difference = std::max({difference, std::abs(x.q_des - y.q_des), std::abs(x.qd_des - y.qd_des), std::abs(x.kp - y.kp),
                              std::abs(x.kd - y.kd), std::abs(x.feed_forward_effort - y.feed_forward_effort)});
     }
@@ -200,8 +221,19 @@ class ControllerHarness {
   std::vector<size_t> mpcJointIndices_;
   std::vector<scalar_t> nominal_;
   scalar_t time_ = 1.0;
-  InProcessMpcLink* link_ = nullptr;  // the controller's, with InProcessMpcLink::Execution::kCaller
+  InProcessMpcLink* absl_nullable link_ = nullptr;  // the controller's, with InProcessMpcLink::Execution::kCaller
   std::unique_ptr<CentroidalMpcMrtJointController> controller_;
+};
+
+/** A contact estimator that reports the flags it is given, however many. */
+class FixedContactEstimator final : public ::robot::model::ContactEstimator {
+ public:
+  explicit FixedContactEstimator(std::vector<bool> flags) : flags_(std::move(flags)) {}
+  void estimateContactFlags(const robot::model::RobotState& /*robotState*/, std::vector<bool>& flags) override { flags = flags_; }
+  std::string getName() const override { return "FixedContactEstimator"; }
+
+ private:
+  std::vector<bool> flags_;
 };
 
 /** A plan whose joints are `offset` [rad] away from the observed ones over the whole horizon. */
@@ -215,6 +247,75 @@ mpc_test::ScriptedSolver::PlanFunction jointOffsetPlan(const AtlasReferenceStack
   };
 }
 
+TEST(MrtJointControllerReset, CreateRefusesALinkFactoryThatMakesNoLink) {
+  AtlasReferenceStack stack;
+  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus = robot::model::RobotDescription::Create(stack.urdfFile());
+  ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
+  const robot::model::RobotDescription& description = *descriptionOrStatus;
+  const MpcLinkFactory noLink = [](const MpcLink::ResetTargetFunction& /*resetTarget*/) { return std::unique_ptr<MpcLink>(); };
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> created =
+      CentroidalMpcMrtJointController::Create(description, stack.modelSettings(), stack.model(), noLink, stack.pinocchioInterface());
+  ASSERT_FALSE(created.ok()) << "Create() built a controller without an MPC link";
+  EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument) << created.status();
+  EXPECT_TRUE(absl::StrContains(created.status().message(), "made no link")) << created.status();
+}
+
+/** A sink that keeps the events of one code, as the robot process's realtime event log would hand them on. */
+class CodeRecordingSink final : public ControllerEventSink {
+ public:
+  explicit CodeRecordingSink(ControllerEventCode code) : code_(code) {}
+  bool post(const ControllerEvent& event) override {
+    if (event.code == code_) events.push_back(event);
+    return true;
+  }
+  std::vector<ControllerEvent> events;
+
+ private:
+  const ControllerEventCode code_;
+};
+
+TEST(MrtJointControllerReset, AContactEstimateOfTheWrongSizeIsRefusedReportedOnceAndKeepsTheMeasuredContactState) {
+  // It used to throw out of computeJointControlAction(), on the control thread: now it is refused, and the first refusal
+  // of the run is posted as a warning to the event sink.
+  // Declared first, so that it outlives the controller, which may report until it is destroyed.
+  CodeRecordingSink sink(ControllerEventCode::kContactEstimateRefused);
+  ControllerHarness harness(InProcessMpcLink::Execution::kCaller);
+  harness.controller().setEventSink(&sink);
+  harness.startWithoutThread();
+  harness.controller().setControlMode("JOINT_PD");
+  harness.controller().setContactEstimator(std::make_shared<FixedContactEstimator>(std::vector<bool>{true, false}));
+  harness.cycle(std::chrono::microseconds(0));
+  EXPECT_EQ(harness.controller().getMeasuredContactFlags(), (contact_flag_t{true, false}));
+  EXPECT_EQ(harness.controller().getNumRefusedContactEstimates(), 0U) << "positive control: one flag per contact point is taken";
+  EXPECT_TRUE(sink.events.empty());
+
+  harness.controller().setContactEstimator(std::make_shared<FixedContactEstimator>(std::vector<bool>{false}));
+  harness.cycle(std::chrono::microseconds(0));
+  harness.cycle(std::chrono::microseconds(0));
+  EXPECT_EQ(harness.controller().getMeasuredContactFlags(), (contact_flag_t{true, false}))
+      << "a refused estimate changed the contact state";
+  EXPECT_EQ(harness.controller().getNumRefusedContactEstimates(), 2U);
+  ASSERT_EQ(sink.events.size(), 1U) << "the refusal is reported once, not on every cycle";
+  EXPECT_EQ(sink.events[0].values[0], 1.0);
+  EXPECT_EQ(controllerEventText(sink.events[0]), "FixedContactEstimator");
+  EXPECT_STREQ(sink.events[0].controller, "CentroidalMpcMrtJointController");
+  harness.controller().setEventSink(nullptr);
+}
+
+TEST(MrtJointControllerReset, AnInvalidContactWrenchGateIsRefusedAndTheGateInUseKept) {
+  // Declared first, so that it outlives the controller, which may report until it is destroyed.
+  CodeRecordingSink sink(ControllerEventCode::kContactWrenchGateRefused);
+  ControllerHarness harness(InProcessMpcLink::Execution::kCaller);
+  harness.controller().setEventSink(&sink);
+  harness.controller().setContactWrenchGateConfig({.debounceTime = 0.02, .rampTime = 0.05});
+  harness.controller().setContactWrenchGateConfig({.debounceTime = -1.0, .rampTime = 0.0});
+  EXPECT_EQ(harness.controller().getContactWrenchGate().getConfig().debounceTime, 0.02);
+  EXPECT_EQ(harness.controller().getContactWrenchGate().getConfig().rampTime, 0.05);
+  ASSERT_EQ(sink.events.size(), 1U);
+  EXPECT_EQ(sink.events[0].values[0], -1.0);
+  harness.controller().setEventSink(nullptr);
+}
+
 TEST(MrtJointControllerReset, ZeroTorqueCommandsNothingAndRequestsNoReset) {
   ControllerHarness harness;
   harness.controller().setControlMode("ZERO_TORQUE");
@@ -224,9 +325,9 @@ TEST(MrtJointControllerReset, ZeroTorqueCommandsNothingAndRequestsNoReset) {
   for (int k = 0; k < 150; ++k) {
     const robot::model::RobotJointAction& action = harness.cycle();
     for (size_t index : harness.mpcJointIndices()) {
-      ASSERT_EQ(action.at(index)->kp, 0.0);
-      ASSERT_EQ(action.at(index)->kd, 0.0);
-      ASSERT_EQ(action.at(index)->feed_forward_effort, 0.0);
+      ASSERT_EQ(jointAction(action, index).kp, 0.0);
+      ASSERT_EQ(jointAction(action, index).kd, 0.0);
+      ASSERT_EQ(jointAction(action, index).feed_forward_effort, 0.0);
     }
   }
   EXPECT_EQ(harness.controller().getResetSupervisor().numResetsServed(), 0u)
@@ -276,7 +377,7 @@ TEST(MrtJointControllerReset, RepeatedFailuresBackOffHoldTheRobotInJointPdAndLog
   EXPECT_CALL(log, Log(absl::LogSeverity::kError, _, HasSubstr("switch to JOINT_PD and back to WB_MPC"))).Times(1);
   log.StartCapturingLogs();
 
-  harness.stack().mpc().solver().failEverySolve(true);
+  harness.stack().mpc().solver().failEverySolve(/*fail=*/true);
   const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
   robot::model::RobotJointAction held = mpcAction;
   while (std::chrono::steady_clock::now() - start < std::chrono::milliseconds(1500)) held = harness.cycle(std::chrono::milliseconds(5));
@@ -287,10 +388,10 @@ TEST(MrtJointControllerReset, RepeatedFailuresBackOffHoldTheRobotInJointPdAndLog
   const uint64_t resets = harness.controller().getResetSupervisor().numResetsServed() - resetsBefore;
   const uint64_t failedSolves = harness.stack().mpc().solver().numFailedSolves();
   EXPECT_LE(resets, 15u) << "a reset for every attempt, and the attempts back off: " << failedSolves << " failed solves in 1.5 s";
-  EXPECT_LT(harness.maxDifference(held, jointPd), 1e-9) << "an unhealthy MPC must hold the robot with the JOINT_PD action";
+  EXPECT_LT(harness.maxDifference(held, jointPd), 1.0e-9) << "an unhealthy MPC must hold the robot with the JOINT_PD action";
 
   // A solve that succeeds again: the MPC is healthy, and its policy is executed again.
-  harness.stack().mpc().solver().failEverySolve(false);
+  harness.stack().mpc().solver().failEverySolve(/*fail=*/false);
   EXPECT_TRUE(harness.cycleUntil(
       [&harness]() {
         return harness.controller().isMpcHealthy() && harness.controller().getPlannedContactFlags(harness.time()).has_value();
@@ -315,7 +416,7 @@ TEST(MrtJointControllerReset, AClockThatRunsBackwardsIsOneResetAndTheHandOverCom
   harness.setTime(harness.time() - 5.0);
   const robot::model::RobotJointAction& afterRewind = harness.cycle();
   EXPECT_TRUE(harness.controller().isEnteringMpc()) << "the policies planned on the old clock went on reaching the robot";
-  EXPECT_LT(harness.maxDifference(afterRewind, jointPd), 1e-9) << "the robot is held with the JOINT_PD action";
+  EXPECT_LT(harness.maxDifference(afterRewind, jointPd), 1.0e-9) << "the robot is held with the JOINT_PD action";
 
   // The new policy is taken into use and ramped in; the hold does not wait for the old clock.
   EXPECT_TRUE(
@@ -370,12 +471,14 @@ TEST(MrtJointControllerReset, AfterAFallTheFirstPolicyIsPlannedFromTheHeldRobotO
 
   const SystemObservation& solvedFrom = harness.controller().getCommandData().mpcInitObservation_;
   EXPECT_GE(solvedFrom.time, entryTime) << "the policy in use was solved before the entry into WB_MPC";
-  EXPECT_LT((model.getBasePose(solvedFrom.state) - model.getBasePose(held)).cwiseAbs().maxCoeff(), 1e-9)
+  EXPECT_LT((model.getBasePose(solvedFrom.state) - model.getBasePose(held)).cwiseAbs().maxCoeff(), 1.0e-9)
       << "the policy was not planned from the robot held on the gantry";
-  EXPECT_LT((model.getJointAngles(solvedFrom.state) - model.getJointAngles(held)).cwiseAbs().maxCoeff(), 1e-9);
+  EXPECT_LT((model.getJointAngles(solvedFrom.state) - model.getJointAngles(held)).cwiseAbs().maxCoeff(), 1.0e-9);
   for (scalar_t query = harness.time(); query <= harness.time() + stack.horizon(); query += 0.01) {
     const std::optional<contact_flag_t> planned = harness.controller().getPlannedContactFlags(query);
-    ASSERT_TRUE(planned.has_value());
+    if (!planned.has_value()) {
+      GTEST_FAIL();
+    }
     EXPECT_TRUE((*planned)[0] && (*planned)[1]) << "the first policy after the fall still steps, at t = " << query;
   }
 }
@@ -409,7 +512,7 @@ TEST(MrtJointControllerReset, WithoutASolverThreadTheCallersIterationsServeReset
   EXPECT_TRUE(harness.controller().getPlannedContactFlags(harness.time()).has_value());
 
   // Failures: a reset of the solver and no wait for the first, then the back-off the caller waits out on its own clock.
-  harness.stack().mpc().solver().failEverySolve(true);
+  harness.stack().mpc().solver().failEverySolve(/*fail=*/true);
   const size_t maxFailures = harness.controller().getResetSupervisor().getConfig().maxConsecutiveFailures;
   for (size_t failure = 1; failure <= maxFailures; ++failure) {
     iteration = harness.link().runSolverIteration();
@@ -421,7 +524,7 @@ TEST(MrtJointControllerReset, WithoutASolverThreadTheCallersIterationsServeReset
   }
   EXPECT_GT(iteration.retryDelay.count(), 0.0) << "persistent failures back off";
   EXPECT_FALSE(harness.controller().isMpcHealthy());
-  harness.stack().mpc().solver().failEverySolve(false);
+  harness.stack().mpc().solver().failEverySolve(/*fail=*/false);
   iteration = harness.link().runSolverIteration();
   EXPECT_TRUE(iteration.status.ok()) << iteration.status;
   EXPECT_TRUE(harness.controller().isMpcHealthy()) << "a solve that succeeds ends it";

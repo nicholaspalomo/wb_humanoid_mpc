@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/cost/StateQuadraticCost.h"
 
+#include <utility>
+
 namespace ocs2::humanoid {
 
 StateQuadraticCost::StateQuadraticCost(matrix_t Q, size_t inputDim, const SwitchedModelReferenceManager& referenceManager)
@@ -36,12 +38,11 @@ StateQuadraticCost::StateQuadraticCost(matrix_t Q, size_t inputDim, const Switch
       inputDim_(inputDim),
       referenceManagerPtr_(&referenceManager) {}
 
-StateQuadraticCost::StateQuadraticCost(const StateQuadraticCost& rhs)
-    : QuadraticStateInputCost(rhs), inputDim_(rhs.inputDim_), referenceManagerPtr_(rhs.referenceManagerPtr_) {}
+StateQuadraticCost::StateQuadraticCost(const StateQuadraticCost& rhs) = default;
 
 std::pair<vector_t, vector_t> StateQuadraticCost::getStateInputDeviation(scalar_t time,
                                                                          const vector_t& state,
-                                                                         const vector_t& input,
+                                                                         const vector_t& /*input*/,
                                                                          const TargetTrajectories& targetTrajectories) const {
   const vector_t xNominal = referenceManagerPtr_->getDesiredState(targetTrajectories, state, time);
   return {state - xNominal, vector_t::Zero(inputDim_)};

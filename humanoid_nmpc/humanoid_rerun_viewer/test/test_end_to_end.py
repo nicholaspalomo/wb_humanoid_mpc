@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """The bridge on a loopback bus: messages published with robot_ipc end up in an .rrd file, and the binary stops cleanly.
 
 Concurrent tests never collide on a port. Every publisher binds an ephemeral port (EPHEMERAL_PORT) and the bridge, or
@@ -7,6 +34,7 @@ network file that names a node nobody runs names a port this test holds bound, w
 Publishers repeat until the bridge has what it needs, which absorbs ZeroMQ's asynchronous connect.
 """
 
+from collections.abc import Callable
 import os
 import shutil
 import signal
@@ -15,15 +43,11 @@ import subprocess
 import tempfile
 import time
 import unittest
-from typing import Callable
 
-import robot_ipc
 from humanoid_mpc_msgs import fsm_state_pb2
 from humanoid_mpc_msgs import loop_timing_pb2
 from humanoid_mpc_msgs import mpc_status_pb2
 
-import rrd_contents
-import synthetic_messages
 from humanoid_mpc_ipc import topics
 from humanoid_rerun_viewer import blueprint
 from humanoid_rerun_viewer import bridge
@@ -32,6 +56,9 @@ from humanoid_rerun_viewer import scene_contract
 from humanoid_rerun_viewer import status_contract
 from humanoid_rerun_viewer import telemetry_contract
 from humanoid_rerun_viewer import urdf_model
+import robot_ipc
+import rrd_contents
+import synthetic_messages
 
 TIMEOUT_S = 30.0
 PUBLISHER = "viz"
@@ -73,6 +100,7 @@ class Publisher:
         self.time = 0.0
 
     def step(self) -> None:
+        """Advances the robot's clock by 10 ms and publishes one message on each topic the bridge subscribes to."""
         self.time += 0.01
         self.bus.publish(
             topics.VIZ_SCENE, synthetic_messages.full_scene(self.time, LINKS)
@@ -92,6 +120,18 @@ class Publisher:
             topics.ROBOT_LOOP_TIMING,
             loop_timing_pb2.LoopTiming(target_period_s=0.002, policy_age_s=0.01),
         )
+
+
+def telemetry_beyond(
+    publisher: Publisher, handled: dict[str, int], count: int
+) -> Callable[[], bool]:
+    """A wait_for() condition: publishes one step, then whether the bridge handled more than `count` telemetry samples."""
+
+    def received() -> bool:
+        publisher.step()
+        return handled.get(topics.VIZ_TELEMETRY, 0) > count
+
+    return received
 
 
 class LoopbackBusTest(unittest.TestCase):
@@ -206,14 +246,13 @@ class LoopbackBusTest(unittest.TestCase):
                 publisher_bus = robot_ipc.Bus(PUBLISHER, loopback_network(port))
                 self.addCleanup(publisher_bus.close)
                 publisher_bus.start()
-            publisher = Publisher(publisher_bus)
             before = handled.get(topics.VIZ_TELEMETRY, 0)
-
-            def received() -> bool:
-                publisher.step()
-                return handled.get(topics.VIZ_TELEMETRY, 0) > before + 5
-
-            self.assertTrue(wait_for(received), f"restart {restart}: {dict(handled)}")
+            self.assertTrue(
+                wait_for(
+                    telemetry_beyond(Publisher(publisher_bus), handled, before + 5)
+                ),
+                f"restart {restart}: {dict(handled)}",
+            )
             publisher_bus.close()
         feed.stop()
         recording.disconnect()
@@ -238,6 +277,7 @@ class BinaryTest(unittest.TestCase):
         return path
 
     def run_until_signal(self, signum: int) -> None:
+        """Runs the binary against a publisher until it is sent `signum`; checks that it exits 0 with a recording."""
         publisher_bus = robot_ipc.Bus(
             PUBLISHER, loopback_network(robot_ipc.EPHEMERAL_PORT)
         )
@@ -247,6 +287,7 @@ class BinaryTest(unittest.TestCase):
         rrd_path = os.path.join(self.directory, f"signal_{signum}.rrd")
         log_path = os.path.join(self.directory, f"signal_{signum}.log")
         with open(log_path, "w", encoding="utf-8") as log:
+            # pylint: disable-next=consider-using-with  # The process outlives this block; kill_if_running() ends it.
             process = subprocess.Popen(
                 [
                     self.binary,
@@ -259,7 +300,13 @@ class BinaryTest(unittest.TestCase):
                 stdout=log,
                 stderr=subprocess.STDOUT,
             )
-        self.addCleanup(lambda: process.poll() is None and process.kill())
+
+        def kill_if_running() -> None:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+
+        self.addCleanup(kill_if_running)
 
         def log_text() -> str:
             with open(log_path, encoding="utf-8") as log_file:

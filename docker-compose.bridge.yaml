@@ -24,7 +24,8 @@ services:
     ports:
       # LINT.IfChange(bus_ports)
       # The ZeroMQ bus: every node binds its PUB socket at its port in the network file (config/ipc/network.textproto),
-      # so processes on the host or on another machine can join the bus of the processes running here.
+      # so processes on the host or on another machine can join the bus of the processes running here. The range holds
+      # every node: robot 5600, mpc 5610, operator 5620, teleop 5621, config_push 5622.
       - "5600-5629:5600-5629/tcp"
       # LINT.ThenChange(//.devcontainer/README.md:bus_ports, //config/ipc/network.textproto:localhost_nodes)
       # LINT.IfChange(rerun_ports)

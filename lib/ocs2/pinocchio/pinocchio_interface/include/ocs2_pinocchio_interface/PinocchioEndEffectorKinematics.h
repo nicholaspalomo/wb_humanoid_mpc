@@ -32,6 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
 #include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
 #include <ocs2_robotic_tools/end_effector/EndEffectorKinematics.h>
@@ -68,7 +70,7 @@ class PinocchioEndEffectorKinematics final : public EndEffectorKinematics<scalar
                                  std::vector<std::string> endEffectorIds);
 
   ~PinocchioEndEffectorKinematics() override = default;
-  PinocchioEndEffectorKinematics* clone() const override;
+  PinocchioEndEffectorKinematics* absl_nonnull clone() const override;
   PinocchioEndEffectorKinematics& operator=(const PinocchioEndEffectorKinematics&) = delete;
 
   /** Set the pinocchio interface for caching.
@@ -192,7 +194,7 @@ class PinocchioEndEffectorKinematics final : public EndEffectorKinematics<scalar
  private:
   PinocchioEndEffectorKinematics(const PinocchioEndEffectorKinematics& rhs);
 
-  const PinocchioInterface* pinocchioInterfacePtr_;
+  const PinocchioInterface* absl_nullable pinocchioInterfacePtr_;
   std::unique_ptr<PinocchioStateInputMapping<scalar_t>> mappingPtr_;
   const std::vector<std::string> endEffectorIds_;
   std::vector<size_t> endEffectorFrameIds_;

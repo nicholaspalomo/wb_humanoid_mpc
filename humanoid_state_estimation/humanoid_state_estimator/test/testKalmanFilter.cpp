@@ -27,9 +27,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <functional>
 #include <initializer_list>
@@ -37,15 +34,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <random>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "Eigen/Eigenvalues"
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/types/span.h"
-
-#include <ocs2_core/Types.h>
-#include <Eigen/Eigenvalues>
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
 
 #include "humanoid_state_estimator/KalmanFilter.h"
 
@@ -239,11 +239,11 @@ TEST(KalmanFilterTest, matchesTheDenseKalmanFilterChannelByChannel) {
     for (size_t i = 0; i < names.size(); ++i) {
       const KalmanFilterState state = getStateOrDie(*filter, names[i]);
       EXPECT_EQ(state.name, names[i]);
-      expectNear(state.state, reference.x.segment(offsets[i], sizes[i]), /*tolerance=*/1e-9);
-      expectNear(state.P_state_estimate, reference.P.block(offsets[i], offsets[i], sizes[i], sizes[i]), /*tolerance=*/1e-9);
+      expectNear(state.state, reference.x.segment(offsets[i], sizes[i]), /*tolerance=*/1.0e-9);
+      expectNear(state.P_state_estimate, reference.P.block(offsets[i], offsets[i], sizes[i], sizes[i]), /*tolerance=*/1.0e-9);
       for (size_t j = 0; j < names.size(); ++j) {
         expectNear(getCovarianceOrDie(*filter, names[i], names[j]), reference.P.block(offsets[i], offsets[j], sizes[i], sizes[j]),
-                   /*tolerance=*/1e-9);
+                   /*tolerance=*/1.0e-9);
       }
     }
   };
@@ -282,8 +282,8 @@ TEST(KalmanFilterTest, aScalarRandomWalkFollowsTheClosedForm) {
                               .H_measurement_model = {{"x", scalarMatrix(1.0)}},
                               .R_measurement_noise = scalarMatrix(2.0)}})
                   .ok());
-  EXPECT_NEAR(getStateOrDie(*filter, "x").state(0), 13.0 / 7.0, 1e-15);
-  EXPECT_NEAR(getStateOrDie(*filter, "x").P_state_estimate(0, 0), 6.0 / 7.0, 1e-15);
+  EXPECT_NEAR(getStateOrDie(*filter, "x").state(0), 13.0 / 7.0, 1.0e-15);
+  EXPECT_NEAR(getStateOrDie(*filter, "x").P_state_estimate(0, 0), 6.0 / 7.0, 1.0e-15);
 }
 
 TEST(KalmanFilterTest, aChannelWithoutAProcessModelKeepsItsMeanAndCovariance) {
@@ -306,8 +306,8 @@ TEST(KalmanFilterTest, aChannelWithoutAProcessModelKeepsItsMeanAndCovariance) {
   // x_still[k+1] = x_still[k]: unchanged; the cross-covariance follows A_moving,moving P_moving,still.
   EXPECT_TRUE(getStateOrDie(*filter, "still").state == still.state);
   EXPECT_TRUE(getStateOrDie(*filter, "still").P_state_estimate == still.P_state_estimate);
-  expectNear(getCovarianceOrDie(*filter, "moving", "still"), 2.0 * P_moving_still, /*tolerance=*/1e-15);
-  expectNear(getCovarianceOrDie(*filter, "still", "moving"), 2.0 * P_moving_still.transpose(), /*tolerance=*/1e-15);
+  expectNear(getCovarianceOrDie(*filter, "moving", "still"), 2.0 * P_moving_still, /*tolerance=*/1.0e-15);
+  expectNear(getCovarianceOrDie(*filter, "still", "moving"), 2.0 * P_moving_still.transpose(), /*tolerance=*/1.0e-15);
 }
 
 TEST(KalmanFilterTest, anUnlistedDiagonalBlockIsTheIdentityAndAZeroOneForgetsThePast) {
@@ -349,13 +349,13 @@ TEST(KalmanFilterTest, inputNoiseIsCorrelatedAcrossTheChannelsItDrives) {
                             {{.name = "acceleration", .input = acceleration, .Q_input_noise = sigma * sigma * identity(3)}})
                   .ok());
 
-  expectNear(getStateOrDie(*filter, "position").state, 0.5 * dt * dt * acceleration, /*tolerance=*/1e-15);
-  expectNear(getStateOrDie(*filter, "velocity").state, dt * acceleration, /*tolerance=*/1e-15);
+  expectNear(getStateOrDie(*filter, "position").state, 0.5 * dt * dt * acceleration, /*tolerance=*/1.0e-15);
+  expectNear(getStateOrDie(*filter, "velocity").state, dt * acceleration, /*tolerance=*/1.0e-15);
   const scalar_t variance = sigma * sigma;
-  expectNear(getCovarianceOrDie(*filter, "position", "position"), 0.25 * dt * dt * dt * dt * variance * identity(3), /*tolerance=*/1e-15);
-  expectNear(getCovarianceOrDie(*filter, "position", "velocity"), 0.5 * dt * dt * dt * variance * identity(3), /*tolerance=*/1e-15);
-  expectNear(getCovarianceOrDie(*filter, "velocity", "position"), 0.5 * dt * dt * dt * variance * identity(3), /*tolerance=*/1e-15);
-  expectNear(getCovarianceOrDie(*filter, "velocity", "velocity"), dt * dt * variance * identity(3), /*tolerance=*/1e-15);
+  expectNear(getCovarianceOrDie(*filter, "position", "position"), 0.25 * dt * dt * dt * dt * variance * identity(3), /*tolerance=*/1.0e-15);
+  expectNear(getCovarianceOrDie(*filter, "position", "velocity"), 0.5 * dt * dt * dt * variance * identity(3), /*tolerance=*/1.0e-15);
+  expectNear(getCovarianceOrDie(*filter, "velocity", "position"), 0.5 * dt * dt * dt * variance * identity(3), /*tolerance=*/1.0e-15);
+  expectNear(getCovarianceOrDie(*filter, "velocity", "velocity"), dt * dt * variance * identity(3), /*tolerance=*/1.0e-15);
 }
 
 // The property the joint covariance exists for: velocity is never measured, and is still corrected, through the
@@ -364,7 +364,7 @@ TEST(KalmanFilterTest, positionMeasurementsCorrectTheVelocityThroughTheCrossCova
   const scalar_t dt = 0.01;
   const scalar_t true_velocity = 0.8;
   std::unique_ptr<KalmanFilter> filter =
-      createOrDie({{.name = "position", .state = makeVector({0.0}), .P_state_estimate = scalarMatrix(1e-6)},
+      createOrDie({{.name = "position", .state = makeVector({0.0}), .P_state_estimate = scalarMatrix(1.0e-6)},
                    {.name = "velocity", .state = makeVector({0.0}), .P_state_estimate = scalarMatrix(1.0)}});
   const std::vector<KalmanFilterProcessModel> constant_velocity = {
       {.state_name = "position", .A_state_transition = {{"velocity", scalarMatrix(dt)}}}};
@@ -375,14 +375,14 @@ TEST(KalmanFilterTest, positionMeasurementsCorrectTheVelocityThroughTheCrossCova
                     ->correct({{.name = "position",
                                 .measurement = makeVector({true_velocity * dt * step}),
                                 .H_measurement_model = {{"position", scalarMatrix(1.0)}},
-                                .R_measurement_noise = scalarMatrix(1e-6)}})
+                                .R_measurement_noise = scalarMatrix(1.0e-6)}})
                     .ok());
     if (step == 1) {
       EXPECT_GT(getStateOrDie(*filter, "velocity").state(0), 0.0) << "the first position measurement must already move the velocity";
     }
   }
-  EXPECT_NEAR(getStateOrDie(*filter, "velocity").state(0), true_velocity, 1e-3);
-  EXPECT_LT(getStateOrDie(*filter, "velocity").P_state_estimate(0, 0), 1e-3);
+  EXPECT_NEAR(getStateOrDie(*filter, "velocity").state(0), true_velocity, 1.0e-3);
+  EXPECT_LT(getStateOrDie(*filter, "velocity").P_state_estimate(0, 0), 1.0e-3);
 }
 
 TEST(KalmanFilterTest, aJointCorrectionEqualsSequentialCorrectionsInAnyOrder) {
@@ -407,7 +407,7 @@ TEST(KalmanFilterTest, aJointCorrectionEqualsSequentialCorrectionsInAnyOrder) {
   std::unique_ptr<KalmanFilter> joint = createOrDie(initial_states);
   std::unique_ptr<KalmanFilter> reversed = createOrDie(initial_states);
   std::unique_ptr<KalmanFilter> sequential = createOrDie(initial_states);
-  for (KalmanFilter* filter : {joint.get(), reversed.get(), sequential.get()}) {
+  for (KalmanFilter* absl_nonnull filter : {joint.get(), reversed.get(), sequential.get()}) {
     ASSERT_TRUE(filter->predict(process_model, /*inputs=*/{}).ok());
   }
   ASSERT_TRUE(joint->correct({first, second}).ok());
@@ -415,32 +415,32 @@ TEST(KalmanFilterTest, aJointCorrectionEqualsSequentialCorrectionsInAnyOrder) {
   ASSERT_TRUE(sequential->correct({first}).ok());
   ASSERT_TRUE(sequential->correct({second}).ok());
 
-  expectNear(jointState(*reversed), jointState(*joint), /*tolerance=*/1e-12);
-  expectNear(jointCovariance(*reversed), jointCovariance(*joint), /*tolerance=*/1e-12);
-  expectNear(jointState(*sequential), jointState(*joint), /*tolerance=*/1e-12);
-  expectNear(jointCovariance(*sequential), jointCovariance(*joint), /*tolerance=*/1e-12);
+  expectNear(jointState(*reversed), jointState(*joint), /*tolerance=*/1.0e-12);
+  expectNear(jointCovariance(*reversed), jointCovariance(*joint), /*tolerance=*/1.0e-12);
+  expectNear(jointState(*sequential), jointState(*joint), /*tolerance=*/1.0e-12);
+  expectNear(jointCovariance(*sequential), jointCovariance(*joint), /*tolerance=*/1.0e-12);
 }
 
 TEST(KalmanFilterTest, theCovarianceStaysSymmetricPositiveSemiDefiniteUnderNearlyExactMeasurements) {
   std::mt19937 generator(3);
-  std::unique_ptr<KalmanFilter> filter = createOrDie({{.name = "a", .state = vector_t::Zero(3), .P_state_estimate = 1e3 * identity(3)},
-                                                      {.name = "b", .state = vector_t::Zero(3), .P_state_estimate = 1e-3 * identity(3)}});
+  std::unique_ptr<KalmanFilter> filter = createOrDie({{.name = "a", .state = vector_t::Zero(3), .P_state_estimate = 1.0e3 * identity(3)},
+                                                      {.name = "b", .state = vector_t::Zero(3), .P_state_estimate = 1.0e-3 * identity(3)}});
   for (int step = 0; step < 200; ++step) {
     ASSERT_TRUE(
         filter
-            ->predict({{.state_name = "a", .A_state_transition = {{"b", 0.01 * identity(3)}}, .Q_process_noise = 1e-8 * identity(3)}},
+            ->predict({{.state_name = "a", .A_state_transition = {{"b", 0.01 * identity(3)}}, .Q_process_noise = 1.0e-8 * identity(3)}},
                       /*inputs=*/{})
             .ok());
     ASSERT_TRUE(filter
                     ->correct({{.name = "a",
                                 .measurement = randomMatrix(generator, /*rows=*/3, /*cols=*/1),
                                 .H_measurement_model = {{"a", identity(3)}, {"b", randomMatrix(generator, /*rows=*/3, /*cols=*/3)}},
-                                .R_measurement_noise = 1e-10 * identity(3)}})
+                                .R_measurement_noise = 1.0e-10 * identity(3)}})
                     .ok());
     const matrix_t P = jointCovariance(*filter);
     ASSERT_TRUE(P == P.transpose()) << "step " << step;
     const Eigen::SelfAdjointEigenSolver<matrix_t> eigen_solver(P, Eigen::EigenvaluesOnly);
-    ASSERT_GE(eigen_solver.eigenvalues().minCoeff(), -1e-12 * P.cwiseAbs().maxCoeff()) << "step " << step;
+    ASSERT_GE(eigen_solver.eigenvalues().minCoeff(), -1.0e-12 * P.cwiseAbs().maxCoeff()) << "step " << step;
   }
 }
 
@@ -489,34 +489,34 @@ TEST(KalmanFilterTest, legKinematicsCorrectTheBaseVelocityOfAContactAidedEstimat
   vector_t true_base_position = makeVector({0.0, 0.0, 0.9});
   vector_t true_base_velocity = makeVector({0.5, -0.2, 0.0});
 
-  std::unique_ptr<KalmanFilter> filter =
-      createOrDie({{.name = "base_position", .state = true_base_position, .P_state_estimate = 1e-4 * identity(3)},
-                   {.name = "base_velocity", .state = vector_t::Zero(3), .P_state_estimate = identity(3)},
-                   {.name = "foot_position", .state = true_foot + makeVector({0.01, 0.01, 0.0}), .P_state_estimate = 1e-2 * identity(3)}});
+  std::unique_ptr<KalmanFilter> filter = createOrDie(
+      {{.name = "base_position", .state = true_base_position, .P_state_estimate = 1.0e-4 * identity(3)},
+       {.name = "base_velocity", .state = vector_t::Zero(3), .P_state_estimate = identity(3)},
+       {.name = "foot_position", .state = true_foot + makeVector({0.01, 0.01, 0.0}), .P_state_estimate = 1.0e-2 * identity(3)}});
   const std::vector<KalmanFilterProcessModel> process_model = {
       {.state_name = "base_position",
        .A_state_transition = {{"base_velocity", dt * identity(3)}},
        .B_control_input = {{"imu_acceleration", 0.5 * dt * dt * identity(3)}}},
       {.state_name = "base_velocity", .B_control_input = {{"imu_acceleration", dt * identity(3)}}},
-      {.state_name = "foot_position", .Q_process_noise = 1e-10 * identity(3)},
+      {.state_name = "foot_position", .Q_process_noise = 1.0e-10 * identity(3)},
   };
 
   for (int step = 0; step < 500; ++step) {
     true_base_position += dt * true_base_velocity + 0.5 * dt * dt * acceleration;
     true_base_velocity += dt * acceleration;
     ASSERT_TRUE(
-        filter->predict(process_model, {{.name = "imu_acceleration", .input = acceleration, .Q_input_noise = 1e-4 * identity(3)}}).ok());
+        filter->predict(process_model, {{.name = "imu_acceleration", .input = acceleration, .Q_input_noise = 1.0e-4 * identity(3)}}).ok());
     ASSERT_TRUE(filter
                     ->correct({{.name = "foot_relative_position",
                                 .measurement = true_foot - true_base_position,
                                 .H_measurement_model = {{"foot_position", identity(3)}, {"base_position", -identity(3)}},
-                                .R_measurement_noise = 1e-6 * identity(3)}})
+                                .R_measurement_noise = 1.0e-6 * identity(3)}})
                     .ok());
   }
 
-  expectNear(getStateOrDie(*filter, "base_velocity").state, true_base_velocity, /*tolerance=*/1e-2);
+  expectNear(getStateOrDie(*filter, "base_velocity").state, true_base_velocity, /*tolerance=*/1.0e-2);
   const vector_t relative_estimate = getStateOrDie(*filter, "foot_position").state - getStateOrDie(*filter, "base_position").state;
-  expectNear(relative_estimate, true_foot - true_base_position, /*tolerance=*/1e-3);
+  expectNear(relative_estimate, true_foot - true_base_position, /*tolerance=*/1.0e-3);
   // Only foot minus base is measured, so their absolute positions remain uncertain together: positively correlated.
   const matrix_t P_base_foot = getCovarianceOrDie(*filter, "base_position", "foot_position");
   EXPECT_GT(P_base_foot.diagonal().minCoeff(), 0.0);
@@ -625,14 +625,14 @@ TEST(KalmanFilterTest, reserveOnlySizesStorageBeforeOrAfterReset) {
       {.name = "position", .state = makeVector({0.0, 1.0}), .P_state_estimate = identity(2)},
       {.name = "velocity", .state = makeVector({1.0, 0.0}), .P_state_estimate = 2.0 * identity(2)}};
   const std::vector<KalmanFilterProcessModel> process_model = {
-      {.state_name = "position", .A_state_transition = {{"velocity", 0.1 * identity(2)}}, .Q_process_noise = 1e-3 * identity(2)},
+      {.state_name = "position", .A_state_transition = {{"velocity", 0.1 * identity(2)}}, .Q_process_noise = 1.0e-3 * identity(2)},
       {.state_name = "velocity", .B_control_input = {{"acceleration", 0.1 * identity(2)}}}};
   const std::vector<KalmanFilterInput> inputs = {
-      {.name = "acceleration", .input = makeVector({0.5, -0.5}), .Q_input_noise = 1e-2 * identity(2)}};
+      {.name = "acceleration", .input = makeVector({0.5, -0.5}), .Q_input_noise = 1.0e-2 * identity(2)}};
   const std::vector<KalmanFilterMeasurement> measurements = {{.name = "position",
                                                               .measurement = makeVector({0.2, 0.9}),
                                                               .H_measurement_model = {{"position", identity(2)}},
-                                                              .R_measurement_noise = 1e-2 * identity(2)}};
+                                                              .R_measurement_noise = 1.0e-2 * identity(2)}};
 
   std::unique_ptr<KalmanFilter> unreserved = createOrDie(initial_states);
   KalmanFilter reserved_before_reset;
@@ -641,15 +641,15 @@ TEST(KalmanFilterTest, reserveOnlySizesStorageBeforeOrAfterReset) {
   std::unique_ptr<KalmanFilter> reserved_after_reset = createOrDie(initial_states);
   ASSERT_TRUE(reserved_after_reset->reserve(/*max_input_dim=*/8, /*max_measurement_dim=*/16).ok());
 
-  for (KalmanFilter* filter : {unreserved.get(), &reserved_before_reset, reserved_after_reset.get()}) {
+  for (KalmanFilter* absl_nonnull filter : {unreserved.get(), &reserved_before_reset, reserved_after_reset.get()}) {
     for (int step = 0; step < 3; ++step) {
       ASSERT_TRUE(filter->predict(process_model, inputs).ok());
       ASSERT_TRUE(filter->correct(measurements).ok());
     }
   }
-  for (KalmanFilter* filter : {&reserved_before_reset, reserved_after_reset.get()}) {
-    expectNear(jointState(*filter), jointState(*unreserved), /*tolerance=*/1e-14);
-    expectNear(jointCovariance(*filter), jointCovariance(*unreserved), /*tolerance=*/1e-14);
+  for (KalmanFilter* absl_nonnull filter : {&reserved_before_reset, reserved_after_reset.get()}) {
+    expectNear(jointState(*filter), jointState(*unreserved), /*tolerance=*/1.0e-14);
+    expectNear(jointCovariance(*filter), jointCovariance(*unreserved), /*tolerance=*/1.0e-14);
   }
 
   const absl::Status negative = unreserved->reserve(/*max_input_dim=*/-1, /*max_measurement_dim=*/0);

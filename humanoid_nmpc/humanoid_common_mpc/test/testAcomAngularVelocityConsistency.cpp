@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -23,16 +27,14 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <filesystem>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <ostream>
 #include <random>
 #include <stdexcept>
@@ -40,28 +42,31 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include <pinocchio/algorithm/center-of-mass.hpp>
-#include <pinocchio/algorithm/centroidal.hpp>
-#include <pinocchio/multibody/data.hpp>
-#include <pinocchio/multibody/joint/joint-free-flyer.hpp>
-#include <pinocchio/multibody/model.hpp>
-#include <pinocchio/parsers/urdf.hpp>
-
-#include <urdf_parser/urdf_parser.h>
-#include <yaml-cpp/yaml.h>
-
+#include "absl/base/nullability.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "gtest/gtest.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/algorithm/centroidal.hpp"
+#include "pinocchio/multibody/data.hpp"
+#include "pinocchio/multibody/joint/joint-free-flyer.hpp"
+#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/parsers/urdf.hpp"
+#include "urdf_parser/urdf_parser.h"
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/config/model/MpcFormulationFromConfig.h"
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_mpc_config/contact_planning_file.nproto.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "robot_core/ResourcePaths.h"
 
 namespace ocs2::humanoid {
@@ -94,13 +99,13 @@ struct AcceptanceNumbers {
 
 /** One robot with a compiled-in aCOM network, and what its network has to achieve. */
 struct AcomRobotCase {
-  /// model_settings.robotName, which is also the name the network is registered under.
-  const char* robotName;
-  /// Robot config package, relative to the repository root, holding config/mpc/task.yaml (and contact_planning.yaml
-  /// where the robot has one).
-  const char* configPackage;
+  /// model_settings.robot_name, which is also the name the network is registered under.
+  const char* absl_nonnull robotName;
+  /// Robot config package, relative to the repository root, holding config/mpc/task.textproto (and
+  /// contact_planning.textproto where the robot has one).
+  const char* absl_nonnull configPackage;
   /// The robot's URDF, relative to the repository root.
-  const char* urdfFile;
+  const char* absl_nonnull urdfFile;
   /**
    * Whether the network is good enough to run in closed loop. A network that is not must stay switched off in the
    * robot's shipped configuration, which theUnvalidatedNetworksAreSwitchedOffInTheShippedConfiguration enforces.
@@ -141,15 +146,30 @@ std::ostream& operator<<(std::ostream& stream, const AcomRobotCase& robotCase) {
  */
 // LINT.IfChange(acom_acceptance_robots)
 const AcomRobotCase kAcomRobotCases[] = {
-    {"atlas", "robot_models/drc_atlas/drc_atlas_centroidal_mpc", "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
-     /*validatedForClosedLoop=*/true,
-     /*measured=*/{0.219, 0.375, 0.042, 0.138}, /*bounds=*/{0.30, 0.50, 0.08, 0.25}},
-    {"engineai_sa01", "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
-     "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf", /*validatedForClosedLoop=*/false,
-     /*measured=*/{0.508, 1.62, 0.127, 0.647}, /*bounds=*/{0.60, 1.95, 0.15, 0.80}},
-    {"g1", "robot_models/unitree_g1/g1_centroidal_mpc", "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf",
-     /*validatedForClosedLoop=*/false,
-     /*measured=*/{0.402, 1.33, 0.072, 0.238}, /*bounds=*/{0.48, 1.60, 0.09, 0.30}},
+    {.robotName = "atlas",
+     .configPackage = "robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+     .urdfFile = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
+     /*validatedForClosedLoop=*/.validatedForClosedLoop = true,
+     /*measured=*/.measured =
+         {.meanRelativeError = 0.219, .worstRelativeError = 0.375, .meanRelativeRateError = 0.042, .worstRelativeRateError = 0.138},
+     /*bounds=*/.bounds =
+         {.meanRelativeError = 0.30, .worstRelativeError = 0.50, .meanRelativeRateError = 0.08, .worstRelativeRateError = 0.25}},
+    {.robotName = "engineai_sa01",
+     .configPackage = "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+     .urdfFile = "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf",
+     /*validatedForClosedLoop=*/.validatedForClosedLoop = false,
+     /*measured=*/.measured =
+         {.meanRelativeError = 0.508, .worstRelativeError = 1.62, .meanRelativeRateError = 0.127, .worstRelativeRateError = 0.647},
+     /*bounds=*/.bounds =
+         {.meanRelativeError = 0.60, .worstRelativeError = 1.95, .meanRelativeRateError = 0.15, .worstRelativeRateError = 0.80}},
+    {.robotName = "g1",
+     .configPackage = "robot_models/unitree_g1/g1_centroidal_mpc",
+     .urdfFile = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf",
+     /*validatedForClosedLoop=*/.validatedForClosedLoop = false,
+     /*measured=*/.measured =
+         {.meanRelativeError = 0.402, .worstRelativeError = 1.33, .meanRelativeRateError = 0.072, .worstRelativeRateError = 0.238},
+     /*bounds=*/.bounds =
+         {.meanRelativeError = 0.48, .worstRelativeError = 1.60, .meanRelativeRateError = 0.09, .worstRelativeRateError = 0.30}},
 };
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/acom/AngularCenterOfMass.cpp:acom_robot_dispatch, //humanoid_nmpc/humanoid_common_mpc/BUILD.bazel:acom_acceptance_data, //humanoid_learning/acom/README.md:acom_acceptance_numbers, //robot_models/drc_atlas/README.md:acom_status, //robot_models/unitree_g1/README.md:acom_status, //robot_models/engineai_sa01/README.md:acom_status)
@@ -157,7 +177,7 @@ const AcomRobotCase kAcomRobotCases[] = {
 
 /** The robot's task file, from the test's runfiles. */
 std::string taskFileOf(const AcomRobotCase& robotCase) {
-  return robot::resolveResourcePath(absl::StrCat(robotCase.configPackage, "/config/mpc/task.yaml")).value();
+  return robot::resolveResourcePath(absl::StrCat(robotCase.configPackage, "/config/mpc/task.textproto")).value();
 }
 
 /** The robot's URDF, from the test's runfiles. */
@@ -217,9 +237,11 @@ class AcomAngularVelocityConsistencyTest : public ::testing::TestWithParam<AcomR
 
     // The REDUCED model the MPC builds, not the full URDF: the trained network is indexed by the MPC's joints, and on
     // the full model the joint count would not even match.
-    modelSettingsPtr_ = std::make_unique<ModelSettings>(taskFile, urdfFile, "testAcomAngularVelocityConsistency", /*verbose=*/false);
+    modelSettingsPtr_ = std::make_unique<ModelSettings>(
+        ModelSettings::Create(taskFile, urdfFile, "testAcomAngularVelocityConsistency", /*verbose=*/false).value());
     ASSERT_EQ(modelSettingsPtr_->robotName, robotCase.robotName) << "the case's task file belongs to another robot";
-    pinocchioInterfacePtr_ = std::make_unique<PinocchioInterface>(createCustomPinocchioInterface(taskFile, urdfFile, *modelSettingsPtr_));
+    pinocchioInterfacePtr_ =
+        std::make_unique<PinocchioInterface>(loadCustomPinocchioInterface(taskFile, urdfFile, *modelSettingsPtr_).value());
     numJoints_ = pinocchioInterfacePtr_->getModel().nq - kGeneralizedBaseDim;
 
     // The checked factory, as the MPC calls it: a joint list that differs from the one the header records fails here.
@@ -227,7 +249,7 @@ class AcomAngularVelocityConsistencyTest : public ::testing::TestWithParam<AcomR
         AngularCenterOfMass::Create(modelSettingsPtr_->robotName, modelSettingsPtr_->mpcModelJointNames);
     ASSERT_TRUE(acom.ok()) << acom.status();
     acomPtr_ = *std::move(acom);
-    ASSERT_EQ(acomPtr_->getInputDim(), static_cast<std::size_t>(numJoints_))
+    ASSERT_EQ(acomPtr_->getInputDim(), static_cast<size_t>(numJoints_))
         << "the exported weights are indexed by a different joint set than the MPC model";
   }
 
@@ -288,7 +310,7 @@ class AcomAngularVelocityConsistencyTest : public ::testing::TestWithParam<AcomR
       const matrix_t predicted = jacobian(q);
       EXPECT_EQ(predicted.rows(), target.rows());
       EXPECT_EQ(predicted.cols(), target.cols());
-      EXPECT_GT(target.norm(), 1e-6) << "the connection must not be identically zero, or this test is vacuous";
+      EXPECT_GT(target.norm(), 1.0e-6) << "the connection must not be identically zero, or this test is vacuous";
       const scalar_t relativeError = (predicted - target).norm() / target.norm();
       worstRelativeError = std::max(worstRelativeError, relativeError);
       summedRelativeError += relativeError;
@@ -325,7 +347,7 @@ TEST_P(AcomAngularVelocityConsistencyTest, theBoundsRejectANetworkFedTheWrongJoi
   // trained on a different joint order evaluates N(P q) where the MPC expects N(q), so its Jacobian is J_N(P q) P. The
   // same network, fed its joints reversed, is exactly such a header - and it has to land above the robot's bound.
   const AcomRobotCase& robotCase = GetParam();
-  std::vector<int> reversed(static_cast<std::size_t>(numJoints_));
+  std::vector<int> reversed(static_cast<size_t>(numJoints_));
   std::iota(reversed.rbegin(), reversed.rend(), 0);
   const Eigen::PermutationMatrix<Eigen::Dynamic> permutation(Eigen::Map<const Eigen::VectorXi>(reversed.data(), numJoints_));
 
@@ -371,7 +393,7 @@ TEST_P(AcomAngularVelocityConsistencyTest, theAcomRateIsTheCentroidalAngularVelo
     const vector3_t lockedZyx = acomXyzToZyx(lockedAngularVelocity(q, v));
 
     const scalar_t scale = connectionJointBlock(q).norm() * v.norm();
-    ASSERT_GT(scale, 1e-6) << "the sampled motion must actually swing the robot for this to mean anything";
+    ASSERT_GT(scale, 1.0e-6) << "the sampled motion must actually swing the robot for this to mean anything";
     const scalar_t relativeError = (acomRateZyx - lockedZyx).norm() / scale;
     worstRelativeError = std::max(worstRelativeError, relativeError);
     summedRelativeError += relativeError;
@@ -402,9 +424,9 @@ TEST_P(AcomAngularVelocityConsistencyTest, theBaseContributionToTheRateIsExactNo
 
     const vector3_t acomRateZyx = acomPtr_->computeAcomJacobian(q) * baseOnly;
     const vector3_t lockedZyx = acomXyzToZyx(lockedAngularVelocity(q, baseOnly));
-    EXPECT_LT((acomRateZyx - lockedZyx).norm(), 1e-9) << "sample " << sample;
+    EXPECT_LT((acomRateZyx - lockedZyx).norm(), 1.0e-9) << "sample " << sample;
     // And it is the base rate itself, unchanged by the configuration of the joints.
-    EXPECT_LT((acomRateZyx - vector3_t(0.3, -0.2, 0.5)).norm(), 1e-12) << "sample " << sample;
+    EXPECT_LT((acomRateZyx - vector3_t(0.3, -0.2, 0.5)).norm(), 1.0e-12) << "sample " << sample;
   }
 }
 
@@ -462,13 +484,13 @@ TEST_P(AcomAngularVelocityConsistencyTest, theExportedJointNamesMatchTheMpcModel
   // is built on, because either could drift from the header.
   const std::vector<std::string>& trainedJointNames = acomPtr_->getJointNames();
   ASSERT_EQ(trainedJointNames.size(), modelSettingsPtr_->mpcModelJointNames.size());
-  for (std::size_t joint = 0; joint < trainedJointNames.size(); ++joint) {
+  for (size_t joint = 0; joint < trainedJointNames.size(); ++joint) {
     EXPECT_EQ(trainedJointNames[joint], modelSettingsPtr_->mpcModelJointNames[joint])
         << "joint " << joint << ": regenerate the weight header against the reduced MPC model";
   }
 
   CentroidalModelInfo info;
-  info.actuatedDofNum = static_cast<std::size_t>(numJoints_);
+  info.actuatedDofNum = static_cast<size_t>(numJoints_);
   const absl::StatusOr<std::vector<std::string>> pinocchioJointNames =
       ComAndAcomTrackingCost::actuatedJointNames(*pinocchioInterfacePtr_, info);
   ASSERT_TRUE(pinocchioJointNames.ok()) << pinocchioJointNames.status();
@@ -477,11 +499,11 @@ TEST_P(AcomAngularVelocityConsistencyTest, theExportedJointNamesMatchTheMpcModel
 
 TEST_P(AcomAngularVelocityConsistencyTest, createRejectsAJointListTheNetworkWasNotTrainedOn) {
   // What the runtime check does when the configuration drifts: a joint list of the right LENGTH whose order differs -
-  // here the last two joints swapped, as a changed fixedJointNames or a re-ordered URDF would produce.
+  // here the last two joints swapped, as a changed fixed_joint_names or a re-ordered URDF would produce.
   const AcomRobotCase& robotCase = GetParam();
   std::vector<std::string> swapped = modelSettingsPtr_->mpcModelJointNames;
   ASSERT_GE(swapped.size(), 2u);
-  const std::size_t firstDifference = swapped.size() - 2;
+  const size_t firstDifference = swapped.size() - 2;
   std::swap(swapped[firstDifference], swapped[firstDifference + 1]);
 
   const absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> acom = AngularCenterOfMass::Create(robotCase.robotName, swapped);
@@ -491,7 +513,7 @@ TEST_P(AcomAngularVelocityConsistencyTest, createRejectsAJointListTheNetworkWasN
   EXPECT_TRUE(absl::StrContains(message, absl::StrCat("'", robotCase.robotName, "'"))) << message;
   EXPECT_TRUE(absl::StrContains(message, absl::StrCat("joint ", firstDifference, " "))) << message;
   EXPECT_TRUE(absl::StrContains(message, absl::StrCat("'", swapped[firstDifference], "' in the MPC model"))) << message;
-  EXPECT_TRUE(absl::StrContains(message, "model_settings.fixedJointNames")) << message;
+  EXPECT_TRUE(absl::StrContains(message, "model_settings.fixed_joint_names")) << message;
 
   // A list of the wrong length is refused too, rather than reaching the evaluator's size check at solve time.
   swapped.pop_back();
@@ -515,12 +537,12 @@ TEST(AcomRegistryTest, everyRegisteredNetworkHasAnAcceptanceCase) {
 }
 
 TEST(AcomRegistryTest, createRejectsAnUnknownRobotAndSaysWhatToChange) {
-  const absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> acom = AngularCenterOfMass::Create("r1", {});
+  const absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> acom = AngularCenterOfMass::Create("r1", /*modelJointNames=*/{});
   ASSERT_FALSE(acom.ok());
   EXPECT_EQ(acom.status().code(), absl::StatusCode::kNotFound);
   const std::string message(acom.status().message());
   // The keys to change, and every name that would have worked.
-  EXPECT_TRUE(absl::StrContains(message, "model_settings.robotName 'r1'")) << message;
+  EXPECT_TRUE(absl::StrContains(message, "model_settings.robot_name 'r1'")) << message;
   EXPECT_TRUE(absl::StrContains(message, "com_and_acom_tracking_cost")) << message;
   EXPECT_TRUE(absl::StrContains(message, "heading_double_integrator")) << message;
   for (const std::string& name : AngularCenterOfMass::registeredRobotNames()) {
@@ -530,31 +552,34 @@ TEST(AcomRegistryTest, createRejectsAnUnknownRobotAndSaysWhatToChange) {
 
 TEST(AcomRegistryTest, theUnvalidatedNetworksAreSwitchedOffInTheShippedConfiguration) {
   // A network that has not met the reference acceptance bounds must not be switched on where it ships. Two places load
-  // it: ComAndAcomTrackingCost (com_and_acom_tracking_cost in task.yaml's costs list) and the contact planner's heading
-  // model (heading_double_integrator in contact_planning.yaml's dynamics list).
+  // it: ComAndAcomTrackingCost (com_and_acom_tracking_cost in task.textproto's costs list) and the contact planner's
+  // heading model (heading_double_integrator in contact_planning.textproto's dynamics list).
   int unvalidated = 0;
   for (const AcomRobotCase& robotCase : kAcomRobotCases) {
-    // Through the formulation loader the MPC itself uses, so that a file it would refuse fails here too.
-    const absl::StatusOr<MpcFormulationTasks> formulation = loadMpcFormulationTasks(taskFileOf(robotCase));
+    // Through the loader and the formulation conversion the MPC itself uses, so that a file it would refuse fails here
+    // too.
+    const absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(taskFileOf(robotCase));
+    ASSERT_TRUE(task.ok()) << robotCase.robotName << ": " << task.status();
+    const absl::StatusOr<MpcFormulationTasks> formulation = mpcFormulationTasksFromConfig(*task, FormulationLogging::kQuiet);
     ASSERT_TRUE(formulation.ok()) << robotCase.robotName << ": " << formulation.status();
     if (robotCase.validatedForClosedLoop) {
       continue;
     }
     ++unvalidated;
-    EXPECT_FALSE(formulation->hasCost(MpcCostType::ComAndAcomTrackingCost))
+    EXPECT_FALSE(formulation->hasCost(MpcCostType::kComAndAcomTrackingCost))
         << robotCase.robotName
-        << "'s ACoM network is NOT VALIDATED (see kAcomRobotCases), but its task.yaml lists com_and_acom_tracking_cost in costs";
+        << "'s ACoM network is NOT VALIDATED (see kAcomRobotCases), but its task.textproto lists com_and_acom_tracking_cost in costs";
 
-    const std::filesystem::path contactPlanningFile = std::filesystem::path(taskFileOf(robotCase)).parent_path() / "contact_planning.yaml";
-    if (!std::filesystem::exists(contactPlanningFile)) {
+    const absl::StatusOr<std::optional<mpc_config::ContactPlanningFile>> contactPlanning =
+        loadContactPlanningFileBeside(taskFileOf(robotCase));
+    ASSERT_TRUE(contactPlanning.ok()) << robotCase.robotName << ": " << contactPlanning.status();
+    if (!contactPlanning->has_value()) {
       continue;
     }
-    const YAML::Node dynamics = YAML::LoadFile(contactPlanningFile.string())["contact_planning"]["dynamics"];
-    ASSERT_TRUE(dynamics.IsSequence()) << contactPlanningFile << " has no contact_planning.dynamics list";
-    for (const YAML::Node& block : dynamics) {
-      EXPECT_NE(block.as<std::string>(), "heading_double_integrator")
-          << robotCase.robotName << "'s ACoM network is NOT VALIDATED (see kAcomRobotCases), but " << contactPlanningFile
-          << " lists heading_double_integrator, which runs it";
+    for (const std::string& block : (*contactPlanning)->dynamics) {
+      EXPECT_NE(block, "heading_double_integrator")
+          << robotCase.robotName << "'s ACoM network is NOT VALIDATED (see kAcomRobotCases), but its "
+          << contactPlanningFileBeside(taskFileOf(robotCase)) << " lists heading_double_integrator, which runs it";
     }
   }
   EXPECT_GT(unvalidated, 0) << "every network is validated; this test no longer checks anything and can go";
@@ -563,7 +588,7 @@ TEST(AcomRegistryTest, theUnvalidatedNetworksAreSwitchedOffInTheShippedConfigura
 TEST(AcomJointOrderTest, pinocchioOrdersSiblingJointsByName) {
   // dataset_generator.py has to reproduce the joint order the MPC's Pinocchio model uses, and it cannot ask Pinocchio:
   // the training runs in a hermetic Python without it. So the rule it implements is checked HERE, against the parser
-  // the MPC uses (urdfdom, then pinocchio::urdf::buildModel, as createCustomPinocchioInterface calls them): a
+  // the MPC uses (urdfdom, then pinocchio::urdf::buildModel, as loadCustomPinocchioInterface calls them): a
   // depth-first walk of the kinematic tree that visits the children of a link sorted by JOINT NAME, because urdfdom
   // builds each link's child list by iterating its std::map of joints - not in the order the URDF lists them.
   // test_acom.py asserts that the generator produces this same list from this same URDF.

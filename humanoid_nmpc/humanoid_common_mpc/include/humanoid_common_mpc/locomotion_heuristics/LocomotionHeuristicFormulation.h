@@ -53,31 +53,31 @@ namespace heuristic {
 // ---- Base-pose heuristics: the roll, pitch and height of the base-pose reference (H_Theta and H_z) ----
 
 /** Table C.2. H_Theta(pdot) = a1 pdot + a0: roll from lateral speed, pitch from forward speed. */
-inline constexpr const char* kOrientationCompensation = "orientation_compensation";
+inline constexpr char kOrientationCompensation[] = "orientation_compensation";
 /** Table C.2. H_Theta(Phi) = b1 sin(c1 Phi + d1): the orientation limit cycle of the gait. */
-inline constexpr const char* kPeriodicOrientation = "periodic_orientation";
+inline constexpr char kPeriodicOrientation[] = "periodic_orientation";
 /** Table C.2. H_z(v) = a2 v^2 + a1 v + a0: base height against forward speed. */
-inline constexpr const char* kHeightCompensation = "height_compensation";
+inline constexpr char kHeightCompensation[] = "height_compensation";
 
 // ---- Foothold heuristics: where the swing foot lands (H_r) ----
 
 /** Table C.1. H_r(Theta) = PTP(R(Theta) r_hip): the foot under its own hip, ground-projected. */
-inline constexpr const char* kHipCenteredStepping = "hip_centered_stepping";
+inline constexpr char kHipCenteredStepping[] = "hip_centered_stepping";
 /** Table C.1. H_r(pdot, Phi) = PTP(sqrt(p_z/g) (pdot - pdot_d)): the capture point of the velocity error. */
-inline constexpr const char* kCapturePoint = "capture_point";
+inline constexpr char kCapturePoint[] = "capture_point";
 /** Table C.2. H_r(pdot) = a1 pdot + a0: step in the direction of travel. */
-inline constexpr const char* kTranslationalStepping = "translational_stepping";
+inline constexpr char kTranslationalStepping[] = "translational_stepping";
 /** Table C.2. H_r(psidot) = a1 psidot + a0: step along the arc of an in-place turn. */
-inline constexpr const char* kInPlaceTurning = "in_place_turning";
+inline constexpr char kInPlaceTurning[] = "in_place_turning";
 /** Table C.2. H_r(pdot x omega) = a1 (pdot x omega) + a0: step outward along the turn radius at speed. */
-inline constexpr const char* kHighSpeedTurning = "high_speed_turning";
+inline constexpr char kHighSpeedTurning[] = "high_speed_turning";
 
 // ---- Contact-wrench heuristics: the contact force reference (H_f) ----
 
 /** Table C.1. H_f(Phi) = m g / (F beta): the vertical stance force scaled by the reciprocal of the duty factor. */
-inline constexpr const char* kImpulseScaling = "impulse_scaling";
+inline constexpr char kImpulseScaling[] = "impulse_scaling";
 /** Table C.1. H_f(Theta x pdot) = m omega x pdot: the centripetal force of a turn taken at speed. */
-inline constexpr const char* kCentripetalAcceleration = "centripetal_acceleration";
+inline constexpr char kCentripetalAcceleration[] = "centripetal_acceleration";
 
 }  // namespace heuristic
 
@@ -91,7 +91,7 @@ inline constexpr const char* kCentripetalAcceleration = "centripetal_acceleratio
  * A single list would make `orientation_compensation` in the foothold position a run-time surprise instead of a
  * load-time error naming the three foothold heuristics that would have been valid there.
  */
-enum class HeuristicKind { BASE_POSE, FOOTHOLD, WRENCH };
+enum class HeuristicKind { kBasePose, kFoothold, kWrench };
 
 /** The three kinds, for the loops that must visit every list. Use it instead of writing the three out again. */
 inline constexpr size_t kNumHeuristicKinds = 3;

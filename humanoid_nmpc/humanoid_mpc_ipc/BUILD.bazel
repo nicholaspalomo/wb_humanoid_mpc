@@ -1,6 +1,7 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("@rules_python//python:defs.bzl", "py_library", "py_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 
 # humanoid_mpc_ipc - the MPC link's side of the IPC bus (humanoid_nmpc/docs/distributed_runtime/README.md): the topic
 # names in C++ and Python, the lossless conversions between OCS2 types and the humanoid_mpc_msgs messages, and the two
@@ -9,32 +10,27 @@ load("@rules_python//python:defs.bzl", "py_library", "py_test")
 
 package(default_visibility = ["//visibility:public"])
 
-# No -Wpedantic: Abseil's int128.h, which absl/status pulls in, would print a hundred warnings per file.
-_COPTS = [
-    "-std=c++20",
-    "-Wall",
-    "-Wextra",
-    "-Werror=return-type",
-]
-
 cc_library(
     name = "humanoid_mpc_ipc",
     srcs = [
         "src/MpcMessageConversions.cpp",
+        "src/PolicyControllers.cpp",
         "src/SolutionTimeWindow.cpp",
     ],
     hdrs = [
         "include/humanoid_mpc_ipc/MpcMessageConversions.h",
+        "include/humanoid_mpc_ipc/PolicyControllers.h",
         "include/humanoid_mpc_ipc/SolutionTimeWindow.h",
         "include/humanoid_mpc_ipc/Topics.h",
     ],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     includes = ["include"],
     deps = [
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
@@ -47,7 +43,7 @@ cc_library(
     name = "remote_mpc_link",
     srcs = ["src/RemoteMpcLink.cpp"],
     hdrs = ["include/humanoid_mpc_ipc/RemoteMpcLink.h"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     includes = ["include"],
     deps = [
         ":humanoid_mpc_ipc",
@@ -61,7 +57,9 @@ cc_library(
         "//robot_runtime/robot_core",
         "//robot_runtime/robot_ipc",
         "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/memory",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
@@ -76,12 +74,13 @@ cc_library(
     name = "realtime_policy_evaluator",
     srcs = ["src/RealtimePolicyEvaluator.cpp"],
     hdrs = ["include/humanoid_mpc_ipc/RealtimePolicyEvaluator.h"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     includes = ["include"],
     deps = [
         ":humanoid_mpc_ipc",
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
         "@eigen",
     ],
 )
@@ -91,7 +90,7 @@ cc_library(
     name = "mpc_server",
     srcs = ["src/MpcServer.cpp"],
     hdrs = ["include/humanoid_mpc_ipc/MpcServer.h"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     includes = ["include"],
     deps = [
         ":humanoid_mpc_ipc",
@@ -104,7 +103,10 @@ cc_library(
         "//robot_runtime/robot_ipc",
         "//robot_runtime/robot_realtime",
         "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/functional:function_ref",
         "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/memory",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
@@ -131,11 +133,12 @@ cc_library(
     testonly = True,
     srcs = ["test/PolicyTestData.cpp"],
     hdrs = ["test/PolicyTestData.h"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = [
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
         "@eigen",
     ],
 )
@@ -144,9 +147,10 @@ cc_test(
     name = "test_topics",
     size = "small",
     srcs = ["test/testTopics.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_mpc_ipc",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
@@ -167,7 +171,7 @@ cc_test(
     name = "test_mpc_message_conversions",
     size = "small",
     srcs = ["test/testMpcMessageConversions.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_mpc_ipc",
         ":policy_test_data",
@@ -175,6 +179,7 @@ cc_test(
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/strings",
         "@eigen",
@@ -188,7 +193,7 @@ cc_test(
     name = "test_mpc_message_conversions_allocations",
     size = "small",
     srcs = ["test/testMpcMessageConversionsAllocations.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     linkstatic = True,
     deps = [
         ":humanoid_mpc_ipc",
@@ -198,6 +203,7 @@ cc_test(
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@googletest//:gtest_main",
     ],
@@ -209,7 +215,7 @@ cc_library(
     testonly = True,
     srcs = ["test/MpcLinkTestSupport.cpp"],
     hdrs = ["test/MpcLinkTestSupport.h"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_mpc_ipc",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
@@ -219,6 +225,7 @@ cc_library(
         "//lib/ocs2:ocs2_oc",
         "//robot_runtime/robot_ipc",
         "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log",
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/status",
@@ -242,6 +249,7 @@ _MPC_LINK_TEST_DEPS = [
     "//lib/ocs2:ocs2_oc",
     "//robot_runtime/robot_ipc",
     "@abseil-cpp//absl/base:core_headers",
+    "@abseil-cpp//absl/base:nullability",
     "@abseil-cpp//absl/log:check",
     "@abseil-cpp//absl/status",
     "@abseil-cpp//absl/status:statusor",
@@ -252,17 +260,39 @@ _MPC_LINK_TEST_DEPS = [
     "@googletest//:gtest_main",
 ]
 
-# GaussNewtonDDP's solution window, which the MPC node applies to every policy whatever the solver.
+# Upstream OCS2 GaussNewtonDDP's solution window, which the MPC node applies to every policy whatever the solver.
 cc_test(
     name = "test_solution_time_window",
     size = "small",
     srcs = ["test/testSolutionTimeWindow.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_mpc_ipc",
         ":policy_test_data",
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The two controller types the link carries are told apart by their exact type, not by ControllerBase::getType().
+cc_test(
+    name = "test_policy_controllers",
+    size = "small",
+    srcs = ["test/testPolicyControllers.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_mpc_ipc",
+        ":policy_test_data",
+        ":realtime_policy_evaluator",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@eigen",
         "@googletest//:gtest_main",
     ],
 )
@@ -272,7 +302,7 @@ cc_test(
     name = "test_remote_mpc_link_protocol",
     size = "small",
     srcs = ["test/testRemoteMpcLinkProtocol.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = _MPC_LINK_TEST_DEPS,
 )
 
@@ -281,7 +311,7 @@ cc_test(
     name = "test_mpc_server",
     size = "small",
     srcs = ["test/testMpcServer.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = _MPC_LINK_TEST_DEPS,
 )
 
@@ -291,7 +321,7 @@ cc_test(
     name = "test_remote_mpc_link",
     size = "small",
     srcs = ["test/testRemoteMpcLink.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = _MPC_LINK_TEST_DEPS,
 )
 
@@ -300,7 +330,7 @@ cc_test(
     name = "test_remote_mpc_link_parity",
     size = "small",
     srcs = ["test/testRemoteMpcLinkParity.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = _MPC_LINK_TEST_DEPS,
 )
 
@@ -311,7 +341,7 @@ cc_test(
     name = "test_remote_mpc_link_allocations",
     size = "small",
     srcs = ["test/testRemoteMpcLinkAllocations.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     linkstatic = True,
     deps = _MPC_LINK_TEST_DEPS + [
         ":policy_test_data",
@@ -326,7 +356,7 @@ cc_test(
     name = "test_realtime_policy_evaluator",
     size = "small",
     srcs = ["test/testRealtimePolicyEvaluator.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_mpc_ipc",
         ":policy_test_data",
@@ -334,6 +364,7 @@ cc_test(
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
         "@eigen",
         "@googletest//:gtest_main",
     ],
@@ -344,6 +375,6 @@ cc_test(
     name = "test_remote_mpc_link_annotations",
     size = "small",
     srcs = ["test/testRemoteMpcLinkAnnotations.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = _MPC_LINK_TEST_DEPS + ["//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto"],
 )

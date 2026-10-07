@@ -27,14 +27,14 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <random>
 #include <thread>
 #include <vector>
+
+#include "gtest/gtest.h"
 
 #include "robot_core/TripleBuffer.h"
 #include "robot_realtime/LoopTimingSnapshot.h"
@@ -102,11 +102,11 @@ TEST(LoopTimingStatsTest, windowsTileTimeAndCountEveryCycleOnce) {
   const nanoseconds period = milliseconds(2);
   LoopTimingStats stats(period, milliseconds(50));
   std::mt19937 generator(/*seed=*/7);
-  std::uniform_int_distribution<std::int64_t> jitter(-500'000, 500'000);
-  std::uniform_int_distribution<std::int64_t> compute(100'000, 3'000'000);
+  std::uniform_int_distribution<int64_t> jitter(-500'000, 500'000);
+  std::uniform_int_distribution<int64_t> compute(100'000, 3'000'000);
 
   nanoseconds start = kOrigin;
-  std::uint64_t cyclesInClosedWindows = 0;
+  uint64_t cyclesInClosedWindows = 0;
   double closedDurationS = 0.0;
   nanoseconds lastClose = kOrigin;
   int windows = 0;
@@ -123,12 +123,12 @@ TEST(LoopTimingStatsTest, windowsTileTimeAndCountEveryCycleOnce) {
     closedDurationS += snapshot.windowDurationS;
     lastClose = start;
 
-    EXPECT_EQ(snapshot.window, static_cast<std::uint64_t>(windows));
+    EXPECT_EQ(snapshot.window, static_cast<uint64_t>(windows));
     EXPECT_EQ(snapshot.totalCycles, cyclesInClosedWindows) << "every cycle belongs to exactly one window";
     EXPECT_GE(snapshot.windowDurationS, 0.05);
     // The first window's first cycle has no period before it; every later cycle has one.
-    const std::uint64_t periods = snapshot.windowCycles - (snapshot.window == 1 ? 1 : 0);
-    EXPECT_NEAR(snapshot.meanPeriodS * static_cast<double>(periods), snapshot.windowDurationS, 1e-9);
+    const uint64_t periods = snapshot.windowCycles - (snapshot.window == 1 ? 1 : 0);
+    EXPECT_NEAR(snapshot.meanPeriodS * static_cast<double>(periods), snapshot.windowDurationS, 1.0e-9);
     EXPECT_LE(snapshot.minPeriodS, snapshot.meanPeriodS);
     EXPECT_GE(snapshot.maxPeriodS, snapshot.meanPeriodS);
     EXPECT_LE(snapshot.meanComputeTimeS, snapshot.maxComputeTimeS);
@@ -136,7 +136,7 @@ TEST(LoopTimingStatsTest, windowsTileTimeAndCountEveryCycleOnce) {
     EXPECT_LE(snapshot.windowOverruns, snapshot.totalOverruns);
   }
   ASSERT_GT(windows, 100);
-  EXPECT_NEAR(closedDurationS, std::chrono::duration<double>(lastClose - kOrigin).count(), 1e-6)
+  EXPECT_NEAR(closedDurationS, std::chrono::duration<double>(lastClose - kOrigin).count(), 1.0e-6)
       << "the windows tile time from the first cycle to the last close without gaps or overlaps";
 }
 
@@ -197,7 +197,7 @@ TEST(LoopTimingStatsTest, takesLatenessAndMissedPeriodsFromTheTimerWakeup) {
 // The communication thread reads the snapshots while the realtime thread writes them. Each window's compute time is
 // derived from the window's number, so a snapshot torn between two writes would not add up.
 TEST(LoopTimingStatsTest, snapshotsReachAnotherThreadWholeThroughATripleBuffer) {
-  constexpr std::uint64_t kWindows = 2000;
+  constexpr uint64_t kWindows = 2000;
   const nanoseconds period = milliseconds(2);
   TripleBuffer<LoopTimingSnapshot> buffer;
   std::atomic<bool> producerDone{false};
@@ -206,7 +206,7 @@ TEST(LoopTimingStatsTest, snapshotsReachAnotherThreadWholeThroughATripleBuffer) 
     LoopTimingStats stats(period, milliseconds(100));
     nanoseconds start = kOrigin;
     while (stats.lastSnapshot().window < kWindows) {
-      const nanoseconds computeTime = microseconds(static_cast<std::int64_t>(stats.lastSnapshot().window) + 1);
+      const nanoseconds computeTime = microseconds(static_cast<int64_t>(stats.lastSnapshot().window) + 1);
       if (stats.addCycle(cycleAt(start, computeTime))) {
         buffer.writeSlot() = stats.lastSnapshot();
         buffer.publishWrite();
@@ -216,19 +216,19 @@ TEST(LoopTimingStatsTest, snapshotsReachAnotherThreadWholeThroughATripleBuffer) 
     producerDone.store(/*desired=*/true, std::memory_order_release);
   });
 
-  std::uint64_t lastWindow = 0;
-  std::uint64_t inconsistent = 0;
-  std::uint64_t reordered = 0;
+  uint64_t lastWindow = 0;
+  uint64_t inconsistent = 0;
+  uint64_t reordered = 0;
   for (;;) {
     const bool done = producerDone.load(std::memory_order_acquire);
     if (buffer.acquireRead()) {
       const LoopTimingSnapshot& snapshot = buffer.readSlot();
       reordered += snapshot.window > lastWindow ? 0 : 1;
       lastWindow = snapshot.window;
-      const bool consistent =
-          snapshot.totalCycles == 1 + 50 * snapshot.window && snapshot.windowCycles == (snapshot.window == 1 ? 51u : 50u) &&
-          snapshot.maxComputeTimeS ==
-              std::chrono::duration<double>(nanoseconds(microseconds(static_cast<std::int64_t>(snapshot.window)))).count();
+      const bool consistent = snapshot.totalCycles == 1 + 50 * snapshot.window &&
+                              snapshot.windowCycles == (snapshot.window == 1 ? 51u : 50u) &&
+                              snapshot.maxComputeTimeS ==
+                                  std::chrono::duration<double>(nanoseconds(microseconds(static_cast<int64_t>(snapshot.window)))).count();
       inconsistent += consistent ? 0 : 1;
     }
     if (done && !buffer.hasNewData()) {

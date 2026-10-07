@@ -32,19 +32,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstring>
 
+#include "absl/base/nullability.h"
+
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 
 namespace robot::mujoco_sim_interface {
 
 void ContactForceVisualization::addSceneGeoms(const VisualizationFrame& frame) {
   if (frame.sim == nullptr || frame.state == nullptr || frame.scene == nullptr) return;
-  const mjModel* model = frame.sim->getModel();
-  const mjData* data = frame.state->data;
+  const mjModel* absl_nonnull model = frame.sim->getModel();
+  const mjData* absl_nullable data = frame.state->data;
   mjvScene& scene = *frame.scene;
-  if (model == nullptr || data == nullptr) return;
+  if (data == nullptr) return;
 
   for (int i = 0; i < data->ncon; ++i) {
-    const mjContact* contact = &data->contact[i];
+    const mjContact* absl_nonnull contact = &data->contact[i];
     if (contact->exclude != 0 || contact->efc_address < 0) continue;  // only active contacts
 
     mjtNum force[6];
@@ -70,7 +72,7 @@ void ContactForceVisualization::addSceneGeoms(const VisualizationFrame& frame) {
     if (magnitude < 1.0) continue;  // only significant forces
     if (scene.ngeom >= scene.maxgeom) return;
 
-    mjvGeom* arrow = &scene.geoms[scene.ngeom++];
+    mjvGeom* absl_nonnull arrow = &scene.geoms[scene.ngeom++];
     std::memset(arrow, 0, sizeof(mjvGeom));
 
     const double base_scale = 0.02;

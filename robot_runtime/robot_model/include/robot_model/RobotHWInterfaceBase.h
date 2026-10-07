@@ -1,14 +1,43 @@
+/******************************************************************************
+Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
 #pragma once
 
 #include <atomic>
 #include <cstdint>
 #include <string>
+#include <utility>
 
-#include <robot_core/TripleBuffer.h>
-#include <robot_model/RobotJointAction.h>
-#include <robot_model/RobotState.h>
-
+#include "robot_core/TripleBuffer.h"
 #include "robot_model/RobotDescription.h"
+#include "robot_model/RobotJointAction.h"
+#include "robot_model/RobotState.h"
 
 namespace robot::model {
 
@@ -34,8 +63,9 @@ namespace robot::model {
  */
 class RobotHWInterfaceBase {
  public:
-  explicit RobotHWInterfaceBase(const std::string& urdfPath)
-      : robotDescription_(urdfPath),
+  /** The interface of the robot `robotDescription` describes (RobotDescription::Create()). */
+  explicit RobotHWInterfaceBase(RobotDescription robotDescription)
+      : robotDescription_(std::move(robotDescription)),
         robotState_(model::RobotState(robotDescription_)),
         robotJointAction_(model::RobotJointAction(robotDescription_)),
         stateBuffer_(robotState_),
@@ -73,15 +103,18 @@ class RobotHWInterfaceBase {
  protected:
   // ------------------------------------------------------------------ the robot's thread
 
-  /** Hands a new state to the controller. */
+  /**
+   * Hands a new state to the controller. `state` is a state of getRobotDescription(), as every state and action this
+   * interface copies: the copies are unchecked and allocation-free (IDMapBase::operator=).
+   */
   void publishRobotState(const RobotState& state) {
     stateBuffer_.writeSlot() = state;
     stateBuffer_.publishWrite();
   }
 
   /**
-   * Copies the newest action into `action`. False when it is stale: no action has been applied since the last
-   * discardAppliedJointAction(), so the robot must not execute it.
+   * Copies the newest action into `action`, an action of getRobotDescription(). False when it is stale: no action has
+   * been applied since the last discardAppliedJointAction(), so the robot must not execute it.
    */
   bool takeJointAction(RobotJointAction& action) {
     actionBuffer_.acquireRead();
@@ -91,15 +124,13 @@ class RobotHWInterfaceBase {
   }
 
   /** Marks every action applied so far as stale (see the class comment). Any thread; lock-free. */
-  void discardAppliedJointAction() {
-    actionGeneration_.fetch_add(1, std::memory_order_acq_rel);  // NOLINT(argument-comment): libstdc++ names the value __i.
-  }
+  void discardAppliedJointAction() { actionGeneration_.fetch_add(1, std::memory_order_acq_rel); }
 
  private:
   /** An applied action and the discardAppliedJointAction() generation it was applied in. */
   struct ActionSlot {
     RobotJointAction action;
-    std::uint64_t generation = 0;
+    uint64_t generation = 0;
   };
 
   const RobotDescription robotDescription_;
@@ -107,7 +138,7 @@ class RobotHWInterfaceBase {
   RobotJointAction robotJointAction_;
   TripleBuffer<RobotState> stateBuffer_;
   TripleBuffer<ActionSlot> actionBuffer_;
-  std::atomic<std::uint64_t> actionGeneration_{0};
+  std::atomic<uint64_t> actionGeneration_{0};
 };
 
 }  // namespace robot::model

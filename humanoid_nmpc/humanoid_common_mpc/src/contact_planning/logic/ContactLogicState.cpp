@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -28,12 +32,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 
+#include "absl/base/nullability.h"
+
 namespace ocs2::humanoid {
 
 ContactLogicState ContactLogicState::make(const ContactPlannerInput& input,
                                           const ContactPlanningConfig& config,
                                           int previousPlanShift,
-                                          const MiqpAssignment* previousAssignment) {
+                                          const MiqpAssignment* absl_nullable previousAssignment) {
   ContactLogicState s;
   s.input = &input;
   s.numNodes = config.planner.numNodes;
@@ -49,7 +55,7 @@ ContactLogicState ContactLogicState::make(const ContactPlannerInput& input,
   s.numCommitted = std::min(static_cast<int>(input.committedContacts.size()), s.numNodes);
   // A double support already in progress at planning time counts from its touch-down, the start of the shorter contact.
   s.initialTouchDownNode = -1000.0;
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     if (input.contacts[foot] && input.contacts[1 - foot]) {
       s.initialTouchDownNode = std::max(s.initialTouchDownNode, -std::max(0.0, input.phaseElapsedTime[foot]) / config.planner.dt);
     }
@@ -64,7 +70,7 @@ int ContactLogicState::initialPhaseNodes(size_t foot, bool roundUp) const {
   const scalar_t nodes = std::max(0.0, input->phaseElapsedTime[foot]) / dt;
   // Rounding to the nearest node let both limits be violated by up to half a node: a swing 0.16 s old counted as two
   // nodes and could end one node later at 0.26 s against a 0.3 s minimum.
-  const int elapsed = static_cast<int>(roundUp ? std::ceil(nodes - 1e-9) : std::floor(nodes + 1e-9));
+  const int elapsed = static_cast<int>(roundUp ? std::ceil(nodes - 1.0e-9) : std::floor(nodes + 1.0e-9));
   return std::clamp(elapsed, 0, cap);
 }
 
@@ -80,7 +86,7 @@ scalar_t ContactLogicState::switchTime(int k, size_t foot) const {
     // The window is closed at the node's end with a tolerance: the last committed node is sampled at the commit
     // boundary, which lies exactly on its end whenever the boundary is on the grid, and the node times are sums of dt
     // that land a few ulp off the event time.
-    if (std::isfinite(start) && start > nodeStart - dt && start <= nodeStart + dt + 1e-9) return start;
+    if (std::isfinite(start) && start > nodeStart - dt && start <= nodeStart + dt + 1.0e-9) return start;
   }
   return nodeStart;
 }
@@ -92,18 +98,18 @@ scalar_t ContactLogicState::switchNode(int k, size_t foot) const {
 int ContactLogicState::switchedPhaseNodes(int k, size_t foot, bool roundUp) const {
   // Rounded down against a minimum, up against a maximum, like the elapsed time of the phase active at planning time.
   const scalar_t nodes = static_cast<scalar_t>(k + 1) - switchNode(k, foot);
-  const int rounded = static_cast<int>(roundUp ? std::ceil(nodes - 1e-9) : std::floor(nodes + 1e-9));
+  const int rounded = static_cast<int>(roundUp ? std::ceil(nodes - 1.0e-9) : std::floor(nodes + 1.0e-9));
   return std::max(roundUp ? 1 : 0, rounded);
 }
 
 bool ContactLogicState::heldAfterTouchDown(int k, scalar_t latestTouchDownNode) const {
-  return static_cast<scalar_t>(k) < latestTouchDownNode + minDoubleSupportNodes - 1e-9;
+  return static_cast<scalar_t>(k) < latestTouchDownNode + minDoubleSupportNodes - 1.0e-9;
 }
 
 int ContactLogicState::stateBefore(const MiqpAssignment& a, size_t foot, int node) const {
-  std::int8_t kappa = input->contacts[foot] ? 1 : 0;
+  int8_t kappa = input->contacts[foot] ? 1 : 0;
   for (int k = 0; k < node; ++k) {
-    const std::int8_t value = a[static_cast<size_t>(contactBinaryIndex(k, foot))];
+    const int8_t value = a[static_cast<size_t>(contactBinaryIndex(k, foot))];
     if (value == kMiqpFree) return -1;
     kappa = value;
   }
@@ -111,10 +117,10 @@ int ContactLogicState::stateBefore(const MiqpAssignment& a, size_t foot, int nod
 }
 
 int ContactLogicState::contactAge(const MiqpAssignment& a, size_t foot, int node) const {
-  std::int8_t kappa = input->contacts[foot] ? 1 : 0;
+  int8_t kappa = input->contacts[foot] ? 1 : 0;
   int tau = initialPhaseNodes(foot, /*roundUp=*/true);
   for (int k = 0; k < node; ++k) {
-    const std::int8_t value = a[static_cast<size_t>(contactBinaryIndex(k, foot))];
+    const int8_t value = a[static_cast<size_t>(contactBinaryIndex(k, foot))];
     if (value == kMiqpFree) return -1;
     if (value == kappa) {
       ++tau;
@@ -128,10 +134,10 @@ int ContactLogicState::contactAge(const MiqpAssignment& a, size_t foot, int node
 
 scalar_t ContactLogicState::latestTouchDownNode(const MiqpAssignment& a, int node) const {
   scalar_t latest = initialTouchDownNode;
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    std::int8_t kappa = input->contacts[foot] ? 1 : 0;
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
+    int8_t kappa = input->contacts[foot] ? 1 : 0;
     for (int k = 0; k <= node && k < numNodes; ++k) {
-      const std::int8_t value = a[static_cast<size_t>(contactBinaryIndex(k, foot))];
+      const int8_t value = a[static_cast<size_t>(contactBinaryIndex(k, foot))];
       if (value == kMiqpFree) break;
       if (kappa == 0 && value == 1) latest = std::max(latest, switchNode(k, foot));
       kappa = value;

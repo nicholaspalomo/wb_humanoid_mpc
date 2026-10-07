@@ -31,16 +31,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
+#include <string>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/log/log.h"
+#include "absl/memory/memory.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/config/robot/ControllerSideSettingsFromConfig.h"
+#include "humanoid_common_mpc/mrt/ContactEstimateIntake.h"
 #include "humanoid_common_mpc/mrt/ControlMode.h"
-#include "humanoid_common_mpc_app/robot/ControllerSideSettings.h"
 #include "humanoid_common_mpc_app/robot/JointNamesByIndex.h"
 #include "humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h"
 #include "humanoid_mpc_ipc/Topics.h"
@@ -60,7 +66,7 @@ constexpr absl::Duration kTaskFileCheckPeriod = absl::Seconds(1);
 constexpr double kDefaultTelemetryFrequency = 100.0;
 
 std::chrono::nanoseconds periodOf(scalar_t frequency) {
-  return std::chrono::nanoseconds(static_cast<std::int64_t>(std::llround(1e9 / frequency)));
+  return std::chrono::nanoseconds(static_cast<int64_t>(std::llround(1.0e9 / frequency)));
 }
 
 RealtimeLoopConfig loopConfig(const RobotProcess::Config& config) {
@@ -81,7 +87,8 @@ absl::StatusOr<std::unique_ptr<RobotProcess>> RobotProcess::Create(robot::ipc::B
                                                                    const robot::model::ContactEstimatorRegistry& contactEstimators,
                                                                    Config config,
                                                                    Hooks hooks) {
-  if (backend.simulator() == nullptr) {
+  robot::mujoco_sim_interface::MujocoSimInterface* absl_nullable const simulator = backend.simulator();
+  if (simulator == nullptr) {
     return absl::UnimplementedError(
         absl::StrCat("the robot backend '", backend.name(),
                      "' is not a simulator: the robot process's FSM bridge and fall recovery drive the "
@@ -89,7 +96,7 @@ absl::StatusOr<std::unique_ptr<RobotProcess>> RobotProcess::Create(robot::ipc::B
   }
   if (!(config.controlFrequency > 0.0)) {
     return absl::InvalidArgumentError(
-        absl::StrCat("the control frequency (mpc.mrtDesiredFrequency) must be positive, got ", config.controlFrequency, " Hz"));
+        absl::StrCat("the control frequency (mpc.mrt_desired_frequency) must be positive, got ", config.controlFrequency, " Hz"));
   }
   if (!config.initialState.has_value()) {
     return absl::InvalidArgumentError("the robot process needs the state the robot starts in");
@@ -97,32 +104,46 @@ absl::StatusOr<std::unique_ptr<RobotProcess>> RobotProcess::Create(robot::ipc::B
   if (bus.isRunning()) {
     return absl::FailedPreconditionError("RobotProcess: the bus is running; create the process before Bus::start()");
   }
-  std::unique_ptr<RobotProcess> process(new RobotProcess(bus, backend, controller, std::move(config), std::move(hooks)));
+  // The control cycle writes the backend's joint action at the controller's joint indices without a check.
+  RETURN_IF_ERROR(checkControllerRobot(controller, backend.hardware().getRobotDescription()));
+  std::unique_ptr<RobotProcess> process =
+      absl::WrapUnique(new RobotProcess(bus, backend, *simulator, controller, std::move(config), std::move(hooks)));
   const robot::model::RobotDescription& description = backend.hardware().getRobotDescription();
   const Config& processConfig = process->config_;
+  // NOLINTNEXTLINE(bugprone-unchecked-optional-access): config.initialState was checked above, before it moved into config_
+  const robot::model::RobotState& initialState = *processConfig.initialState;
 
   // The operator's commands, and the controller-side settings, with the task file's contact estimator installed.
   OperatorCommandMailbox::Config mailboxConfig;
   mailboxConfig.jointNames = jointNamesByIndex(description);
+  mailboxConfig.robotName = processConfig.robotName;
+  mailboxConfig.taskFileIdentity = processConfig.taskFileIdentity;
   mailboxConfig.initialNominalPositions.resize(description.getNumJoints(), 0.0);
   for (size_t joint = 0; joint < description.getNumJoints(); ++joint) {
-    mailboxConfig.initialNominalPositions[joint] = processConfig.initialState->getJointPosition(joint);
+    mailboxConfig.initialNominalPositions[joint] = initialState.getCheckedJointPosition(joint);
   }
   OperatorCommandMailbox::Hooks mailboxHooks;
-  mailboxHooks.pdGainsYaml = [&controller](absl::string_view yamlText) { return controller.setPdGainsYaml(yamlText); };
+  mailboxHooks.pdGains = [&controller](const mpc_config::JointPdGainsFile& gains) { return controller.setPdGains(gains); };
+  // Every estimator is asked once, on the state the robot starts in, before the realtime thread can install it: one that
+  // reports another number of flags than the controller's contact points is refused here instead of on every cycle.
+  const robot::model::RobotState* absl_nonnull const probeState = &initialState;
+  mailboxHooks.checkContactEstimator = [probeState](robot::model::ContactEstimator& estimator, absl::string_view name) {
+    return checkContactEstimator(estimator, *probeState, name);
+  };
   ASSIGN_OR_RETURN(process->mailbox_, OperatorCommandMailbox::Create(std::move(mailboxConfig), contactEstimators, std::move(mailboxHooks)));
   absl::StatusOr<std::shared_ptr<robot::model::ContactEstimator>> estimator =
       process->mailbox_->contactEstimator(processConfig.settings.contactEstimator);
   if (!estimator.ok()) {
-    return absl::InvalidArgumentError(absl::StrCat("contactEstimator of the task file: ", estimator.status().message()));
+    return absl::InvalidArgumentError(absl::StrCat(processConfig.taskFile.empty() ? "the task file" : processConfig.taskFile,
+                                                   ": contact_estimator: ", estimator.status().message()));
   }
   // The controller reports through the event log from now on: the realtime thread writes no log line.
   controller.setEventSink(&process->eventLog_);
   controller.setContactEstimator(*estimator);
   process->contactEstimatorName_ = robot::model::ContactEstimatorRegistry::canonicalName(processConfig.settings.contactEstimator);
 
-  process->fsmBridge_ = std::make_unique<SimFsmBridge>(description, *processConfig.initialState, *process->mailbox_, process->fsmStates_,
-                                                       &process->eventLog_);
+  process->fsmBridge_ =
+      std::make_unique<SimFsmBridge>(description, initialState, *process->mailbox_, process->fsmStates_, &process->eventLog_);
   process->fallRecovery_ = std::make_unique<SimFallRecovery>(processConfig.settings.fallRecovery, *process->simulator_,
                                                              processConfig.restJointIndices, &process->eventLog_);
 
@@ -144,30 +165,40 @@ absl::StatusOr<std::unique_ptr<RobotProcess>> RobotProcess::Create(robot::ipc::B
               << " Hz (decimation " << process->sampler_->decimation() << ") to " << processConfig.settings.telemetrySinks.size()
               << " sink(s).";
   } else {
-    LOG(INFO) << "[RobotProcess] No telemetry: the task file lists no telemetrySinks.";
+    LOG(INFO) << "[RobotProcess] No telemetry: the task file lists no telemetry_sinks.";
   }
 
   if (process->hooks_.takeViewerAnnotations) {
     process->annotator_ = std::make_unique<MujocoViewerAnnotator>(*process->simulator_);
   }
+  // The GUI's saves, checked and written on the store's writer thread.
+  ConfigFileStore::Hooks storeHooks;
+  storeHooks.validateConfigFile = process->hooks_.validateConfigFile;
+  ASSIGN_OR_RETURN(process->configStore_, ConfigFileStore::Create(processConfig.configStore, std::move(storeHooks)));
   if (!processConfig.taskFile.empty()) {
-    RobotProcess* const processPtr = process.get();
-    process->taskFileWatcher_ = std::make_unique<TaskFileWatcher>(
-        processConfig.taskFile, [processPtr](const std::string& file) { processPtr->onTaskFileChanged(file); });
+    RobotProcess* absl_nonnull const processPtr = process.get();
+    process->taskFileWatcher_ =
+        std::make_unique<TaskFileWatcher>(processConfig.taskFile, processConfig.taskFileReadAt,
+                                          [processPtr](const std::string& file) { processPtr->onTaskFileChanged(file); });
   }
   RETURN_IF_ERROR(process->registerOnBus());
   return process;
 }
 
-RobotProcess::RobotProcess(robot::ipc::Bus& bus, RobotBackend& backend, RobotController& controller, Config config, Hooks hooks)
+RobotProcess::RobotProcess(robot::ipc::Bus& bus,
+                           RobotBackend& backend,
+                           robot::mujoco_sim_interface::MujocoSimInterface& simulator,
+                           RobotController& controller,
+                           Config config,
+                           Hooks hooks)
     : bus_(bus),
       backend_(backend),
-      simulator_(backend.simulator()),
+      simulator_(&simulator),
       controller_(controller),
       config_(std::move(config)),
       hooks_(std::move(hooks)),
       loop_(loopConfig(config_)),
-      plannedContactFlags_(N_CONTACTS, /*value=*/false),
+      plannedContactFlags_(kNumContacts, /*value=*/false),
       noContactFlags_() {
   // Longer than any mode or estimator name, so that the realtime thread's assignments never grow them.
   currentMode_.reserve(32);
@@ -182,6 +213,7 @@ RobotProcess::~RobotProcess() {
 
 absl::Status RobotProcess::registerOnBus() {
   RETURN_IF_ERROR(mailbox_->registerOnBus(bus_));
+  RETURN_IF_ERROR(configStore_->registerOnBus(&bus_));
   RETURN_IF_ERROR(bus_.addPeriodicCallback(kPumpPeriod, [this]() { pumpRealtimeMailboxes(); }));
   // The gains file watcher, every pdGainsFileCheckInterval control periods (~1 Hz), as the controller used to run it
   // inside computeJointControlAction().
@@ -216,6 +248,7 @@ absl::Status RobotProcess::start() {
   if (!loopConfigured.ok()) {
     LOG(WARNING) << "[RobotProcess] The realtime thread runs without part of its set-up: " << loopConfigured.message();
   }
+  configStore_->start();
   LOG(INFO) << "[RobotProcess] Control loop at " << config_.controlFrequency << " Hz on backend '" << backend_.name()
             << "' (realtime priority " << config_.realtimePriority << "). Zero-torque mode: robot spawned. Waiting for FSM command to "
             << "enable torques...";
@@ -230,6 +263,8 @@ void RobotProcess::stop() {
   loop_.stop();
   // No action of a controller that no longer runs stays in force.
   if (started_) backend_.enterSafeState();
+  // The store's writer publishes its answers on the bus: it ends first, while the bus still sends them.
+  if (configStore_ != nullptr) configStore_->stop();
   // The bus's callbacks reach this process: they end here, before anything they use is destroyed.
   bus_.stop();
   // What the realtime thread reported in its last cycles.
@@ -237,8 +272,20 @@ void RobotProcess::stop() {
 }
 
 absl::Status RobotProcess::runUntilShutdown(const std::function<bool()>& shutdownRequested) {
+  return runUntilShutdown(shutdownRequested, absl::InfiniteDuration(), /*onRunning=*/nullptr);
+}
+
+absl::Status RobotProcess::runUntilShutdown(const std::function<bool()>& shutdownRequested,
+                                            absl::Duration runningFor,
+                                            const std::function<void()>& onRunning) {
+  const absl::Time runningAt = absl::Now() + runningFor;
+  bool reported = onRunning == nullptr;
   while (!shutdownRequested() && !faulted()) {
     absl::SleepFor(absl::Milliseconds(50));
+    if (!reported && absl::Now() >= runningAt && !faulted()) {
+      reported = true;
+      onRunning();
+    }
   }
   const bool cycleFailed = faulted();
   stop();
@@ -269,7 +316,7 @@ void RobotProcess::cycle() {
   // Contact timeline in the MuJoCo viewer: the contact state the executed policy plans for now, against the physics.
   const std::optional<contact_flag_t> planned = controller_.plannedContactFlags();
   if (planned.has_value()) {
-    for (size_t contact = 0; contact < N_CONTACTS; ++contact) plannedContactFlags_[contact] = (*planned)[contact];
+    for (size_t contact = 0; contact < kNumContacts; ++contact) plannedContactFlags_[contact] = (*planned)[contact];
     simulator_->setTargetContactFlags(plannedContactFlags_);
   } else {
     simulator_->setTargetContactFlags(noContactFlags_);
@@ -400,11 +447,11 @@ void RobotProcess::publishLoopTiming(const robot::realtime::LoopTimingSnapshot& 
     LOG_EVERY_N_SEC(WARNING, 5.0) << "[RobotProcess] Publishing robot/loop_timing failed: " << published.message();
   }
   if (snapshot.windowOverruns > 0 || snapshot.windowMissedPeriods > 0) {
-    LOG_EVERY_N_SEC(WARNING, 10.0) << "[RobotProcess] The realtime loop overran its period of " << 1e3 * snapshot.targetPeriodS << " ms in "
-                                   << snapshot.windowOverruns << " of " << snapshot.windowCycles << " cycles of the last "
+    LOG_EVERY_N_SEC(WARNING, 10.0) << "[RobotProcess] The realtime loop overran its period of " << 1.0e3 * snapshot.targetPeriodS
+                                   << " ms in " << snapshot.windowOverruns << " of " << snapshot.windowCycles << " cycles of the last "
                                    << snapshot.windowDurationS << " s and skipped " << snapshot.windowMissedPeriods
-                                   << " periods (longest compute " << 1e3 * snapshot.maxComputeTimeS << " ms, latest wake-up "
-                                   << 1e3 * snapshot.maxLatenessS << " ms late).";
+                                   << " periods (longest compute " << 1.0e3 * snapshot.maxComputeTimeS << " ms, latest wake-up "
+                                   << 1.0e3 * snapshot.maxLatenessS << " ms late).";
   }
   if (eventLog_.dropped() > 0) {
     LOG_EVERY_N_SEC(WARNING, 10.0) << "[RobotProcess] " << eventLog_.dropped() << " reports of the realtime thread were dropped.";
@@ -412,13 +459,13 @@ void RobotProcess::publishLoopTiming(const robot::realtime::LoopTimingSnapshot& 
 }
 
 void RobotProcess::onTaskFileChanged(const std::string& file) {
-  const absl::StatusOr<ControllerSideSettings> settings = loadControllerSideSettings(file);
-  if (!settings.ok()) {
-    LOG(WARNING) << "[RobotProcess] Not applying the controller-side keys of " << file << ": " << settings.status().message();
+  const absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(file);
+  if (!task.ok()) {
+    LOG(WARNING) << "[RobotProcess] Not applying the controller-side settings of " << file << ": " << task.status().message();
     return;
   }
-  LOG(INFO) << "[RobotProcess] " << file << " changed; applying its controller-side keys (contactEstimator, contact_wrench_gate).";
-  mailbox_->postControllerSettings(*settings, file);
+  LOG(INFO) << "[RobotProcess] " << file << " changed; applying its controller-side settings (contact_estimator, contact_wrench_gate).";
+  mailbox_->postControllerSettings(controllerSideSettingsFromConfig(*task), file);
 }
 
 }  // namespace ocs2::humanoid

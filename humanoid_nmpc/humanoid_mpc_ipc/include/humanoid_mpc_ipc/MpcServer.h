@@ -37,19 +37,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <thread>
 
+#include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
-
-#include <ocs2_core/Types.h>
-#include <ocs2_core/reference/TargetTrajectories.h>
-#include <ocs2_mpc/CommandData.h>
-#include <ocs2_mpc/MPC_BASE.h>
-#include <ocs2_mpc/SystemObservation.h>
-#include <ocs2_oc/oc_data/PerformanceIndex.h>
-#include <ocs2_oc/oc_data/PrimalSolution.h>
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/CommandData.h"
+#include "ocs2_mpc/MPC_BASE.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_oc/oc_data/PerformanceIndex.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
 #include "humanoid_mpc_ipc/MpcMessageConversions.h"
@@ -79,7 +79,7 @@ namespace ocs2::humanoid::ipc {
  *   3. solves (MPC_BASE::run()) and reports the result to its supervisor, which backs off and declares the MPC unhealthy
  *      exactly as in process;
  *   4. on success, publishes mpc/policy: the solution as MPC_MRT_Interface::copyToBuffer() assembles it, cut to
- *      mpc.solutionTimeWindow (trimToSolutionWindow()), stamped with the robot's reset counters it has served and its
+ *      mpc.solution_time_window (trimToSolutionWindow()), stamped with the robot's reset counters it has served and its
  *      solver status, with the annotations of Hooks::annotationsProvider; then calls Hooks::postSolveObserver;
  *   5. after every attempt, publishes mpc/status;
  *   6. waits for the rest of the period when Config::mpcDesiredFrequency is positive.
@@ -93,14 +93,23 @@ namespace ocs2::humanoid::ipc {
  */
 class MpcServer {
  public:
-  /** The target trajectories to reset the MPC to from an observation (the controllers' currentObservationToResetTrajectory()). */
-  using ResetTargetTrajectoriesFunction = std::function<TargetTrajectories(const SystemObservation& observation)>;
-  /** Fills MpcPolicy.annotations from the solution about to be sent, on the solver thread. Display only. */
-  using AnnotationsProvider =
-      std::function<void(const CommandData& command, const PrimalSolution& solution, humanoid_mpc_msgs::ViewerAnnotations* annotations)>;
-  /** Called after each policy is published, on the solver thread; the visualization publisher copies what it needs. */
+  /**
+   * The target trajectories to reset the MPC to from an observation (the controllers' currentObservationToResetTrajectory()),
+   * or why there are none: the reset then fails like a failed solve, and is retried.
+   */
+  using ResetTargetTrajectoriesFunction = std::function<absl::StatusOr<TargetTrajectories>(const SystemObservation& observation)>;
+  /**
+   * Fills MpcPolicy.annotations from the solution about to be sent, on the solver thread. Display only: when it returns
+   * an error the policy goes out without annotations.
+   */
+  using AnnotationsProvider = std::function<absl::Status(
+      const CommandData& command, const PrimalSolution& solution, humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations)>;
+  /**
+   * Called after each policy is published, on the solver thread; the visualization publisher copies what it needs. An
+   * error it returns is logged.
+   */
   using PostSolveObserver =
-      std::function<void(const CommandData& command, const PrimalSolution& solution, const PerformanceIndex& performance)>;
+      std::function<absl::Status(const CommandData& command, const PrimalSolution& solution, const PerformanceIndex& performance)>;
 
   struct Config {
     /** The MPC's model: an observation of other dimensions or with a mode outside it is rejected. */
@@ -116,10 +125,10 @@ class MpcServer {
      * allocates as it runs, and mlockall()'s MCL_FUTURE would make those allocations fail at a finite RLIMIT_MEMLOCK.
      * MemoryLock::kLockProcess locks the memory of the whole process, every thread of it.
      */
-    robot::realtime::RealtimeThreadConfig solverThread{.name = "mpc_solver", .memoryLock = robot::realtime::MemoryLock::kNone};
+    robot::realtime::RealtimeThreadConfig solverThread{.name = "mpc_solver", .cores = {}, .memoryLock = robot::realtime::MemoryLock::kNone};
   };
 
-  /** Optional; empty ones are skipped. Exceptions they throw are logged and swallowed. */
+  /** Optional; empty ones are skipped. An error they return is logged and the solve loop goes on. */
   struct Hooks {
     AnnotationsProvider annotationsProvider;
     PostSolveObserver postSolveObserver;
@@ -177,7 +186,7 @@ class MpcServer {
   /** What the callbacks on the bus reach the server through, cleared by the destructor. */
   struct CallbackGuard {
     absl::Mutex mutex;
-    MpcServer* server ABSL_GUARDED_BY(mutex) = nullptr;
+    MpcServer* absl_nullable server ABSL_GUARDED_BY(mutex) = nullptr;
   };
 
   /** The newest observation as the solver thread takes it from the mailbox. */
@@ -206,11 +215,14 @@ class MpcServer {
    * did not manage to serve is not a new one, and waits out the back-off with the failure.
    */
   bool robotRequestedResetSinceSnapshot() const;
-  /** Serves the resets the snapshot and the supervisor ask for. */
-  void serveResets();
+  /**
+   * Serves the resets the snapshot and the supervisor ask for. Internal when the reset cannot be made (the reset
+   * function returned an error or the MPC threw); the requests then stay unserved, and the attempt fails.
+   */
+  absl::Status serveResets();
   absl::Status solve();
   absl::Status buildPolicy();
-  void fillSolverStatus(const absl::Status& attempt, double solveTimeMs, humanoid_mpc_msgs::MpcSolverStatus* status) const;
+  void fillSolverStatus(const absl::Status& attempt, double solveTimeMs, humanoid_mpc_msgs::MpcSolverStatus* absl_nonnull status) const;
   void publishPolicy(const absl::Status& attempt, double solveTimeMs);
   void publishStatus(const absl::Status& attempt, double solveTimeMs);
   /** Sleeps until `deadline` or stop(). */

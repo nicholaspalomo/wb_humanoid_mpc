@@ -74,7 +74,7 @@ bool LoopTimingStats::addCycle(const CycleTiming& cycle) {
 
   const std::chrono::nanoseconds computeTime = cycle.end - cycle.start;
   const bool overran = computeTime > targetPeriod_;
-  const std::uint64_t missedPeriods = cycle.missedPeriods > 0 ? static_cast<std::uint64_t>(cycle.missedPeriods) : 0;
+  const uint64_t missedPeriods = cycle.missedPeriods > 0 ? static_cast<uint64_t>(cycle.missedPeriods) : 0;
   window_.computeTimeSum += computeTime;
   window_.maxComputeTime = window_.cycles == 0 ? computeTime : std::max(window_.maxComputeTime, computeTime);
   window_.maxLateness = window_.cycles == 0 ? cycle.lateness : std::max(window_.maxLateness, cycle.lateness);

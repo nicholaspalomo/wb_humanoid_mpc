@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Exports recorded MPC rollout trajectories to HDF5 demonstration datasets for RL warmstarting.
 
 The input is the CSV files of mpc_observation_logger.py (mpc_observation_*.csv): by default the observations are the
@@ -7,11 +34,11 @@ columns. The dataset is HDF5 when h5py is installed, and an .npz file otherwise.
 """
 
 import argparse
+from collections.abc import Sequence
 import csv
 import glob
 import os
 import re
-from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -26,7 +53,8 @@ _LEGACY_OBSERVATION_SLICE = slice(0, 25)
 _LEGACY_ACTION_SLICE = slice(25, 37)
 
 
-def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parses the exporter's command line `argv` (sys.argv when None)."""
     parser = argparse.ArgumentParser(
         description="Export MPC trajectories to HDF5 for imitation learning"
     )
@@ -59,7 +87,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def default_columns(header: Sequence[str]) -> Tuple[List[str], List[str]]:
+def default_columns(header: Sequence[str]) -> tuple[list[str], list[str]]:
     """The observation and action columns of a log whose header is `header`."""
     state = [column for column in header if _STATE_COLUMN.match(column)]
     inputs = [column for column in header if _INPUT_COLUMN.match(column)]
@@ -77,7 +105,7 @@ def default_columns(header: Sequence[str]) -> Tuple[List[str], List[str]]:
     )
 
 
-def read_csv(file_path: str) -> Tuple[List[str], np.ndarray]:
+def read_csv(file_path: str) -> tuple[list[str], np.ndarray]:
     """The header and the rows of a log, as float64."""
     with open(file_path, "r", newline="", encoding="utf-8") as stream:
         reader = csv.reader(stream)
@@ -87,7 +115,7 @@ def read_csv(file_path: str) -> Tuple[List[str], np.ndarray]:
     return header, values
 
 
-def _columns(header: Sequence[str], names: Sequence[str], file_path: str) -> List[int]:
+def _columns(header: Sequence[str], names: Sequence[str], file_path: str) -> list[int]:
     missing = [name for name in names if name not in header]
     if missing:
         raise ValueError(f"{file_path} has no column {', '.join(missing)}")
@@ -97,12 +125,12 @@ def _columns(header: Sequence[str], names: Sequence[str], file_path: str) -> Lis
 def export_csv_to_h5(
     csv_files: Sequence[str],
     output_path: str,
-    obs_cols: Optional[Sequence[str]] = None,
-    act_cols: Optional[Sequence[str]] = None,
-) -> Optional[str]:
+    obs_cols: Sequence[str] | None = None,
+    act_cols: Sequence[str] | None = None,
+) -> str | None:
     """Writes the observations and actions of `csv_files` to `output_path`; returns the path written, or None."""
     try:
-        import h5py  # pylint: disable=import-outside-toplevel
+        import h5py  # pylint: disable=import-outside-toplevel  # An optional dependency.
     except ImportError:
         h5py = None
         print(
@@ -157,7 +185,7 @@ def export_csv_to_h5(
     return output_path
 
 
-def find_csv_files(input_path: str) -> List[str]:
+def find_csv_files(input_path: str) -> list[str]:
     """The logs at `input_path`: the file itself, or the mpc_observation_*.csv files of a directory."""
     if os.path.isdir(input_path):
         return sorted(glob.glob(os.path.join(input_path, "mpc_observation_*.csv")))
@@ -166,7 +194,7 @@ def find_csv_files(input_path: str) -> List[str]:
     return []
 
 
-def main(argv: Optional[Sequence[str]] = None) -> None:
+def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     csv_files = find_csv_files(args.input_path)
 
@@ -177,7 +205,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         synthetic_act = np.random.randn(500, 12).astype(np.float32)
         os.makedirs(os.path.dirname(os.path.abspath(args.output_path)), exist_ok=True)
         try:
-            import h5py  # pylint: disable=import-outside-toplevel
+            import h5py  # pylint: disable=import-outside-toplevel  # An optional dependency.
 
             with h5py.File(args.output_path, "w") as f:
                 f.create_dataset("observations", data=synthetic_obs, compression="gzip")

@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """The colors of the viewer: OCS2's MATLAB-like marker palette and matplotlib's "tab10" curve colors.
 
 The marker palette is OCS2's (`ocs2::Color`), which its visualization helpers drew the markers with before the Rerun
@@ -5,13 +32,13 @@ viewer, so a marker keeps the color it always had. The curve colors keep those o
 against a red reference for positions, measured green against an orange reference for angles and rates.
 """
 
-from typing import Sequence, Tuple
+from collections.abc import Sequence
 
 # An RGB or RGBA color with channels in [0, 1], as humanoid_mpc_msgs.Color carries it.
-Rgb = Tuple[float, float, float]
-Rgba = Tuple[float, float, float, float]
+Rgb = tuple[float, float, float]
+Rgba = tuple[float, float, float, float]
 # An RGBA color with channels in [0, 255], the form the bridge hands to Rerun.
-Rgba8 = Tuple[int, int, int, int]
+Rgba8 = tuple[int, int, int, int]
 
 # The MATLAB-like palette (ocs2::Color). The visualization publisher colors the footholds with it.
 # LINT.IfChange(marker_palette)
@@ -24,7 +51,7 @@ RED: Rgb = (0.6350, 0.0780, 0.1840)
 BLACK: Rgb = (0.25, 0.25, 0.25)
 
 # The colors of the contact points and their trajectories, by contact index.
-CONTACT_COLORS: Tuple[Rgb, ...] = (PURPLE, ORANGE, BLUE, GREEN, YELLOW)
+CONTACT_COLORS: tuple[Rgb, ...] = (PURPLE, ORANGE, BLUE, GREEN, YELLOW)
 # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/visualization/include/humanoid_common_mpc_app/visualization/SceneContract.h:marker_palette)
 
 # The color of a URDF visual that names no material.
@@ -40,7 +67,6 @@ PLOT_GREEN = "#2ca02c"
 PLOT_RED = "#d62728"
 PLOT_PURPLE = "#9467bd"
 PLOT_BROWN = "#8c564b"
-PLOT_PINK = "#e377c2"
 
 
 def with_alpha(rgb: Sequence[float], alpha: float) -> Rgba:
@@ -53,7 +79,7 @@ def to_rgba8(color: Sequence[float]) -> Rgba8:
     channels = list(color) + ([1.0] if len(color) == 3 else [])
     if len(channels) != 4:
         raise ValueError(f"a color has 3 or 4 channels, not {len(color)}")
-    return tuple(int(round(min(max(float(c), 0.0), 1.0) * 255.0)) for c in channels)  # type: ignore[return-value]
+    return tuple(int(round(min(max(float(c), 0.0), 1.0) * 255.0)) for c in channels)  # type: ignore[return-value]  # Four channels, checked above.
 
 
 def hex_to_rgba8(color: str) -> Rgba8:

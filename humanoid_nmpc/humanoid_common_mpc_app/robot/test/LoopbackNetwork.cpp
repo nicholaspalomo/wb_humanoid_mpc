@@ -27,7 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include "humanoid_common_mpc_app/robot/test_support/LoopbackNetwork.h"
+#include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/LoopbackNetwork.h"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -68,7 +68,7 @@ absl::StatusOr<robot::ipc::NetworkConfig> writeLoopbackNetworkFile(const std::st
   {
     std::ofstream file(path);
     for (const std::string& node : nodes) {
-      file << "nodes { name: \"" << node << "\" host: \"127.0.0.1\" port: " << freeLoopbackPort() << " }\n";
+      file << "nodes { name: \"" << node << R"(" host: "127.0.0.1" port: )" << freeLoopbackPort() << " }\n";
     }
   }
   return robot::ipc::loadNetworkConfig(path);

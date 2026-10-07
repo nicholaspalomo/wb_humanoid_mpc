@@ -30,7 +30,8 @@
 - `py-license-docstring` (3.8.2): the license is a `#` comment block above the module docstring, never the docstring
   (a module docstring whose first line, below any `****` rule, starts with "Copyright").
 - `py-license-header` (3.8.2; decision D5): every file starts with the BSD-3 license comment, "Copyright (c) <year>,
-  <holder>. All rights reserved." and the conditions (the C++ files' header, as `#` comments).
+  <holder>. All rights reserved.", the three conditions and the disclaimer (the C++ files' header, as `#` comments;
+  tools/hooks/license_header.py reads it).
 - `py-docstring-summary` (3.8.1): the summary is one physical line of at most 140 columns, ending in `.`, `?` or `!`,
   followed by a blank line or the end of the docstring.
 - `py-docstring-sections` (3.8.3): a function whose docstring goes beyond its summary documents its parameters under
@@ -46,6 +47,7 @@ import re
 from typing import NamedTuple
 
 from tools.hooks import check_types
+from tools.hooks import license_header
 from tools.hooks import lint_files
 
 LICENSE_DOCSTRING = "py-license-docstring"
@@ -57,7 +59,6 @@ PROPERTY_DOCSTRING = "py-property-docstring"
 PYTHON = frozenset({check_types.Language.PYTHON})
 MAX_SUMMARY_COLUMNS = 140
 DOCSTRING_MIN_LENGTH = 12
-_COPYRIGHT = re.compile(r"^#\s*Copyright \(c\)", re.IGNORECASE)
 _ARGS = re.compile(r"^\s*(Args|Arguments):\s*$", re.MULTILINE)
 _RETURNS = re.compile(r"^\s*(Returns|Return):", re.MULTILINE)
 _YIELDS = re.compile(r"^\s*(Yields|Yield):", re.MULTILINE)
@@ -121,26 +122,39 @@ def check_license_docstring(source: str, path: str) -> list[check_types.Finding]
     ]
 
 
-def check_license_header(source: str, path: str) -> list[check_types.Finding]:
-    """A file without the license comment at its top."""
-    if not source.strip():
-        return []
-    for line in source.splitlines():
+def _leading_comment(source: str) -> tuple[list[str], int, int]:
+    """The `#` lines that start a file (below a shebang and blank lines), the line of the first, and the line after."""
+    lines: list[str] = []
+    start = 1
+    end = 1
+    for number, line in enumerate(source.splitlines(), start=1):
+        end = number
         stripped = line.strip()
-        if not stripped or stripped.startswith("#!"):
+        if not lines and (not stripped or (number == 1 and stripped.startswith("#!"))):
             continue
         if not stripped.startswith("#"):
             break
-        if _COPYRIGHT.match(stripped):
-            return []
+        if not lines:
+            start = number
+        lines.append(line)
+    return lines, start, end
+
+
+def check_license_header(source: str, path: str) -> list[check_types.Finding]:
+    """A file whose first comment is not the complete BSD-3 license block (tools/hooks/license_header.py)."""
+    if not source.strip():
+        return []
+    lines, start, end = _leading_comment(source)
     return [
         check_types.Finding(
             path,
-            1,
+            line,
             1,
             LICENSE_HEADER,
-            "no license header: start the file with the BSD-3 comment block, `# Copyright (c) <year>, <holder>. All "
-            "rights reserved.` and its conditions (Python style 3.8.2).",
+            f"{message} (Python style 3.8.2; decision D5).",
+        )
+        for line, message in license_header.finding_lines(
+            license_header.comment_lines("\n".join(lines)), start, end
         )
     ]
 

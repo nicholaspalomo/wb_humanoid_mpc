@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """The Python bus over loopback TCP: the properties testBus.cpp checks for the C++ bus.
 
 Exact topic matching, Delivery.LATEST against Delivery.ALL, publishing from several threads, processes that start in
@@ -6,27 +33,20 @@ callbacks that raise, and decode(). Every publisher binds an ephemeral port (EPH
 network then names, so concurrent tests never collide on a port.
 """
 
+from collections.abc import Callable
 import gc
+import math
 import os
 import threading
 import time
+from typing import Any
 import unittest
-from typing import Callable, List, Tuple
 
+from robot_ipc_test import test_event_pb2
+from robot_ipc_test import test_sample_pb2
 import zmq
 
 import robot_ipc
-from robot_ipc import (
-    EPHEMERAL_PORT,
-    Bus,
-    BusError,
-    Delivery,
-    NetworkConfig,
-    NetworkConfigError,
-    NodeEndpoint,
-)
-from robot_ipc_test import test_event_pb2
-from robot_ipc_test import test_sample_pb2
 
 TIMEOUT = 20.0
 PUBLISHER = "publisher"
@@ -43,8 +63,10 @@ def wait_for(condition: Callable[[], bool], timeout: float = TIMEOUT) -> bool:
     return condition()
 
 
-def loopback_network(name: str, port: int) -> NetworkConfig:
-    return NetworkConfig(nodes=(NodeEndpoint(name, "127.0.0.1", port),))
+def loopback_network(name: str, port: int) -> robot_ipc.NetworkConfig:
+    return robot_ipc.NetworkConfig(
+        nodes=(robot_ipc.NodeEndpoint(name, "127.0.0.1", port),)
+    )
 
 
 def make_sample(sequence: int, publisher: int = 0) -> test_sample_pb2.TestSample:
@@ -53,18 +75,22 @@ def make_sample(sequence: int, publisher: int = 0) -> test_sample_pb2.TestSample
     )
 
 
+def subscribe_probe(bus: robot_ipc.Bus) -> None:
+    bus.subscribe_raw(PROBE_TOPIC, lambda type_name, payload: None)
+
+
 class Collector:
     """Collects what a callback receives, on the receive thread, for the test thread to read."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._samples: List[test_sample_pb2.TestSample] = []
+        self._samples: list[test_sample_pb2.TestSample] = []
 
     def __call__(self, sample: test_sample_pb2.TestSample) -> None:
         with self._lock:
             self._samples.append(sample)
 
-    def samples(self) -> List[test_sample_pb2.TestSample]:
+    def samples(self) -> list[test_sample_pb2.TestSample]:
         with self._lock:
             return list(self._samples)
 
@@ -80,21 +106,21 @@ class Collector:
 class BusTestCase(unittest.TestCase):
     """Creates buses that close when the test ends."""
 
-    def publisher(self, port: int = EPHEMERAL_PORT, **options) -> Bus:
-        bus = Bus(PUBLISHER, loopback_network(PUBLISHER, port), **options)
+    def publisher(
+        self, port: int = robot_ipc.EPHEMERAL_PORT, **options
+    ) -> robot_ipc.Bus:
+        bus = robot_ipc.Bus(PUBLISHER, loopback_network(PUBLISHER, port), **options)
         self.addCleanup(bus.close)
         return bus
 
-    def subscriber(self, publisher_port: int, **options) -> Bus:
-        bus = Bus("", loopback_network(PUBLISHER, publisher_port), **options)
+    def subscriber(self, publisher_port: int, **options) -> robot_ipc.Bus:
+        bus = robot_ipc.Bus("", loopback_network(PUBLISHER, publisher_port), **options)
         self.addCleanup(bus.close)
         return bus
 
-    @staticmethod
-    def subscribe_probe(bus: Bus) -> None:
-        bus.subscribe_raw(PROBE_TOPIC, lambda type_name, payload: None)
-
-    def wait_until_connected(self, publisher: Bus, subscriber: Bus) -> None:
+    def wait_until_connected(
+        self, publisher: robot_ipc.Bus, subscriber: robot_ipc.Bus
+    ) -> None:
         """Publishes probes until the subscriber has received more than before (ZeroMQ's "slow joiner")."""
         before = subscriber.topic_statistics(PROBE_TOPIC).received
         probe = test_event_pb2.TestEvent(name="probe")
@@ -106,13 +132,15 @@ class BusTestCase(unittest.TestCase):
 
         self.assertTrue(wait_for(connected), "the subscriber never connected")
 
-    def connected_pair(self, **options) -> Tuple[Bus, Bus]:
+    def connected_pair(self, **options) -> tuple[robot_ipc.Bus, robot_ipc.Bus]:
         publisher = self.publisher(**options)
         subscriber = self.subscriber(publisher.bound_port, **options)
-        self.subscribe_probe(subscriber)
+        subscribe_probe(subscriber)
         return publisher, subscriber
 
-    def start_and_connect(self, publisher: Bus, subscriber: Bus) -> None:
+    def start_and_connect(
+        self, publisher: robot_ipc.Bus, subscriber: robot_ipc.Bus
+    ) -> None:
         publisher.start()
         subscriber.start()
         self.wait_until_connected(publisher, subscriber)
@@ -122,24 +150,46 @@ class CreateTest(BusTestCase):
 
     def test_rejects_a_node_outside_the_network_and_lists_the_nodes(self) -> None:
         with self.assertRaises(ValueError) as raised:
-            Bus("ghost", robot_ipc.localhost_network_config())
+            robot_ipc.Bus("ghost", robot_ipc.localhost_network_config())
         self.assertIn("ghost", str(raised.exception))
         self.assertIn("robot", str(raised.exception))
 
     def test_rejects_an_invalid_network_and_options(self) -> None:
-        with self.assertRaises(NetworkConfigError):
-            Bus("", NetworkConfig(nodes=()))
+        with self.assertRaises(robot_ipc.NetworkConfigError):
+            robot_ipc.Bus("", robot_ipc.NetworkConfig(nodes=()))
         with self.assertRaises(ValueError):
-            Bus(
+            robot_ipc.Bus(
                 "",
-                loopback_network(PUBLISHER, EPHEMERAL_PORT),
+                loopback_network(PUBLISHER, robot_ipc.EPHEMERAL_PORT),
                 publish_queue_capacity=0,
             )
 
+    def test_rejects_nan_options(self) -> None:
+        # NaN fails every comparison, so a check written `value <= 0` would let it through: an io_poll_period or a
+        # period of NaN would make the receive thread spin.
+        for option in (
+            "io_poll_period",
+            "heartbeat_interval",
+            "heartbeat_timeout",
+            "reconnect_interval",
+            "reconnect_interval_max",
+        ):
+            options: dict[str, Any] = {option: math.nan}
+            with self.subTest(option=option):
+                with self.assertRaisesRegex(ValueError, option):
+                    robot_ipc.Bus(
+                        "",
+                        loopback_network(PUBLISHER, robot_ipc.EPHEMERAL_PORT),
+                        **options
+                    )
+        bus = self.publisher()
+        with self.assertRaisesRegex(ValueError, "positive period"):
+            bus.add_periodic_callback(math.nan, lambda: None)
+
     def test_reports_a_taken_endpoint(self) -> None:
         first = self.publisher()
-        with self.assertRaises(BusError) as raised:
-            Bus("second", loopback_network("second", first.bound_port))
+        with self.assertRaises(robot_ipc.BusError) as raised:
+            robot_ipc.Bus("second", loopback_network("second", first.bound_port))
         self.assertIn("second", str(raised.exception))
         self.assertIn(first.bound_endpoint, str(raised.exception))
 
@@ -148,7 +198,7 @@ class CreateTest(BusTestCase):
     ) -> None:
         bus = self.publisher()
         self.assertEqual(bus.node_name, PUBLISHER)
-        self.assertGreater(bus.bound_port, EPHEMERAL_PORT)
+        self.assertGreater(bus.bound_port, robot_ipc.EPHEMERAL_PORT)
         self.assertTrue(bus.bound_endpoint.startswith("tcp://127.0.0.1:"))
         self.assertEqual(bus.subscriber_endpoints, [bus.bound_endpoint])
 
@@ -156,28 +206,34 @@ class CreateTest(BusTestCase):
         bus = self.subscriber(publisher_port=5999)
         self.assertEqual(bus.node_name, "")
         self.assertEqual(bus.bound_endpoint, "")
-        self.assertEqual(bus.bound_port, EPHEMERAL_PORT)
+        self.assertEqual(bus.bound_port, robot_ipc.EPHEMERAL_PORT)
         self.assertEqual(bus.subscriber_endpoints, ["tcp://127.0.0.1:5999"])
-        with self.assertRaises(BusError):
+        with self.assertRaises(robot_ipc.BusError):
             bus.publish("test/topic", make_sample(0))
+        # The receive thread's own send refuses too, with an error instead of an assert that `python -O` drops.
+        with self.assertRaises(robot_ipc.BusError) as raised:
+            bus._send("test/topic", (b"test/topic", b"robot_ipc_test.TestSample", b""))
+        self.assertIn("only subscribes", str(raised.exception))
 
     def test_publishing_on_a_closed_bus_is_refused(self) -> None:
         bus = self.publisher()
         bus.start()
         bus.close()
-        with self.assertRaises(BusError) as raised:
+        with self.assertRaises(robot_ipc.BusError) as raised:
             bus.publish("test/topic", make_sample(0))
         self.assertIn("closed", str(raised.exception))
-        with self.assertRaises(BusError):
+        with self.assertRaises(robot_ipc.BusError):
             bus.publish_raw("test/topic", "robot_ipc_test.TestSample", b"")
 
     def test_the_wake_up_descriptor_lives_as_long_as_the_bus_object(self) -> None:
         # A thread that still holds a closed bus may publish into it at any time. Were the eventfd closed with the
         # sockets, its number could already belong to another file or socket of the process, which the wake-up of
         # that publish would write eight bytes into.
-        bus = Bus(PUBLISHER, loopback_network(PUBLISHER, EPHEMERAL_PORT))
+        bus = robot_ipc.Bus(
+            PUBLISHER, loopback_network(PUBLISHER, robot_ipc.EPHEMERAL_PORT)
+        )
         bus.start()
-        wake_fd = bus._wake_fd  # pylint: disable=protected-access
+        wake_fd = bus._wake_fd
         bus.close()
         os.fstat(wake_fd)  # Still the bus's: no other descriptor can take its number.
         del bus
@@ -189,23 +245,23 @@ class CreateTest(BusTestCase):
         self,
     ) -> None:
         # A thread that publishes on its own, as the operator tools' streaming threads do, while the bus closes.
+        def stream(bus: robot_ipc.Bus, outcomes: list[str]) -> None:
+            while True:
+                try:
+                    bus.publish("test/topic", make_sample(0))
+                except robot_ipc.BusError:
+                    outcomes.append("refused")
+                    return
+                # pylint: disable-next=broad-exception-caught  # Any other exception is recorded, and fails the test.
+                except Exception as error:
+                    outcomes.append(repr(error))
+                    return
+
         for _ in range(20):
             bus = self.publisher()
             bus.start()
-            outcomes: List[str] = []
-
-            def stream() -> None:
-                while True:
-                    try:
-                        bus.publish("test/topic", make_sample(0))
-                    except BusError:
-                        outcomes.append("refused")
-                        return
-                    except Exception as error:  # pylint: disable=broad-except
-                        outcomes.append(repr(error))
-                        return
-
-            streamer = threading.Thread(target=stream)
+            outcomes: list[str] = []
+            streamer = threading.Thread(target=stream, args=(bus, outcomes))
             streamer.start()
             time.sleep(0.001)
             bus.close()
@@ -214,11 +270,13 @@ class CreateTest(BusTestCase):
             self.assertEqual(outcomes, ["refused"])
 
     def test_close_releases_the_port(self) -> None:
-        with Bus(PUBLISHER, loopback_network(PUBLISHER, EPHEMERAL_PORT)) as bus:
+        with robot_ipc.Bus(
+            PUBLISHER, loopback_network(PUBLISHER, robot_ipc.EPHEMERAL_PORT)
+        ) as bus:
             port = bus.bound_port
             self.assertTrue(bus.is_running())
         self.assertFalse(bus.is_running())
-        with self.assertRaises(BusError):
+        with self.assertRaises(robot_ipc.BusError):
             bus.start()
         self.publisher(port=port)
 
@@ -233,7 +291,8 @@ class LifecycleTest(BusTestCase):
         with self.assertRaises(ValueError):
             bus.subscribe("", test_sample_pb2.TestSample, collector, "all")
         with self.assertRaises(ValueError):
-            bus.subscribe("test/a", test_sample_pb2.TestSample, None, "all")
+            # Not callable, on purpose.
+            bus.subscribe("test/a", test_sample_pb2.TestSample, None, "all")  # type: ignore[arg-type]  # The refusal is under test.
         with self.assertRaises(ValueError):
             bus.subscribe("test/a", test_sample_pb2.TestSample, collector, "newest")
         with self.assertRaises(ValueError):
@@ -246,17 +305,19 @@ class LifecycleTest(BusTestCase):
         bus.start()
         bus.start()
         self.assertTrue(bus.is_running())
-        with self.assertRaises(BusError):
+        with self.assertRaises(robot_ipc.BusError):
             bus.subscribe("test/b", test_sample_pb2.TestSample, collector, "all")
-        with self.assertRaises(BusError):
+        with self.assertRaises(robot_ipc.BusError):
             bus.add_periodic_callback(0.001, lambda: None)
-        with self.assertRaises(BusError):
+        with self.assertRaises(robot_ipc.BusError):
             bus.connect("tcp://127.0.0.1:5999")
 
         bus.stop()
         bus.stop()
         self.assertFalse(bus.is_running())
-        bus.subscribe("test/b", test_sample_pb2.TestSample, collector, Delivery.ALL)
+        bus.subscribe(
+            "test/b", test_sample_pb2.TestSample, collector, robot_ipc.Delivery.ALL
+        )
         with self.assertRaises(ValueError):
             bus.connect("not an endpoint")
 
@@ -275,8 +336,8 @@ class LifecycleTest(BusTestCase):
 
     def test_stop_from_a_callback_ends_the_loop_and_a_later_stop_joins(self) -> None:
         bus = self.publisher()
-        self.subscribe_probe(bus)
-        calls: List[int] = []
+        subscribe_probe(bus)
+        calls: list[int] = []
 
         def stop_on_first(sample: test_sample_pb2.TestSample) -> None:
             calls.append(sample.sequence)
@@ -294,7 +355,7 @@ class LifecycleTest(BusTestCase):
 
     def test_close_from_a_callback_is_refused_and_the_bus_carries_on(self) -> None:
         bus = self.publisher()
-        self.subscribe_probe(bus)
+        subscribe_probe(bus)
         bus.subscribe(
             "test/close", test_sample_pb2.TestSample, lambda sample: bus.close(), "all"
         )
@@ -313,8 +374,8 @@ class DeliveryTest(BusTestCase):
         self,
     ) -> None:
         bus = self.publisher()
-        self.subscribe_probe(bus)
-        on_io_thread: List[bool] = []
+        subscribe_probe(bus)
+        on_io_thread: list[bool] = []
         pongs = Collector()
 
         def answer(ping: test_sample_pb2.TestSample) -> None:
@@ -329,7 +390,7 @@ class DeliveryTest(BusTestCase):
         bus.start()
         self.wait_until_connected(bus, bus)
 
-        with self.assertRaises(BusError):
+        with self.assertRaises(robot_ipc.BusError):
             bus.publish_from_io_thread("test/pong", make_sample(0))
         bus.publish("test/ping", make_sample(7))
         self.assertTrue(wait_for(lambda: pongs.size() == 1))
@@ -371,7 +432,7 @@ class DeliveryTest(BusTestCase):
         latest = Collector()
         everything = Collector()
         subscriber.subscribe(
-            "test/latest", test_sample_pb2.TestSample, latest, Delivery.LATEST
+            "test/latest", test_sample_pb2.TestSample, latest, robot_ipc.Delivery.LATEST
         )
         subscriber.subscribe("test/all", test_sample_pb2.TestSample, everything, "all")
         self.start_and_connect(publisher, subscriber)
@@ -464,7 +525,7 @@ class DeliveryTest(BusTestCase):
         subscriber = self.subscriber(publisher_port=5999)
         subscriber.connect(raw.getsockopt_string(zmq.LAST_ENDPOINT))
         collector = Collector()
-        self.subscribe_probe(subscriber)
+        subscribe_probe(subscriber)
         subscriber.subscribe("test/typed", test_sample_pb2.TestSample, collector, "all")
         subscriber.start()
 
@@ -523,7 +584,7 @@ class DeliveryTest(BusTestCase):
         subscriber.subscribe(
             "test/periodic", test_sample_pb2.TestSample, collector, "all"
         )
-        calls: List[bool] = []
+        calls: list[bool] = []
 
         def tick() -> None:
             calls.append(publisher.is_io_thread())
@@ -545,7 +606,7 @@ class DeliveryTest(BusTestCase):
 
     def test_subscribe_all_topics_sees_every_message_with_its_type_name(self) -> None:
         publisher, subscriber = self.connected_pair()
-        seen: List[Tuple[str, str, bytes]] = []
+        seen: list[tuple[str, str, bytes]] = []
         lock = threading.Lock()
 
         def record(topic: str, type_name: str, payload: bytes) -> None:
@@ -576,15 +637,16 @@ class DeliveryTest(BusTestCase):
 class ConnectionTest(BusTestCase):
 
     def _subscriber_before_publisher_receives(self, port: int) -> bool:
+        """Starts a subscriber, then a publisher on `port`; False when another process took the port in between."""
         subscriber = self.subscriber(port)
         collector = Collector()
-        self.subscribe_probe(subscriber)
+        subscribe_probe(subscriber)
         subscriber.subscribe("test/late", test_sample_pb2.TestSample, collector)
         subscriber.start()
         time.sleep(0.05)
         try:
             publisher = self.publisher(port=port)
-        except BusError:
+        except robot_ipc.BusError:
             # Another process took the port in between; the caller retries with a fresh one.
             return False
         publisher.start()
@@ -598,7 +660,9 @@ class ConnectionTest(BusTestCase):
     ) -> None:
         for _ in range(3):
             # A port the kernel just handed out and that is free again.
-            probe = Bus(PUBLISHER, loopback_network(PUBLISHER, EPHEMERAL_PORT))
+            probe = robot_ipc.Bus(
+                PUBLISHER, loopback_network(PUBLISHER, robot_ipc.EPHEMERAL_PORT)
+            )
             port = probe.bound_port
             probe.close()
             if self._subscriber_before_publisher_receives(port):
@@ -606,12 +670,14 @@ class ConnectionTest(BusTestCase):
         self.fail("every port was taken before the publisher could bind it")
 
     def test_a_restarted_publisher_is_reconnected(self) -> None:
-        publisher = Bus(PUBLISHER, loopback_network(PUBLISHER, EPHEMERAL_PORT))
+        publisher = robot_ipc.Bus(
+            PUBLISHER, loopback_network(PUBLISHER, robot_ipc.EPHEMERAL_PORT)
+        )
         self.addCleanup(publisher.close)
         port = publisher.bound_port
         subscriber = self.subscriber(port)
         collector = Collector()
-        self.subscribe_probe(subscriber)
+        subscribe_probe(subscriber)
         subscriber.subscribe(
             "test/restart", test_sample_pb2.TestSample, collector, "all"
         )

@@ -51,7 +51,7 @@ The ports of the container's processes:
 | `8888` | Jupyter (`make train-acom-jupyter`) |
 
 <!-- LINT.IfChange(bus_ports) -->
-The bus range `5600`-`5629` covers every node of `config/ipc/network.textproto` (`5600` robot, `5610` MPC, `5620` operator GUI, `5621` teleoperation), so a process on the host, or on another machine, can join the bus of the processes in the container. With the bridge network of `docker-compose.bridge.yaml`, a node that is to be reached from outside the container has to bind every interface (`bind_host: "0.0.0.0"` in the network file), not just the container's own loopback.
+The bus range `5600`-`5629` covers every node of `config/ipc/network.textproto` (`5600` robot, `5610` MPC, `5620` operator GUI, `5621` teleoperation, `5622` push_robot_config), so a process on the host, or on another machine, can join the bus of the processes in the container. With the bridge network of `docker-compose.bridge.yaml`, a node that is to be reached from outside the container has to bind every interface (`bind_host: "0.0.0.0"` in the network file), not just the container's own loopback.
 <!-- LINT.ThenChange(//docker-compose.bridge.yaml:bus_ports) -->
 
 ## Rerun
@@ -183,7 +183,7 @@ When focused in the MuJoCo simulation viewport on `:99`, the following keys and 
 | **`m`** | Toggle **Center of Mass (CoM)** | Displays CoM indicator spheres for kinematic bodies / links |
 | **`i`** | Toggle **Inertia Ellipsoids** | Renders equivalent inertia ellipsoids depicting principal moments of inertia |
 | **`h`** | Toggle **Convex Hulls** | Displays computed convex hulls enclosing the link meshes |
-| **`b`** | Toggle **Contact Timeline** | Barcode along the bottom edge: per contact point, the contact state the MPC policy plans (top strip, blue = contact) against the simulator's ground truth (bottom strip, green = touching) over a sliding window; red = touching while the plan says swing (early touch-down, scuff), orange = in the air while the plan says contact (late touch-down, slip). Window and force threshold: `simContactTimelineWindow`, `simContactForceThreshold` in `task.yaml` |
+| **`b`** | Toggle **Contact Timeline** | Barcode along the bottom edge: per contact point, the contact state the MPC policy plans (top strip, blue = contact) against the simulator's ground truth (bottom strip, green = touching) over a sliding window; red = touching while the plan says swing (early touch-down, scuff), orange = in the air while the plan says contact (late touch-down, slip). Window and force threshold: `sim_contact_timeline_window`, `sim_contact_force_threshold` in `task.textproto` |
 | **`p`** | **Print Cheatsheet** | Prints the hotkey and mouse control guide to the terminal |
 | **Left Click + Drag** | **Orbit Camera** | Rotates camera viewpoint around the robot or focal point |
 | **Right Click + Drag** | **Pan Camera** | Translates camera position horizontally and vertically |

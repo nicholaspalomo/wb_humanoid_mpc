@@ -27,9 +27,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <vector>
+
+#include "gtest/gtest.h"
 
 #include "humanoid_mpc_validation/closed_loop/LockstepSolveSchedule.h"
 
@@ -41,7 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 namespace {
 
-constexpr double kTolerance = 1e-9;
+constexpr double kTolerance = 1.0e-9;
 /** [s] A control cycle of 2 ms. */
 constexpr double kCycle = 0.002;
 

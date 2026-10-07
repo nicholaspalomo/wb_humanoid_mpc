@@ -36,9 +36,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include <Eigen/Core>
-#include <Eigen/Geometry>
-
+#include "Eigen/Core"
+#include "Eigen/Geometry"
+#include "absl/base/no_destructor.h"
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 
@@ -49,13 +50,13 @@ namespace ocs2::humanoid::validation {
 namespace {
 
 std::optional<double> numberAt(const JsonValue& document, const std::string& path) {
-  const JsonValue* value = document.findPath(path);
+  const JsonValue* absl_nullable value = document.findPath(path);
   if (value == nullptr || !value->isNumber()) return std::nullopt;
   return value->asNumber();
 }
 
 bool survivedIn(const JsonValue& document) {
-  const JsonValue* survived = document.findPath("survival.survived");
+  const JsonValue* absl_nullable survived = document.findPath("survival.survived");
   return survived != nullptr && survived->isBool() && survived->asBool();
 }
 
@@ -65,11 +66,11 @@ double wrapAngle(double angle) {
 }
 
 /** The matrix `label` of `series`, with `cols` columns and `rows` rows (any number when rows < 0). */
-absl::StatusOr<const golden_matrix_t*> seriesMatrix(const GoldenFile& series,
-                                                    const std::string& label,
-                                                    Eigen::Index cols,
-                                                    Eigen::Index rows) {
-  const golden_matrix_t* matrix = series.find(label);
+absl::StatusOr<const golden_matrix_t* absl_nonnull> seriesMatrix(const GoldenFile& series,
+                                                                 const std::string& label,
+                                                                 Eigen::Index cols,
+                                                                 Eigen::Index rows) {
+  const golden_matrix_t* absl_nullable matrix = series.find(label);
   if (matrix == nullptr) return absl::InvalidArgumentError(absl::StrCat("the time series has no matrix '", label, "'"));
   if (matrix->cols() != cols || (rows >= 0 && matrix->rows() != rows)) {
     return absl::InvalidArgumentError(absl::StrCat("the time series matrix '", label, "' is ", matrix->rows(), " x ", matrix->cols()));
@@ -117,7 +118,7 @@ struct CountedSolves {
 std::vector<std::string> unexplainedRotationGapSpikes(const GoldenFile& candidateSeries,
                                                       double documentGap,
                                                       const HeadingCrossingOptions& options) {
-  const golden_matrix_t* gaps = candidateSeries.find(time_series::kSolveRotationGap);
+  const golden_matrix_t* absl_nullable gaps = candidateSeries.find(time_series::kSolveRotationGap);
   if (gaps == nullptr || gaps->cols() != 2) {
     return {absl::StrCat("initial_state_gap.max_rotation_rad: ", documentGap,
                          " rad, a spike the candidate's time series cannot locate (no ", time_series::kSolveRotationGap,
@@ -166,13 +167,16 @@ std::vector<std::string> unexplainedRotationGapSpikes(const GoldenFile& candidat
 }  // namespace
 
 const std::vector<MetricBand>& closedLoopMetricBands() {
-  static const std::vector<MetricBand> bands = {
-      {"base_height.mean_m", /*relative=*/0.0, /*absolute=*/0.005},      {"base_height.rms_error_m", /*relative=*/0.0, /*absolute=*/0.005},
-      {"tilt.rms_rad", /*relative=*/0.20, /*absolute=*/0.005},           {"tilt.max_rad", /*relative=*/0.20, /*absolute=*/0.005},
-      {"velocity.rms_error_mps", /*relative=*/0.15, /*absolute=*/0.02},  {"yaw_rate.rms_error_radps", /*relative=*/0.15, /*absolute=*/0.02},
+  static const absl::NoDestructor<std::vector<MetricBand>> kBands(std::vector<MetricBand>{
+      {"base_height.mean_m", /*relative=*/0.0, /*absolute=*/0.005},
+      {"base_height.rms_error_m", /*relative=*/0.0, /*absolute=*/0.005},
+      {"tilt.rms_rad", /*relative=*/0.20, /*absolute=*/0.005},
+      {"tilt.max_rad", /*relative=*/0.20, /*absolute=*/0.005},
+      {"velocity.rms_error_mps", /*relative=*/0.15, /*absolute=*/0.02},
+      {"yaw_rate.rms_error_radps", /*relative=*/0.15, /*absolute=*/0.02},
       {"stance_foot_slip.max_m", /*relative=*/0.20, /*absolute=*/0.005},
-  };
-  return bands;
+  });
+  return *kBands;
 }
 
 std::vector<std::string> compareClosedLoopMetrics(const JsonValue& candidate, const JsonValue& baseline, const BandOptions& options) {
@@ -181,7 +185,7 @@ std::vector<std::string> compareClosedLoopMetrics(const JsonValue& candidate, co
   const bool candidateSurvived = survivedIn(candidate);
   if (!baselineSurvived) return violations;  // nothing to be worse than but the survival, which a fall cannot be
   if (!candidateSurvived) {
-    const JsonValue* reason = candidate.findPath("survival.fall_reason");
+    const JsonValue* absl_nullable reason = candidate.findPath("survival.fall_reason");
     violations.push_back(absl::StrCat("survival: the baseline survived and the candidate fell (",
                                       reason != nullptr && reason->isString() ? reason->asString() : std::string("no reason"), ")"));
     return violations;
@@ -207,16 +211,17 @@ std::vector<std::string> compareClosedLoopMetrics(const JsonValue& candidate, co
   }
 
   const std::optional<double> normDeviation = numberAt(candidate, "quaternion_norm.max_deviation");
-  if (normDeviation.has_value() && *normDeviation >= 1e-9) {
+  if (normDeviation.has_value() && *normDeviation >= 1.0e-9) {
     violations.push_back(absl::StrCat("quaternion_norm.max_deviation: ", *normDeviation, ", not below 1e-9"));
   }
   return violations;
 }
 
 absl::StatusOr<std::vector<double>> eulerYawCrossingTimes(const GoldenFile& series) {
-  absl::StatusOr<const golden_matrix_t*> time = seriesMatrix(series, time_series::kTime, /*cols=*/1, /*rows=*/-1);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> time = seriesMatrix(series, time_series::kTime, /*cols=*/1, /*rows=*/-1);
   if (!time.ok()) return time.status();
-  absl::StatusOr<const golden_matrix_t*> quaternions = seriesMatrix(series, time_series::kBaseQuaternion, /*cols=*/4, (*time)->rows());
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> quaternions =
+      seriesMatrix(series, time_series::kBaseQuaternion, /*cols=*/4, (*time)->rows());
   if (!quaternions.ok()) return quaternions.status();
   std::vector<double> crossings;
   if ((*time)->rows() == 0) return crossings;
@@ -238,14 +243,14 @@ absl::StatusOr<std::vector<double>> eulerYawCrossingTimes(const GoldenFile& seri
 absl::StatusOr<WindowedTrackingErrors> trackingErrorsOutsideWindows(const GoldenFile& series,
                                                                     const std::vector<double>& windowCenters,
                                                                     double halfWidth) {
-  absl::StatusOr<const golden_matrix_t*> time = seriesMatrix(series, time_series::kTime, /*cols=*/1, /*rows=*/-1);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> time = seriesMatrix(series, time_series::kTime, /*cols=*/1, /*rows=*/-1);
   if (!time.ok()) return time.status();
   const Eigen::Index rows = (*time)->rows();
-  absl::StatusOr<const golden_matrix_t*> quaternions = seriesMatrix(series, time_series::kBaseQuaternion, /*cols=*/4, rows);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> quaternions = seriesMatrix(series, time_series::kBaseQuaternion, /*cols=*/4, rows);
   if (!quaternions.ok()) return quaternions.status();
-  absl::StatusOr<const golden_matrix_t*> velocities = seriesMatrix(series, time_series::kBaseVelocity, /*cols=*/3, rows);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> velocities = seriesMatrix(series, time_series::kBaseVelocity, /*cols=*/3, rows);
   if (!velocities.ok()) return velocities.status();
-  absl::StatusOr<const golden_matrix_t*> references = seriesMatrix(series, time_series::kReferenceVelocity, /*cols=*/3, rows);
+  absl::StatusOr<const golden_matrix_t* absl_nonnull> references = seriesMatrix(series, time_series::kReferenceVelocity, /*cols=*/3, rows);
   if (!references.ok()) return references.status();
 
   WindowedTrackingErrors errors;
@@ -273,7 +278,7 @@ absl::StatusOr<WindowedTrackingErrors> trackingErrorsOutsideWindows(const Golden
 std::vector<std::string> compareClosedLoopRuns(const JsonValue& candidate,
                                                const GoldenFile& candidateSeries,
                                                const JsonValue& baseline,
-                                               const GoldenFile* baselineSeries,
+                                               const GoldenFile* absl_nullable baselineSeries,
                                                const BandOptions& bandOptions,
                                                const HeadingCrossingOptions& crossingOptions) {
   if (baselineSeries == nullptr) {

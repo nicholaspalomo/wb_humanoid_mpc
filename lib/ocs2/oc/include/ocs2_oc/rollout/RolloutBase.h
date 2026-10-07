@@ -33,6 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 #include <ocs2_core/control/ControllerBase.h>
 #include <ocs2_core/manifold/StateManifold.h>
@@ -87,7 +89,7 @@ class RolloutBase {
    *
    * @return A raw pointer to the class.
    */
-  virtual RolloutBase* clone() const = 0;
+  virtual RolloutBase* absl_nonnull clone() const = 0;
 
   /**
    * Sets the manifold the state lives on (nullptr, the default, for a flat state). A rollout that supports it projects
@@ -124,9 +126,15 @@ class RolloutBase {
    *
    * @return The final state (state jump is considered if it took place)
    */
-  virtual vector_t run(scalar_t initTime, const vector_t& initState, scalar_t finalTime, ControllerBase* controller,
-                       ModeSchedule& modeSchedule, scalar_array_t& timeTrajectory, size_array_t& postEventIndices,
-                       vector_array_t& stateTrajectory, vector_array_t& inputTrajectory) = 0;
+  virtual vector_t run(scalar_t initTime,
+                       const vector_t& initState,
+                       scalar_t finalTime,
+                       ControllerBase* absl_nullable controller,
+                       ModeSchedule& modeSchedule,
+                       scalar_array_t& timeTrajectory,
+                       size_array_t& postEventIndices,
+                       vector_array_t& stateTrajectory,
+                       vector_array_t& inputTrajectory) = 0;
 
   /**
    * Prints out the rollout.
@@ -136,8 +144,10 @@ class RolloutBase {
    * @param [in] stateTrajectory: The state trajectory.
    * @param [in] inputTrajectory: The control input trajectory.
    */
-  static void display(const scalar_array_t& timeTrajectory, const size_array_t& postEventIndices, const vector_array_t& stateTrajectory,
-                      const vector_array_t* const inputTrajectory);
+  static void display(const scalar_array_t& timeTrajectory,
+                      const size_array_t& postEventIndices,
+                      const vector_array_t& stateTrajectory,
+                      const vector_array_t* absl_nullable const inputTrajectory);
 
  protected:
   /** Extracts an array of the rollout's start and final times for each active mode. */

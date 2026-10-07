@@ -27,15 +27,14 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
-#include <exception>
-#include <filesystem>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/flags/parse.h"
 #include "absl/flags/usage.h"
 #include "absl/log/globals.h"
@@ -45,17 +44,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 
-#include <humanoid_centroidal_mpc/CentroidalMpcInterface.h>
-#include <humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h>
-#include <humanoid_common_mpc/common/MpcFormulationConfig.h>
-#include <humanoid_common_mpc/common/StatusMacros.h>
-#include <humanoid_common_mpc/common/ThreadAffinity.h>
-#include <humanoid_common_mpc/contact/ContactRectangle.h>
-#include <humanoid_common_mpc/contact_planning/ContactPlanningConfig.h>
-#include <humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h>
-#include <robot_model/ContactEstimatorRegistry.h>
-#include <robot_model/RobotDescription.h>
-
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
+#include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
+#include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
+#include "humanoid_common_mpc/common/MpcFormulationConfig.h"
+#include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/ThreadAffinity.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/config/contact_planning/ContactPlanningFromConfig.h"
+#include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
+#include "humanoid_common_mpc/config/model/MpcFormulationFromConfig.h"
+#include "humanoid_common_mpc/contact/ContactRectangle.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc_app/node/NodeBus.h"
 #include "humanoid_common_mpc_app/node/ShutdownSignal.h"
 #include "humanoid_common_mpc_app/robot/InitialSimState.h"
@@ -63,9 +64,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/RemoteMpcLinkAdapter.h"
 #include "humanoid_common_mpc_app/robot/RobotAppFlags.h"
 #include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
+#include "humanoid_common_mpc_app/robot/RobotConfigDirectory.h"
+#include "humanoid_common_mpc_app/robot/RobotConfigurationCheck.h"
+#include "humanoid_common_mpc_app/robot/RobotController.h"
 #include "humanoid_common_mpc_app/robot/RobotProcess.h"
 #include "humanoid_common_mpc_app/robot/RobotProcessSettings.h"
+#include "humanoid_common_mpc_app/robot/RobotSetUpSteps.h"
+#include "humanoid_common_mpc_app/robot/RobotStack.h"
+#include "humanoid_common_mpc_app/robot/RobotStartup.h"
 #include "humanoid_mpc_ipc/MpcMessageConversions.h"
+#include "robot_model/ContactEstimatorRegistry.h"
+#include "robot_model/RobotDescription.h"
 
 /*
  * humanoid_centroidal_mpc_robot: the robot process of the centroidal MPC (humanoid_nmpc/docs/distributed_runtime/
@@ -82,177 +91,218 @@ namespace {
 constexpr size_t kNumModes = 4;
 
 /**
- * The target contact patches the viewer draws, one per contact: the contact rectangle of every foot, drawn at the pose
- * the contact planner wants the foot on the ground. Without a contact planner (contactScheduleSource: gait_schedule)
- * there is no target and nothing is drawn.
+ * The target contact patches the viewer draws, one per contact: the contact rectangle of every foot (the task file's
+ * contacts block of `config`), drawn at the pose the contact planner wants the foot on the ground. Without a contact
+ * planner (contact_schedule_source: "gait_schedule") there is no target and nothing is drawn.
  */
-std::vector<robot::mujoco_sim_interface::ContactPatchCorners> targetContactPatchCorners(const std::string& taskFile,
+std::vector<robot::mujoco_sim_interface::ContactPatchCorners> targetContactPatchCorners(const CentroidalMpcConfig& config,
                                                                                         const ModelSettings& modelSettings) {
   std::vector<robot::mujoco_sim_interface::ContactPatchCorners> patches;
-  const absl::StatusOr<ContactScheduleSource> source = loadContactScheduleSource(taskFile);
+  const absl::StatusOr<ContactScheduleSource> source = contactScheduleSourceFromConfig(config.task);
   if (!source.ok() || *source != ContactScheduleSource::kContactPlanner) {
     return patches;
   }
-  for (size_t contact = 0; contact < N_CONTACTS; ++contact) {
+  for (size_t contact = 0; contact < kNumContacts; ++contact) {
     robot::mujoco_sim_interface::ContactPatchCorners corners;
-    try {
-      const ContactRectangle rectangle =
-          ContactRectangle::loadContactRectangle(taskFile, modelSettings, static_cast<int>(contact), /*verbose=*/false);
-      const PolygonBounds& bounds = rectangle.getBounds();
+    const absl::StatusOr<ContactRectangle> rectangle =
+        contactRectangleFromConfig(config.task.contacts, modelSettings, static_cast<int>(contact));
+    if (rectangle.ok()) {
+      const PolygonBounds& bounds = rectangle->getBounds();
       if (bounds.x_max > bounds.x_min && bounds.y_max > bounds.y_min) {
-        for (size_t corner = 0; corner < rectangle.getNumberOfContactPoints(); ++corner) {
-          const vector3_t point = rectangle.getContactPointTranslation(static_cast<int>(corner));
+        for (size_t corner = 0; corner < rectangle->getNumberOfContactPoints(); ++corner) {
+          const vector3_t point = rectangle->getContactPointTranslation(static_cast<int>(corner));
           corners.push_back({point(0), point(1)});
         }
       }
-    } catch (const std::exception& e) {
-      LOG(WARNING) << "No contact rectangle for contact point " << contact << " in " << taskFile << ": " << e.what()
-                   << "; the viewer draws a generic outline.";
+    } else {
+      LOG(WARNING) << "No contact rectangle for contact point " << contact
+                   << " in the task file's contacts: " << rectangle.status().message() << "; the viewer draws a generic outline.";
     }
     patches.push_back(std::move(corners));
   }
   return patches;
 }
 
-/** The warning of the ROS sim: phase resetting needs a measured contact state that is not the plan's own. */
-void warnAboutPhaseResettingWithoutContactSensing(const std::string& taskFile, const std::string& contactEstimator) {
+/**
+ * The warning of the ROS sim: phase resetting needs a measured contact state that is not the plan's own. `config` is the
+ * configuration of the task file at `taskFile`, which the warning names.
+ */
+void warnAboutPhaseResettingWithoutContactSensing(const CentroidalMpcConfig& config,
+                                                  const std::string& taskFile,
+                                                  const std::string& contactEstimator) {
   if (robot::model::ContactEstimatorRegistry::canonicalName(contactEstimator) != robot::model::ContactEstimatorRegistry::kAlwaysInContact) {
     return;
   }
-  const absl::StatusOr<ContactScheduleSource> source = loadContactScheduleSource(taskFile);
+  const absl::StatusOr<ContactScheduleSource> source = contactScheduleSourceFromConfig(config.task);
   if (!source.ok() || *source != ContactScheduleSource::kContactPlanner) {
     return;
   }
-  const absl::StatusOr<ContactPlanningConfig> config = loadContactPlanningConfigStatus(
-      resolveContactPlanningConfigFile(taskFile), "contact_planning.", /*verbose=*/false, /*validate=*/false);
-  if (config.ok() && config->formulation.hasExecutionRule(term::kPhaseResetting)) {
-    LOG(WARNING) << "contact_planning lists the phase_resetting execution rule but the contact estimator is always_in_contact: every "
-                    "contact point reads as touching, so phase resetting would end every swing at its scuffing window. Select "
-                    "contactEstimator: cheater_sim in "
+  const absl::StatusOr<ContactPlanningConfig> planning =
+      contactPlanningConfigFromOptionalFile(config.contactPlanning.has_value() ? &*config.contactPlanning : nullptr,
+                                            ContactPlanningValidation::kDeferUntilModelParametersApplied);
+  if (planning.ok() && planning->formulation.hasExecutionRule(term::kPhaseResetting)) {
+    LOG(WARNING) << "contact_planning.textproto lists the phase_resetting execution rule but the contact estimator is always_in_contact: "
+                    "every contact point reads as touching, so phase resetting would end every swing at its scuffing window. Select "
+                    "contact_estimator: \"cheater_sim\" in "
                  << taskFile << ".";
   }
 }
 
-absl::Status run() {
-  const SystemCoreAllocation cores = getDefaultCoreAllocation();
-  ASSIGN_OR_RETURN(const RobotAppOptions options, robotAppOptionsFromFlags(cores.mrtCores, cores.simCores));
-  const node::MpcFiles& files = options.files;
+/** The centroidal MPC's configuration of the parsed files. */
+CentroidalMpcConfig centroidalMpcConfigOf(const RobotConfigFiles& files) {
+  CentroidalMpcConfig config;
+  config.task = files.task;
+  config.reference = files.reference;
+  config.contactPlanning = files.contactPlanning;
+  return config;
+}
 
-  // The models the controller needs, nothing more: no reference manager and no optimal control problem, so nothing is
-  // taped or loaded with CppAD (the MPC is the MPC node's).
-  ASSIGN_OR_RETURN(std::unique_ptr<CentroidalMpcInterface> interface,
-                   CentroidalMpcInterface::CreateControllerModels(files.taskFile, files.urdfFile, files.referenceFile));
-  ASSIGN_OR_RETURN(const RobotProcessSettings settings, loadRobotProcessSettings(files.taskFile));
-  const ModelSettings& modelSettings = interface->modelSettings();
-  const MpcRobotModelBase<scalar_t>& effectiveModel = interface->getEffectiveMpcRobotModel();
+/**
+ * The models the controller needs, nothing more: no reference manager and no optimal control problem, so nothing is
+ * taped or loaded with CppAD (the MPC is the MPC node's). What the set-up builds, and what a save is checked with.
+ */
+absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> controllerModelsOf(const RobotConfigFiles& files, const std::string& urdfFile) {
+  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
+      CentroidalMpcInterface::CreateControllerModels(centroidalMpcConfigOf(files), urdfFile);
+  if (!interface.ok()) return withConfigFile(interface.status(), files.taskSource);
+  return interface;
+}
+
+/** The centroidal MRT joint controller over the MPC link `linkFactory`, with the controller settings of the task file. */
+absl::StatusOr<std::unique_ptr<RobotController>> createController(const robot::model::RobotDescription& robotDescription,
+                                                                  CentroidalMpcInterface& models,
+                                                                  const MpcLinkFactory& linkFactory,
+                                                                  const std::string& pdGainsFile,
+                                                                  const RobotProcessSettings& settings) {
+  const ModelSettings& modelSettings = models.modelSettings();
+  // LINT.IfChange(centroidal_robot_controller)
+  absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> createdController =
+      CentroidalMpcMrtJointController::Create(robotDescription, modelSettings, models.getMpcRobotModel(), linkFactory,
+                                              models.getPinocchioInterface(), pdGainsFile, &models.getEffectiveMpcRobotModel());
+  if (!createdController.ok()) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("the centroidal MRT joint controller did not start: ", createdController.status().message()));
+  }
+  std::unique_ptr<CentroidalMpcMrtJointController> jointController = *std::move(createdController);
+  // The controller settings of the task file.
+  if (settings.wbMpcFeedforward == WbMpcFeedforward::kGravityCompensation) {
+    jointController->setUseGravityCompFeedforward(true);
+    LOG(INFO) << "Using gravity-comp feedforward in WB_MPC mode (wb_mpc_feedforward: \"gravity_compensation\").";
+  }
+  if (settings.mpcEntryBlendTime.has_value()) {
+    jointController->setMpcEntryBlendTime(*settings.mpcEntryBlendTime);
+    LOG(INFO) << "WB_MPC entry blend time: " << jointController->getMpcEntryBlendTime() << " s (mpc_entry_blend_time).";
+  }
+  if (settings.safetyDecayTimeConstant.has_value()) {
+    jointController->setSafetyDecayTimeConstant(*settings.safetyDecayTimeConstant);
+  }
+  LOG(INFO) << "SAFETY decay time constant: " << jointController->getSafetyDecayTimeConstant() << " s (safety_decay_time_constant).";
+  if (settings.contactWrenchGate.has_value()) {
+    jointController->setContactWrenchGateConfig(*settings.contactWrenchGate);
+  }
+  LOG(INFO) << "MPC MRT joint controller is set up with PD gains from: " << pdGainsFile;
+  return std::make_unique<MrtRobotController<CentroidalMpcMrtJointController>>(std::move(jointController),
+                                                                               CycleInputOrder::kModeThenPosture);
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/CentroidalClosedLoopDriver.cpp:centroidal_robot_controller)
+}
+
+/**
+ * Everything the robot process of the files of `directory` needs, built and checked, up to its start (runRobot()). The
+ * checks a save is held to run before the bus binds its port, so that a configuration the robot refuses fails here,
+ * where runRobot() can fall back to the bundled files.
+ */
+absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options, const RobotConfigDirectory& directory) {
+  const RobotConfigDirectory::Files& files = directory.files();
+  const std::string& urdfFile = options.files.urdfFile;
+  ASSIGN_OR_RETURN(RobotConfiguration configuration, loadRobotConfiguration(directory));
+  const RobotProcessSettings& settings = configuration.settings;
+
+  RobotStack stack;
+  ASSIGN_OR_RETURN(std::unique_ptr<CentroidalMpcInterface> interface, controllerModelsOf(configuration.files, urdfFile));
+  CentroidalMpcInterface& models = *interface;
+  stack.interface = std::move(interface);
+  const ModelSettings& modelSettings = models.modelSettings();
 
   // Init Sim state
-  const robot::model::RobotDescription robotDescription(files.urdfFile);
+  ASSIGN_OR_RETURN(robot::model::RobotDescription description, robot::model::RobotDescription::Create(urdfFile));
+  stack.robotDescription = std::make_unique<robot::model::RobotDescription>(std::move(description));
+  const robot::model::RobotDescription& robotDescription = *stack.robotDescription;
+  // A task file naming an MPC joint the URDF does not have is refused here, before anything indexes the joints by it.
+  ASSIGN_OR_RETURN(const std::vector<robot::joint_index_t> mpcJointIndices,
+                   robotDescription.findJointIndices(modelSettings.mpcModelJointNames));
   const robot::model::RobotState initState =
-      createInitialSimState(robotDescription, modelSettings, interface->getMpcRobotModel(), interface->getInitialState());
+      createInitialSimState(robotDescription, modelSettings, models.getMpcRobotModel(), models.getInitialState());
   LOG(INFO) << "initState: " << initState.getRootPositionInWorldFrame().transpose();
-
-  // The bus first: it outlives everything registered on it.
-  ASSIGN_OR_RETURN(std::unique_ptr<robot::ipc::Bus> bus, node::createNodeBus(options.networkConfig, options.ipcNode));
 
   // LINT.IfChange(robot_backend_options)
   RobotBackendOptions backendOptions;
   backendOptions.robotName = options.robotName;
-  backendOptions.urdfFile = files.urdfFile;
+  backendOptions.urdfFile = urdfFile;
   backendOptions.mjcfFile = options.mjcfFile;
   backendOptions.initialState.emplace(initState);
   backendOptions.contactFrameNames = modelSettings.contactNames;
   backendOptions.contactParentJointNames = modelSettings.contactParentJointNames;
-  backendOptions.contactPatchCorners = targetContactPatchCorners(files.taskFile, modelSettings);
+  backendOptions.contactPatchCorners = targetContactPatchCorners(models.config(), modelSettings);
   backendOptions.simulator = settings.simulator;
   backendOptions.headless = options.headless;
-  // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/ClosedLoopDriver.cpp:robot_backend_options)
-  ASSIGN_OR_RETURN(std::unique_ptr<RobotBackend> backend, RobotBackendRegistry().create(options.backend, backendOptions));
-  robot::model::ContactEstimatorRegistry contactEstimators;
-  backend->registerContactEstimators(contactEstimators);
-  warnAboutPhaseResettingWithoutContactSensing(files.taskFile, settings.contactEstimator);
+  // clang-format off
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/ClosedLoopDriver.cpp:robot_backend_options, //humanoid_nmpc/humanoid_wb_mpc_app/src/WBMpcRobotMain.cpp:robot_backend_options)
+  // clang-format on
+  ASSIGN_OR_RETURN(stack.backend, RobotBackendRegistry().create(options.backend, backendOptions));
+  stack.contactEstimators = std::make_unique<robot::model::ContactEstimatorRegistry>();
+  stack.backend->registerContactEstimators(*stack.contactEstimators);
+  warnAboutPhaseResettingWithoutContactSensing(models.config(), files.taskFile, settings.contactEstimator);
 
-  // The MPC link.
+  RobotConfigurationCheckContext context =
+      robotConfigurationCheckContext(options, configuration.bundledRobotName, modelSettings,
+                                     CentroidalMpcMrtJointController::pdGainsDefaults(), backendOptions, stack.contactEstimators.get());
+  RETURN_IF_ERROR(checkRobotConfiguration(configuration.files, context));
+  // A save is checked with the models of the saved files too; the set-up built them above.
+  context.checkFormulation = [urdfFile](const RobotConfigFiles& saved) { return controllerModelsOf(saved, urdfFile).status(); };
+
+  // The bus first: it outlives everything registered on it.
+  ASSIGN_OR_RETURN(stack.bus, node::createNodeBus(options.networkConfig, options.ipcNode));
+
+  // The MPC link, on the effective model (the basis-vector inputs' when the contact inputs are basis vectors).
+  // LINT.IfChange(robot_mpc_link)
+  const MpcRobotModelBase<scalar_t>& effectiveModel = models.getEffectiveMpcRobotModel();
   const ipc::ModelDimensions dimensions{
       .stateDim = effectiveModel.getStateDim(), .inputDim = effectiveModel.getInputDim(), .numModes = kNumModes};
   ipc::RemoteMpcLink::Config linkConfig;
   linkConfig.dimensions = dimensions;
   linkConfig.policyTimeout = settings.mpcLinkPolicyTimeout;
-  ASSIGN_OR_RETURN(std::unique_ptr<RemoteMpcLinkAdapter> link, RemoteMpcLinkAdapter::Create(*bus, std::move(linkConfig)));
-  RemoteMpcLinkAdapter* const remoteLink = link.get();
+  ASSIGN_OR_RETURN(std::unique_ptr<RemoteMpcLinkAdapter> link, RemoteMpcLinkAdapter::Create(*stack.bus, linkConfig));
+  RemoteMpcLinkAdapter* absl_nonnull const remoteLink = link.get();
   const MpcLinkFactory linkFactory = handOverMpcLink(std::move(link));
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc_app/src/WBMpcRobotMain.cpp:robot_mpc_link)
+  ASSIGN_OR_RETURN(stack.controller, createController(robotDescription, models, linkFactory, files.pdGainsFile, settings));
 
-  const std::filesystem::path configDir = std::filesystem::path(files.taskFile).parent_path().parent_path();
-  const std::string pdGainsFile = (configDir / "controller" / "joint_pd_gains.yaml").string();
-  // LINT.IfChange(centroidal_robot_controller)
-  std::unique_ptr<CentroidalMpcMrtJointController> jointController;
-  try {
-    jointController =
-        std::make_unique<CentroidalMpcMrtJointController>(robotDescription, modelSettings, interface->getMpcRobotModel(), linkFactory,
-                                                          interface->getPinocchioInterface(), pdGainsFile, &effectiveModel);
-  } catch (const std::exception& error) {
-    return absl::InvalidArgumentError(absl::StrCat("the centroidal MRT joint controller did not start: ", error.what()));
-  }
-  // The controller settings of the task file.
-  if (settings.wbMpcFeedforward == WbMpcFeedforward::kGravityCompensation) {
-    jointController->setUseGravityCompFeedforward(true);
-    LOG(INFO) << "Using gravity-comp feedforward in WB_MPC mode (wbMpcFeedforward: gravity_compensation).";
-  }
-  if (settings.mpcEntryBlendTime.has_value()) {
-    jointController->setMpcEntryBlendTime(*settings.mpcEntryBlendTime);
-    LOG(INFO) << "WB_MPC entry blend time: " << jointController->getMpcEntryBlendTime() << " s (mpcEntryBlendTime).";
-  }
-  if (settings.safetyDecayTimeConstant.has_value()) {
-    jointController->setSafetyDecayTimeConstant(*settings.safetyDecayTimeConstant);
-  }
-  LOG(INFO) << "SAFETY decay time constant: " << jointController->getSafetyDecayTimeConstant() << " s (safetyDecayTimeConstant).";
-  if (settings.contactWrenchGate.has_value()) {
-    jointController->setContactWrenchGateConfig(*settings.contactWrenchGate);
-  }
-  LOG(INFO) << "MPC MRT joint controller is set up with PD gains from: " << pdGainsFile;
-  MrtRobotController<CentroidalMpcMrtJointController> controller(std::move(jointController), CycleInputOrder::kModeThenPosture);
-  // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/CentroidalClosedLoopDriver.cpp:centroidal_robot_controller)
-
-  const scalar_t mrtDesiredFrequency = interface->mpcSettings().mrtDesiredFrequency_;
-  RobotProcess::Config config;
+  const scalar_t mrtDesiredFrequency = models.mpcSettings().mrtDesiredFrequency_;
+  RobotProcess::Config config = robotProcessConfig(options, directory, configuration, modelSettings);
   config.controlFrequency = mrtDesiredFrequency > 0.0 ? mrtDesiredFrequency : 100.0;
-  config.realtimePriority = options.realtimePriority;
-  config.realtimeCores = options.realtimeCores;
-  config.backendCores = options.backendCores;
-  config.settings = settings;
   config.initialState.emplace(initState);
-  config.taskFile = files.taskFile;
   // Whether a caught robot is at rest is judged on the joints of the MPC model: the ones JOINT_PD brings to the nominal
   // posture and the MPC starts from.
-  config.restJointIndices = robotDescription.getJointIndices(modelSettings.mpcModelJointNames);
-  // The joint_pd_gains.yaml file watcher, every 100 control periods (~1 Hz at ~100 Hz).
+  config.restJointIndices = mpcJointIndices;
+  // The joint_pd_gains.textproto file watcher, every 100 control periods (~1 Hz at ~100 Hz).
   config.pdGainsFileCheckInterval = 100;
 
-  RobotProcess::Hooks hooks;
-  hooks.takeViewerAnnotations = [remoteLink](msgs::ViewerAnnotations& annotations) {
-    return remoteLink->remote().takeAnnotations(annotations);
-  };
-  hooks.fillLinkStatistics = [remoteLink](humanoid_mpc_msgs::LoopTiming& loopTiming) {
-    const ipc::RemoteMpcLink::Statistics statistics = remoteLink->remote().statistics();
-    loopTiming.set_stale_policies_dropped(statistics.stalePoliciesDropped);
-    loopTiming.set_policy_age_s(statistics.policyAge);
-  };
+  ASSIGN_OR_RETURN(stack.process, RobotProcess::Create(*stack.bus, *stack.backend, *stack.controller, *stack.contactEstimators,
+                                                       std::move(config), robotProcessHooks(remoteLink, files, std::move(context))));
+  return stack;
+}
 
-  ASSIGN_OR_RETURN(std::unique_ptr<RobotProcess> process,
-                   RobotProcess::Create(*bus, *backend, controller, contactEstimators, std::move(config), std::move(hooks)));
-  RETURN_IF_ERROR(bus->start());
-  RETURN_IF_ERROR(process->start());
-  // Until SIGINT or SIGTERM, or until a cycle of the realtime loop throws (the backend is then in its safe state and the
-  // binary exits with a failure, which the container's restart policy answers).
-  const absl::Status ended = process->runUntilShutdown(&node::shutdownRequested);
-  LOG(INFO) << "The robot process has stopped.";
-  return ended;
+absl::Status run() {
+  const SystemCoreAllocation cores = getDefaultCoreAllocation();
+  ASSIGN_OR_RETURN(const RobotAppOptions options, robotAppOptionsFromFlags(cores.mrtCores, cores.simCores));
+  return runRobot(
+      options, [&options](const RobotConfigDirectory& directory) { return setUpRobot(options, directory); }, &node::shutdownRequested);
 }
 
 }  // namespace
 }  // namespace ocs2::humanoid
 
-int main(int argc, char** argv) {
+int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   absl::SetProgramUsageMessage(
       "The robot process of the centroidal MPC: the realtime loop over a robot backend and the MRT joint controller, with "
       "its MPC behind the bus. humanoid_centroidal_mpc_robot --robot_name=drc_atlas --task_file=... --reference_file=... "

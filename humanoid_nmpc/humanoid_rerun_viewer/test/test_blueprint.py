@@ -1,19 +1,49 @@
-"""The blueprint builds from the contracts, lays out every tab and panel, hides what is hidden by default, and survives a round trip
-through an .rrd file."""
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+"""Tests for blueprint.py.
+
+The blueprint builds from the contracts, lays out every tab and panel, hides what is hidden by default, and survives a
+round trip through an .rrd file.
+"""
+
+from collections.abc import Iterator
 import os
 import shutil
 import tempfile
 import unittest
-from typing import Iterator, List
 
 import rerun.blueprint as rrb
 
-import rrd_contents
 from humanoid_rerun_viewer import blueprint
 from humanoid_rerun_viewer import bridge
 from humanoid_rerun_viewer import scene_contract
 from humanoid_rerun_viewer import telemetry_contract
+import rrd_contents
 
 
 def views(container) -> Iterator[rrb.View]:
@@ -51,7 +81,7 @@ class BlueprintStructureTest(unittest.TestCase):
 
     def test_every_panel_is_a_view_of_its_groups(self) -> None:
         for tab, container in zip(telemetry_contract.TABS, self.tabs.contents):
-            plotted: List[rrb.View] = list(views(container))
+            plotted: list[rrb.View] = list(views(container))
             self.assertEqual(
                 [view.name for view in plotted],
                 [panel.title for panel in tab.panels()],
@@ -105,9 +135,9 @@ class BlueprintRoundTripTest(unittest.TestCase):
         recording.disconnect()
         contents = rrd_contents.RrdContents(path)
         self.assertTrue(contents.blueprints)
-        expected = {blueprint.SCENE_VIEW_NAME, blueprint.EVENTS_VIEW_NAME} | {
-            panel.title for tab in telemetry_contract.TABS for panel in tab.panels()
-        }
+        expected = {blueprint.SCENE_VIEW_NAME, blueprint.EVENTS_VIEW_NAME}
+        for tab in telemetry_contract.TABS:
+            expected.update(panel.title for panel in tab.panels())
         self.assertTrue(
             expected <= contents.view_names(), expected - contents.view_names()
         )

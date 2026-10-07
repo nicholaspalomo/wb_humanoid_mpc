@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include "ocs2_core/penalties/augmented/AugmentedPenaltyBase.h"
 
 namespace ocs2 {
@@ -79,7 +81,7 @@ class SmoothAbsolutePenalty final : public AugmentedPenaltyBase {
   static std::unique_ptr<SmoothAbsolutePenalty> create(Config config) { return std::make_unique<SmoothAbsolutePenalty>(std::move(config)); }
 
   ~SmoothAbsolutePenalty() override = default;
-  SmoothAbsolutePenalty* clone() const override { return new SmoothAbsolutePenalty(*this); }
+  SmoothAbsolutePenalty* absl_nonnull clone() const override { return new SmoothAbsolutePenalty(*this); }
   std::string name() const override { return "SmoothAbsolutePenalty"; }
 
   scalar_t getValue(scalar_t t, scalar_t l, scalar_t h) const override {

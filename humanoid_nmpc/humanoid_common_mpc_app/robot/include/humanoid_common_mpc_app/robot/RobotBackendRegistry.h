@@ -35,27 +35,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 
-#include <mujoco_sim_interface/MujocoContactPatch.h>
-#include <robot_model/RobotState.h>
-
 #include "humanoid_common_mpc_app/robot/RobotBackend.h"
+#include "mujoco_sim_interface/MujocoContactPatch.h"
+#include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid {
 
-/** The simulator keys of the task file (RobotProcessSettings), for a simulated backend. */
+/** The simulator fields of the task file (RobotProcessSettings), for a simulated backend. */
 struct SimulatorSettings {
-  /** [N] Normal force above which a contact point counts as touching (`simContactForceThreshold`). */
+  /** [N] Normal force above which a contact point counts as touching (`sim_contact_force_threshold`). */
   double contactForceThreshold = 5.0;
-  /** [s] Window of the viewer's contact timeline (`simContactTimelineWindow`). */
+  /** [s] Window of the viewer's contact timeline (`sim_contact_timeline_window`). */
   double contactTimelineWindow = 5.0;
-  /** Viewer visualizations by name (`simVisualizations`); nullopt: the viewer's default set. */
+  /** Viewer visualizations by name (`sim_visualizations`); nullopt: the viewer's default set. */
   std::optional<std::vector<std::string>> visualizations;
-  /** How the gantry holds the base (`gantryHold`). */
+  /** How the gantry holds the base (`gantry_hold`). */
   std::string gantryHold = "weld_constraint";
-  /** The ball the Dodgeball tab throws (`simProjectile`); empty: none. */
+  /** The ball the Dodgeball tab throws (`sim_projectile`); empty: none. */
   std::string projectile;
 };
 
@@ -89,11 +90,17 @@ inline constexpr absl::string_view kMujocoBackendName = "mujoco";
 class RobotBackendRegistry {
  public:
   using Factory = std::function<absl::StatusOr<std::unique_ptr<RobotBackend>>(const RobotBackendOptions& options)>;
+  /**
+   * What the backend would refuse in `options` without building it (the task file's simulator settings, the files it
+   * needs): OK or the refusal create() would give. For a save the robot checks before it stores the file.
+   */
+  using OptionsCheck = std::function<absl::Status(const RobotBackendOptions& options)>;
 
   /** A registry with the built-in backends (`mujoco`). */
   RobotBackendRegistry();
 
-  void add(const std::string& name, const std::string& description, Factory factory);
+  /** Adds the backend `name`; an empty `checkOptions` accepts any options (checkOptions()). */
+  void add(const std::string& name, const std::string& description, Factory factory, OptionsCheck checkOptions = nullptr);
   bool has(absl::string_view name) const;
   std::vector<std::string> names() const;
   /** "mujoco (the MuJoCo simulator), ...". */
@@ -102,12 +109,24 @@ class RobotBackendRegistry {
   /** The backend `name` names, built from `options`; InvalidArgument listing the available names for an unknown one. */
   absl::StatusOr<std::unique_ptr<RobotBackend>> create(absl::string_view name, const RobotBackendOptions& options) const;
 
+  /**
+   * The backend `name`'s check of `options` (OptionsCheck), which builds nothing; InvalidArgument listing the available
+   * names for an unknown one.
+   */
+  absl::Status checkOptions(absl::string_view name, const RobotBackendOptions& options) const;
+
  private:
   struct Entry {
     std::string name;
     std::string description;
     Factory factory;
+    OptionsCheck checkOptions;
   };
+  /** The entry `name` names; nullptr for an unknown one. */
+  const Entry* absl_nullable find(absl::string_view name) const;
+  /** InvalidArgument naming `name` and the available backends. */
+  absl::Status unknownBackend(absl::string_view name) const;
+
   std::vector<Entry> entries_;
 };
 

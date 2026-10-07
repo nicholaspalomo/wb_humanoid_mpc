@@ -29,7 +29,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h"
 
+#include <memory>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
@@ -65,13 +68,22 @@ absl::StatusOr<std::unique_ptr<TelemetrySink>> TelemetrySinkRegistry::create(abs
     if (entry.name == name) return entry.factory(context);
   }
   return absl::InvalidArgumentError(
-      absl::StrCat("There is no telemetry sink '", name, "' (telemetrySinks). Available: ", availableNames(), "."));
+      absl::StrCat("There is no telemetry sink '", name, "' (telemetry_sinks). Available: ", availableNames(), "."));
 }
 
 std::string TelemetrySinkRegistry::availableNames() const {
   std::string names;
   for (const Entry& entry : entries_) {
     absl::StrAppend(&names, names.empty() ? "" : ", ", entry.name, " (", entry.description, ")");
+  }
+  return names;
+}
+
+std::vector<std::string> TelemetrySinkRegistry::names() const {
+  std::vector<std::string> names;
+  names.reserve(entries_.size());
+  for (const Entry& entry : entries_) {
+    names.push_back(entry.name);
   }
   return names;
 }

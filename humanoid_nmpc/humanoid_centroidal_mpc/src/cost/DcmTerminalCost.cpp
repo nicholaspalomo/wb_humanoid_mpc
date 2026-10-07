@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -23,30 +27,30 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <optional>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include <ocs2_core/misc/LoadData.h>
-#include <ocs2_core/misc/PropertyTree.h>
-#include <pinocchio/algorithm/center-of-mass.hpp>
-#include <pinocchio/algorithm/frames.hpp>
-
-#include <humanoid_common_mpc/gait/MotionPhaseDefinition.h>
-#include <humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h>
-
+#include "absl/base/nullability.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "absl/memory/memory.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/algorithm/frames.hpp"
+
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 namespace ocs2::humanoid {
 
@@ -59,45 +63,32 @@ absl::Status keyMustBe(absl::string_view key, scalar_t value, absl::string_view 
   return absl::InvalidArgumentError(
       absl::StrCat("[DcmTerminalCost] ", DcmTerminalCost::kConfigPrefix, key, " (", value, ") must be ", requirement, "."));
 }
-
-/** Reads the optional scalar `key` of `pt` into `value`; a value that is not a number is an InvalidArgument naming it. */
-absl::Status loadOptionalScalar(const PropertyTree& pt, const std::string& key, scalar_t& value, bool verbose) {
-  const PropertyTree* child = pt.findChild(key);
-  if (child == nullptr) return absl::OkStatus();
-  const std::optional<scalar_t> parsed = child->getValueOptional<scalar_t>();
-  if (!parsed.has_value()) {
-    return absl::InvalidArgumentError(absl::StrCat("[DcmTerminalCost] ", key, " is '", child->data(), "', which is not a number."));
-  }
-  value = *parsed;
-  if (verbose) LOG(INFO) << " #### " << key << " = " << value;
-  return absl::OkStatus();
-}
 }  // namespace
 
 scalar_t DcmTerminalCost::Config::omega() const {
-  return std::sqrt(gravity / comHeight);
+  return std::sqrt(gravity / comHeight.value_or(std::numeric_limits<scalar_t>::quiet_NaN()));
 }
 
 absl::Status DcmTerminalCost::Config::validate() const {
-  if (!std::isfinite(comHeight) || comHeight < 0.0) {
-    return keyMustBe("comHeight", comHeight, "positive, or 0 for the model's center of mass above its feet at initialState");
+  if (comHeight.has_value() && !(std::isfinite(*comHeight) && *comHeight > 0.0)) {
+    return keyMustBe("com_height", *comHeight, "positive; left out, it is the model's center of mass above its feet at initial_state");
   }
   if (!std::isfinite(gravity) || gravity <= 0.0) return keyMustBe("gravity", gravity, "positive");
   if (!std::isfinite(weights(0)) || weights(0) < 0.0) return keyMustBe("weight_x", weights(0), "non-negative");
   if (!std::isfinite(weights(1)) || weights(1) < 0.0) return keyMustBe("weight_y", weights(1), "non-negative");
-  if (!std::isfinite(velocityOffsetFactor)) return keyMustBe("velocityOffsetFactor", velocityOffsetFactor, "finite");
-  if (!std::isfinite(supportBlendTime) || supportBlendTime < 0.0) return keyMustBe("supportBlendTime", supportBlendTime, "non-negative");
+  if (!std::isfinite(velocityOffsetFactor)) return keyMustBe("velocity_offset_factor", velocityOffsetFactor, "finite");
+  if (!std::isfinite(supportBlendTime) || supportBlendTime < 0.0) return keyMustBe("support_blend_time", supportBlendTime, "non-negative");
   return absl::OkStatus();
 }
 
 absl::StatusOr<DcmTerminalCost::Config> DcmTerminalCost::resolveConfig(Config config, scalar_t modelComHeight) {
   RETURN_IF_ERROR(config.validate());
-  if (config.comHeight == 0.0) {
+  if (!config.comHeight.has_value()) {
     if (!std::isfinite(modelComHeight) || modelComHeight <= 0.0) {
       return absl::InvalidArgumentError(
           absl::StrCat("[DcmTerminalCost] ", kConfigPrefix,
-                       "comHeight is 0, i.e. the model's center of mass above its feet at initialState, but that is ", modelComHeight,
-                       " m. Give ", kConfigPrefix, "comHeight a positive value, or correct initialState."));
+                       "com_height is left out, i.e. the model's center of mass above its feet at initial_state, but that is ",
+                       modelComHeight, " m. Give ", kConfigPrefix, "com_height a positive value, or correct initial_state."));
     }
     config.comHeight = modelComHeight;
   }
@@ -112,8 +103,8 @@ absl::StatusOr<std::unique_ptr<DcmTerminalCost>> DcmTerminalCost::Create(const S
                                                                          const std::string& costName,
                                                                          const ModelSettings& modelSettings) {
   ASSIGN_OR_RETURN(Config resolved, resolveConfig(config, modelComHeight));
-  return std::unique_ptr<DcmTerminalCost>(new DcmTerminalCost(referenceManager, std::move(resolved), modelComHeight, pinocchioInterface,
-                                                              mpcRobotModelAD, costName, modelSettings));
+  return absl::WrapUnique(new DcmTerminalCost(referenceManager, std::move(resolved), modelComHeight, pinocchioInterface, mpcRobotModelAD,
+                                              costName, modelSettings));
 }
 
 DcmTerminalCost::DcmTerminalCost(const SwitchedModelReferenceManager& referenceManager,
@@ -129,7 +120,7 @@ DcmTerminalCost::DcmTerminalCost(const SwitchedModelReferenceManager& referenceM
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelAdPtr_(mpcRobotModelAD.clone()) {
   // The documented guard behind Create(), which has already resolved and validated the configuration.
-  CHECK(config_.validate().ok() && config_.comHeight > 0.0) << "[DcmTerminalCost] build it with DcmTerminalCost::Create()";
+  CHECK(config_.validate().ok() && config_.comHeight.has_value()) << "[DcmTerminalCost] build it with DcmTerminalCost::Create()";
   const CppAdInterface::ad_parameterized_function_t residualAd = [this](const ad_vector_t& x, const ad_vector_t& p, ad_vector_t& y) {
     y = this->residual(x, p);
   };
@@ -137,15 +128,16 @@ DcmTerminalCost::DcmTerminalCost(const SwitchedModelReferenceManager& referenceM
   // file name but the wrong parameter dimension, and with recompileLibrariesCppAd false it would be loaded and then
   // fed the new parameter vector; the suffix makes a stale library simply not exist, so it is regenerated instead.
   const std::string modelName = absl::StrCat(costName, "_p", kNumParameters);
-  adInterfacePtr_.reset(
-      new CppAdInterface(residualAd, mpcRobotModelAD.getStateDim(), kNumParameters, modelName, modelSettings.modelFolderCppAd));
+  adInterfacePtr_ = std::make_unique<CppAdInterface>(residualAd, mpcRobotModelAD.getStateDim(), kNumParameters, modelName,
+                                                     modelSettings.modelFolderCppAd);
   if (modelSettings.recompileLibrariesCppAd) {
     adInterfacePtr_->createModels(CppAdInterface::ApproximationOrder::First, modelSettings.verboseCppAd);
   } else {
     adInterfacePtr_->loadModelsIfAvailable(CppAdInterface::ApproximationOrder::First, modelSettings.verboseCppAd);
   }
-  LOG(INFO) << "Initialized DcmTerminalCost with weights " << config_.weights.transpose() << ", comHeight " << config_.comHeight << " m"
-            << (config_.comHeight == modelComHeight_ ? " (the model's)" : " (explicit)") << ", omega " << config_.omega()
+  const scalar_t comHeight = config_.comHeight.value_or(std::numeric_limits<scalar_t>::quiet_NaN());
+  LOG(INFO) << "Initialized DcmTerminalCost with weights " << config_.weights.transpose() << ", comHeight " << comHeight << " m"
+            << (comHeight == modelComHeight_ ? " (the model's)" : " (explicit)") << ", omega " << config_.omega()
             << " rad/s, velocityOffsetFactor " << config_.velocityOffsetFactor;
 }
 
@@ -157,7 +149,7 @@ DcmTerminalCost::DcmTerminalCost(const DcmTerminalCost& other)
       isActive_(other.isActive_),
       pinocchioInterfaceCppAd_(other.pinocchioInterfaceCppAd_),
       mpcRobotModelAdPtr_(other.mpcRobotModelAdPtr_->clone()),
-      adInterfacePtr_(new CppAdInterface(*other.adInterfacePtr_)) {}
+      adInterfacePtr_(std::make_unique<CppAdInterface>(*other.adInterfacePtr_)) {}
 
 absl::Status DcmTerminalCost::setConfig(const Config& config) {
   ASSIGN_OR_RETURN(config_, resolveConfig(config, modelComHeight_));
@@ -165,11 +157,11 @@ absl::Status DcmTerminalCost::setConfig(const Config& config) {
 }
 
 ad_vector_t DcmTerminalCost::residual(const ad_vector_t& state, const ad_vector_t& parameters) {
-  const ad_scalar_t weightLeft = parameters(0);
-  const ad_scalar_t weightRight = parameters(1);
-  const ad_scalar_t omega = parameters(2);
+  const ad_scalar_t& weightLeft = parameters(0);
+  const ad_scalar_t& weightRight = parameters(1);
+  const ad_scalar_t& omega = parameters(2);
   const ad_vector2_t velocityCommand = parameters.segment<2>(3);
-  const ad_scalar_t offsetFactor = parameters(5);
+  const ad_scalar_t& offsetFactor = parameters(5);
   const ad_vector2_t sqrtWeights = parameters.segment<2>(6);
 
   const PinocchioInterfaceCppAd::Model& model = pinocchioInterfaceCppAd_.getModel();
@@ -189,7 +181,7 @@ ad_vector_t DcmTerminalCost::residual(const ad_vector_t& state, const ad_vector_
   // foot, and the planner then reads a state with no lateral velocity and narrows its next step until the robot falls
   // (humanoid_nmpc/docs/hlip_contact_planner/README.md). Blended rather than branched, so the expression stays
   // differentiable and one compiled model serves both.
-  const ad_scalar_t plannedWeight = parameters(8);
+  const ad_scalar_t& plannedWeight = parameters(8);
   const ad_vector2_t plannedDcm = parameters.segment<2>(9);
 
   const ad_vector2_t dcm = com + comVelocity / omega;
@@ -207,7 +199,7 @@ vector2_t DcmTerminalCost::computeSupportWeights(scalar_t time) const {
   const std::vector<scalar_t>& eventTimes = schedule.eventTimes;
   const std::vector<size_t>& modeSequence = schedule.modeSequence;
   if (config_.supportBlendTime > 0.0 && !modeSequence.empty()) {
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    for (size_t foot = 0; foot < kNumContacts; ++foot) {
       if (!contacts[foot]) continue;
       // Contact phase [start, end] of this foot around `time`.
       size_t index = static_cast<size_t>(std::upper_bound(eventTimes.begin(), eventTimes.end(), time) - eventTimes.begin());
@@ -222,7 +214,7 @@ vector2_t DcmTerminalCost::computeSupportWeights(scalar_t time) const {
       weights(foot) = std::clamp(ramp, 0.0, 1.0);
     }
   }
-  if (weights.sum() < 1e-6) {
+  if (weights.sum() < 1.0e-6) {
     weights.setOnes();  // flight, or both feet at a transition: fall back to the center of both feet
   }
   return weights;
@@ -279,34 +271,6 @@ ScalarFunctionQuadraticApproximation DcmTerminalCost::getQuadraticApproximation(
                                                                                 const PreComputation& /*preComputation*/) const {
   const vector_t parameters = getParameters(time, targetTrajectories);
   return adInterfacePtr_->getGaussNewtonApproximation(state, parameters);
-}
-
-absl::StatusOr<DcmTerminalCost::Config> DcmTerminalCost::loadConfig(const std::string& taskFile, const std::string& prefix, bool verbose) {
-  PropertyTree pt;
-  try {
-    loadData::readPropertyTree(taskFile, pt);
-  } catch (const std::exception& error) {
-    return absl::InvalidArgumentError(absl::StrCat("[DcmTerminalCost] cannot read ", taskFile, ": ", error.what()));
-  }
-  Config config;
-  if (verbose) {
-    LOG(INFO) << "\n #### DCM Terminal Cost Config:\n #### =============================================================================";
-  }
-  // LINT.IfChange(dcm_terminal_cost_keys)
-  RETURN_IF_ERROR(loadOptionalScalar(pt, absl::StrCat(prefix, "comHeight"), config.comHeight, verbose));
-  RETURN_IF_ERROR(loadOptionalScalar(pt, absl::StrCat(prefix, "gravity"), config.gravity, verbose));
-  RETURN_IF_ERROR(loadOptionalScalar(pt, absl::StrCat(prefix, "weight_x"), config.weights(0), verbose));
-  RETURN_IF_ERROR(loadOptionalScalar(pt, absl::StrCat(prefix, "weight_y"), config.weights(1), verbose));
-  RETURN_IF_ERROR(loadOptionalScalar(pt, absl::StrCat(prefix, "velocityOffsetFactor"), config.velocityOffsetFactor, verbose));
-  RETURN_IF_ERROR(loadOptionalScalar(pt, absl::StrCat(prefix, "supportBlendTime"), config.supportBlendTime, verbose));
-  // clang-format off
-  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:dcm_terminal_cost_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:dcm_terminal_cost_config)
-  // clang-format on
-  if (verbose) {
-    LOG(INFO) << " #### =============================================================================";
-  }
-  RETURN_IF_ERROR(config.validate());
-  return config;
 }
 
 }  // namespace ocs2::humanoid

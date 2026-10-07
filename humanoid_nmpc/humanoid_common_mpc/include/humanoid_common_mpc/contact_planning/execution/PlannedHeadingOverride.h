@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -26,6 +30,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <memory>
+#include <string>
+#include <vector>
+
+#include "absl/base/nullability.h"
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -47,7 +55,7 @@ namespace ocs2::humanoid {
 class PlannedHeadingOverride final : public ExecutionRule {
  public:
   /** `acom` is the manager's evaluator slot: it may be set after construction and is read at every cycle. */
-  PlannedHeadingOverride(const MpcRobotModelBase<scalar_t>& mpcRobotModel, const std::shared_ptr<AngularCenterOfMass>* acom)
+  PlannedHeadingOverride(const MpcRobotModelBase<scalar_t>& mpcRobotModel, const std::shared_ptr<AngularCenterOfMass>* absl_nullable acom)
       : mpcRobotModel_(&mpcRobotModel), acom_(acom) {}
 
   std::string describe() const override;
@@ -57,8 +65,8 @@ class PlannedHeadingOverride final : public ExecutionRule {
   bool rewritesTarget() const override { return true; }
 
  private:
-  const MpcRobotModelBase<scalar_t>* mpcRobotModel_;
-  const std::shared_ptr<AngularCenterOfMass>* acom_;
+  const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel_;
+  const std::shared_ptr<AngularCenterOfMass>* absl_nullable acom_;
 };
 
 }  // namespace ocs2::humanoid

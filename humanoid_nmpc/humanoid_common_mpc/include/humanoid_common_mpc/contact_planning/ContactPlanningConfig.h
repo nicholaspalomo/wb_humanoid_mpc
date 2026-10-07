@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -27,16 +31,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <ocs2_core/Types.h>
-
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
+
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 
@@ -44,7 +49,8 @@ namespace ocs2::humanoid {
 
 /**
  * Configuration of the contact planner that `planner.type` selects (ContactPlannerFactory: `hlip`, the closed-form
- * H-LIP planner, or `lip_miqp`, the mixed-integer program): the `contact_planning` block of `contact_planning.yaml`.
+ * H-LIP planner, or `lip_miqp`, the mixed-integer program): the robot's `contact_planning.textproto`
+ * (contactPlanningConfigFromConfig()).
  *
  * The block mirrors the structure of the planner. `planner` holds what is a property of the planner itself (grid,
  * commit window, solver budget, threading), `shared` the parameters read by more than one term, `formulation` the term
@@ -80,7 +86,7 @@ struct GaitLimits {
  * every other default stayed the mixed-integer one, which put together exactly the configurations the H-LIP README
  * documents as falling: no planned_com_override, a 100 ms stale plan from the worker thread, and a 0.35 s single
  * support whose first step out of a standstill does not fit the step-width clip. A robot that wants `hlip` says so in
- * its file together with the settings that planner needs, as both shipped contact_planning.yaml files do.
+ * its file together with the settings that planner needs, as both shipped contact_planning.textproto files do.
  */
 struct PlannerSettings {
   // Implementation that plans the contacts, resolved by ContactPlannerFactory. `hlip` is the closed-form
@@ -107,7 +113,8 @@ struct PlannerSettings {
   int maxBranchAndBoundNodes = 200;
   scalar_t maxSolveTime = 0.1;  // [s]
   int maxQpIterations = 60;
-  bool runInBackgroundThread = true;  // false: plan synchronously inside the MPC's pre-solve hook
+  // planner.threading "background_thread"; false ("pre_solve_hook"): plan synchronously inside the MPC's pre-solve hook.
+  bool runInBackgroundThread = true;
   scalar_t planningFrequency = 10.0;  // [Hz] upper bound on the background planning rate
   bool verbose = false;
   bool logPlans = false;  // one line per plan: search statistics, phase durations, step lengths (describeContactPlan)
@@ -116,14 +123,14 @@ struct PlannerSettings {
 /** Parameters read by more than one term. */
 struct SharedParameters {
   scalar_t gravity = 9.81;  // [m/s^2]
-  // [m] LIP height, omega = sqrt(g / comHeight). 0 = from the model: its center of mass above its feet at the task file's
-  // initialState (computeComHeightAboveFeet, which the DCM terminal cost's comHeight of 0 resolves to as well), filled
+  // [m] LIP height, omega = sqrt(g / comHeight). Unset = from the model: its center of mass above its feet at the task
+  // file's initialState (computeComHeightAboveFeet, which an unset DCM terminal cost height resolves to as well), filled
   // in by ContactPlanningModelParameters::applyTo before validation, at start-up and on every hot reload. It is also
-  // the library default, so a robot file that omits the key plans on its own model's pendulum - the one its DCM
-  // terminal cost derives - rather than on a fixed height that belongs to no robot (it was 0.85 m, the height the
-  // Atlas was once hand-set to). Both shipped files write 0 explicitly. A configuration with no model to derive it from
-  // - a planner unit test - must set a positive height itself: validateStatus() refuses 0.
-  scalar_t comHeight = 0.0;
+  // the library default, so a robot file that leaves shared.com_height out (as both shipped files do) plans on its own
+  // model's pendulum - the one its DCM terminal cost derives - rather than on a fixed height that belongs to no robot
+  // (it was 0.85 m, the height the Atlas was once hand-set to). A configuration with no model to derive it from - a
+  // planner unit test - must set a positive height itself: validateStatus() refuses an unset one.
+  std::optional<scalar_t> comHeight;
   // [m] big-M of the ZMP / foothold disjunctions. Two bounds, not one: it must EXCEED foot_separation.maxStepLength,
   // which the foothold displacement bound needs, and it must be at least foot_separation.maxStepWidth, because that is
   // what it takes for a single-support ZMP box to actually switch off in double support (the lateral axis is the one
@@ -202,51 +209,67 @@ struct HlipParameters {
 
 // ---- per-term parameter blocks, named as the terms ----
 
+/** The parameters of the `regularization` cost (the `regularization` block of contact_planning). Passive data. */
 struct RegularizationParameters {
   scalar_t state = 1.0e-8;  // added to the diagonal of Q at every node
   scalar_t input = 1.0e-6;  // added to the diagonal of R at every running node
 };
+/** The parameters of the `previous_foothold_consistency` cost (the `previous_foothold_consistency` block of contact_planning). Passive
+ * data. */
 struct PreviousFootholdConsistencyParameters {
   scalar_t weight = 5.0;  // ||p_foot - p_foot,previous plan||^2 per node, damps foothold jitter
 };
+/** The parameters of the `velocity_tracking` cost (the `velocity_tracking` block of contact_planning). Passive data. */
 struct VelocityTrackingParameters {
   scalar_t weight = 20.0;  // ||v_com - v_cmd||^2 per node
 };
+/** The parameters of the `step_width` cost (the `step_width` block of contact_planning). Passive data. */
 struct StepWidthParameters {
   scalar_t weight = 10.0;            // (step width - nominalStepWidth)^2 per node
   scalar_t nominalStepWidth = 0.25;  // [m] lateral distance left foot - right foot the planner is drawn to
 };
+/** The parameters of the `heading_rate_tracking` cost (the `heading_rate_tracking` block of contact_planning). Passive data. */
 struct HeadingRateTrackingParameters {
   scalar_t weight = 20.0;  // (heading rate - commanded yaw rate)^2 per node
 };
+/** The parameters of the `heading_tracking` cost (the `heading_tracking` block of contact_planning). Passive data. */
 struct HeadingTrackingParameters {
   scalar_t weight = 5.0;  // (heading - commanded heading)^2 per node
 };
+/** The parameters of the `foot_yaw_tracking` cost (the `foot_yaw_tracking` block of contact_planning). Passive data. */
 struct FootYawTrackingParameters {
   scalar_t weight = 5.0;  // (foot yaw - nominal heading)^2 per node
 };
+/** The parameters of the `yaw_torque_regularization` cost (the `yaw_torque_regularization` block of contact_planning). Passive data. */
 struct YawTorqueRegularizationParameters {
   scalar_t weight = 1.0e-3;  // yaw torque^2 per node
 };
+/** The parameters of the `foot_yaw_regularization` cost (the `foot_yaw_regularization` block of contact_planning). Passive data. */
 struct FootYawRegularizationParameters {
   scalar_t weight = 1.0;  // (foot yaw displacement)^2 per node
 };
+/** The parameters of the `zmp_regularization` cost (the `zmp_regularization` block of contact_planning). Passive data. */
 struct ZmpRegularizationParameters {
   scalar_t weight = 2.0;  // ||zmp - com||^2 per node, keeps the ZMP under the CoM when possible
 };
+/** The parameters of the `foothold_regularization` cost (the `foothold_regularization` block of contact_planning). Passive data. */
 struct FootholdRegularizationParameters {
   scalar_t weight = 5.0;  // ||foot displacement||^2 per node, prefers short steps
 };
+/** The parameters of the `step_length` cost (the `step_length` block of contact_planning). Passive data. */
 struct StepLengthParameters {
   scalar_t weight = 0.0;  // ||dp_swing - d_nom||^2 per running node, d_nom from v_cmd at the nominal cadence (StepLengthCost)
 };
+/** The parameters of the `terminal_dcm` cost (the `terminal_dcm` block of contact_planning). Passive data. */
 struct TerminalDcmParameters {
   scalar_t weight = 200.0;  // ||DCM_N - zmp_{N-1}||^2, terminal capturability
-  // false: the DCM is drawn onto the last ZMP, i.e. the plan comes to rest at the end of the horizon, which shortens
-  // the steps in the horizon at speed. true: the terminal DCM xi_N is drawn to zmp_{N-1} + v_cmd / omega, the offset of
-  // a CoM over the foot that keeps moving at the commanded velocity, so the plan is asked to keep walking, not to stop.
+  // false (terminal_dcm.target "rest"): the DCM is drawn onto the last ZMP, i.e. the plan comes to rest at the end of
+  // the horizon, which shortens the steps in the horizon at speed. true ("commanded_velocity"): the terminal DCM xi_N is
+  // drawn to zmp_{N-1} + v_cmd / omega, the offset of a CoM over the foot that keeps moving at the commanded velocity,
+  // so the plan is asked to keep walking, not to stop.
   bool trackCommandedVelocity = false;
 };
+/** The parameters of the `zmp_support_region` soft constraint (the `zmp_support_region` block of contact_planning). Passive data. */
 struct ZmpSupportRegionParameters {
   // ZMP support region half-widths. Single support: a box of these half-widths around the stance foot. Double support:
   // along the heading a box of half-width halfWidthX around the midpoint of the feet, laterally the strip between the
@@ -255,12 +278,14 @@ struct ZmpSupportRegionParameters {
   scalar_t halfWidthY = 0.04;  // [m] lateral
   std::optional<SlackPenalty> slack;
 };
+/** The parameters of the `reachability` soft constraint (the `reachability` block of contact_planning). Passive data. */
 struct ReachabilityParameters {
   scalar_t reachX = 0.45;       // foot x offset from the CoM must stay within [-reachX, reachX]
   scalar_t reachYInner = 0.05;  // left foot y - CoM y >= reachYInner (mirrored for the right foot)
   scalar_t reachYOuter = 0.45;  // left foot y - CoM y <= reachYOuter (mirrored for the right foot)
   std::optional<SlackPenalty> slack;
 };
+/** The parameters of the `foot_separation` soft constraint (the `foot_separation` block of contact_planning). Passive data. */
 struct FootSeparationParameters {
   scalar_t maxStepLength = 0.5;  // |x_left - x_right| bound
   scalar_t minStepWidth = 0.15;  // self-collision margin
@@ -278,12 +303,16 @@ struct YawTorqueBudgetParameters {
   scalar_t torsionalFrictionTorque = 0.0;  // [N m] |yaw torque| one stance foot carries
   scalar_t doubleSupportYawCouple = 0.0;   // [N m] additional |yaw torque| from the couple of two stance feet
 };
+/** The parameters of the `contact_switch` assignment cost (the `contact_switch` block of contact_planning). Passive data. */
 struct ContactSwitchParameters {
   scalar_t cost = 0.2;  // linear cost per lift-off / touch-down event
 };
+/** The parameters of the `plan_consistency` assignment cost (the `plan_consistency` block of contact_planning). Passive data. */
 struct PlanConsistencyParameters {
   scalar_t cost = 0.5;  // cost per node whose contact differs from the previous plan (hysteresis)
 };
+/** The parameters of the `double_support_penalty` assignment cost (the `double_support_penalty` block of contact_planning). Passive data.
+ */
 struct DoubleSupportPenaltyParameters {
   // Cost per node at which both feet are in contact, which buys the weight transfer of a step against the double
   // support the ZMP terms would otherwise pay for. The term cannot tell a transfer apart from standing, so it also
@@ -292,9 +321,12 @@ struct DoubleSupportPenaltyParameters {
   // removes the transition double support at walking speed and leaves standing alone.
   scalar_t cost = 0.1;
 };
+/** The parameters of the `diving` search stage (the `diving` block of contact_planning). Passive data. */
 struct DivingParameters {
   int maxDiveIterations = 64;
 };
+/** The parameters of the `event_shift_local_search` search stage (the `event_shift_local_search` block of contact_planning). Passive data.
+ */
 struct EventShiftLocalSearchParameters {
   int iterations = 10;      // rounds of event-shift local search after the branch-and-bound (0 disables)
   scalar_t maxTime = 0.05;  // [s] time budget of the local search
@@ -319,9 +351,11 @@ struct CadenceStretchParameters {
   // (CadenceStretchStage::commitWindowStretch: the last committed node must stay the one live at the commit boundary).
   scalar_t maxStretch = 1.25;
 };
+/** The parameters of the `heading_relinearization` search stage (the `heading_relinearization` block of contact_planning). Passive data. */
 struct HeadingRelinearizationParameters {
   int passes = 1;  // re-linearizations of the heading frame at the incumbent (0 disables)
 };
+/** The parameters of the `phase_resetting` execution rule (the `phase_resetting` block of contact_planning). Passive data. */
 struct PhaseResettingParameters {
   scalar_t earlyTouchdownMinSwingRatio = 0.25;       // contact during this initial fraction of the nominal swing is ignored (scuffing)
   scalar_t earlyTouchdownMinContactDuration = 0.02;  // [s] contact must persist this long before the swing is ended (debounce)
@@ -337,15 +371,23 @@ struct PhaseResettingParameters {
   scalar_t lateTouchdownExtensionStep = 0.05;   // [s] the touch-down is pushed this far ahead of the current time per cycle
   scalar_t lateTouchdownSearchVelocity = 0.05;  // [m/s] the foot height target descends at this rate during the extension
 };
+/** The parameters of the `energy_cadence_modulation` execution rule (the `energy_cadence_modulation` block of contact_planning). Passive
+ * data. */
 struct EnergyCadenceModulationParameters {
   scalar_t gain = 0.01;     // [s/J] touch-down shift = -gain * (E - E_pred), E = m (v^2 - w^2 x^2) / 2, full model mass
   scalar_t deadband = 0.0;  // [J] deviations within this band re-time nothing, beyond it the shift is measured from the band's edge
 };
+/** The parameters of the `dcm_step_adjustment` execution rule (the `dcm_step_adjustment` block of contact_planning). Passive data. */
 struct DcmStepAdjustmentParameters {
   scalar_t gain = 0.5;        // gain on the closed-form LIP step adjustment (1 = exact compensation of the increment)
   scalar_t maxOffset = 0.05;  // [m] bound on the landing target offset (also clipped to the reachable region)
 };
 
+/**
+ * The contact planner's whole configuration: the planner settings, the shared parameters, the formulation (the term
+ * lists) and one parameter block per term, as contactPlanningConfigFromConfig() converts them from contact_planning.textproto.
+ * A value type; validateStatus() checks it. Not synchronized: each thread works on its own copy.
+ */
 struct ContactPlanningConfig {
   PlannerSettings planner;
   SharedParameters shared;
@@ -388,7 +430,10 @@ struct ContactPlanningConfig {
   bool usesHeadingModel() const { return formulation.usesHeadingModel(); }
   void setHeadingModel(bool on) { formulation.setHeadingModel(on); }
 
-  scalar_t omega() const { return std::sqrt(shared.gravity / shared.comHeight); }
+  /** sqrt(gravity / comHeight); NaN while shared.comHeight is unset (validateStatus() refuses that). */
+  scalar_t omega() const { return std::sqrt(shared.gravity / pendulumHeight()); }
+  /** [m] shared.comHeight; NaN while it is unset (validateStatus() refuses that), for the code that runs validated. */
+  scalar_t pendulumHeight() const { return shared.comHeight.value_or(std::numeric_limits<scalar_t>::quiet_NaN()); }
   scalar_t horizon() const { return planner.dt * static_cast<scalar_t>(planner.numNodes); }
 
   /** Bounds on (foot yaw - heading) of a foot. */
@@ -403,27 +448,29 @@ struct ContactPlanningConfig {
     // The foot yaw bounds are the marker: derived bounds always straddle zero, and a zero torque limit is a legitimate
     // derived value (a frictionless sole), not a missing one.
     if (yawTorqueBudget.torsionalFrictionTorque < 0.0 || yawTorqueBudget.doubleSupportYawCouple < 0.0) return false;
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    for (size_t foot = 0; foot < kNumContacts; ++foot) {
       if (!(hipYawRange.lower[foot] < 0.0 && hipYawRange.upper[foot] > 0.0)) return false;
     }
     return true;
   }
 
   // Duration limits in planner nodes (conservative rounding).
-  int minSwingNodes() const { return std::max(1, static_cast<int>(std::ceil(shared.gaitLimits.minSwingDuration / planner.dt - 1e-9))); }
+  int minSwingNodes() const { return std::max(1, static_cast<int>(std::ceil(shared.gaitLimits.minSwingDuration / planner.dt - 1.0e-9))); }
   int maxSwingNodes() const {
-    return std::max(minSwingNodes(), static_cast<int>(std::floor(shared.gaitLimits.maxSwingDuration / planner.dt + 1e-9)));
+    return std::max(minSwingNodes(), static_cast<int>(std::floor(shared.gaitLimits.maxSwingDuration / planner.dt + 1.0e-9)));
   }
-  int minContactNodes() const { return std::max(1, static_cast<int>(std::ceil(shared.gaitLimits.minContactDuration / planner.dt - 1e-9))); }
+  int minContactNodes() const {
+    return std::max(1, static_cast<int>(std::ceil(shared.gaitLimits.minContactDuration / planner.dt - 1.0e-9)));
+  }
   int minDoubleSupportNodes() const {
     if (shared.gaitLimits.minDoubleSupportDuration <= 0.0) return 0;
-    return static_cast<int>(std::ceil(shared.gaitLimits.minDoubleSupportDuration / planner.dt - 1e-9));
+    return static_cast<int>(std::ceil(shared.gaitLimits.minDoubleSupportDuration / planner.dt - 1.0e-9));
   }
   int maxContactNodes() const {
     if (shared.gaitLimits.maxContactDuration <= 0.0) return 0;
-    return std::max(minContactNodes(), static_cast<int>(std::floor(shared.gaitLimits.maxContactDuration / planner.dt + 1e-9)));
+    return std::max(minContactNodes(), static_cast<int>(std::floor(shared.gaitLimits.maxContactDuration / planner.dt + 1.0e-9)));
   }
-  int commitNodes() const { return std::max(0, static_cast<int>(std::ceil(planner.commitTime / planner.dt - 1e-9))); }
+  int commitNodes() const { return std::max(0, static_cast<int>(std::ceil(planner.commitTime / planner.dt - 1.0e-9))); }
 
   /**
    * OK, or InvalidArgument for the first inconsistent key (every block, and the formulation). Each message names the
@@ -457,7 +504,7 @@ struct ContactPlanningConfig {
   scalar_t shortestPlannedSwingDuration() const;
 
   /**
-   * A warning when task.yaml swing_trajectory_config.swingTimeScale exceeds shortestPlannedSwingDuration(), empty
+   * A warning when the task file's swing_trajectory_config.swing_time_scale exceeds shortestPlannedSwingDuration(), empty
    * otherwise. SwingTrajectoryPlanner scales every swing shorter than swingTimeScale down in height and velocity by
    * duration / swingTimeScale, so such a configuration lands every step short and low without any other sign. The
    * two keys live in different files and a GUI reload can move either one, so, in addition to the LINT pair between
@@ -466,36 +513,5 @@ struct ContactPlanningConfig {
    */
   std::optional<std::string> swingTimeScaleWarning(scalar_t swingTimeScale) const;
 };
-
-/** Name of the planner's own configuration file, expected in the directory of the robot's task file. */
-inline constexpr const char* kContactPlanningConfigFileName = "contact_planning.yaml";
-
-/**
- * The file the contact planning configuration is read from for a given task file: `contact_planning.yaml` in the task
- * file's directory when it exists, otherwise the task file itself (a `contact_planning` block inside it, the layout from
- * before the planner had its own file). The switch that selects the planner at all, `contactScheduleSource:
- * contact_planner`, stays in the task file with the other formulation choices; which planner runs (`planner.type`) and
- * everything it is tuned with live in its own file.
- */
-std::string resolveContactPlanningConfigFile(const std::string& taskFile);
-
-/**
- * Loads the configuration from a YAML file: the planner's own contact_planning.yaml, or a task file with the block
- * inline (see resolveContactPlanningConfigFile). Missing keys keep their defaults.
- *
- * The block is the structured layout of this header (`planner`, `shared`, the term lists, one block per term). A file
- * with keys of the flat layout of the previous planner (every key directly under `contact_planning`, `useAcomDynamics`,
- * `enablePhaseResetting`, ... as booleans) is rejected with a message that says how to migrate it.
- *
- * With `validate` false the values that may be 0 for "derive from the model" are accepted as they are; call
- * validateStatus() after ContactPlanningModelParameters::applyTo().
- *
- * Every failure is an InvalidArgument whose message names the file and the key: an unreadable file, a value of the
- * wrong type, a flat-layout key (listed by name), and every rejection of validateStatus().
- */
-absl::StatusOr<ContactPlanningConfig> loadContactPlanningConfigStatus(absl::string_view yamlFile,
-                                                                      absl::string_view prefix = "contact_planning.",
-                                                                      bool verbose = false,
-                                                                      bool validate = true);
 
 }  // namespace ocs2::humanoid

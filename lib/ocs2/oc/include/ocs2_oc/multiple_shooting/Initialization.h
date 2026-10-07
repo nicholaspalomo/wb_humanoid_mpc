@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 #include <ocs2_core/initialization/Initializer.h>
 #include <ocs2_core/manifold/StateManifold.h>
@@ -65,8 +67,10 @@ inline std::pair<vector_t, vector_t> initializeIntermediateNode(Initializer& ini
  * @param stateManifold : The manifold the state lives on; nullptr (flat) interpolates the state linearly.
  * @return {u(t), x(tNext)} : input and state transition
  */
-inline std::pair<vector_t, vector_t> initializeIntermediateNode(const PrimalSolution& primalSolution, scalar_t t, scalar_t tNext,
-                                                                const StateManifold* stateManifold = nullptr) {
+inline std::pair<vector_t, vector_t> initializeIntermediateNode(const PrimalSolution& primalSolution,
+                                                                scalar_t t,
+                                                                scalar_t tNext,
+                                                                const StateManifold* absl_nullable stateManifold = nullptr) {
   return {LinearInterpolation::interpolate(t, primalSolution.timeTrajectory_, primalSolution.inputTrajectory_),
           interpolateStateTrajectory(stateManifold, tNext, primalSolution.timeTrajectory_, primalSolution.stateTrajectory_)};
 }
@@ -96,9 +100,13 @@ inline vector_t initializeEventNode(scalar_t t, const vector_t& x) {
  * @param [in] stateManifold : The manifold the state lives on; the previous solution's states are interpolated along it.
  *                             nullptr (flat) interpolates them linearly.
  */
-void initializeStateInputTrajectories(const vector_t& initState, const std::vector<AnnotatedTime>& timeDiscretization,
-                                      const PrimalSolution& primalSolution, Initializer& initializer, vector_array_t& stateTrajectory,
-                                      vector_array_t& inputTrajectory, const StateManifold* stateManifold = nullptr);
+void initializeStateInputTrajectories(const vector_t& initState,
+                                      const std::vector<AnnotatedTime>& timeDiscretization,
+                                      const PrimalSolution& primalSolution,
+                                      Initializer& initializer,
+                                      vector_array_t& stateTrajectory,
+                                      vector_array_t& inputTrajectory,
+                                      const StateManifold* absl_nullable stateManifold = nullptr);
 
 }  // namespace multiple_shooting
 }  // namespace ocs2

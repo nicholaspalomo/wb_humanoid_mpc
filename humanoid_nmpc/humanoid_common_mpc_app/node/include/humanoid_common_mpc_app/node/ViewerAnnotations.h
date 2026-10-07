@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/TargetContactPose.h"
@@ -41,7 +43,7 @@ namespace ocs2::humanoid::node {
  * One foot's TargetContactPatch: where the contact planner wants its contact frame on the ground. The patch is valid
  * only when the pose is and every value of it is finite, as the MuJoCo viewer's patches were.
  */
-void targetContactPatchToProto(const TargetContactPose& pose, humanoid_mpc_msgs::TargetContactPatch* patch);
+void targetContactPatchToProto(const TargetContactPose& pose, humanoid_mpc_msgs::TargetContactPatch* absl_nonnull patch);
 
 /**
  * Fills MpcPolicy.annotations, the display-only part of a policy that the robot's viewers draw: one target contact patch
@@ -50,8 +52,8 @@ void targetContactPatchToProto(const TargetContactPose& pose, humanoid_mpc_msgs:
  * (ProceduralMpcMotionManager::getScaledWalkingVelocityCommand(): [m/s] and [rad/s] after the command limits).
  * Replaces whatever `annotations` held.
  */
-void fillViewerAnnotations(const feet_array_t<TargetContactPose>* targetContactPoses,
+void fillViewerAnnotations(const feet_array_t<TargetContactPose>* absl_nullable targetContactPoses,
                            const WalkingVelocityCommand& scaledVelocityCommand,
-                           humanoid_mpc_msgs::ViewerAnnotations* annotations);
+                           humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations);
 
 }  // namespace ocs2::humanoid::node

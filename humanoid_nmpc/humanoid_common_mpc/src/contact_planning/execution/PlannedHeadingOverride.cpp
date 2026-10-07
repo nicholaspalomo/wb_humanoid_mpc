@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -26,8 +30,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/execution/PlannedHeadingOverride.h"
 
 #include <optional>
+#include <string>
 
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
+#include "absl/base/nullability.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_common_mpc/contact_planning/execution/PlanCoverage.h"
 
@@ -40,7 +46,7 @@ std::string PlannedHeadingOverride::describe() const {
 void PlannedHeadingOverride::overrideTarget(const ExecutionContext& ctx, TargetTrajectories& targetTrajectories) const {
   if (!ctx.hasPlan() || !ctx.activePlan->hasHeading()) return;
   const ContactPlan& plan = *ctx.activePlan;
-  const AngularCenterOfMass* acom = (acom_ != nullptr) ? acom_->get() : nullptr;
+  const AngularCenterOfMass* absl_nullable acom = (acom_ != nullptr) ? acom_->get() : nullptr;
   const size_t n = targetTrajectories.timeTrajectory.size();
   for (size_t i = 0; i < n; ++i) {
     const scalar_t time = targetTrajectories.timeTrajectory[i];

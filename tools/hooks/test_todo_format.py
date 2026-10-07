@@ -77,7 +77,6 @@ class TodoFormatTest(unittest.TestCase):
             "int x;  // TODO later\n",
             "src/a.cpp",
             clean="int x;  // TODO(npalomo): later\n",
-            pending=True,
         )
 
 

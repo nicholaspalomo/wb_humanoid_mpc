@@ -30,12 +30,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_core/cost/StateInputGaussNewtonCostAd.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-#include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
-#include <pinocchio/algorithm/frames.hpp>
+#include <memory>
+#include <string>
 
-#include <ocs2_centroidal_model/CentroidalModelInfo.h>
+#include "absl/base/nullability.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_core/cost/StateInputGaussNewtonCostAd.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "ocs2_pinocchio_interface/PinocchioStateInputMapping.h"
+#include "pinocchio/algorithm/frames.hpp"
 
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -44,24 +47,40 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
+/**
+ * The icp_cost of the task file: in double support, the horizontal center of mass is pulled to the midpoint of the two
+ * feet, weighted by icp_cost_weights.icpErrorWeight. Despite the name the residual is the center of mass itself, not the
+ * instantaneous capture point, whose velocity term is not included. Not thread-safe; the solver clones it per worker.
+ */
 class ICPCost final : public StateInputCostGaussNewtonAd {
  public:
+  /**
+   * The name the interface builds the cost's CppAD library under. The same string as its collection name (kIcpCostTerm,
+   * CostTermNames.h) today, defined apart on purpose: a rename of the term must not rename, and regenerate, the library
+   * (testCostTermAndLibraryNames).
+   */
+  static constexpr char kLibraryName[] = "icp_Cost";
+
   ICPCost(const SwitchedModelReferenceManager& referenceManager,
           vector2_t weights,
           const PinocchioInterface& pinocchioInterface,
           const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
-          std::string costName,
+          const std::string& costName,
           const ModelSettings& modelSettings);
 
   ~ICPCost() override = default;
-  ICPCost* clone() const override { return new ICPCost(*this); }
+  ICPCost* absl_nonnull clone() const override { return new ICPCost(*this); }
+  // Copied only by clone(), whose copy constructor is private; never assigned or moved.
+  ICPCost& operator=(const ICPCost&) = delete;
+  ICPCost(ICPCost&&) = delete;
+  ICPCost& operator=(ICPCost&&) = delete;
 
   vector_t getParameters(scalar_t time, const TargetTrajectories& targetTrajectories, const PreComputation& preComputation) const override;
 
   bool isActive(scalar_t time) const override {
     if (!isActive_) return false;
     const contact_flag_t contactFlags = referenceManagerPtr_->getContactFlags(time);
-    return (contactFlags[0] && contactFlags[1]);
+    return contactFlags[0] && contactFlags[1];
   }
 
   void setActive(bool active) { isActive_ = active; }
@@ -69,8 +88,6 @@ class ICPCost final : public StateInputCostGaussNewtonAd {
 
   void setWeights(const vector2_t& weights) { sqrtWeights_ = weights.cwiseSqrt(); }
   void getWeights(vector2_t& weights) const { weights = sqrtWeights_.cwiseProduct(sqrtWeights_); }
-
-  static vector2_t getWeights(const std::string& taskFile, const std::string prefix, bool verbose);
 
  private:
   ICPCost(const ICPCost& other);
@@ -80,7 +97,7 @@ class ICPCost final : public StateInputCostGaussNewtonAd {
                                  const ad_vector_t& input,
                                  const ad_vector_t& parameters) override;
 
-  const SwitchedModelReferenceManager* referenceManagerPtr_;
+  const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
 
   vector2_t sqrtWeights_;
   bool isActive_ = true;

@@ -31,25 +31,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cstring>
+#include <string>
 
+#include "absl/base/nullability.h"
 #include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
 ControllerEvent makeControllerEvent(
-    ControllerEventCode code, const char* controller, double value0, double value1, absl::string_view text) {
+    ControllerEventCode code, const char* absl_nonnull controller, double value0, double value1, absl::string_view text) {
   ControllerEvent event;
   event.code = code;
-  event.controller = controller != nullptr ? controller : "";
+  event.controller = controller;
   event.values = {value0, value1};
-  const std::size_t length = std::min(text.size(), event.text.size() - 1);
+  const size_t length = std::min(text.size(), event.text.size() - 1);
   std::memcpy(event.text.data(), text.data(), length);
   event.text[length] = '\0';
   return event;
 }
 
 absl::string_view controllerEventText(const ControllerEvent& event) {
-  const std::size_t length = ::strnlen(event.text.data(), event.text.size());
+  const size_t length = ::strnlen(event.text.data(), event.text.size());
   return absl::string_view(event.text.data(), length);
 }
 
@@ -65,17 +67,24 @@ std::string formatControllerEvent(const ControllerEvent& event) {
                           "the new clock is in use.");
     case ControllerEventCode::kSafetyEntered:
       return absl::StrCat(prefix, "SAFETY mode entered: holding the measured posture and decaying the joint PD gains to zero with a ",
-                          event.values[0], " s time constant (safetyDecayTimeConstant).");
+                          event.values[0], " s time constant (safety_decay_time_constant).");
     case ControllerEventCode::kSafetyDecayComplete:
       return absl::StrCat(prefix, "SAFETY decay complete: commanding zero torque on all joints.");
     case ControllerEventCode::kContactWrenchGateChanged:
-      return absl::StrCat(prefix, "contact wrench gate: debounceTime=", event.values[0], " s, rampTime=", event.values[1], " s.");
+      return absl::StrCat(prefix, "contact wrench gate: debounce_time=", event.values[0], " s, ramp_time=", event.values[1], " s.");
     case ControllerEventCode::kContactEstimatorChanged:
       return absl::StrCat(prefix, "measured contact state from ", controllerEventText(event), ".");
     case ControllerEventCode::kNoPolicyWeightCompensation:
       return absl::StrCat(prefix,
                           "WB_MPC without an MPC policy yet: applying the weight-compensating torques until the first one "
                           "arrives.");
+    case ControllerEventCode::kContactEstimateRefused:
+      return absl::StrCat(prefix, "the contact estimator '", controllerEventText(event), "' reported ", event.values[0],
+                          " contact flags, expected ", event.values[1],
+                          ": its estimates are refused and the measured contact state stays the last one taken.");
+    case ControllerEventCode::kContactWrenchGateRefused:
+      return absl::StrCat(prefix, "contact wrench gate refused (debounce_time=", event.values[0], " s, ramp_time=", event.values[1],
+                          " s must be non-negative); the gate in use is kept.");
   }
   return absl::StrCat(prefix, "controller event ", static_cast<int>(event.code));
 }
@@ -86,10 +95,15 @@ bool isWarningControllerEvent(const ControllerEvent& event) {
     case ControllerEventCode::kClockRewind:
     case ControllerEventCode::kSafetyEntered:
     case ControllerEventCode::kSafetyDecayComplete:
+    case ControllerEventCode::kContactEstimateRefused:
+    case ControllerEventCode::kContactWrenchGateRefused:
       return true;
-    default:
+    case ControllerEventCode::kContactWrenchGateChanged:
+    case ControllerEventCode::kContactEstimatorChanged:
+    case ControllerEventCode::kNoPolicyWeightCompensation:
       return false;
   }
+  return false;
 }
 
 }  // namespace ocs2::humanoid

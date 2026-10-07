@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
 #include "absl/flags/usage.h"
@@ -51,11 +52,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/node/ShutdownSignal.h"
 #include "robot_ipc/Bus.h"
 
+// The default of --realtime_priority: the solver thread stays on the time-sharing scheduler.
+constexpr int kTimeSharingScheduler = 0;
+
 // LINT.IfChange(node_flags)
 ABSL_FLAG(std::string, ipc_node, "mpc", "The bus node this process publishes as (a node of the network file).");
 ABSL_FLAG(int,
           realtime_priority,
-          /*default_value=*/0,
+          kTimeSharingScheduler,
           "SCHED_FIFO priority of the MPC solver thread, 1-99; 0 keeps it on the time-sharing scheduler.");
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc_app/README.md:node_flags, //humanoid_nmpc/humanoid_wb_mpc_app/src/WBMpcNodeMain.cpp:node_flags)
@@ -65,7 +69,7 @@ ABSL_FLAG(int,
  * humanoid_centroidal_mpc_node: the centroidal MPC of a robot, served on the bus to the robot process (or to the dummy
  * simulator) until SIGINT or SIGTERM. See humanoid_nmpc/humanoid_centroidal_mpc_app/README.md.
  */
-int main(int argc, char** argv) {
+int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   absl::SetProgramUsageMessage(
       "The centroidal MPC node: solves the robot's observations (robot/mpc_observation) and publishes the policies "
       "(mpc/policy, mpc/status) on the bus.\n  humanoid_centroidal_mpc_node --robot_name=drc_atlas --task_file=... "

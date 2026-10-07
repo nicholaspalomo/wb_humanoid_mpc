@@ -1,19 +1,43 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Tests for boost_usage.py, the lint check that keeps Boost out of the project's C++ and Bazel files."""
 
+import contextlib
 import io
 import os
 import re
 import subprocess
-import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
 from unittest import mock
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import boost_usage  # noqa: E402
-
-from tools.hooks import check_test_support  # noqa: E402
+from tools.hooks import boost_usage
+from tools.hooks import check_test_support
 
 _HOOKS_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -67,7 +91,7 @@ class CppIncludesTest(unittest.TestCase):
     def test_other_headers_are_fine(self):
         source = (
             "#include <pinocchio/multibody/model.hpp>\n"
-            '#include "ocs2_core/misc/PropertyTree.h"\n'
+            '#include "ocs2_core/misc/Lookup.h"\n'
             "#include <myboost/x.h>\n"
             '#include "third_party/boost/x.h"\n'
         )
@@ -98,7 +122,7 @@ class CppIncludesTest(unittest.TestCase):
 
     def test_other_directives_and_comments_naming_a_header_are_fine(self):
         source = (
-            "#define INC <ocs2_core/misc/PropertyTree.h>\n"
+            "#define INC <ocs2_core/misc/Lookup.h>\n"
             "#if __has_include(<optional>)\n#endif\n"
             "// #define INC <boost/variant.hpp>\n"
             "#define NOTE 1  /* was <boost/variant.hpp> */\n"
@@ -516,7 +540,7 @@ class ScopeTest(unittest.TestCase):
                 "notes.md",
             ]:
                 os.makedirs(os.path.join(root, os.path.dirname(path)), exist_ok=True)
-                with open(os.path.join(root, path), "w") as f:
+                with open(os.path.join(root, path), "w", encoding="utf-8") as f:
                     f.write("# include <boost/numeric/ublas/vector.hpp>\n")
             found = boost_usage.check_files(
                 [
@@ -536,6 +560,7 @@ class ScopeTest(unittest.TestCase):
 
 class RepositoryFilesTest(unittest.TestCase):
     def setUp(self):
+        # pylint: disable-next=consider-using-with  # tearDown() deletes it.
         self.directory = tempfile.TemporaryDirectory()
         self.root = self.directory.name
         for path in [
@@ -545,10 +570,10 @@ class RepositoryFilesTest(unittest.TestCase):
             "src/notes.md",
             "BUILD.bazel",
             "bazel-out/k8-opt/bin/generated.cpp",
-            "build/generated.h",
+            ".bazel/bin/generated.h",
         ]:
             os.makedirs(os.path.join(self.root, os.path.dirname(path)), exist_ok=True)
-            with open(os.path.join(self.root, path), "w") as f:
+            with open(os.path.join(self.root, path), "w", encoding="utf-8") as f:
                 f.write("int x;\n")
 
     def tearDown(self):
@@ -564,8 +589,8 @@ class RepositoryFilesTest(unittest.TestCase):
             )
 
         git("init", "-q")
-        with open(os.path.join(self.root, ".gitignore"), "w") as f:
-            f.write("src/ignored.cpp\nbazel-out/\nbuild/\n")
+        with open(os.path.join(self.root, ".gitignore"), "w", encoding="utf-8") as f:
+            f.write("src/ignored.cpp\nbazel-out/\n.bazel/\n")
         git("add", "src/a.cpp", "BUILD.bazel")
         self.assertEqual(
             self.relative(boost_usage.repository_files(self.root)),
@@ -573,9 +598,7 @@ class RepositoryFilesTest(unittest.TestCase):
         )
 
     def test_without_git_the_tree_is_walked_without_build_output(self):
-        with mock.patch.object(
-            boost_usage.subprocess, "run", side_effect=OSError("no git")
-        ):
+        with mock.patch.object(subprocess, "run", side_effect=OSError("no git")):
             files = boost_usage.repository_files(self.root)
         self.assertEqual(
             self.relative(files),
@@ -587,7 +610,7 @@ class ShippedConfigurationTest(unittest.TestCase):
     """The Bazel configuration as shipped: Boost is reached through the @pinocchio target alone."""
 
     def test_the_pinocchio_target_is_the_only_exemption(self):
-        with open(_repository_file("bazel/system_libs.bzl")) as f:
+        with open(_repository_file("bazel/system_libs.bzl"), encoding="utf-8") as f:
             source = f.read()
         self.assertEqual(
             boost_usage.check_source(
@@ -623,6 +646,7 @@ class StagedModeTest(unittest.TestCase):
     """The pre-commit hook's mode: the index of a real git repository, not its working tree."""
 
     def setUp(self):
+        # pylint: disable-next=consider-using-with  # tearDown() deletes it.
         self.directory = tempfile.TemporaryDirectory()
         self.root = self.directory.name
         self.run_git("init", "-q")
@@ -640,7 +664,7 @@ class StagedModeTest(unittest.TestCase):
     def write(self, path, text):
         full = os.path.join(self.root, path)
         os.makedirs(os.path.dirname(full), exist_ok=True)
-        with open(full, "w") as f:
+        with open(full, "w", encoding="utf-8") as f:
             f.write(text)
 
     def staged(self):
@@ -724,12 +748,12 @@ class CommandLineTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             bad = os.path.join(directory, "bad.cpp")
             good = os.path.join(directory, "good.cpp")
-            with open(bad, "w") as f:
+            with open(bad, "w", encoding="utf-8") as f:
                 f.write("int x;\n#include <boost/variant.hpp>\n")
-            with open(good, "w") as f:
+            with open(good, "w", encoding="utf-8") as f:
                 f.write("// Replaces boost::variant.\n#include <variant>\n")
             output = io.StringIO()
-            with redirect_stdout(output), mock.patch.object(
+            with contextlib.redirect_stdout(output), mock.patch.object(
                 os, "getcwd", return_value=directory
             ):
                 self.assertEqual(boost_usage.main([good]), 0)
@@ -740,7 +764,9 @@ class CommandLineTest(unittest.TestCase):
             )
 
     def test_paths_and_staged_mode_are_exclusive(self):
-        with redirect_stdout(io.StringIO()), mock.patch("sys.stderr", io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()), mock.patch(
+            "sys.stderr", io.StringIO()
+        ):
             with self.assertRaises(SystemExit):
                 boost_usage.main([])
             with self.assertRaises(SystemExit):

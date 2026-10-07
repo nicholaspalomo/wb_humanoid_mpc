@@ -6,6 +6,13 @@ build --symlink_prefix=.bazel/
 # --- C++ Standard & Compiler Flags ---
 build --cxxopt=-std=c++20
 build --host_cxxopt=-std=c++20
+# The headers of external repositories (Abseil, protobuf, googletest, and the system_libs wrappers of Eigen, Pinocchio,
+# ...) reach first-party code as -isystem instead of -iquote / -I: GCC then reports the warnings of
+# bazel/copts.bzl in first-party code, not in thousands of third-party lines that bury it. lib/ocs2 does the same for
+# its vendored headers (system_include_paths in lib/ocs2/BUILD.bazel).
+# LINT.IfChange(external_include_paths)
+build --features=external_include_paths
+# LINT.ThenChange(//bazel/copts.bzl:first_party_copts)
 # Pinocchio's Boost and urdfdom defines are not set here: the @pinocchio target carries them as `defines`
 # (bazel/system_libs.bzl), so they reach exactly the targets that depend on Pinocchio.
 
@@ -72,14 +79,13 @@ build:relwithdebinfo --strip=never
 
 # --- clang-tidy (tools/clang_tidy/README.md): a Bazel aspect, so it runs inside --jobs and the machine lock ---
 # No --jobs and no --keep_going here: the Makefile's lint-tidy targets pass --keep_going, and --jobs stays the RAM bound
-# above (tools/resource_limits/test_resource_limits.py). The aspects do not change the build configuration, so the
-# analysis cache and the generated files are shared with plain builds.
+# above (tools/resource_limits/test_resource_limits.py). The aspect does not change the build configuration, so the
+# analysis cache and the generated files are shared with plain builds. clang-tidy-fix lints with the same checks and
+# also builds their fix-its.
 # LINT.IfChange(clang_tidy_config)
 build:clang-tidy --aspects=//tools/clang_tidy:clang_tidy.bzl%clang_tidy_aspect
 build:clang-tidy --output_groups=clang_tidy
-build:clang-tidy-sweep --aspects=//tools/clang_tidy:clang_tidy.bzl%clang_tidy_sweep_aspect
-build:clang-tidy-sweep --output_groups=clang_tidy
-build:clang-tidy-fix --aspects=//tools/clang_tidy:clang_tidy.bzl%clang_tidy_sweep_aspect
+build:clang-tidy-fix --aspects=//tools/clang_tidy:clang_tidy.bzl%clang_tidy_aspect
 build:clang-tidy-fix --output_groups=clang_tidy,clang_tidy_fixes
 # LINT.ThenChange(//Makefile:lint_tidy, //.github/workflows/build_test.yml:lint_tidy, //tools/ci_local.sh:lint_tidy)
 

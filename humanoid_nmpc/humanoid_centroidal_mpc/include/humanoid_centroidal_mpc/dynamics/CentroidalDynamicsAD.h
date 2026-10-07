@@ -30,14 +30,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_centroidal_model/PinocchioCentroidalDynamicsAD.h>
-#include <ocs2_core/dynamics/SystemDynamicsBase.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
+#include <string>
+
+#include "absl/base/nullability.h"
+#include "ocs2_centroidal_model/PinocchioCentroidalDynamicsAD.h"
+#include "ocs2_core/dynamics/SystemDynamicsBase.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 
 namespace ocs2::humanoid {
 
+/**
+ * The centroidal dynamics of the wrench-space contact inputs: OCS2's PinocchioCentroidalDynamicsAD, with its CppAD
+ * library in the model settings' folder. Not thread-safe; the solver clones it per worker.
+ */
 class CentroidalDynamicsAD final : public SystemDynamicsBase {
  public:
   CentroidalDynamicsAD(const PinocchioInterface& pinocchioInterface,
@@ -46,7 +53,11 @@ class CentroidalDynamicsAD final : public SystemDynamicsBase {
                        const ModelSettings& modelSettings);
 
   ~CentroidalDynamicsAD() override = default;
-  CentroidalDynamicsAD* clone() const override { return new CentroidalDynamicsAD(*this); }
+  CentroidalDynamicsAD* absl_nonnull clone() const override { return new CentroidalDynamicsAD(*this); }
+  // Copied only by clone(), whose copy constructor is private; never assigned or moved.
+  CentroidalDynamicsAD& operator=(const CentroidalDynamicsAD&) = delete;
+  CentroidalDynamicsAD(CentroidalDynamicsAD&&) = delete;
+  CentroidalDynamicsAD& operator=(CentroidalDynamicsAD&&) = delete;
 
   vector_t computeFlowMap(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) override;
   VectorFunctionLinearApproximation linearApproximation(scalar_t time,

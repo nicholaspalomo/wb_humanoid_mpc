@@ -27,9 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <chrono>
 #include <memory>
@@ -38,23 +36,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include <ocs2_core/misc/LoadData.h>
-#include <ocs2_mpc/MPC_Settings.h>
-#include <ocs2_mpc_test/ScriptedMpc.h>
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
-#include <robot_model/RobotDescription.h>
-#include <robot_model/RobotState.h>
+#include "absl/status/statusor.h"
+#include "gtest/gtest.h"
+#include "ocs2_mpc/MPC_Settings.h"
+#include "ocs2_mpc_test/ScriptedMpc.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/config/weights/StateInputLayout.h"
+#include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "humanoid_common_mpc/mrt/MpcLink.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 #include "humanoid_wb_mpc/mrt/WBMpcMrtJointController.h"
 #include "humanoid_wb_mpc/mrt/WBMpcResetTarget.h"
 #include "robot_core/ResourcePaths.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotState.h"
 
 /*
  * wbMpcResetTargetTrajectories(), the one reset target of the whole-body MPC: the observation held still and upright
@@ -70,15 +73,15 @@ class G1Model {
  public:
   G1Model()
       // A file missing from the runfiles throws here, naming the data dependency to add (robot::resolveResourcePath).
-      : taskFile_(robot::resolveResourcePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml").value()),
+      : task_(loadTaskFile(robot::resolveResourcePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto").value()).value()),
         urdfFile_(robot::resolveResourcePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf").value()),
-        modelSettings_(taskFile_, urdfFile_, "wb_mpc_", /*verbose=*/false),
-        pinocchioInterface_(createCustomPinocchioInterface(taskFile_, urdfFile_, modelSettings_)),
+        modelSettings_(ModelSettings::Create(task_, urdfFile_, "wb_mpc_", /*verbose=*/false).value()),
+        pinocchioInterface_(loadCustomPinocchioInterface(task_, urdfFile_, modelSettings_).value()),
         model_(modelSettings_),
-        description_(urdfFile_) {
-    initialState_ = vector_t::Zero(model_.getStateDim());
-    loadData::loadEigenMatrix(taskFile_, "initialState", initialState_);
-  }
+        description_(robot::model::RobotDescription::Create(urdfFile_).value()),
+        initialState_(
+            stateValuesFromConfig(task_.initial_state, stateInputLayout(modelSettings_, StateInputLayout::Mpc::kWholeBody), "initial_state")
+                .value()) {}
 
   const ModelSettings& modelSettings() const { return modelSettings_; }
   const PinocchioInterface& pinocchioInterface() const { return pinocchioInterface_; }
@@ -97,12 +100,12 @@ class G1Model {
     observation.state(5) = -0.03;  // roll
     observation.state.tail(model_.getGenCoordinatesDim()).setConstant(0.2);
     observation.input = vector_t::Zero(model_.getInputDim());
-    observation.mode = ModeNumber::STANCE;
+    observation.mode = ModeNumber::kStance;
     return observation;
   }
 
  private:
-  std::string taskFile_;
+  mpc_config::TaskFile task_;
   std::string urdfFile_;
   ModelSettings modelSettings_;
   PinocchioInterface pinocchioInterface_;
@@ -150,8 +153,8 @@ TEST(WBMpcResetTarget, HoldsTheObservedConfigurationStillAndUprightWithTheWeight
   const vector3_t left = g1.model().getContactForceInWorldFrame(state, input, /*contactIndex=*/0);
   const vector3_t right = g1.model().getContactForceInWorldFrame(state, input, /*contactIndex=*/1);
   const scalar_t weight = computeRobotWeight(g1.pinocchioInterface());
-  EXPECT_NEAR(left.z() + right.z(), weight, 1e-9 * weight);
-  EXPECT_NEAR(left.z(), right.z(), 1e-9 * weight);
+  EXPECT_NEAR(left.z() + right.z(), weight, 1.0e-9 * weight);
+  EXPECT_NEAR(left.z(), right.z(), 1.0e-9 * weight);
 }
 
 TEST(WBMpcResetTarget, IsWhatTheControllerHandsItsMpcLink) {
@@ -162,7 +165,9 @@ TEST(WBMpcResetTarget, IsWhatTheControllerHandsItsMpcLink) {
     captured = resetTarget;
     return std::make_unique<InProcessMpcLink>(mpc, std::move(resetTarget), InProcessMpcLink::Config());
   };
-  const WBMpcMrtJointController controller(g1.description(), g1.modelSettings(), factory, g1.pinocchioInterface());
+  const absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> controller =
+      WBMpcMrtJointController::Create(g1.description(), g1.modelSettings(), factory, g1.pinocchioInterface());
+  ASSERT_TRUE(controller.ok()) << controller.status();
   ASSERT_TRUE(captured);
   for (const scalar_t time : {0.0, 1.25, 7.5}) {
     const SystemObservation observation = g1.movingObservation(time);
@@ -188,7 +193,10 @@ TEST(WBMpcResetTarget, IsWhatTheInProcessLinkResetsTheMpcTo) {
   SystemObservation startObservation;
   {
     // The default constructor's link: InProcessMpcLink, which resets the MPC fully from the start observation.
-    WBMpcMrtJointController controller(g1.description(), g1.modelSettings(), mpc, g1.pinocchioInterface(), /*mpcDesiredFrequency=*/100.0);
+    absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> created =
+        WBMpcMrtJointController::Create(g1.description(), g1.modelSettings(), mpc, g1.pinocchioInterface(), /*mpcDesiredFrequency=*/100.0);
+    ASSERT_TRUE(created.ok()) << created.status();
+    WBMpcMrtJointController& controller = **created;
     controller.startMpcThread(robotState);
     const std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
     while (!controller.ready() && std::chrono::steady_clock::now() < deadline) {

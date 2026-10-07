@@ -1,0 +1,152 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "humanoid_mpc_config/xyz.proto";
+import "nproto/options.proto";
+
+// The contact geometry and the contact constraints of the task file (its contacts block): where the contact frame sits
+// on its parent joint, the sole's rectangle around it, the ground of the contact wrench cone, the generators,
+// barrier and regularization of the basis-vector contact inputs, and the friction cone and contact moment constraints.
+// Every contact of the robot shares one block.
+//
+// Each constraint's relaxed barrier is a block of its own, nested here, because the defaults of a barrier differ by
+// the constraint it belongs to.
+// Next ID: 10
+message ContactsConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::ContactsConfig";
+
+  reserved 10 to max;
+
+  // [m] The sole of a contact, in its contact frame (ContactRectangle). An absent bound is 0.
+  // Next ID: 6
+  message Rectangle {
+    reserved 6 to max;
+
+    double x_min = 1 [default = 0.0];
+    double x_max = 2 [default = 0.0];
+    double y_min = 3 [default = 0.0];
+    double y_max = 4 [default = 0.0];
+    // The factor every bound is scaled by.
+    double scale_factor = 5 [default = 1.0];
+  }
+
+  // The ground of the whole-body contact constraints (ContactWrenchConeConstraint::Config): the wrench cone in the
+  // wrench parameterization, the generators of the basis-vector one, and the friction and torsion bounds of the online
+  // contact planner all read it. Its five geometry fields are required, by every consumer, and have no default: a file
+  // that leaves one out is refused rather than given a library default.
+  // Next ID: 8
+  message WrenchCone {
+    reserved 8 to max;
+
+    // Positive.
+    double friction_coefficient = 1;
+    // Non-negative.
+    double torsional_friction_coefficient = 2;
+    // [N] Non-negative; not representable by the basis-vector inputs, which warn when it is not 0.
+    double min_normal_force = 3 [(humanoid_mpc_config.tuning) = { unit: "N" }];
+    // [N] Non-negative; not representable by the basis-vector inputs either.
+    double gripper_force = 4 [(humanoid_mpc_config.tuning) = { unit: "N" }];
+    // The facets of the friction pyramid (and its edges among the basis generators); at least 3.
+    int32 num_basis_vectors = 5;
+    // The relaxed barrier of the soft constraint contact_wrench_cone, finite and positive; absent: the barrier's own
+    // defaults (mu 1, delta 0.001). Without a default here because the contact-implicit check of the basis-vector
+    // barrier compares against this mu only when the file sets it.
+    double mu = 6 [
+      (humanoid_mpc_config.tuning) = {
+        reload: RELOAD_HOT
+        active_when { field_path: "contact_input_parameterization" values: "wrench" }
+      }
+    ];
+    double delta = 7 [
+      (humanoid_mpc_config.tuning) = {
+        reload: RELOAD_HOT
+        active_when { field_path: "contact_input_parameterization" values: "wrench" }
+      }
+    ];
+  }
+
+  // The barrier that keeps the basis scalings non-negative (lambda >= 0), which under
+  // contact_input_parameterization: "basis_vectors" is the contact wrench cone itself and is built for every contact.
+  // Next ID: 3
+  message BasisBarrier {
+    reserved 3 to max;
+
+    double mu = 1 [default = 0.01];
+    double delta = 2 [default = 0.001];
+  }
+
+  // The friction cone on the contact force alone (the soft constraint friction_force_cone).
+  // Next ID: 4
+  message FrictionCone {
+    reserved 4 to max;
+
+    // Positive.
+    double friction_coefficient = 1 [default = 1.0];
+    // The relaxed barrier.
+    double mu = 2 [default = 1.0, (humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+    double delta = 3 [default = 0.001, (humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  }
+
+  // The center-of-pressure bound of the contact moment (the soft constraint contact_moment_xy).
+  // Next ID: 3
+  message ContactMoment {
+    reserved 3 to max;
+
+    // The relaxed barrier.
+    double mu = 1 [default = 1.0];
+    double delta = 2 [default = 0.001];
+  }
+
+  // [m] The contact frame (the center of the sole) in its parent joint's frame.
+  Xyz contact_frame_translation = 1 [(humanoid_mpc_config.tuning) = { unit: "m" }];
+  Rectangle contact_rectangle = 2;
+  // Formerly contactWrenchConeSoftConstraint.
+  WrenchCone contact_wrench_cone_soft_constraint = 3;
+  // The generators of the basis-vector contact inputs, by registry name (contact_input_parameterization:
+  // "basis_vectors"). It fixes the input dimension, so it takes effect at start-up only.
+  // LINT.IfChange(basis_generator_set)
+  string basis_generator_set = 4 [
+    default = "conservative_inner_approximation",
+    (humanoid_mpc_config.tuning) = {
+      registry: "basis_generator_set"
+      active_when { field_path: "contact_input_parameterization" values: "basis_vectors" }
+    }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h:basis_generator_set_names)
+  // The basis-vector contact inputs are the centroidal MPC's; the whole-body MPC refuses them.
+  BasisBarrier basis_non_negativity_barrier = 5 [
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_HOT
+      active_when { field_path: "contact_input_parameterization" values: "basis_vectors" }
+      formulations: "centroidal"
+    }
+  ];
+  // The weight of the regularization of the basis scalings in the input cost (basis-vector contact inputs).
+  double basis_scaling_regularization = 6 [
+    default = 0.0001,
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_HOT
+      log_scale: true
+      active_when { field_path: "contact_input_parameterization" values: "basis_vectors" }
+      formulations: "centroidal"
+    }
+  ];
+  // Its shape, by registry name.
+  // LINT.IfChange(basis_regularization)
+  string basis_regularization = 7 [
+    default = "full_diagonal",
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_HOT
+      registry: "basis_regularization"
+      active_when { field_path: "contact_input_parameterization" values: "basis_vectors" }
+      formulations: "centroidal"
+    }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/BasisInputsCostTransform.h:basis_regularization_names)
+  // Formerly frictionForceConeSoftConstraint.
+  FrictionCone friction_force_cone_soft_constraint = 8;
+  // Formerly contactMomentXYSoftConstraint.
+  ContactMoment contact_moment_xy_soft_constraint = 9 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+}

@@ -31,9 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 
@@ -45,20 +45,20 @@ namespace ocs2::humanoid::visualization {
  * construct them before the solver thread starts using `mpcRobotModel`.
  */
 struct VisualizationModel {
-  /** The robot's task file: the visualization keys, the contact polygons and the collision spheres. */
+  /** The robot's task file: the visualization fields, the contact polygons and the collision spheres. */
   std::string taskFile;
   /** The robot's URDF: the measured robot is drawn with every joint of it. */
   std::string urdfFile;
   /**
-   * The MPC's Pinocchio model, as createCustomPinocchioInterface() builds it: the joints that are not MPC joints fixed,
+   * The MPC's Pinocchio model, as loadCustomPinocchioInterface() builds it: the joints that are not MPC joints fixed,
    * the contact frames and the contact polygon corners added, and a Translation + SphericalZYX root.
    */
-  const PinocchioInterface* pinocchioInterface = nullptr;
+  const PinocchioInterface* absl_nullable pinocchioInterface = nullptr;
   /**
    * The MPC's robot model, the one its dynamics use (CentroidalMpcRobotModel, its BasisInputsModelDecorator, or
    * WBAccelMpcRobotModel); its ModelSettings must outlive the visualization.
    */
-  const MpcRobotModelBase<scalar_t>* mpcRobotModel = nullptr;
+  const MpcRobotModelBase<scalar_t>* absl_nullable mpcRobotModel = nullptr;
 };
 
 /**

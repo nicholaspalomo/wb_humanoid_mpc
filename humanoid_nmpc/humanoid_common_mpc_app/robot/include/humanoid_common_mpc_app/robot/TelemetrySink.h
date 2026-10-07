@@ -37,7 +37,7 @@ namespace ocs2::humanoid {
 
 /**
  * Where the robot process's telemetry goes: one implementation per destination, selected by name in the task file's
- * `telemetrySinks` list (TelemetrySinkRegistry). The communication thread hands every sample the TelemetrySampler took
+ * `telemetry_sinks` list (TelemetrySinkRegistry). The communication thread hands every sample the TelemetrySampler took
  * to every sink, already converted to its message.
  */
 class TelemetrySink {

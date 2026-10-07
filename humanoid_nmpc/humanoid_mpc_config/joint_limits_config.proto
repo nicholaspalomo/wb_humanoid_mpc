@@ -1,0 +1,18 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "nproto/options.proto";
+
+// The joint limits soft constraint (formerly jointLimits; the soft constraint joint_limits): the relaxed barrier on the
+// URDF's position limits of every MPC joint.
+// Next ID: 3
+message JointLimitsConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::JointLimitsConfig";
+
+  reserved 3 to max;
+
+  // The barrier (PieceWisePolynomialBarrierPenalty).
+  double mu = 1 [default = 1.0];
+  double delta = 2 [default = 0.001];
+}

@@ -21,6 +21,9 @@ py_library(
     # The modules import each other by name, as they do when ipc_tool.py runs as a script.
     imports = ["."],
     deps = [
+        # The bus messages, and the configuration files the tuning GUI publishes whole (MpcParameterUpdate,
+        # JointPdGainsFile).
+        "//humanoid_nmpc/humanoid_mpc_config:config_py_proto",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_py_proto",
         # The network file's loader (robot_ipc.load_network_config); the bus itself is not used.
         "//robot_runtime/robot_ipc:robot_ipc_py",

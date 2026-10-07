@@ -29,20 +29,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "tools/nproto/test/ProtoTestValues.h"
 
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <cstdint>
 #include <string>
 
+#include "absl/base/nullability.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
-
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/io/coded_stream.h"
 #include "google/protobuf/io/zero_copy_stream_impl_lite.h"
 #include "google/protobuf/message.h"
 #include "google/protobuf/text_format.h"
+#include "gtest/gtest.h"
 
 namespace nproto::test_support {
 namespace {
@@ -57,18 +56,18 @@ using google::protobuf::Reflection;
 constexpr int kMaximumDepth = 8;
 
 // A number for one value of one field: distinct per seed, field and element, never zero.
-std::int64_t variantOf(const TestValueOptions& options, const FieldDescriptor* field, int element) {
-  return static_cast<std::int64_t>(options.seed) * 1000 + field->number() * 10 + element + 1;
+int64_t variantOf(const TestValueOptions& options, const FieldDescriptor* absl_nonnull field, int element) {
+  return static_cast<int64_t>(options.seed) * 1000 + field->number() * 10 + element + 1;
 }
 
 // A string of fixed length (longer than any small-string buffer), so that two seeds give strings of one size.
-std::string textOf(std::int64_t variant) {
+std::string textOf(int64_t variant) {
   return absl::StrFormat("value-%09d-text", variant);
 }
 
 // An enum value other than the default when there is one.
-const EnumValueDescriptor* enumValueOf(const FieldDescriptor* field, std::int64_t variant) {
-  const EnumDescriptor* enumType = field->enum_type();
+const EnumValueDescriptor* absl_nonnull enumValueOf(const FieldDescriptor* absl_nonnull field, int64_t variant) {
+  const EnumDescriptor* absl_nonnull enumType = field->enum_type();
   const int defaultNumber = field->default_value_enum()->number();
   int candidates = 0;
   for (int index = 0; index < enumType->value_count(); ++index) {
@@ -89,27 +88,28 @@ const EnumValueDescriptor* enumValueOf(const FieldDescriptor* field, std::int64_
   return field->default_value_enum();
 }
 
-void fill(const TestValueOptions& options, int depth, Message* message);
+void fill(const TestValueOptions& options, int depth, Message* absl_nonnull message);
 
 // Sets the singular field `field` of `message`, or adds an element when it is repeated.
-void setValue(const TestValueOptions& options, int depth, const FieldDescriptor* field, std::int64_t variant, Message* message) {
-  const Reflection* reflection = message->GetReflection();
+void setValue(
+    const TestValueOptions& options, int depth, const FieldDescriptor* absl_nonnull field, int64_t variant, Message* absl_nonnull message) {
+  const Reflection* absl_nonnull reflection = message->GetReflection();
   const bool repeated = field->is_repeated();
   switch (field->cpp_type()) {
     case FieldDescriptor::CPPTYPE_INT32:
-      repeated ? reflection->AddInt32(message, field, static_cast<std::int32_t>(-variant))
-               : reflection->SetInt32(message, field, static_cast<std::int32_t>(-variant));
+      repeated ? reflection->AddInt32(message, field, static_cast<int32_t>(-variant))
+               : reflection->SetInt32(message, field, static_cast<int32_t>(-variant));
       break;
     case FieldDescriptor::CPPTYPE_INT64:
       repeated ? reflection->AddInt64(message, field, -variant * 1000003) : reflection->SetInt64(message, field, -variant * 1000003);
       break;
     case FieldDescriptor::CPPTYPE_UINT32:
-      repeated ? reflection->AddUInt32(message, field, static_cast<std::uint32_t>(variant))
-               : reflection->SetUInt32(message, field, static_cast<std::uint32_t>(variant));
+      repeated ? reflection->AddUInt32(message, field, static_cast<uint32_t>(variant))
+               : reflection->SetUInt32(message, field, static_cast<uint32_t>(variant));
       break;
     case FieldDescriptor::CPPTYPE_UINT64:
-      repeated ? reflection->AddUInt64(message, field, static_cast<std::uint64_t>(variant) * 1000003u)
-               : reflection->SetUInt64(message, field, static_cast<std::uint64_t>(variant) * 1000003u);
+      repeated ? reflection->AddUInt64(message, field, static_cast<uint64_t>(variant) * 1000003u)
+               : reflection->SetUInt64(message, field, static_cast<uint64_t>(variant) * 1000003u);
       break;
     case FieldDescriptor::CPPTYPE_DOUBLE:
       repeated ? reflection->AddDouble(message, field, static_cast<double>(variant) + 0.25)
@@ -139,20 +139,20 @@ void setValue(const TestValueOptions& options, int depth, const FieldDescriptor*
 }
 
 // Sets the key of a map entry from its index only, so that two seeds give one key set.
-void setKey(const FieldDescriptor* key, int index, Message* entry) {
-  const Reflection* reflection = entry->GetReflection();
+void setKey(const FieldDescriptor* absl_nonnull key, int index, Message* absl_nonnull entry) {
+  const Reflection* absl_nonnull reflection = entry->GetReflection();
   switch (key->cpp_type()) {
     case FieldDescriptor::CPPTYPE_INT32:
       reflection->SetInt32(entry, key, index - 1);
       break;
     case FieldDescriptor::CPPTYPE_INT64:
-      reflection->SetInt64(entry, key, static_cast<std::int64_t>(index) * 10000000000LL - 1);
+      reflection->SetInt64(entry, key, static_cast<int64_t>(index) * 10000000000LL - 1);
       break;
     case FieldDescriptor::CPPTYPE_UINT32:
-      reflection->SetUInt32(entry, key, static_cast<std::uint32_t>(index) + 5u);
+      reflection->SetUInt32(entry, key, static_cast<uint32_t>(index) + 5u);
       break;
     case FieldDescriptor::CPPTYPE_UINT64:
-      reflection->SetUInt64(entry, key, static_cast<std::uint64_t>(index) * 10000000000ULL + 5u);
+      reflection->SetUInt64(entry, key, static_cast<uint64_t>(index) * 10000000000ULL + 5u);
       break;
     case FieldDescriptor::CPPTYPE_BOOL:
       reflection->SetBool(entry, key, index % 2 == 0);
@@ -166,15 +166,15 @@ void setKey(const FieldDescriptor* key, int index, Message* entry) {
   }
 }
 
-void fill(const TestValueOptions& options, int depth, Message* message) {
-  const Descriptor* descriptor = message->GetDescriptor();
-  const Reflection* reflection = message->GetReflection();
+void fill(const TestValueOptions& options, int depth, Message* absl_nonnull message) {
+  const Descriptor* absl_nonnull descriptor = message->GetDescriptor();
+  const Reflection* absl_nonnull reflection = message->GetReflection();
   for (int index = 0; index < descriptor->field_count(); ++index) {
-    const FieldDescriptor* field = descriptor->field(index);
+    const FieldDescriptor* absl_nonnull field = descriptor->field(index);
     if (options.skipEvery > 0 && (field->number() + options.seed) % options.skipEvery == 0) {
       continue;
     }
-    if (const google::protobuf::OneofDescriptor* oneof = field->real_containing_oneof(); oneof != nullptr) {
+    if (const google::protobuf::OneofDescriptor* absl_nullable oneof = field->real_containing_oneof(); oneof != nullptr) {
       if (oneof->field(options.oneofChoice % oneof->field_count()) != field) {
         continue;
       }
@@ -183,7 +183,7 @@ void fill(const TestValueOptions& options, int depth, Message* message) {
       const int entries = field->message_type()->map_key()->cpp_type() == FieldDescriptor::CPPTYPE_BOOL ? std::min(options.repeatedSize, 2)
                                                                                                         : options.repeatedSize;
       for (int element = 0; element < entries; ++element) {
-        Message* entry = reflection->AddMessage(message, field);
+        Message* absl_nonnull entry = reflection->AddMessage(message, field);
         setKey(field->message_type()->map_key(), element, entry);
         setValue(options, depth, field->message_type()->map_value(), variantOf(options, field, element), entry);
       }
@@ -199,7 +199,7 @@ void fill(const TestValueOptions& options, int depth, Message* message) {
 
 }  // namespace
 
-void FillWithTestValues(const TestValueOptions& options, google::protobuf::Message* message) {
+void FillWithTestValues(const TestValueOptions& options, google::protobuf::Message* absl_nonnull message) {
   fill(options, /*depth=*/0, message);
 }
 

@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -26,9 +30,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/model/LipComDynamics.h"
 
 #include <cmath>
-#include <stdexcept>
+#include <string>
 
+#include "absl/log/check.h"
 #include "absl/strings/str_cat.h"
+
 #include "humanoid_common_mpc/contact_planning/model/LipBlockIndices.h"
 
 namespace ocs2::humanoid {
@@ -38,15 +44,15 @@ std::string LipComDynamics::describe() const {
 }
 
 void LipComDynamics::configure(const ContactPlanningConfig& config) {
-  comHeight_ = config.shared.comHeight;
+  comHeight_ = config.pendulumHeight();
   omega_ = config.omega();
 }
 
 void LipComDynamics::bind(const Layout& layout) {
   idx_.bind(layout);
-  if (idx_.com[0] != LIP_CX || idx_.vel[0] != LIP_VX || idx_.zmp[0] != LIP_ZX) {
-    throw std::logic_error("[lip_com] the LIP block must be the first block of the layout");
-  }
+  // ContactPlanningProblem::finalize() places the LIP block first before it binds any term.
+  CHECK(idx_.com[0] == kLipCx && idx_.vel[0] == kLipVx && idx_.zmp[0] == kLipZx)
+      << "[lip_com] the LIP block must be the first block of the layout";
 }
 
 void LipComDynamics::declareVariables(LayoutBuilder& layout) const {

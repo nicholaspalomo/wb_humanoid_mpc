@@ -30,22 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_mpc/MPC_BASE.h>
-
-#include <humanoid_wb_mpc/common/WBAccelMpcRobotModel.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-#include <robot_model/ContactEstimator.h>
-#include <robot_model/ControllerBase.h>
-#include "humanoid_common_mpc/contact/ContactWrenchGate.h"
-#include "humanoid_common_mpc/mrt/ControllerEventSink.h"
-#include "humanoid_common_mpc/mrt/JointPdGains.h"
-#include "humanoid_common_mpc/mrt/JointPdGainsMailbox.h"
-#include "humanoid_common_mpc/mrt/MpcLink.h"
-#include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
-#include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
-#include "humanoid_mpc_ipc/RealtimePolicyEvaluator.h"
-#include "robot_model/RobotDescription.h"
-
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
@@ -54,48 +38,82 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
+#include "ocs2_mpc/MPC_BASE.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+
+#include "humanoid_common_mpc/contact/ContactWrenchGate.h"
+#include "humanoid_common_mpc/mrt/ContactEstimateIntake.h"
+#include "humanoid_common_mpc/mrt/ControllerEventSink.h"
+#include "humanoid_common_mpc/mrt/JointPdGains.h"
+#include "humanoid_common_mpc/mrt/JointPdGainsMailbox.h"
+#include "humanoid_common_mpc/mrt/MpcLink.h"
+#include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
+#include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
+#include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
+#include "humanoid_mpc_ipc/RealtimePolicyEvaluator.h"
+#include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
+#include "robot_model/ContactEstimator.h"
+#include "robot_model/ControllerBase.h"
+#include "robot_model/RobotDescription.h"
 
 namespace ocs2::humanoid {
 
+/**
+ * The MRT joint controller of the whole-body MPC: every control cycle it hands the MPC the measured state, executes the
+ * policy in use as joint position, velocity and feedforward-torque targets (the inverse dynamics of the planned
+ * accelerations and contact wrenches), and runs the passive modes (ZERO_TORQUE, JOINT_PD, GRAVITY_COMP, SAFETY) without
+ * it. Made by Create(). computeJointControlAction() and the mode setters run on the control thread; the PD-gain setters
+ * and the reset requests are thread-safe, as documented on each.
+ */
 class WBMpcMrtJointController final : public ::robot::model::ControlBase {
  public:
   /**
-   * Constructor of a controller whose MPC runs in this process (InProcessMpcLink over `mpc`).
+   * Makes a controller whose MPC runs in this process (InProcessMpcLink over `mpc`).
    *
    * @param [in] mpc: The underlying MPC class to be used; it must outlive the controller.
    * @param [in] mpcDesiredFrequency: The max frequency to run the mpc at; <= 0 runs the solves back to back.
-   * @param [in] pdGainsFile: joint_pd_gains.yaml; missing or empty: the default gains. Reloaded by pollPdGainsFile().
-   *        A file that exists but cannot be read, or that parseJointPdGainsYaml() refuses, throws std::invalid_argument
-   *        naming the file and what is wrong with it. Its `torque_limit` keys are not read: this controller commands
-   *        no torque limit.
+   * @param [in] pdGainsFile: the robot's joint_pd_gains.textproto (loadJointPdGains()); missing or empty: the default gains.
+   *        Reloaded by pollPdGainsFile(). Its torque_limit fields are not read: this controller commands no
+   *        torque limit.
+   * @return InvalidArgument naming the file and what is wrong with it when the gains file exists but cannot be read, or
+   *         loadJointPdGains() refuses it: at start-up there are no gains in use to keep, and the hard-coded
+   *         defaults are nobody's choice for the robot. NotFound naming the joint when `modelSettings` names a joint
+   *         (an MPC joint or a fixed one) that `robotDescription` does not have.
    */
-  WBMpcMrtJointController(const ::robot::model::RobotDescription& robotDescription,
-                          const ModelSettings& modelSettings,
-                          MPC_BASE& mpc,
-                          PinocchioInterface pinocchioInterface,
-                          scalar_t mpcDesiredFrequency = -1,
-                          const std::string& pdGainsFile = "");
+  static absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> Create(const ::robot::model::RobotDescription& robotDescription,
+                                                                         const ModelSettings& modelSettings,
+                                                                         MPC_BASE& mpc,
+                                                                         PinocchioInterface pinocchioInterface,
+                                                                         scalar_t mpcDesiredFrequency = -1,
+                                                                         const std::string& pdGainsFile = "");
 
   /**
-   * Constructor of a controller that reaches its MPC through the link `mpcLinkFactory` makes (MpcLink.h), for instance a
-   * remote one. The factory is called once, here, with this controller's reset target.
+   * Makes a controller that reaches its MPC through the link `mpcLinkFactory` makes (MpcLink.h), for instance a remote
+   * one. The factory is called once, here, with this controller's reset target.
+   *
+   * @return InvalidArgument when the factory makes no link, and the errors of the overload above.
    */
-  WBMpcMrtJointController(const ::robot::model::RobotDescription& robotDescription,
-                          const ModelSettings& modelSettings,
-                          const MpcLinkFactory& mpcLinkFactory,
-                          PinocchioInterface pinocchioInterface,
-                          const std::string& pdGainsFile = "");
+  static absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> Create(const ::robot::model::RobotDescription& robotDescription,
+                                                                         const ModelSettings& modelSettings,
+                                                                         const MpcLinkFactory& mpcLinkFactory,
+                                                                         PinocchioInterface pinocchioInterface,
+                                                                         const std::string& pdGainsFile = "");
+
+  WBMpcMrtJointController(const WBMpcMrtJointController&) = delete;
+  WBMpcMrtJointController& operator=(const WBMpcMrtJointController&) = delete;
 
   /**
    * Destructor. Stops the link (for InProcessMpcLink: the solver thread) and waits for it.
    */
-  ~WBMpcMrtJointController();
+  ~WBMpcMrtJointController() override;
 
-  bool ready() const { return mpcLink_->initialPolicyReceived(); }
+  bool ready() const override { return mpcLink_->initialPolicyReceived(); }
 
   /**
    * Handles the low level controller loop that updates the mpc observation, reads out the latest policy and sets the joint control action.
@@ -103,9 +121,9 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
    * In the passive modes and the hold of WB_MPC its own code allocates nothing once the controller is built, takes no
    * lock and writes no log line (reports go to the event sink); Pinocchio's nonlinear effects make one temporary of the
    * composite base joint. Executing a policy in WB_MPC still allocates inside the inverse dynamics
-   * (humanoid_common_mpc_app/robot/README.md).
+   * (humanoid_common_mpc_app/robot/README.md). `robotJointAction` is a RobotJointAction of the constructor's robot
+   * description: its joints are reached without a check.
    */
-
   void computeJointControlAction(scalar_t time,
                                  const ::robot::model::RobotState& robotState,
                                  ::robot::model::RobotJointAction& robotJointAction) override;
@@ -118,13 +136,14 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
   const MpcLink& getMpcLink() const { return *mpcLink_; }
 
   /**
-   * Hands the controller the joint PD gains of a joint_pd_gains.yaml document, without writing the file. Thread-safe,
-   * for any non-realtime thread; parsed on the caller's thread and taken into use by the control thread at its next
-   * cycle without locking or allocating (see CentroidalMpcMrtJointController::setPdGainsYaml). A document
-   * parseJointPdGainsYaml() refuses is returned as its InvalidArgument and changes nothing. Of documents handed in
-   * concurrently (here, or by pollPdGainsFile()), the one handed in last wins, whichever is parsed first.
+   * Hands the controller the joint PD gains of a whole gains file (as the tuning GUI publishes it on operator/pd_gains),
+   * without writing the file. Thread-safe, for any non-realtime thread; resolved on the caller's thread
+   * (jointPdGainsFromConfig()) and taken into use by the control thread at its next cycle without locking or allocating
+   * (see CentroidalMpcMrtJointController::setPdGains). Gains jointPdGainsFromConfig() refuses are returned as its
+   * InvalidArgument and change nothing. Of files handed in concurrently (here, or by pollPdGainsFile()), the one handed
+   * in last wins, whichever is resolved first.
    */
-  absl::Status setPdGainsYaml(absl::string_view yamlText);
+  absl::Status setPdGains(const mpc_config::JointPdGainsFile& gains);
 
   /**
    * Reloads the PD gains file of the constructor when it has been written since it was last read; the file watcher of
@@ -171,7 +190,7 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
   /**
    * Source of the measured contact state (robot_model/ContactEstimator.h). It is asked once per control cycle; its
    * answer is the observation mode handed to the MPC and decides which planned contact wrenches the inverse dynamics
-   * projects into feedforward torques (gateContactWrenchesByMeasuredContacts). Defaults to the flags of the RobotState
+   * projects into feedforward torques (ContactWrenchGate). Defaults to the flags of the RobotState
    * (RobotStateContactEstimator); in simulation the nodes install a CheaterSimContactEstimator. Set it before the
    * control loop runs; a null pointer restores the default.
    */
@@ -179,10 +198,18 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
   const ::robot::model::ContactEstimator& getContactEstimator() const { return *contactEstimator_; }
   /** Measured contact flags of the last control cycle (updateMpcObservation), as reported by the contact estimator. */
   const contact_flag_t& getMeasuredContactFlags() const { return measuredContactFlags_; }
+  /**
+   * The control cycles whose contact estimate was refused because it did not carry one flag per contact point: a
+   * configuration error of the estimator, after which the measured contact flags stay those of the cycle before. The
+   * first refusal of each run posts ControllerEventCode::kContactEstimateRefused to the event sink, which the robot
+   * process logs as a warning (ContactEstimateIntake). Thread-safe.
+   */
+  uint64_t getNumRefusedContactEstimates() const { return contactEstimateIntake_.numRefused(); }
 
   /**
    * Shaping of the planned contact wrenches at touch-down in the inverse dynamics (ContactWrenchGate: debounce and ramp
-   * after measured contact; task file `contact_wrench_gate`). Defaults to the instantaneous gate.
+   * after measured contact; task file `contact_wrench_gate`). Defaults to the instantaneous gate. A configuration
+   * ContactWrenchGate::validateConfig() refuses keeps the gate in use and posts kContactWrenchGateRefused.
    */
   void setContactWrenchGateConfig(const ContactWrenchGate::Config& config);
   const ContactWrenchGate& getContactWrenchGate() const { return contactWrenchGate_; }
@@ -192,7 +219,10 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
    * nullptr (the default): LoggingControllerEventSink. Set it before the control loop runs; the sink must outlive the
    * controller.
    */
-  void setEventSink(ControllerEventSink* eventSink);
+  void setEventSink(ControllerEventSink* absl_nullable eventSink);
+
+  /** The joint names of the robot description the controller was built for, by joint index. */
+  const std::vector<std::string>& getRobotJointNames() const { return robotJointNames_; }
 
   const vector_t& getLatestPolicyInput() const { return latestPolicyInput_; }
   const CommandData& getCommandData() const { return mpcLink_->getCommand(); }
@@ -224,31 +254,50 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
   bool isMpcHealthy() const { return mpcLink_->isHealthy(); }
   const MpcResetSupervisor& getResetSupervisor() const { return mpcLink_->getResetSupervisor(); }
 
+  /**
+   * The default gains of the MPC joints when the document does not set them (the others get a fraction of them). No
+   * torque limit: this controller commands none, so the documents' torque_limit keys are not read. The robot binary
+   * checks a saved PD gains file with them too (RobotConfigurationCheckContext::pdGainsDefaults).
+   */
+  static JointPdGainsDefaults pdGainsDefaults();
+
  private:
+  /** The gains the controller starts with, and the write time of their file when they were read. */
+  struct InitialPdGains {
+    std::filesystem::file_time_type fileWriteTime;
+    JointPdGains gains;
+  };
+
+  /**
+   * The controller of Create() once its gains are loaded; `mpcLinkFactory` may still have made no link, which Create()
+   * checks.
+   */
+  WBMpcMrtJointController(const ::robot::model::RobotDescription& robotDescription,
+                          const ModelSettings& modelSettings,
+                          const MpcLinkFactory& mpcLinkFactory,
+                          PinocchioInterface pinocchioInterface,
+                          const std::string& pdGainsFile,
+                          InitialPdGains initialPdGains);
+
   /**
    * The target the MPC restarts from after a reset: the observed pose held still and upright, over two nodes two
    * seconds apart, with the input that carries the weight on both feet. The reset target of the MPC link, called on the
    * thread that serves resets.
    */
-  TargetTrajectories currentObservationToResetTrajectory(const SystemObservation& currentMpcObservation);
+  TargetTrajectories currentObservationToResetTrajectory(const SystemObservation& currentObservation);
 
   /**
-   * The gains of the constructor: those of `pdGainsFile`, or the defaults when it is empty or missing. Throws
-   * std::invalid_argument when the file exists but cannot be read or is refused.
+   * The gains to start with: those of `pdGainsFile`, or the defaults when it is empty or missing, with the file's write
+   * time, recorded BEFORE the gains are read so that a save landing in between is reloaded by the next poll.
+   * InvalidArgument naming the file when it exists but cannot be read or is refused.
    */
-  JointPdGains loadInitialPdGains(const std::string& pdGainsFile) const;
+  static absl::StatusOr<InitialPdGains> loadInitialPdGains(const ModelSettings& modelSettings, const std::string& pdGainsFile);
 
   /**
-   * Parses `yamlText` (from `source`, for the log) and posts the gains to the control thread with `ticket`, taken from
-   * the mailbox when the document was handed in. Caller's thread.
+   * Posts `gains` (resolved from `source`, for the log) to the control thread with `ticket`, taken from the mailbox when
+   * they were handed in; an error is logged and returned, and posts nothing. Caller's thread.
    */
-  absl::Status postPdGainsDocument(absl::string_view yamlText, absl::string_view source, uint64_t ticket);
-
-  /**
-   * The default gains of the MPC joints when the document does not set them (the others get a fraction of them). No
-   * torque limit: this controller commands none, so the documents' torque_limit keys are not read.
-   */
-  static JointPdGainsDefaults pdGainsDefaults();
+  absl::Status postPdGains(const absl::StatusOr<JointPdGains>& gains, absl::string_view source, uint64_t ticket);
 
   /** Control thread: keeps the elapsed SAFETY time across a rewind of `rewind` seconds, and holds. */
   void handleClockRewind(scalar_t rewind);
@@ -281,8 +330,9 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
   // that it is destroyed last; the destructor stops it before anything its reset target reads goes away.
   std::unique_ptr<MpcLink> mpcLink_;
   std::shared_ptr<::robot::model::ContactEstimator> contactEstimator_;
-  contact_flag_t measuredContactFlags_{};  // of the last control cycle, from contactEstimator_
-  ContactWrenchGate contactWrenchGate_;    // advanced with measuredContactFlags_ every cycle
+  contact_flag_t measuredContactFlags_{};        // of the last control cycle, from contactEstimator_
+  ContactEstimateIntake contactEstimateIntake_;  // takes or refuses each estimate into measuredContactFlags_
+  ContactWrenchGate contactWrenchGate_;          // advanced with measuredContactFlags_ every cycle
   // The policy in use was solved after every reset requested so far (MRT_BASE::isActivePolicyCurrent() and no reset
   // outstanding). Written by the control thread, read by getPlannedContactFlags().
   std::atomic<bool> policyActivated_{false};
@@ -295,9 +345,9 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
   std::vector<size_t> otherJointIndices_;
 
   // Where the control thread reports (setEventSink()); never null.
-  ControllerEventSink* eventSink_;
+  ControllerEventSink* absl_nonnull eventSink_;
   /// The weight-compensating action of WB_MPC without a policy was reported since the last mode change.
-  bool noPolicyReported_{false};
+  bool noPolicyReported_ = false;
 
   // Workspaces of the control thread, sized by the constructor, so that a cycle allocates nothing in them.
   vector_t mpcJointPositions_;               ///< the MPC joints' measured positions (updateMpcState())
@@ -315,25 +365,27 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
   vector_t mpcPolicyState_;
   vector_t mpcPolicyInput_;
 
-  scalar_t previousObservationTime_{0.0};  ///< Previous sim time for computing actual dt
-  vector_t latestPolicyInput_;             ///< Latest MPC policy input
+  scalar_t previousObservationTime_ = 0.0;  ///< Previous sim time for computing actual dt
+  vector_t latestPolicyInput_;              ///< Latest MPC policy input
 
-  std::string controlMode_{"WB_MPC"};            ///< Active control mode (see setControlMode)
+  std::string controlMode_ = "WB_MPC";           ///< Active control mode (see setControlMode)
   std::vector<scalar_t> nominalJointPositions_;  ///< Nominal positions for JOINT_PD mode
   // Hold of WB_MPC for a post-reset policy (requestMpcResetAndHold). Armed by the mode switch, read in the control loop.
   std::atomic<bool> awaitingPostResetPolicy_{false};
   std::atomic<bool> holdGravityComp_{false};  ///< the held action is GRAVITY_COMP (else JOINT_PD)
 
   // SAFETY damped decay, captured on the first cycle in the mode.
-  scalar_t safetyDecayTimeConstant_{0.5};  ///< [s]
-  scalar_t safetyDecayStartTime_{-1.0};    ///< observation time at entry, < 0: not yet captured
+  scalar_t safetyDecayTimeConstant_ = 0.5;  ///< [s]
+  scalar_t safetyDecayStartTime_ = -1.0;    ///< observation time at entry, < 0: not yet captured
   vector_t safetyHoldMpcJointPositions_;
   vector_t safetyHoldOtherJointPositions_;
 
+  /** The gains file the controller reads and watches; empty: none. */
   const std::string pdGainsFile_;
+  const std::vector<std::string> robotJointNames_;  ///< the joints of the robot description, by joint index
   const ModelSettings& modelSettings_;
-  // The file watcher of the gains (pollPdGainsFile()). Declared ahead of pdGains_: the constructor records the file's
-  // write time BEFORE it reads the initial gains, so that a save landing in between is reloaded by the next poll.
+  // The file watcher of the gains (pollPdGainsFile()), from the write time loadInitialPdGains() recorded before it read
+  // the initial gains, so that a save landing in between is reloaded by the next poll.
   absl::Mutex pdGainsFileMutex_;
   std::filesystem::file_time_type pdGainsLastWriteTime_ ABSL_GUARDED_BY(pdGainsFileMutex_);
   // The joint PD gains: those the control thread commands, and the mailbox the other threads post new ones to.

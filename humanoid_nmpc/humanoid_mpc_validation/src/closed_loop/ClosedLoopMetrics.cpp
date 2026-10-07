@@ -36,7 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include <Eigen/Geometry>
+#include "Eigen/Geometry"
 
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopMetricsSchema.h"

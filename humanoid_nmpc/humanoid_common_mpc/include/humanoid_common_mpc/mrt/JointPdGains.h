@@ -42,12 +42,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** The gains a joint gets when a joint_pd_gains.yaml document does not set its own. */
+/** The gains a joint gets when its gains file (joint_pd_gains.textproto) does not set its own. */
 struct JointPdGainsDefaults {
   scalar_t kp = 0.0;  ///< [N*m/rad]
   scalar_t kd = 0.0;  ///< [N*m*s/rad]
-  /// [N*m] Empty for a controller that commands no torque limit (WBMpcMrtJointController): the document's
-  /// `torque_limit` keys are then not read at all, and every joint's limit is +infinity.
+  /// [N*m] Empty for a controller that commands no torque limit (WBMpcMrtJointController): the file's
+  /// `torque_limit` fields are then not read at all, and every joint's limit is +infinity.
   std::optional<scalar_t> torqueLimit = 0.0;
 };
 
@@ -82,34 +82,24 @@ JointPdGains defaultJointPdGains(const JointPdGainsDefaults& defaults,
                                  const std::vector<std::string>& otherJointNames);
 
 /**
- * Parses a joint_pd_gains.yaml document (the file under a robot's config/controller/, or the same text the tuning GUI
- * publishes):
+ * The joint PD gains of the gains file `file` - a robot's config/controller/joint_pd_gains.textproto, a
+ * humanoid_mpc_config.JointPdGainsFile read strictly - resolved over `defaults` as jointPdGainsFromConfig() resolves
+ * them; nullopt when `file` is empty or names no file. Reads the file and allocates: for a thread other than the
+ * realtime one.
  *
- *   default_gains: {kp: 250.0, kd: 15.0, torque_limit: 500.0}   # each key optional, over `defaults`
- *   joint_gains:
- *     <joint name>: {kp: ..., kd: ..., torque_limit: ...}      # each key optional, over default_gains
- *
- * A joint the document names gets its own gains. An MPC joint it does not name gets default_gains; any other joint gets
- * kOtherJointDefaultGainScale times the default kp and kd, and the default torque limit. Entries for joints the
- * controller does not command are ignored, and so are the `torque_limit` keys when `defaults` has no torque limit (a
- * controller that commands none). Does no I/O and keeps no state, so it may run on any thread.
- *
- * @return InvalidArgument, naming the key where there is one, when the text is not YAML, holds no document, is not a
- *         map, or carries a `default_gains` or `joint_gains` section or a joint entry that is not a map, or a gain it
- *         reads that is not a finite non-negative number.
+ * @return The error of reading or parsing the file, which names it, the line and the column, and InvalidArgument naming
+ *         the file when jointPdGainsFromConfig() refuses its gains.
  */
-absl::StatusOr<JointPdGains> parseJointPdGainsYaml(absl::string_view yamlText,
-                                                   const JointPdGainsDefaults& defaults,
-                                                   const std::vector<std::string>& mpcJointNames,
-                                                   const std::vector<std::string>& otherJointNames);
-
-/** The whole text of `file`; NotFound when it cannot be opened. For a caller that parses it with the function above. */
-absl::StatusOr<std::string> readJointPdGainsFile(const std::string& file);
+absl::StatusOr<std::optional<JointPdGains>> loadJointPdGains(const std::string& file,
+                                                             const JointPdGainsDefaults& defaults,
+                                                             const std::vector<std::string>& mpcJointNames,
+                                                             const std::vector<std::string>& otherJointNames);
 
 /**
- * The modification time of the gains file `file`, for a watcher to compare with later: the epoch when `file` is empty
- * or does not exist, file_time_type::min() when it exists but cannot be stat'ed. A watcher records it BEFORE it reads the
- * file, so that a save landing between the two is seen as a change by its next check rather than taken as read.
+ * The modification time of the gains file `file`, for a watcher to compare
+ * with later: the epoch when `file` is empty or names no file, file_time_type::min() when it exists but cannot be
+ * stat'ed. A watcher records it BEFORE it reads the file, so that a save landing between the two is seen as a change by
+ * its next check rather than taken as read.
  */
 std::filesystem::file_time_type jointPdGainsFileWriteTime(const std::string& file);
 

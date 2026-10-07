@@ -1,32 +1,30 @@
-"""****************************************************************************
-Copyright (c) 2026, Nicholas Palomo. All rights reserved.
-Copyright (c) 2024, 1X Technologies. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-* Redistributions of source code must retain the above copyright notice, this
-  list of conditions and the following disclaimer.
-
-* Redistributions in binary form must reproduce the above copyright notice,
-  this list of conditions and the following disclaimer in the documentation
-  and/or other materials provided with the distribution.
-
-* Neither the name of the copyright holder nor the names of its
-  contributors may be used to endorse or promote products derived from
-  this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-****************************************************************************"""
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+# Copyright (c) 2024, 1X Technologies. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """The Xbox controller as a source of walking commands, read through pygame.
 
@@ -38,10 +36,11 @@ joystick. pygame is not thread-safe: call everything here from one thread (the G
 
 import dataclasses
 import logging
-from typing import Any, Optional, Protocol, Tuple
+from typing import Any, Protocol
 
 from humanoid_mpc_msgs import walking_velocity_command_pb2
-from remote_control.operator_bus import walking_velocity_command
+
+from remote_control import operator_bus
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -119,7 +118,7 @@ class JoystickBackend(Protocol):
 
     def init(self) -> None: ...
 
-    def open_first_joystick(self) -> Optional[Joystick]: ...
+    def open_first_joystick(self) -> Joystick | None: ...
 
     def joystick_count(self) -> int: ...
 
@@ -130,14 +129,14 @@ class PygameJoystickBackend:
     """pygame's joysticks. pygame is imported here rather than at module scope, so importing this module is cheap."""
 
     def __init__(self) -> None:
-        import pygame  # pylint: disable=import-outside-toplevel
+        import pygame  # pylint: disable=import-outside-toplevel  # Keeps importing this module cheap.
 
         self._pygame = pygame
 
     def init(self) -> None:
         self._pygame.init()
 
-    def open_first_joystick(self) -> Optional[Joystick]:
+    def open_first_joystick(self) -> Joystick | None:
         self._pygame.joystick.quit()
         self._pygame.joystick.init()
         if self._pygame.joystick.get_count() <= 0:
@@ -165,7 +164,7 @@ class XBoxControllerInterface:
     """
 
     def __init__(
-        self, publisher_rate: float, backend: Optional[JoystickBackend] = None
+        self, publisher_rate: float, backend: JoystickBackend | None = None
     ) -> None:
         self._backend = backend if backend is not None else PygameJoystickBackend()
         self._backend.init()
@@ -173,7 +172,7 @@ class XBoxControllerInterface:
         self.current_pelvis_height_target = 0.8
         self.min_pelvis_height = 0.2
         self.max_pelvis_height = 1.0
-        self.joystick: Optional[Joystick] = None
+        self.joystick: Joystick | None = None
         self.joystick_connected = False
         self.bluetooth_connection = False
         self.get_joystick_connection()
@@ -210,18 +209,20 @@ class XBoxControllerInterface:
 
     def get_walking_command_msg(
         self,
-    ) -> Tuple[bool, Optional[walking_velocity_command_pb2.WalkingVelocityCommand]]:
+    ) -> tuple[bool, walking_velocity_command_pb2.WalkingVelocityCommand | None]:
         """(True, the command of the controller's inputs), or (False, None) when no controller can be read.
 
         A controller that cannot be read is marked disconnected; GamepadPoller then scans for it again.
+
+        Returns:
+            Whether a controller was read, and the walking command of its inputs (None when none was read).
         """
         if not self.joystick_connected:
             return False, None
         try:
             controller_input = self.get_joystick_inputs()
-        except (
-            Exception
-        ) as error:  # pylint: disable=broad-except - pygame raises its own error types
+        # pylint: disable-next=broad-exception-caught  # Pygame raises its own error types.
+        except Exception as error:
             _LOGGER.warning(
                 "Lost the controller (%s); scanning for it in the background.", error
             )
@@ -235,7 +236,7 @@ class XBoxControllerInterface:
             self.min_pelvis_height,
             self.max_pelvis_height,
         )
-        return True, walking_velocity_command(
+        return True, operator_bus.walking_velocity_command(
             linear_velocity_x=controller_input.x_left,
             linear_velocity_y=controller_input.y_left,
             angular_velocity_z=controller_input.y_right,
@@ -257,8 +258,11 @@ class GamepadPoller:
     def __init__(
         self, controller: Any, rate_hz: float, scan_period: float = 2.0
     ) -> None:
-        if rate_hz <= 0.0 or scan_period <= 0.0:
-            raise ValueError("the rate and the scan period must be positive")
+        # The not-form rejects NaN, which `rate_hz <= 0.0` would let through.
+        if not (rate_hz > 0.0 and scan_period > 0.0):
+            raise ValueError(
+                f"the rate and the scan period must be positive, got {rate_hz} and {scan_period}"
+            )
         self._controller = controller
         self._scan_ticks = max(1, int(round(scan_period * rate_hz)))
         self._ticks_since_scan = 0
@@ -267,7 +271,7 @@ class GamepadPoller:
     def connected(self) -> bool:
         return bool(self._controller.joystick_connected)
 
-    def tick(self) -> Optional[walking_velocity_command_pb2.WalkingVelocityCommand]:
+    def tick(self) -> walking_velocity_command_pb2.WalkingVelocityCommand | None:
         """The controller's command, or None when there is no controller (or it was just lost)."""
         if self._controller.joystick_connected:
             self._ticks_since_scan = 0

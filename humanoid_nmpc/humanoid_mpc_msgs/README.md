@@ -88,7 +88,23 @@ no clock synchronization.
 | `fsm_command.proto` | `FsmCommand` | `operator/fsm_command` |
 | `fsm_state.proto` | `FsmState` | `robot/fsm_state` |
 | `joint_targets.proto` | `JointTargets` | `operator/joint_targets` |
-| `yaml_document.proto` | `YamlDocument` | `operator/mpc_parameters`, `operator/pd_gains`, `operator/dodgeball_throw` |
+| `dodgeball_throw.proto` | `DodgeballThrow` | `operator/dodgeball_throw` |
+| `config_file_kind.proto` | `ConfigFileKind` (enum) | which of the robot's files a save is: task, reference or PD gains |
+| `config_file_save.proto` | `ConfigFileSave` | `operator/config_save` |
+| `config_file_save_status.proto` | `ConfigFileSaveStatus` | `robot/config_save_status` |
+
+`operator/mpc_parameters` and `operator/pd_gains` carry whole configuration files, `MpcParameterUpdate` and
+`JointPdGainsFile` of `humanoid_nmpc/humanoid_mpc_config`, whose protos stay in their own package
+(humanoid_nmpc/docs/distributed_runtime/README.md, "Topics").
+
+`ConfigFileSave` is the GUI's Save of a file the robot process reads, for the robot's persistent copy
+(humanoid_nmpc/docs/distributed_runtime/README.md, "Saving the configuration"). It carries the file's text - exactly
+the bytes written into the laptop's copy - rather than a typed file, so the robot stores what the laptop has byte for
+byte; it names the file's kind, the robot (`robot_name`), the configuration (`config_path`, the path from
+`robot_models/` on) and the schema fingerprint of the kind's file message, which the robot checks before it parses
+the text as strictly as at start-up. The robot answers every save with a `ConfigFileSaveStatus` of the same
+`sequence`: `SAVED`, `UNCHANGED`, `NOT_STORED` (a robot process without a store; `stored_path` names the file it
+reads in place, which the GUI compares with the laptop's), `REFUSED` or `FAILED`.
 
 ### Telemetry
 

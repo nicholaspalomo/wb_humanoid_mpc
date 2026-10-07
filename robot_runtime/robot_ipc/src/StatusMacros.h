@@ -41,19 +41,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define ROBOT_IPC_CONCAT_INNER(x, y) x##y
 #define ROBOT_IPC_CONCAT(x, y) ROBOT_IPC_CONCAT_INNER(x, y)
 
-#define ROBOT_IPC_RETURN_IF_ERROR(expr)  \
-  do {                                   \
-    const absl::Status _status = (expr); \
-    if (!_status.ok()) {                 \
-      return _status;                    \
-    }                                    \
+// Not const, so that the returned status is moved rather than copied (ToTW #166).
+#define ROBOT_IPC_RETURN_IF_ERROR(expr) \
+  do {                                  \
+    absl::Status _status = (expr);      \
+    if (!_status.ok()) {                \
+      return _status;                   \
+    }                                   \
   } while (0)
 
-#define ROBOT_IPC_ASSIGN_OR_RETURN_IMPL(status_or, decl, rexpr) \
-  auto status_or = (rexpr);                                     \
-  if (!status_or.ok()) {                                        \
-    return status_or.status();                                  \
-  }                                                             \
-  decl = std::move(*status_or)
+// `status_or` is a variable name and `decl` a declaration: the two lines that declare them cannot parenthesize them.
+#define ROBOT_IPC_ASSIGN_OR_RETURN_IMPL(status_or, decl, rexpr)                     \
+  auto status_or = (rexpr); /* NOLINT(bugprone-macro-parentheses): a declaration */ \
+  if (!(status_or).ok()) {                                                          \
+    return (status_or).status();                                                    \
+  }                                                                                 \
+  decl = std::move(*(status_or)) /* NOLINT(bugprone-macro-parentheses): a declaration */
 
 #define ROBOT_IPC_ASSIGN_OR_RETURN(decl, rexpr) ROBOT_IPC_ASSIGN_OR_RETURN_IMPL(ROBOT_IPC_CONCAT(_status_or_, __COUNTER__), decl, rexpr)

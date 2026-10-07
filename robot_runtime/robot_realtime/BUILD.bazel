@@ -1,18 +1,12 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+
 # robot_realtime - Building blocks of the robot process's realtime thread: a lock-free SPSC ring, thread setup
 # (SCHED_FIFO, mlockall, stack prefault, affinity, name), absolute-deadline pacing and loop timing statistics.
 # Free of ROS, protobuf and humanoid_nmpc. See README.md.
 
 package(default_visibility = ["//visibility:public"])
-
-_COPTS = [
-    "-std=c++20",
-    "-Wall",
-    "-Wextra",
-    "-Wpedantic",
-    "-Werror=return-type",
-]
 
 cc_library(
     name = "robot_realtime",
@@ -28,9 +22,10 @@ cc_library(
         "include/robot_realtime/RealtimeThread.h",
         "include/robot_realtime/SpscQueue.h",
     ],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     includes = ["include"],
     deps = [
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/strings",
@@ -46,18 +41,23 @@ cc_library(
     testonly = True,
     srcs = ["test/AllocationCounter.cpp"],
     hdrs = ["test/AllocationCounter.h"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     linkstatic = True,
     alwayslink = True,
+    deps = [
+        "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:nullability",
+    ],
 )
 
 cc_test(
     name = "test_spsc_queue",
     size = "small",
     srcs = ["test/testSpscQueue.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":robot_realtime",
+        "@abseil-cpp//absl/base:nullability",
         "@eigen",
         "@googletest//:gtest_main",
     ],
@@ -67,9 +67,10 @@ cc_test(
     name = "test_periodic_timer",
     size = "small",
     srcs = ["test/testPeriodicTimer.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":robot_realtime",
+        "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
     ],
 )
@@ -78,10 +79,11 @@ cc_test(
     name = "test_loop_timing_stats",
     size = "small",
     srcs = ["test/testLoopTimingStats.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":robot_realtime",
         "//robot_runtime/robot_core",
+        "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
     ],
 )
@@ -90,11 +92,13 @@ cc_test(
     name = "test_realtime_thread",
     size = "small",
     srcs = ["test/testRealtimeThread.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":robot_realtime",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
         "@googletest//:gtest_main",
     ],
 )
@@ -105,12 +109,13 @@ cc_test(
     name = "test_realtime_allocations",
     size = "small",
     srcs = ["test/testRealtimeAllocations.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     linkstatic = True,
     deps = [
         ":allocation_counter",
         ":robot_realtime",
         "//robot_runtime/robot_core",
+        "@abseil-cpp//absl/base:nullability",
         "@eigen",
         "@googletest//:gtest_main",
     ],

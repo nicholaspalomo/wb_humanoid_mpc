@@ -36,7 +36,6 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 CubicSpline::CubicSpline(Node start, Node end) {
-  assert(start.time < end.time);
   t0_ = start.time;
   t1_ = end.time;
   dt_ = end.time - start.time;

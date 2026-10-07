@@ -1,32 +1,30 @@
-"""****************************************************************************
-Copyright (c) 2026, Nicholas Palomo. All rights reserved.
-Copyright (c) 2024, 1X Technologies. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-* Redistributions of source code must retain the above copyright notice, this
-  list of conditions and the following disclaimer.
-
-* Redistributions in binary form must reproduce the above copyright notice,
-  this list of conditions and the following disclaimer in the documentation
-  and/or other materials provided with the distribution.
-
-* Neither the name of the copyright holder nor the names of its
-  contributors may be used to endorse or promote products derived from
-  this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-****************************************************************************"""
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+# Copyright (c) 2024, 1X Technologies. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """Publishes walking commands from the keyboard of the terminal it runs in.
 
@@ -41,6 +39,7 @@ covers them headless.
 """
 
 import argparse
+from collections.abc import Callable
 import os
 import select
 import signal
@@ -48,15 +47,12 @@ import sys
 import termios
 import threading
 import tty
-from typing import Callable, List, Optional, TextIO
+from typing import TextIO
 
 from humanoid_mpc_msgs import walking_velocity_command_pb2
+
+from remote_control import operator_bus
 from remote_control import teleop
-from remote_control.operator_bus import (
-    TELEOP_NODE,
-    TopicPublisher,
-    walking_velocity_command,
-)
 
 # The keys read_key() returns for the arrow keys, from the last byte of their escape sequence ESC [ A..D.
 KEY_UP = "up"
@@ -72,11 +68,15 @@ def clamp(value: float, min_value: float, max_value: float) -> float:
     return max(min_value, min(value, max_value))
 
 
-def read_key(read_char: Callable[[], Optional[str]]) -> Optional[str]:
+def read_key(read_char: Callable[[], str | None]) -> str | None:
     """The next key: an arrow key as KEY_UP..KEY_LEFT, any other key as its character, None when none is waiting.
 
     Args:
         read_char: the next character, or None (or "") when none is waiting.
+
+    Returns:
+        KEY_UP, KEY_DOWN, KEY_RIGHT or KEY_LEFT for an arrow key, the character of any other key, and None when no key
+        is waiting or an escape sequence is not an arrow key's.
     """
     char = read_char()
     if not char:
@@ -118,7 +118,7 @@ class KeyboardCommand:
         self.yaw_vel = 0.0
 
     def apply(
-        self, key: Optional[str]
+        self, key: str | None
     ) -> walking_velocity_command_pb2.WalkingVelocityCommand:
         """Applies one tick's key (None: no key) and returns the command to publish."""
         self.x_vel = 0.0
@@ -149,7 +149,7 @@ class KeyboardCommand:
         return self.command()
 
     def command(self) -> walking_velocity_command_pb2.WalkingVelocityCommand:
-        return walking_velocity_command(
+        return operator_bus.walking_velocity_command(
             linear_velocity_x=self.x_vel,
             linear_velocity_y=self.y_vel,
             angular_velocity_z=self.yaw_vel,
@@ -168,7 +168,7 @@ class TerminalInput:
 
     def __init__(self, stream: TextIO = sys.stdin) -> None:
         self._fd = stream.fileno()
-        self._saved_attributes: Optional[list] = None
+        self._saved_attributes: list | None = None
 
     def __enter__(self) -> "TerminalInput":
         self._saved_attributes = termios.tcgetattr(self._fd)
@@ -180,7 +180,7 @@ class TerminalInput:
             termios.tcsetattr(self._fd, termios.TCSADRAIN, self._saved_attributes)
             self._saved_attributes = None
 
-    def read_char(self) -> Optional[str]:
+    def read_char(self) -> str | None:
         """The next character typed, or None when none is waiting."""
         ready, _, _ = select.select([self._fd], [], [], 0.0)
         if not ready:
@@ -206,10 +206,10 @@ class KeyboardWalkingCommandPublisher:
 
     def __init__(
         self,
-        publisher: TopicPublisher,
-        read_char: Callable[[], Optional[str]],
+        publisher: operator_bus.TopicPublisher,
+        read_char: Callable[[], str | None],
         discard_pending: Callable[[], None],
-        state: Optional[KeyboardCommand] = None,
+        state: KeyboardCommand | None = None,
         output: TextIO = sys.stdout,
     ) -> None:
         self._publisher = publisher
@@ -231,11 +231,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Publishes walking commands from the keyboard of this terminal on the IPC bus."
     )
-    teleop.add_bus_flags(parser, default_node=TELEOP_NODE)
+    teleop.add_bus_flags(parser, default_node=operator_bus.TELEOP_NODE)
     return parser
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if not sys.stdin.isatty():
         print(

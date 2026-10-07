@@ -27,9 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cmath>
 #include <cstdlib>
@@ -38,29 +36,29 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
+#include "gtest/gtest.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/MPC_Settings.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_mpc_test/ScriptedMpc.h"
 
-#include <ocs2_core/reference/TargetTrajectories.h>
-#include <ocs2_mpc/MPC_Settings.h>
-#include <ocs2_mpc/SystemObservation.h>
-#include <ocs2_mpc_test/ScriptedMpc.h>
-
-#include <humanoid_centroidal_mpc/CentroidalMpcInterface.h>
-#include <robot_model/RobotDescription.h>
-
-#include "humanoid_common_mpc_app/robot/test_support/ChildProcess.h"
-#include "humanoid_common_mpc_app/robot/test_support/LoopbackNetwork.h"
-#include "humanoid_common_mpc_app/robot/test_support/ScriptedOperator.h"
+#include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_mpc_ipc/MpcServer.h"
 #include "humanoid_mpc_msgs/fsm_state.pb.h"
 #include "humanoid_mpc_msgs/loop_timing.pb.h"
 #include "humanoid_mpc_msgs/robot_state_sample.pb.h"
+#include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/ChildProcess.h"
+#include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/LoopbackNetwork.h"
+#include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/ScriptedOperator.h"
 #include "robot_ipc/Bus.h"
 #include "robot_ipc/NetworkConfig.h"
+#include "robot_model/RobotDescription.h"
 
 /*
  * The robot binary end to end, in the topology the hardware runs: humanoid_centroidal_mpc_robot is started as its own
@@ -75,11 +73,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-constexpr const char* kRobotBinary = "humanoid_nmpc/humanoid_centroidal_mpc_app/humanoid_centroidal_mpc_robot";
-constexpr const char* kAtlasTask = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml";
-constexpr const char* kAtlasReference = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml";
-constexpr const char* kAtlasUrdf = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
-constexpr const char* kAtlasScene = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml";
+constexpr char kRobotBinary[] = "humanoid_nmpc/humanoid_centroidal_mpc_app/humanoid_centroidal_mpc_robot";
+constexpr char kAtlasTask[] = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto";
+constexpr char kAtlasReference[] = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.textproto";
+constexpr char kAtlasUrdf[] = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
+constexpr char kAtlasScene[] = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml";
 /** [rad] What the scripted MPC adds to the last joint of the model, so that its action differs from JOINT_PD's. */
 constexpr double kJointOffset = 0.1;
 /** The modes of a humanoid MPC: the contact combinations of its two feet. */
@@ -90,6 +88,26 @@ using test_support::createBus;
 using test_support::ScriptedOperator;
 using test_support::waitFor;
 
+/** The latest FSM state the operator received: a test failure and an empty state when none has come. */
+humanoid_mpc_msgs::FsmState fsmStateOf(const ScriptedOperator& remoteControl) {
+  std::optional<humanoid_mpc_msgs::FsmState> state = remoteControl.fsmState();
+  if (!state.has_value()) {
+    ADD_FAILURE() << "the operator has received no FSM state";
+    return humanoid_mpc_msgs::FsmState();
+  }
+  return *std::move(state);
+}
+
+/** The latest loop timing the operator received: a test failure and an empty one when none has come. */
+humanoid_mpc_msgs::LoopTiming timingOf(const ScriptedOperator& remoteControl) {
+  std::optional<humanoid_mpc_msgs::LoopTiming> timing = remoteControl.timing();
+  if (!timing.has_value()) {
+    ADD_FAILURE() << "the operator has received no loop timing";
+    return humanoid_mpc_msgs::LoopTiming();
+  }
+  return *std::move(timing);
+}
+
 TEST(CentroidalMpcRobotEndToEnd, ReachesWbMpcAppliesThePolicyHoldsItsPeriodAndHoldsJointPdOnLinkLoss) {
   // The laptop's view of the model: the controller's dimensions, with no optimal control problem built.
   absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
@@ -98,7 +116,9 @@ TEST(CentroidalMpcRobotEndToEnd, ReachesWbMpcAppliesThePolicyHoldsItsPeriodAndHo
   const MpcRobotModelBase<scalar_t>& model = (*interface)->getEffectiveMpcRobotModel();
   const ipc::ModelDimensions dimensions{.stateDim = model.getStateDim(), .inputDim = model.getInputDim(), .numModes = kNumModes};
   const std::string offsetJoint = (*interface)->modelSettings().mpcModelJointNames.back();
-  const robot::model::RobotDescription description(kAtlasUrdf);
+  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus = robot::model::RobotDescription::Create(kAtlasUrdf);
+  ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
+  const robot::model::RobotDescription& description = *descriptionOrStatus;
   const size_t offsetJointIndex = description.getJointIndex(offsetJoint);
 
   // A network file of the test's own: the robot, the MPC and the operator on free loopback ports.
@@ -144,8 +164,8 @@ TEST(CentroidalMpcRobotEndToEnd, ReachesWbMpcAppliesThePolicyHoldsItsPeriodAndHo
                       "--realtime_cores=none", "--backend_cores=none"});
   ASSERT_TRUE(waitFor([&]() { return remoteControl.fsmState().has_value() || !robot.running(); }, absl::Seconds(60)));
   ASSERT_TRUE(robot.running()) << "the robot process exited on start-up";
-  EXPECT_EQ(remoteControl.fsmState()->mode(), "ZERO_TORQUE");
-  EXPECT_TRUE(remoteControl.fsmState()->gantry_locked());
+  EXPECT_EQ(fsmStateOf(remoteControl).mode(), "ZERO_TORQUE");
+  EXPECT_TRUE(fsmStateOf(remoteControl).gantry_locked());
 
   // The robot streams observations from ZERO_TORQUE on, and the MPC solves them.
   ASSERT_TRUE(waitFor([&]() { return (*server)->statistics().policiesPublished > 5; }, absl::Seconds(20)));
@@ -171,15 +191,15 @@ TEST(CentroidalMpcRobotEndToEnd, ReachesWbMpcAppliesThePolicyHoldsItsPeriodAndHo
       },
       absl::Seconds(20)))
       << "the MPC's policy never reached the joint targets";
-  ASSERT_TRUE(remoteControl.fsmState()->mpc_healthy());
+  ASSERT_TRUE(fsmStateOf(remoteControl).mpc_healthy());
   ASSERT_TRUE(remoteControl.timing().has_value());
-  EXPECT_GE(remoteControl.timing()->policy_age_s(), 0.0) << "a policy of the MPC is in use";
+  EXPECT_GE(timingOf(remoteControl).policy_age_s(), 0.0) << "a policy of the MPC is in use";
 
   // The loop holds its period: a few overruns and skipped periods at most, over the whole run. A period lost to a late
   // wake-up overruns nothing, so the skipped periods are checked on their own.
-  ASSERT_TRUE(waitFor([&]() { return remoteControl.timing().has_value() && remoteControl.timing()->cycles() > 1000; }, absl::Seconds(20)));
-  const humanoid_mpc_msgs::LoopTiming timing = *remoteControl.timing();
-  EXPECT_DOUBLE_EQ(timing.target_period_s(), 0.01) << "the shipped rate of the Atlas (mpc.mrtDesiredFrequency 100 Hz)";
+  ASSERT_TRUE(waitFor([&]() { return remoteControl.timing().has_value() && timingOf(remoteControl).cycles() > 1000; }, absl::Seconds(20)));
+  const humanoid_mpc_msgs::LoopTiming timing = timingOf(remoteControl);
+  EXPECT_DOUBLE_EQ(timing.target_period_s(), 0.01) << "the shipped rate of the Atlas (mpc.mrt_desired_frequency 100 Hz)";
   EXPECT_LE(timing.overruns(), timing.cycles() / 100) << timing.overruns() << " overruns in " << timing.cycles() << " cycles";
   EXPECT_LE(timing.missed_periods(), timing.cycles() / 100) << timing.missed_periods() << " skipped periods in " << timing.cycles()
                                                             << " cycles (latest wake-up " << timing.max_lateness_s() << " s late)";
@@ -189,12 +209,12 @@ TEST(CentroidalMpcRobotEndToEnd, ReachesWbMpcAppliesThePolicyHoldsItsPeriodAndHo
   // JOINT_PD action (the offset is gone from the targets), and the mode stays WB_MPC.
   (*server)->stop();
   mpcBus->stop();
-  ASSERT_TRUE(waitFor([&]() { return !remoteControl.fsmState()->mpc_healthy(); }, absl::Seconds(10))) << "no link loss reported";
-  EXPECT_EQ(remoteControl.fsmState()->mode(), "WB_MPC");
+  ASSERT_TRUE(waitFor([&]() { return !fsmStateOf(remoteControl).mpc_healthy(); }, absl::Seconds(10))) << "no link loss reported";
+  EXPECT_EQ(fsmStateOf(remoteControl).mode(), "WB_MPC");
   EXPECT_TRUE(waitFor(
       [&]() {
         const std::optional<double> offset = offsetTarget("WB_MPC");
-        return offset.has_value() && std::abs(*offset) < 1e-9;
+        return offset.has_value() && std::abs(*offset) < 1.0e-9;
       },
       absl::Seconds(10)))
       << "the robot was not held with the JOINT_PD action";

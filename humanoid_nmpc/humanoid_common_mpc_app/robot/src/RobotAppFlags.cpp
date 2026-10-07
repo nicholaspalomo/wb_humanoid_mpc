@@ -29,12 +29,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/RobotAppFlags.h"
 
+#include <string>
+#include <vector>
+
 #include "absl/flags/flag.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
+#include "humanoid_common_mpc_app/robot/RobotConfigDirectory.h"
+
+// The defaults of the flags below that are numbers or booleans.
+constexpr int kNotRealtime = 0;
+constexpr bool kHeadlessByDefault = false;
 
 // LINT.IfChange(robot_flags)
 ABSL_FLAG(std::string, mjcf_file, "", "The robot's MuJoCo scene (urdf/*.xml); required by --backend=mujoco.");
@@ -42,7 +50,7 @@ ABSL_FLAG(std::string, ipc_node, "robot", "The bus node this process publishes a
 ABSL_FLAG(std::string, backend, "mujoco", "The robot backend, by name (RobotBackendRegistry): mujoco is the MuJoCo simulator.");
 ABSL_FLAG(int,
           realtime_priority,
-          /*default_value=*/0,
+          kNotRealtime,
           "SCHED_FIFO priority of the realtime thread, 1-99, with the process's memory locked; 0 keeps it on the time-sharing "
           "scheduler. Needs CAP_SYS_NICE and CAP_IPC_LOCK (or rtprio and memlock limits); a step it may not take is reported "
           "and skipped.");
@@ -58,10 +66,18 @@ ABSL_FLAG(std::string,
           mpc_link,
           "",
           "Retired: the robot reaches its MPC over the bus only (the MPC node). Any value is refused at start-up.");
-ABSL_FLAG(bool,
-          headless,
-          /*default_value=*/false,
-          "Run the MuJoCo backend without its viewer window (no display, the robot-runtime image).");
+ABSL_FLAG(bool, headless, kHeadlessByDefault, "Run the MuJoCo backend without its viewer window (no display, the robot-runtime image).");
+ABSL_FLAG(std::string,
+          config_store_dir,
+          "",
+          "The persistent directory of this robot configuration, where the GUI's saves are stored and the robot reads its "
+          "files from (the bundled --task_file, --reference_file and the PD gains beside them seed it); empty: read the "
+          "given files in place.");
+ABSL_FLAG(std::string,
+          config_seed,
+          std::string(ocs2::humanoid::kWhenBundleChangesSeedPolicyName),
+          "When a stored copy is replaced by the bundled file, by name: when_bundle_changes (a deploy changed the file), "
+          "every_start, or never.");
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:robot_flags)
 
 namespace ocs2::humanoid {
@@ -77,6 +93,8 @@ absl::StatusOr<RobotAppOptions> robotAppOptionsFromFlags(const std::vector<int>&
   options.backend = absl::GetFlag(FLAGS_backend);
   options.realtimePriority = absl::GetFlag(FLAGS_realtime_priority);
   options.headless = absl::GetFlag(FLAGS_headless);
+  options.configStoreDirectory = absl::GetFlag(FLAGS_config_store_dir);
+  ASSIGN_OR_RETURN(options.configSeedPolicy, configSeedPolicyFromName(absl::GetFlag(FLAGS_config_seed)));
   RETURN_IF_ERROR(checkRetiredMpcLinkFlag(absl::GetFlag(FLAGS_mpc_link)));
   ASSIGN_OR_RETURN(options.realtimeCores, parseCoreList(absl::GetFlag(FLAGS_realtime_cores), defaultRealtimeCores));
   ASSIGN_OR_RETURN(options.backendCores, parseCoreList(absl::GetFlag(FLAGS_backend_cores), defaultBackendCores));

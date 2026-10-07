@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 #include <string>
+#include <vector>
 
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -39,14 +40,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 
 namespace ocs2::humanoid {
-
-/**
- * The key of the block these parameters are read from, directly under the root of the robot's task.yaml.
- *
- * It lives here rather than being spelled out at each call site because the loader, the parameter updater and the
- * tests all have to agree on it.
- */
-inline constexpr const char* kLocomotionHeuristicsBlockKey = "locomotion_heuristics";
 
 /**
  * H_Theta(pdot) = a1 pdot + a0, Table C.2, applied to roll and pitch independently.
@@ -254,13 +247,12 @@ struct CentripetalAccelerationParameters {
 };
 
 /**
- * Everything the `locomotion_heuristics` block of a robot's task.yaml carries: the three name lists and one parameter
+ * Everything the `locomotion_heuristics` block of a robot's task file carries: the three name lists and one parameter
  * block per heuristic.
  *
  * One aggregate holding every term's struct, rather than a map of type-erased blocks, is the shape
- * ContactPlanningConfig already uses in this repository, and it is the shape the tuning GUI needs: the GUI walks the
- * YAML tree and turns every numeric leaf into a slider, so the parameters have to be plain nested scalars with the
- * heuristic's own registry name as their key.
+ * ContactPlanningConfig already uses in this repository, and it is the shape of the schema the tuning GUI renders: a
+ * parameter block per heuristic, named after it, of plain scalars (locomotion_heuristics_config.proto).
  */
 struct LocomotionHeuristicConfig {
   LocomotionHeuristicFormulation formulation;
@@ -279,24 +271,5 @@ struct LocomotionHeuristicConfig {
   /** Rejects a configuration that cannot do what it says; the formulation's own checks plus the numeric ranges. */
   absl::Status validate() const;
 };
-
-/**
- * Reads the `locomotion_heuristics` block of `taskFile`.
- *
- * A file without the block yields the default configuration, whose three lists are empty and which is therefore an
- * exact no-op - so every robot that has not been given the block keeps behaving as it did. Every scalar key is
- * likewise optional and leaves its struct member's initializer in place when absent.
- *
- * Returns an error only for a configuration that is present and wrong: an unknown name, a name in the wrong list, a
- * duplicate, or a parameter outside its admissible range.
- */
-absl::StatusOr<LocomotionHeuristicConfig> loadLocomotionHeuristicConfig(absl::string_view taskFile, bool verbose = false);
-
-/**
- * Every coefficient key the loader reads, as "<heuristic>.<key>" relative to the locomotion_heuristics block - the same
- * list the loader iterates, so it cannot drift from it. The loader ignores a key it does not know, like every other
- * loader here; the tests use this to check that no shipped task file carries a misspelled one.
- */
-std::vector<std::string> locomotionHeuristicCoefficientKeys();
 
 }  // namespace ocs2::humanoid

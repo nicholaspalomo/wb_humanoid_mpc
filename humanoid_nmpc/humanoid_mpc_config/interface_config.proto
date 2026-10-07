@@ -1,0 +1,32 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "nproto/options.proto";
+import "nproto/retired_field_options.proto";
+
+// The MPC interface's own flags (the task file's interface block).
+// Next ID: 2
+message InterfaceConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::InterfaceConfig";
+  // Two switches that nothing read, and that no other key replaces.
+  option (nproto.retired_field) = {
+    name: "use_analytical_gradients_dynamics"
+    replacement: "nothing read it, and nothing replaces it: delete the key"
+  };
+  option (nproto.retired_field) = {
+    name: "use_analytical_gradients_constraints"
+    replacement: "nothing read it, and nothing replaces it: delete the key"
+  };
+
+  reserved 2 to max;
+
+  // Whether the MPC interface logs its settings as it loads them.
+  bool verbose = 1 [
+    default = false,
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "a log switch, not a tuning parameter"
+    }
+  ];
+}

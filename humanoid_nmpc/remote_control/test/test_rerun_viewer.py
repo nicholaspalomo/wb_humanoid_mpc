@@ -1,9 +1,37 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """The "Open Rerun viewer" button's launcher, without the Rerun bridge.
 
 RerunViewerLauncher runs a stand-in bridge (a shell script in a temporary checkout) or a fake Popen; it only ever stops
 the process it started itself.
 """
 
+from collections.abc import Callable
 import os
 import signal
 import stat
@@ -13,13 +41,8 @@ import tempfile
 import textwrap
 import time
 import unittest
-from typing import Callable, List
 
-from remote_control.rerun_viewer import (
-    RERUN_BRIDGE_BINARY,
-    RERUN_BRIDGE_TARGET,
-    RerunViewerLauncher,
-)
+from remote_control import rerun_viewer
 
 
 def _wait_for(condition: Callable[[], bool], timeout: float = 10.0) -> bool:
@@ -34,7 +57,7 @@ def _wait_for(condition: Callable[[], bool], timeout: float = 10.0) -> bool:
 def _alive(pid: int) -> bool:
     """Whether `pid` runs: a zombie, which only waits for its new parent to reap it, does not."""
     try:
-        with open(f"/proc/{pid}/stat", "r") as stat_file:
+        with open(f"/proc/{pid}/stat", "r", encoding="utf-8") as stat_file:
             return stat_file.read().split(") ", 1)[1][0] != "Z"
     except OSError:
         return False
@@ -48,9 +71,11 @@ def _kill_quietly(pid: int) -> None:
 
 
 class _FakeProcess:
+    """A Popen that records the signals it is sent and exits on the first."""
+
     def __init__(self) -> None:
-        self.returncode = None
-        self.signals: List[int] = []
+        self.returncode: int | None = None
+        self.signals: list[int] = []
 
     def poll(self):
         return self.returncode
@@ -60,6 +85,7 @@ class _FakeProcess:
         self.returncode = -signum
 
     def wait(self, timeout=None):
+        del timeout  # Unused.
         return self.returncode
 
     def kill(self):
@@ -68,6 +94,7 @@ class _FakeProcess:
 
 class TestRerunViewerLauncher(unittest.TestCase):
     def setUp(self):
+        # pylint: disable-next=consider-using-with  # The cleanup below deletes it.
         self.tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmpdir.cleanup)
         self.repo_root = self.tmpdir.name
@@ -82,34 +109,36 @@ class TestRerunViewerLauncher(unittest.TestCase):
         return self.process
 
     def _install_bridge(self, script="#!/bin/sh\nexec sleep 60\n"):
-        binary = os.path.join(self.repo_root, RERUN_BRIDGE_BINARY)
+        binary = os.path.join(self.repo_root, rerun_viewer.RERUN_BRIDGE_BINARY)
         os.makedirs(os.path.dirname(binary))
-        with open(binary, "w") as handle:
+        with open(binary, "w", encoding="utf-8") as handle:
             handle.write(script)
         os.chmod(binary, os.stat(binary).st_mode | stat.S_IXUSR)
         return binary
 
     def test_the_command_is_the_built_bridge_with_the_network_file(self):
-        launcher = RerunViewerLauncher(self.repo_root, self.network)
+        launcher = rerun_viewer.RerunViewerLauncher(self.repo_root, self.network)
         self.assertEqual(
             launcher.command(),
             [
-                os.path.join(self.repo_root, RERUN_BRIDGE_BINARY),
+                os.path.join(self.repo_root, rerun_viewer.RERUN_BRIDGE_BINARY),
                 f"--network_config={self.network}",
             ],
         )
         # Bazel's output directory of the bridge's target.
         self.assertTrue(
-            RERUN_BRIDGE_BINARY.startswith(os.path.join(".bazel", "bin", ""))
+            rerun_viewer.RERUN_BRIDGE_BINARY.startswith(
+                os.path.join(".bazel", "bin", "")
+            )
         )
         self.assertTrue(
-            RERUN_BRIDGE_BINARY.endswith(
-                RERUN_BRIDGE_TARGET.lstrip("/").rsplit("/", 1)[1]
+            rerun_viewer.RERUN_BRIDGE_BINARY.endswith(
+                rerun_viewer.RERUN_BRIDGE_TARGET.lstrip("/").rsplit("/", 1)[1]
             )
         )
 
     def test_the_robots_urdf_is_handed_to_the_bridge_when_known(self):
-        launcher = RerunViewerLauncher(
+        launcher = rerun_viewer.RerunViewerLauncher(
             self.repo_root, self.network, urdf_file="/robots/g1.urdf"
         )
         self.assertEqual(
@@ -118,17 +147,17 @@ class TestRerunViewerLauncher(unittest.TestCase):
         )
 
     def test_a_bridge_that_is_not_built_is_not_started_and_says_how_to_build_it(self):
-        launcher = RerunViewerLauncher(
+        launcher = rerun_viewer.RerunViewerLauncher(
             self.repo_root, self.network, popen=self._fake_popen
         )
         result = launcher.open()
         self.assertFalse(result.started)
-        self.assertIn(f"bazel build {RERUN_BRIDGE_TARGET}", result.message)
+        self.assertIn(f"bazel build {rerun_viewer.RERUN_BRIDGE_TARGET}", result.message)
         self.assertEqual(self.calls, [])
 
     def test_a_built_bridge_is_started_once_in_its_own_session(self):
         self._install_bridge()
-        launcher = RerunViewerLauncher(
+        launcher = rerun_viewer.RerunViewerLauncher(
             self.repo_root, self.network, popen=self._fake_popen
         )
         self.assertTrue(launcher.open().started)
@@ -144,7 +173,7 @@ class TestRerunViewerLauncher(unittest.TestCase):
 
     def test_close_stops_the_bridge_it_started_and_only_that(self):
         self._install_bridge()
-        launcher = RerunViewerLauncher(
+        launcher = rerun_viewer.RerunViewerLauncher(
             self.repo_root, self.network, popen=self._fake_popen
         )
         launcher.close()  # Nothing started: nothing to stop.
@@ -157,7 +186,7 @@ class TestRerunViewerLauncher(unittest.TestCase):
 
     def test_a_real_child_is_started_and_stopped(self):
         self._install_bridge()
-        launcher = RerunViewerLauncher(self.repo_root, self.network)
+        launcher = rerun_viewer.RerunViewerLauncher(self.repo_root, self.network)
         self.addCleanup(launcher.close)
         self.assertTrue(launcher.open().started)
         self.assertTrue(launcher.is_running())
@@ -181,6 +210,7 @@ class TestRerunViewerLauncher(unittest.TestCase):
             """
         )
         environment = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
+        # pylint: disable-next=consider-using-with  # The cleanups below kill and reap it.
         gui = subprocess.Popen(
             [sys.executable, "-c", gui_script],
             stdout=subprocess.PIPE,
@@ -188,12 +218,18 @@ class TestRerunViewerLauncher(unittest.TestCase):
             env=environment,
         )
         self.addCleanup(gui.wait)
-        self.addCleanup(lambda: gui.poll() is None and gui.kill())
+
+        def kill_gui() -> None:
+            if gui.poll() is None:
+                gui.kill()
+
+        self.addCleanup(kill_gui)
+        assert gui.stdout is not None
         self.assertEqual(gui.stdout.readline().strip(), "started")
 
         def bridge_pid() -> int:
             try:
-                with open(pid_file) as handle:
+                with open(pid_file, encoding="utf-8") as handle:
                     return int(handle.read().strip() or 0)
             except (OSError, ValueError):
                 return 0
@@ -213,7 +249,7 @@ class TestRerunViewerLauncher(unittest.TestCase):
         def failing_popen(command, **kwargs):
             raise OSError("exec format error")
 
-        result = RerunViewerLauncher(
+        result = rerun_viewer.RerunViewerLauncher(
             self.repo_root, self.network, popen=failing_popen
         ).open()
         self.assertFalse(result.started)

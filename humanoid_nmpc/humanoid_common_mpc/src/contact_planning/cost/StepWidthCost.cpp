@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -27,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <string>
+#include <utility>
 
 #include "absl/strings/str_cat.h"
 
@@ -45,8 +51,8 @@ void StepWidthCost::addToStage(const ContactPlanningContext& ctx, int node, Stag
   const vector2_t& ey = ctx.axesAt(node)[1];
   Coefficients xc;
   for (int axis = 0; axis < 2; ++axis) {
-    xc.push_back({idx_.foot[0][axis], ey(axis)});
-    xc.push_back({idx_.foot[1][axis], -ey(axis)});
+    xc.emplace_back(idx_.foot[0][axis], ey(axis));
+    xc.emplace_back(idx_.foot[1][axis], -ey(axis));
   }
   const vector2_t dNominal =
       ctx.hasHeading() ? vector2_t(ctx.nominal->feet[static_cast<size_t>(node)][0] - ctx.nominal->feet[static_cast<size_t>(node)][1])
@@ -54,8 +60,8 @@ void StepWidthCost::addToStage(const ContactPlanningContext& ctx, int node, Stag
   const std::pair<scalar_t, scalar_t> frameTerm = ctx.frameTerm(node, /*axis=*/1, dNominal);
   const scalar_t g = frameTerm.first;
   const scalar_t offset = frameTerm.second;
-  if (ctx.hasHeading()) xc.push_back({idx_.heading, g});
-  stage.addQuadraticResidual(xc, {}, -nominalStepWidth_ + offset, weight_);
+  if (ctx.hasHeading()) xc.emplace_back(idx_.heading, g);
+  stage.addQuadraticResidual(xc, /*uCoefficients=*/{}, -nominalStepWidth_ + offset, weight_);
 }
 
 }  // namespace ocs2::humanoid

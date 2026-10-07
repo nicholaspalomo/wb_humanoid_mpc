@@ -29,14 +29,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/node/MpcAppFlags.h"
 
+#include <string>
+
 #include "absl/flags/flag.h"
 
 // LINT.IfChange(mpc_app_flags)
 ABSL_FLAG(std::string, robot_name, "", "The robot, as its logs name it, e.g. drc_atlas.");
-ABSL_FLAG(std::string, task_file, "", "The robot's MPC task file (config/mpc/task.yaml). Required.");
-ABSL_FLAG(std::string, reference_file, "", "The robot's reference file (config/command/reference.yaml). Required.");
+ABSL_FLAG(std::string, task_file, "", "The robot's MPC task file (config/mpc/task.textproto). Required.");
+ABSL_FLAG(std::string, reference_file, "", "The robot's reference file (config/command/reference.textproto). Required.");
 ABSL_FLAG(std::string, urdf_file, "", "The robot's URDF. Required.");
-ABSL_FLAG(std::string, gait_file, "", "The gait file (humanoid_nmpc/humanoid_common_mpc/config/command/gait.yaml). Required.");
+ABSL_FLAG(std::string, gait_file, "", "The gait file (humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto). Required.");
 ABSL_FLAG(std::string,
           network_config,
           "",

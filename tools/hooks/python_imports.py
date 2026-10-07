@@ -66,9 +66,15 @@ IMPORT_ALIASES = frozenset(
 # Modules of third-party packages that the lint environments do not install, so importlib cannot tell them from names.
 THIRD_PARTY_MODULES = frozenset(
     {
+        "PIL.Image",
+        "brax.envs.base",
+        "brax.training.agents.ppo.networks",
+        "brax.training.agents.ppo.train",
+        "flax.linen",
         "google.protobuf.descriptor",
         "google.protobuf.descriptor_pb2",
         "google.protobuf.descriptor_pool",
+        "google.protobuf.internal.api_implementation",
         "google.protobuf.json_format",
         "google.protobuf.message",
         "google.protobuf.message_factory",
@@ -76,6 +82,7 @@ THIRD_PARTY_MODULES = frozenset(
         "google.protobuf.timestamp_pb2",
         "jax.numpy",
         "mujoco.mjx",
+        "mujoco.viewer",
         "rerun.blueprint",
         "rerun.chunk",
         "scipy.spatial",

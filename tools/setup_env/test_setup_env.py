@@ -1,6 +1,34 @@
-"""setup_env.sh is sourced by every shell of the dev container (through BASH_ENV), every CI build (`make build-all` runs
-`source setup_env.sh && bazel build //...`) and every launch, so it must only export variables, and export the same
-ones however often and whenever it is sourced.
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""setup_env.sh only exports variables, the same ones however often and whenever it is sourced.
+
+Every shell of the dev container sources it (through BASH_ENV), and so do every CI build (`make build-all` runs
+`source setup_env.sh && bazel build //...`) and every launch.
 
 It once opened a lock with `exec {lock_fd}>file 2>/dev/null`. `exec` with redirections and no command applies all of
 them to the shell for good, so that line also sent the shell's stderr to /dev/null, and every error of CI's Bazel
@@ -18,13 +46,13 @@ import shutil
 import subprocess
 import tempfile
 import unittest
-from typing import Dict, Optional
 
 _NAMES = ("PATH", "PYTHONPATH", "LD_LIBRARY_PATH", "DISPLAY")
 _ROBOTPKG_PREFIX = "/opt/openrobots"
 
 
 def _runfile(relative_path: str) -> str:
+    """A repository file, from the Bazel runfiles when run by Bazel and from the source tree otherwise."""
     roots = []
     if "TEST_SRCDIR" in os.environ:
         roots += [
@@ -41,6 +69,7 @@ def _runfile(relative_path: str) -> str:
 
 class SetupEnvTest(unittest.TestCase):
     def setUp(self) -> None:
+        # pylint: disable-next=consider-using-with  # The cleanup deletes it.
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.directory = directory.name
@@ -51,7 +80,7 @@ class SetupEnvTest(unittest.TestCase):
         shutil.copy(_runfile("setup_env.sh"), self.script)
 
     def source_then(
-        self, commands: str, extra_environment: Optional[Dict[str, str]] = None
+        self, commands: str, extra_environment: dict[str, str] | None = None
     ) -> subprocess.CompletedProcess:
         """Sources setup_env.sh into a fresh bash with a minimal environment, then runs `commands` in that shell."""
         environment = {
@@ -67,9 +96,10 @@ class SetupEnvTest(unittest.TestCase):
             capture_output=True,
             text=True,
             timeout=60,
+            check=False,
         )
 
-    def environment(self, commands: str = "", **extra: str) -> Dict[str, str]:
+    def environment(self, commands: str = "", **extra: str) -> dict[str, str]:
         """The variables of _NAMES after sourcing (and running `commands`); an unset one is absent."""
         print_variables = " ".join(
             f'[ -n "${{{name}+set}}" ] && printf "{name}=%s\\n" "${name}";'
@@ -93,6 +123,7 @@ class SetupEnvTest(unittest.TestCase):
             capture_output=True,
             text=True,
             timeout=60,
+            check=False,
         )
         self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
 

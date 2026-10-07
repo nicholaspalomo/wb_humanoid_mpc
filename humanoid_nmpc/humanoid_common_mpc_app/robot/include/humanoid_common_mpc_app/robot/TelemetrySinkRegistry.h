@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 
@@ -44,18 +45,18 @@ namespace ocs2::humanoid {
 
 /** What a telemetry sink can be built from. */
 struct TelemetrySinkContext {
-  robot::ipc::Bus* bus = nullptr;
+  robot::ipc::Bus* absl_nullable bus = nullptr;
 };
 
 // LINT.IfChange(telemetry_sink_names)
 /** Publishes robot/state on the bus (BusTelemetrySink). */
 inline constexpr absl::string_view kBusTelemetrySinkName = "bus";
 // clang-format off
-// LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:telemetry_sinks, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:telemetry_sinks, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml:telemetry_sinks, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml:telemetry_sinks, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.yaml:telemetry_sinks, //humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:telemetry_sinks)
+// LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:telemetry_sinks, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto:telemetry_sinks, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto:telemetry_sinks, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto:telemetry_sinks, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto:telemetry_sinks, //humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:telemetry_sinks, //humanoid_nmpc/humanoid_mpc_config/task_file.proto:telemetry_sinks)
 // clang-format on
 
 /**
- * The telemetry sinks by name: the task file's `telemetrySinks` lists the ones a robot process feeds (an empty list
+ * The telemetry sinks by name: the task file's `telemetry_sinks` lists the ones a robot process feeds (an empty list
  * turns its telemetry off). The only place a new sink is added; an unknown name is refused with the available ones.
  */
 class TelemetrySinkRegistry {
@@ -71,6 +72,8 @@ class TelemetrySinkRegistry {
   absl::StatusOr<std::unique_ptr<TelemetrySink>> create(absl::string_view name, const TelemetrySinkContext& context) const;
   /** "bus (publishes robot/state on the IPC bus), ...". */
   std::string availableNames() const;
+  /** The registered names, in registration order. */
+  std::vector<std::string> names() const;
 
  private:
   struct Entry {

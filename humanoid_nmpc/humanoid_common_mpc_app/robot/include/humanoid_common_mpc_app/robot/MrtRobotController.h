@@ -31,13 +31,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc_app/robot/RobotController.h"
+#include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
 
 namespace ocs2::humanoid {
 
@@ -92,12 +95,13 @@ class MrtRobotController final : public RobotController {
   const ContactWrenchGate::Config& contactWrenchGateConfig() const override { return controller_->getContactWrenchGate().getConfig(); }
   void setContactWrenchGateConfig(const ContactWrenchGate::Config& config) override { controller_->setContactWrenchGateConfig(config); }
 
-  absl::Status setPdGainsYaml(absl::string_view yamlText) override { return controller_->setPdGainsYaml(yamlText); }
+  absl::Status setPdGains(const mpc_config::JointPdGainsFile& gains) override { return controller_->setPdGains(gains); }
   void pollPdGainsFile() override { controller_->pollPdGainsFile(); }
 
-  void setEventSink(ControllerEventSink* eventSink) override { controller_->setEventSink(eventSink); }
+  void setEventSink(ControllerEventSink* absl_nullable eventSink) override { controller_->setEventSink(eventSink); }
   void startMpc(const robot::model::RobotState& initialState) override { controller_->startMpcThread(initialState); }
   bool policyReady() override { return controller_->ready(); }
+  const std::vector<std::string>& robotJointNames() const override { return controller_->getRobotJointNames(); }
 
  private:
   std::unique_ptr<Controller> controller_;

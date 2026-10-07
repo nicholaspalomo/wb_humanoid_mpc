@@ -36,17 +36,24 @@ Each check names the guide section it enforces:
 - `std-integer-type` (Integer types): `int64_t` and `size_t`, without the `std::` prefix. Fixed by `make format`.
 - `forbidden-construct` (Nonstandard extensions, Exceptions to naming rules, ...): `long double`, `std::auto_ptr`,
   user-defined literals, inline namespaces, `decltype(auto)`, coroutines, C++20 modules, `<ratio>` / `<cfenv>`,
-  `alloca`, statement expressions, `__attribute__` / `__builtin_`, `#pragma` other than `once` and `GCC diagnostic`, a
-  namespace- or class-scope `thread_local` without `constinit`, and `strtok`. `<filesystem>` is allowed (AGENTS.md).
+  `alloca`, statement expressions, the conditional with an omitted operand (`x ?: y`), `long double` literals (`1.0L`),
+  `__attribute__` / `__builtin_`, `#pragma` other than `once` and `GCC diagnostic`, a namespace- or class-scope
+  `thread_local` without `constinit`, and `strtok`. `<filesystem>` is allowed (AGENTS.md).
 - `exceptions` (Exceptions): `throw`, `try` and `catch` outside tests. A boundary with a library that throws keeps one
   `try` / `catch` with `// NOLINT(exceptions): <reason>`.
-- `rtti` (Run-time type information): `typeid` and `dynamic_cast` outside tests.
+- `rtti` (Run-time type information): `typeid`, `dynamic_cast`, `std::dynamic_pointer_cast`, `std::any_cast`,
+  `std::type_index` and `std::type_info` outside tests.
+- `debug-only-check` (AGENTS.md): `assert`, `ABSL_ASSERT`, `ABSL_DCHECK*` and `DCHECK*` outside tests, which every
+  `-c opt` build compiles out, so they check nothing.
 - `ctad` (Class template argument deduction; stricter, the explicit-types rule): `std::vector v = {...}`; write the
   template arguments. `absl::Cleanup` is exempt.
 - `macro-naming` (Preprocessor macros): a header macro without the library's prefix, a `.cpp` macro that is not
-  `#undef`ined at the end of the file, and a redefinition of an Abseil macro name.
-- `static-storage` (Static and global variables): a non-trivially-destructible object with static storage duration.
-  Use `absl::NoDestructor<T>`, `constexpr`, or `static const T& x = *new T(...)`.
+  `#undef`ined at the end of the file, a redefinition of an Abseil macro name, and an include guard (`#ifndef X` /
+  `#define X` opening a header: headers use `#pragma once`).
+- `static-storage` (Static and global variables): a non-trivially-destructible object with static storage duration:
+  a std or absl container, string or smart pointer, `absl::Status` / `StatusOr`, `std::thread`, a dynamic-size Eigen
+  or OCS2 type (`Eigen::MatrixXd`, `matrix_t`, `vector_array_t`), or a `std::optional` / `array` / `variant` / `pair` /
+  `tuple` of one. Use `absl::NoDestructor<T>`, `constexpr`, or `static const T& x = *new T(...)`.
 - `class-comment` (Class comments): a namespace-scope class or struct defined in a header without a comment above it.
 - `if-else-braces` (Looping and branching statements): an `if ... else` without braces.
 """
@@ -358,6 +365,10 @@ _STANDARD_NUMBER_SUFFIX = re.compile(
 _NUMBER_BODY = re.compile(
     r"^(?:0[xX][0-9a-fA-F'.]+(?:[pP][+-]?\d+)?|0[bB][01']+|[\d'.]+(?:[eE][+-]?\d+)?)"
 )
+# A floating-point literal with the `l` / `L` suffix: decimal with a radix point or an exponent, or hexadecimal with one.
+_LONG_DOUBLE_LITERAL = re.compile(
+    r"^(?:0[xX][0-9a-fA-F']*\.?[0-9a-fA-F']*[pP][+-]?\d+|(?:[\d']*\.[\d']*(?:[eE][+-]?\d+)?|[\d']+[eE][+-]?\d+))[lL]$"
+)
 _RATIOS = frozenset(
     {"ratio", "milli", "micro", "nano", "pico", "kilo", "mega", "giga", "centi", "deci"}
 )
@@ -419,6 +430,16 @@ def check_forbidden_construct(source: str, path: str) -> list[check_types.Findin
             _NUMBER_BODY.sub("", text)
         ):
             add(token, f"user-defined literal `{text}`: use a function or a constant")
+        elif token.kind == cpp_source.NUMBER and _LONG_DOUBLE_LITERAL.match(text):
+            add(
+                token,
+                f"`{text}` is a `long double` literal, which is not portable: drop the `L`",
+            )
+        elif text == "?" and following == ":" and not code[index + 1].ws_before:
+            add(
+                token,
+                "the conditional with an omitted operand `x ?: y` is a GNU extension: write `x ? x : y`",
+            )
         elif text == "inline" and following == "namespace":
             add(token, "`inline namespace` is not used")
         elif (
@@ -537,8 +558,22 @@ def check_exceptions(source: str, path: str) -> list[check_types.Finding]:
     ]
 
 
+# The spellings of run-time type information: the operators, and the library facilities built on them
+# (`std::dynamic_pointer_cast`, `std::any_cast`, `std::type_index`, `std::type_info`), qualified or not.
+_RTTI_TOKENS = frozenset(
+    {
+        "typeid",
+        "dynamic_cast",
+        "dynamic_pointer_cast",
+        "any_cast",
+        "type_index",
+        "type_info",
+    }
+)
+
+
 def check_rtti(source: str, path: str) -> list[check_types.Finding]:
-    """`typeid` and `dynamic_cast`."""
+    """`typeid`, `dynamic_cast` and the library facilities built on them (`std::dynamic_pointer_cast`, ...)."""
     return [
         _finding(
             path,
@@ -548,8 +583,45 @@ def check_rtti(source: str, path: str) -> list[check_types.Finding]:
             "(Google C++ style, Run-time type information).",
         )
         for token in cpp_source.code_tokens(source)
-        if token.text in ("typeid", "dynamic_cast")
+        if token.text in _RTTI_TOKENS and token.kind == cpp_source.IDENTIFIER
     ]
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# debug-only-check
+# ----------------------------------------------------------------------------------------------------------------------
+DEBUG_ONLY_CHECK = "debug-only-check"
+# The checks NDEBUG compiles out: assert() and Abseil's debug checks.
+_DEBUG_ONLY = re.compile(
+    r"^(?:assert|ABSL_ASSERT|ABSL_DCHECK(?:_\w+)?|DCHECK(?:_\w+)?)$"
+)
+
+
+def check_debug_only_check(source: str, path: str) -> list[check_types.Finding]:
+    """`assert`, `ABSL_ASSERT`, `ABSL_DCHECK*` and `DCHECK*` calls, which every -c opt build compiles out."""
+    code = cpp_source.code_tokens(source)
+    findings = []
+    for index, token in enumerate(code):
+        if (
+            not _DEBUG_ONLY.match(token.text)
+            or index + 1 >= len(code)
+            or code[index + 1].text != "("
+        ):
+            continue
+        if index > 0 and code[index - 1].text in (".", "->", "::"):
+            continue
+        findings.append(
+            _finding(
+                path,
+                token,
+                DEBUG_ONLY_CHECK,
+                f"`{token.text}` checks nothing: every build is -c opt (NDEBUG), which compiles it out. Use "
+                "ABSL_CHECK for an invariant established once, off the realtime path; return an absl::Status for bad "
+                "input; or state the precondition in the function's comment (AGENTS.md, 'Raw pointers carry "
+                "nullability').",
+            )
+        )
+    return findings
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -631,6 +703,30 @@ _ABSEIL_MACROS = frozenset(
 )
 _DEFINE = re.compile(r"^[ \t]*#[ \t]*define[ \t]+(?P<name>\w+)", re.MULTILINE)
 _UNDEF = re.compile(r"^[ \t]*#[ \t]*undef[ \t]+(?P<name>\w+)", re.MULTILINE)
+_DIRECTIVE = re.compile(
+    r"^[ \t]*#[ \t]*(?P<directive>\w+)[ \t]*(?P<rest>.*)$", re.MULTILINE
+)
+_GUARD_CONDITION = re.compile(
+    r"^(?:!\s*defined\s*\(\s*(?P<a>\w+)\s*\)|!\s*defined\s+(?P<b>\w+))\s*$"
+)
+
+
+def _include_guard(without_comments: str) -> re.Match[str] | None:
+    """The `#define` of a header's include guard: its first two directives are `#ifndef X` and `#define X`."""
+    directives = _DIRECTIVE.finditer(without_comments)
+    first = next(directives, None)
+    second = next(directives, None)
+    if first is None or second is None or second.group("directive") != "define":
+        return None
+    if first.group("directive") == "ifndef":
+        guarded = first.group("rest").strip()
+    elif first.group("directive") == "if":
+        condition = _GUARD_CONDITION.match(first.group("rest").strip())
+        guarded = (condition.group("a") or condition.group("b")) if condition else ""
+    else:
+        return None
+    defined = second.group("rest").split()
+    return second if guarded and defined and defined[0] == guarded else None
 
 
 def check_macro_naming(source: str, path: str) -> list[check_types.Finding]:
@@ -641,7 +737,21 @@ def check_macro_naming(source: str, path: str) -> list[check_types.Finding]:
     for match in _UNDEF.finditer(without_comments):
         undefined_after[match.group("name")] = match.start()
     findings = []
+    guard = _include_guard(without_comments) if header else None
+    if guard is not None:
+        findings.append(
+            check_types.Finding(
+                path,
+                without_comments.count("\n", 0, guard.start()) + 1,
+                1,
+                MACRO_NAMING,
+                f"include guard `{guard.group('rest').split()[0]}`: headers use `#pragma once`, not `#define` guards "
+                "(AGENTS.md, C++ departures; Google C++ style, Preprocessor macros).",
+            )
+        )
     for match in _DEFINE.finditer(without_comments):
+        if guard is not None and match.start() == guard.start():
+            continue
         name = match.group("name")
         line = without_comments.count("\n", 0, match.start()) + 1
         column = match.start("name") - without_comments.rfind(
@@ -701,6 +811,9 @@ _NON_TRIVIAL = {
             "shared_ptr",
             "regex",
             "wstring",
+            "thread",
+            "jthread",
+            "any",
         }
     ),
     "absl": frozenset(
@@ -715,27 +828,89 @@ _NON_TRIVIAL = {
             "btree_multiset",
             "InlinedVector",
             "FixedArray",
+            "Status",
+            "StatusOr",
+            "AnyInvocable",
         }
     ),
 }
+# The std templates that are trivially destructible exactly when their arguments are.
+_NON_TRIVIAL_WHEN_AN_ARGUMENT_IS = frozenset(
+    {"optional", "array", "variant", "pair", "tuple"}
+)
+# OCS2's dynamic-size aliases (lib/ocs2/core/include/ocs2_core/Types.h), written with `ocs2::` or without it.
+_OCS2_DYNAMIC = re.compile(r"^(?:vector_t|row_vector_t|matrix_t|\w+_array\d?_t)$")
+# Eigen's dynamic-size typedefs (MatrixXd, VectorXf, Matrix3Xd, ArrayXXd), and its templates with a Dynamic size.
+_EIGEN_DYNAMIC = re.compile(r"^(?:Matrix|Vector|RowVector|Array)\w*X\w*$")
+_EIGEN_TEMPLATES = frozenset({"Matrix", "Array"})
 _STATIC_SPECIFIERS = frozenset(
     {"static", "inline", "const", "constexpr", "thread_local", "extern", "constinit"}
 )
 
 
-def _qualified_type(
+def _non_trivial_type(
     code: tuple[cpp_source.Token, ...], index: int
-) -> tuple[str, str] | None:
-    """(`std`, `string`) for a `[::]std::string` at code[index], else None."""
-    if index < len(code) and code[index].text == "::":
-        index += 1
-    if (
-        index + 2 < len(code)
-        and code[index].text in _NON_TRIVIAL
-        and code[index + 1].text == "::"
+) -> tuple[str | None, int]:
+    """Parses the type at code[index]: the name of what makes it non-trivially destructible, and the index after it.
+
+    Args:
+      code: The tokens of a statement.
+      index: Where the type starts (after the specifiers).
+
+    Returns:
+      (`std::string`, end) for a type that is not trivially destructible (a std or absl container, a dynamic-size Eigen
+      or OCS2 type, absl::Status, a std::optional / array / variant / pair / tuple of one), (None, end) for any other
+      type, and (None, index) when no type starts there.
+    """
+    n = len(code)
+    k = index + 1 if index < n and code[index].text == "::" else index
+    parts: list[str] = []
+    while k < n and code[k].kind == cpp_source.IDENTIFIER:
+        parts.append(code[k].text)
+        if (
+            k + 2 < n
+            and code[k + 1].text == "::"
+            and code[k + 2].kind == cpp_source.IDENTIFIER
+        ):
+            k += 2
+            continue
+        k += 1
+        break
+    if not parts:
+        return None, index
+    argument: str | None = None
+    dynamic = False
+    if k < n and code[k].text == "<":
+        close = cpp_source.matching_angle(code, k)
+        if close >= n:
+            return None, k
+        j = k + 1
+        while j < close:
+            name, end = _non_trivial_type(code, j)
+            argument = argument or name
+            j = max(end, j + 1)
+            while j < close and code[j].text != ",":
+                if code[j].text in ("(", "["):
+                    j = cpp_source.matching(code, j)
+                elif code[j].text == "<":
+                    j = cpp_source.matching_angle(code, j)
+                j += 1
+            j += 1
+        dynamic = dynamic or any(t.text == "Dynamic" for t in code[k + 1 : close])
+        k = close + 1
+    namespace = parts[0] if len(parts) > 1 else ""
+    last = parts[-1]
+    if namespace in _NON_TRIVIAL and last in _NON_TRIVIAL[namespace]:
+        return f"{namespace}::{last}", k
+    if namespace in ("", "ocs2") and _OCS2_DYNAMIC.match(last):
+        return ("ocs2::" if namespace else "") + last, k
+    if namespace == "Eigen" and (
+        _EIGEN_DYNAMIC.match(last) or (last in _EIGEN_TEMPLATES and dynamic)
     ):
-        return code[index].text, code[index + 2].text
-    return None
+        return f"Eigen::{last}", k
+    if namespace == "std" and last in _NON_TRIVIAL_WHEN_AN_ARGUMENT_IS and argument:
+        return f"std::{last}<{argument}>", k
+    return None, k
 
 
 def check_static_storage(source: str, path: str) -> list[check_types.Finding]:
@@ -771,13 +946,10 @@ def check_static_storage(source: str, path: str) -> list[check_types.Finding]:
             continue
         if innermost == cpp_source.ENUM_SCOPE:
             continue
-        found = _qualified_type(tokens, k)
-        if found is None or found[1] not in _NON_TRIVIAL[found[0]]:
+        found, j = _non_trivial_type(tokens, k)
+        if found is None:
             continue
         # The declarator: past the template arguments, a name; a reference (`= *new T`) and functions are fine.
-        j = k + (1 if texts[k] == "::" else 0) + 3
-        if j < len(texts) and texts[j] == "<":
-            j = cpp_source.matching_angle(tokens, j) + 1
         if j >= len(texts) or texts[j] in ("&", "&&", "*", "::", "(", ")"):
             continue
         if tokens[j].kind != cpp_source.IDENTIFIER:
@@ -786,16 +958,16 @@ def check_static_storage(source: str, path: str) -> list[check_types.Finding]:
             inside = texts[j + 2 : j + 3]
             if (
                 not inside
-                or inside[0] == ")"
+                or inside[0] in (")", "::")
                 or tokens[j + 2].kind == cpp_source.IDENTIFIER
             ):
-                continue  # a function declaration
+                continue  # a function declaration (its first parameter type may be `::ns::T`)
         findings.append(
             _finding(
                 path,
                 tokens[j],
                 STATIC_STORAGE,
-                f"`{found[0]}::{found[1]}` with static storage duration is not trivially destructible: use "
+                f"`{found}` with static storage duration is not trivially destructible: use "
                 "absl::NoDestructor<T>, a constexpr type (`inline constexpr char kName[]`), or "
                 "`static const T& x = *new T(...)` (Google C++ style, Static and global variables).",
             )
@@ -957,7 +1129,7 @@ CHECKS = [
         scope=NON_TEST,
         check_source=check_exceptions,
         description="first-party code does not throw; it returns absl::Status (G: Exceptions; ToTW #76).",
-        hint="Return absl::Status / absl::StatusOr; a boundary with a throwing library (OCS2, yaml-cpp, cppzmq) converts "
+        hint="Return absl::Status / absl::StatusOr; a boundary with a throwing library (OCS2, Pinocchio, cppzmq) converts "
         "in one try/catch with `// NOLINT(exceptions): <reason>` (AGENTS.md).",
     ),
     check_types.Check(
@@ -966,6 +1138,15 @@ CHECKS = [
         scope=NON_TEST,
         check_source=check_rtti,
         description="no typeid or dynamic_cast outside tests (G: Run-time type information).",
+    ),
+    check_types.Check(
+        name=DEBUG_ONLY_CHECK,
+        languages=CPP,
+        scope=NON_TEST,
+        check_source=check_debug_only_check,
+        description="no assert, ABSL_DCHECK or DCHECK, which -c opt compiles out (AGENTS.md: every build is -c opt).",
+        hint="ABSL_CHECK an invariant once at construction (never per tick on the realtime thread), return an "
+        "absl::Status for bad input, or document the precondition.",
     ),
     check_types.Check(
         name=CTAD,

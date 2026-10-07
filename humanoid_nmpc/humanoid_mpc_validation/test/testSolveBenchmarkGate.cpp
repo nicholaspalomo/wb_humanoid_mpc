@@ -27,16 +27,16 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <filesystem>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/common/StateLayout.h"
 #include "humanoid_mpc_validation/benchmark/SolveBenchmarkGate.h"
@@ -52,7 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 namespace {
 
-constexpr const char* kBenchmarkDirectory = "humanoid_nmpc/humanoid_mpc_validation/data/benchmark";
+constexpr char kBenchmarkDirectory[] = "humanoid_nmpc/humanoid_mpc_validation/data/benchmark";
 
 std::vector<JsonValue> recordedBaselines() {
   std::vector<JsonValue> documents;
@@ -68,7 +68,7 @@ std::vector<JsonValue> recordedBaselines() {
 /** `document` with the number at the key path `path` (from `depth` on) scaled by `factor`; members keep their order. */
 JsonValue scaled(const JsonValue& document, const std::vector<std::string>& path, double factor, size_t depth = 0) {
   JsonValue copy = document;
-  const JsonValue* member = document.find(path[depth]);
+  const JsonValue* absl_nullable member = document.find(path[depth]);
   CHECK(member != nullptr) << path[depth];
   if (depth + 1 == path.size()) {
     CHECK(member->isNumber()) << path[depth];
@@ -106,7 +106,7 @@ TEST(SolveBenchmarkGate, EachCriterionFailsOnItsOwn) {
   overBudget.set("real_time", JsonValue::object()).set("p99_fraction_of_period", JsonValue::number(0.81));
   EXPECT_EQ(compareSolveBenchmarks(overBudget, baseline, SolveBenchmarkGate()).size(), 1u);
   // One library 6 % larger: that library, and not the total (its share of the total is small).
-  const JsonValue* libraries = baseline.find("tape_operation_counts");
+  const JsonValue* absl_nullable libraries = baseline.find("tape_operation_counts");
   ASSERT_TRUE(libraries != nullptr && libraries->size() > 1);
   const std::string library = libraries->keyAt(0);
   const std::vector<std::string> grown =
@@ -124,7 +124,8 @@ TEST(SolveBenchmarkGate, ALibraryComparesWithItselfAcrossTheLayoutTaggedFolder) 
   const JsonValue baseline = recordedBaselines().front();
   JsonValue moved = baseline;
   JsonValue tagged = JsonValue::object();
-  const JsonValue* libraries = baseline.find("tape_operation_counts");
+  const JsonValue* absl_nullable libraries = baseline.find("tape_operation_counts");
+  ASSERT_NE(libraries, nullptr);
   for (size_t i = 0; i < libraries->size(); ++i) {
     const std::string& key = libraries->keyAt(i);
     const size_t slash = key.find('/');

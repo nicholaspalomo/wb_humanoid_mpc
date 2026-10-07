@@ -31,24 +31,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // MPC link carries, across the plan, at its events and past both ends; and leaves its outputs alone for a policy it
 // cannot evaluate. Its allocations are pinned in test_remote_mpc_link_allocations, which replaces malloc.
 
-#include <gtest/gtest.h>
-
 #include <cstddef>
 #include <memory>
 #include <random>
 #include <utility>
 #include <vector>
 
-#include <ocs2_core/Types.h>
-#include <ocs2_core/control/ControllerType.h>
-#include <ocs2_core/control/FeedforwardController.h>
-#include <ocs2_core/control/LinearController.h>
-#include <ocs2_core/reference/TargetTrajectories.h>
-#include <ocs2_mpc/CommandData.h>
-#include <ocs2_mpc/MRT_BASE.h>
-#include <ocs2_mpc/SystemObservation.h>
-#include <ocs2_oc/oc_data/PerformanceIndex.h>
-#include <ocs2_oc/oc_data/PrimalSolution.h>
+#include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/control/ControllerType.h"
+#include "ocs2_core/control/FeedforwardController.h"
+#include "ocs2_core/control/LinearController.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/CommandData.h"
+#include "ocs2_mpc/MRT_BASE.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_oc/oc_data/PerformanceIndex.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 
 #include "humanoid_mpc_ipc/MpcMessageConversions.h"
 #include "humanoid_mpc_ipc/RealtimePolicyEvaluator.h"

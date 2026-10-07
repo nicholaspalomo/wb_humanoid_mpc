@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <thread>
 
+#include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/synchronization/mutex.h"
@@ -54,7 +55,7 @@ robot::realtime::RealtimeThreadConfig defaultRealtimeThreadConfig();
 
 /** How the realtime loop of the robot process runs. */
 struct RealtimeLoopConfig {
-  /** The control period, 1 / mrtDesiredFrequency. */
+  /** The control period, 1 / mpc.mrt_desired_frequency. */
   std::chrono::nanoseconds period{std::chrono::milliseconds(2)};
   /**
    * The thread's name, SCHED_FIFO priority (0: not realtime, --realtime_priority) and cores (empty: not pinned). With a
@@ -119,7 +120,7 @@ class RealtimeLoopRunner {
   bool takeTimingSnapshot(robot::realtime::LoopTimingSnapshot& snapshot);
 
   /** Cycles run so far. Any thread. */
-  std::uint64_t cycles() const { return cycles_.load(std::memory_order_relaxed); }
+  uint64_t cycles() const { return cycles_.load(std::memory_order_relaxed); }
 
   /** True once a cycle has thrown and the loop has ended. Any thread. */
   bool faulted() const { return faulted_.load(std::memory_order_acquire); }
@@ -131,7 +132,7 @@ class RealtimeLoopRunner {
  private:
   void run();
   /** The realtime thread's handling of a cycle that threw `message`. */
-  void recordFault(const char* message);
+  void recordFault(const char* absl_nonnull message);
 
   const RealtimeLoopConfig config_;
   CycleFunction cycle_;
@@ -140,7 +141,7 @@ class RealtimeLoopRunner {
   std::array<char, 256> faultMessage_{};  // written by the realtime thread before faulted_ is set
   std::atomic<bool> stopRequested_{false};
   std::atomic<bool> running_{false};
-  std::atomic<std::uint64_t> cycles_{0};
+  std::atomic<uint64_t> cycles_{0};
   robot::TripleBuffer<robot::realtime::LoopTimingSnapshot> timing_;
 
   absl::Mutex lifecycleMutex_;

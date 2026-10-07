@@ -10,6 +10,10 @@ The subset is every configuration's `standing` and its walking scenario (`RobotC
 `walk_0p5`, or `walk_0p3` for EngineAI SA01 and Unitree R1), plus `turn_in_place_720` on the whole-body Unitree G1.
 That G1 run is the only M0 run whose heading crosses ±pi.
 
+The three whole-body documents and the turn's time series were recorded again on 2026-10-06, once CppAD's code
+generation had been made deterministic ([below](#the-whole-body-documents-recorded-again-on-deterministic-code-generation)).
+The eight centroidal documents are the first recording's.
+
 ## How it was made
 
 - **Command:** `make closed-loop-metrics ROBOT=<robot> LABEL=M0_main BASELINE=M0 SCENARIO=<scenarios>
@@ -27,6 +31,10 @@ That G1 run is the only M0 run whose heading crosses ±pi.
     720-degree turn exception).
   - A first recording of this label on the same day, before those fixes, is superseded by this one. Where it differs it
     is named below: its commands started one control period later.
+  - The whole-body documents and the turn's time series are of commit `f0f55ce92819198127541ffeef5d77d76694f201` plus
+    the uncommitted state `1663 changed paths, diff sha256 cccb6a1acad348f0` (this directory left out again): the
+    typed textproto configuration, live tuning on both formulations, the robot's configuration store and the
+    deterministic code generation. They hash the textproto files they ran on.
 - **Configuration:** the shipped task, reference, gait, PD-gain, URDF and MuJoCo files. The task files' SHA-256 differ
   from M0's, but no closed-loop value does:
   - the ROS removal renamed two robot keys: `enableTelemetry` became `telemetrySinks: [bus]`, and
@@ -40,7 +48,7 @@ That G1 run is the only M0 run whose heading crosses ±pi.
 - **Machine:** the same Intel Core Ultra 7 265K as M0, but in another container: `wbmpc-noros-dev`, not
   `devcontainer-app-1`. HPIPM is built from source with `TARGET=GENERIC` (`bazel/system_libs.bzl`), where M0 linked the
   old container's colcon build (`TARGET=AVX`). The solve times are comparable with M0's only roughly.
-- **Date:** 2026-10-02.
+- **Date:** 2026-10-02; the whole-body documents 2026-10-06.
 
 ## Headline numbers
 
@@ -57,15 +65,16 @@ run that crosses ±pi is compared with `compareClosedLoopRuns()`, with the 720-d
 | unitree_g1 | walk_0p5 | yes / yes | 0.0766 / 0.0728 | 0.320 / 0.296 | 0.429 / 0.303 | 8.51 / 7.91 | outside: tilt max 0.132 / 0.106 rad, yaw-rate RMS error |
 | unitree_r1 | standing | yes / yes | 0.0011 / 0.0012 | 0.002 / 0.002 | 0.000 / 0.000 | 7.52 / 7.25 | within |
 | unitree_r1 | walk_0p3 | yes / yes | 0.0556 / 0.0483 | 0.256 / 0.241 | 0.285 / 0.277 | 7.17 / 7.41 | outside: tilt max 0.107 / 0.088 rad |
-| unitree_g1_wb | standing | yes / yes | 0.0037 / 0.0037 | 0.001 / 0.001 | 0.000 / 0.000 | 8.73 / 8.63 | within |
-| unitree_g1_wb | walk_0p5 | yes / yes | 0.0453 / 0.0450 | 0.299 / 0.301 | 0.218 / 0.223 | 9.89 / 10.06 | within |
-| unitree_g1_wb | turn_in_place_720 | yes / yes | 0.0455 / 0.0441 | 0.160 / 0.158 | 0.330 / 0.330 | 10.20 / 10.40 | outside: tilt max 0.147 / 0.103 rad |
+| unitree_g1_wb | standing | yes / yes | 0.0037 / 0.0037 | 0.001 / 0.001 | 0.000 / 0.000 | 9.08 / 8.63 | within |
+| unitree_g1_wb | walk_0p5 | yes / yes | 0.0454 / 0.0450 | 0.300 / 0.301 | 0.221 / 0.223 | 10.31 / 10.06 | within |
+| unitree_g1_wb | turn_in_place_720 | yes / yes | 0.0455 / 0.0441 | 0.160 / 0.158 | 0.330 / 0.330 | 9.42 / 10.40 | outside: tilt max 0.147 / 0.103 rad |
 
 Every run had no failed solve, no reset during the commands, no non-finite value and no saturated command. The p99
-solve times are within -3 % to +8 % of M0's. The whole-body G1's turn peaks at a heading of 5.39 rad, against M0's
-5.27 rad. Like M0's, its initial-state gap reaches 2 pi (6.286 rad), from the Euler wrap; its time series is the first
-to carry the per-solve gaps (`solve_initial_state_rotation_gap`), which show the wrap at each of its own two crossings
-(19.14 s and 39.70 s) and its decay below pi / 2 within 0.17 s. Nothing else in the run spikes.
+solve times are within -10 % to +8 % of M0's (-3 % to +8 % in the first recording: a solve time varies from run to
+run). The whole-body G1's turn peaks at a heading of 5.39 rad, against M0's 5.27 rad. Like M0's, its initial-state gap
+reaches 2 pi (6.286 rad), from the Euler wrap; its time series is the first to carry the per-solve gaps
+(`solve_initial_state_rotation_gap`), which show the wrap at each of its own two crossings (19.13 s and 39.72 s) and
+its decay below pi / 2 within 0.17 s. Nothing else in the run spikes.
 
 ## Why four runs leave the bands: the runner's cycle order, not the controllers
 
@@ -136,16 +145,17 @@ reruns and runs with 1, 2, 3 and 8 solver threads reproduced the first recording
     maximum to four digits.
   - In that first recording, outside 16 to 20 s into the commands, the tilt maxima over every window of 3 to 5 s agree
     with M0's within 0.005 rad, at the second crossing included (0.100 against 0.102 rad).
-- **Whole-body Unitree G1, `walk_0p5`:** within the bands. This walk spreads at the rounding level, even with the M0
-  cycle order: the two copies with that order (one with this HPIPM, one with M0's colcon HPIPM) agree with M0 to 0.5 %
-  in every banded metric but the slip maximum. Over those runs, M0, the first recording and this one:
+- **Whole-body Unitree G1, `walk_0p5`:** within the bands. Before the code generation was deterministic, this walk
+  spread at the rounding level from one generation of its CppAD libraries to the next, even with the M0 cycle order: the
+  two copies with that order (one with this HPIPM, one with M0's colcon HPIPM) agreed with M0 to 0.5 % in every banded
+  metric but the slip maximum. Over those runs, M0, the first recording and the recording of 2026-10-02:
   - stance-foot slip maximum: 5.2 to 7.1 mm;
   - final heading: 0.05 to 0.11 rad;
-  - stance phases: 111 to 127;
-  - here against M0: base-height RMS error +5.5 % and slip maximum -5 % (both within their bands), every other
-    banded metric within 2.5 %.
+  - stance phases: 111 to 127.
 
-  Compare it within the bands only.
+  The libraries the deterministic generator makes walk it with a slip maximum of 8.9 mm, a final heading of 0.104 rad
+  and 127 stance phases, every time (below); against M0 that is base-height RMS error +3.8 %, slip maximum +61 % (both
+  within their bands) and every other banded metric within 2.2 %. Compare it within the bands only.
 
 ## What to keep in mind when comparing with it
 
@@ -167,3 +177,52 @@ reruns and runs with 1, 2, 3 and 8 solver threads reproduced the first recording
 - **What this baseline is for:** a main-line Euler baseline for these eleven runs, recorded with the runner a later
   Euler step (M1, M2) runs on, so that a comparison with it holds no ordering differences. For every other scenario, M0
   and its README still apply, within the timing sensitivity above.
+
+## The whole-body documents recorded again on deterministic code generation
+
+On 2026-10-06 the three whole-body documents and the turn's time series were recorded again; the centroidal ones were
+not.
+
+**Why.** The documents of 2026-10-02 came from one of several variants of the whole-body G1's CppAD libraries. CppAD's
+recorder shared a parameter between equal constants only when their hash codes matched, and CppADCodeGen's `CG` type was
+hashed by its bytes, which hold a heap address, so two generations of the same tapes gave different C sources for six
+of the 28 whole-body models, and the runs moved in their last bits with them; the walk moved further
+(`humanoid_mpc_validation/README.md`, "Runs are reproducible"). The vendored CppADCodeGen now hashes a constant by its
+value (`lib/ocs2/README.md`, "Local changes to the vendored CppAD / CppADCodeGen"), so a generation is the same on any
+heap, and the documents here are the only ones the main line makes. Two runs, each on libraries generated afresh, one of
+them with glibc's thread cache off (`GLIBC_TUNABLES=glibc.malloc.tcache_count=0`, another heap layout), gave all six
+files bit for bit alike.
+
+**What else changed, and what did not.** Live tuning came with the same tree: both MPC nodes, and the closed-loop
+runner, now register a parameter updater. Fed nothing, it changes nothing. The weights the whole-body tapes use already
+entered the generated code as parameters (the foot cost's and the joint torque cost's), so live tuning added no
+parameter, changed no taped function and renamed no library; the runs equal the post-determinism ones of the day
+before bit for bit. These documents differ from the first recording's only by the code generation.
+
+**Before and after** (2026-10-02 / 2026-10-06; everything else of the documents, the survival, the failures and the
+initial-state gaps included, agrees to a relative 5e-7 or better, but for the walk's):
+
+| Metric | standing | walk_0p5 | turn_in_place_720 |
+|---|---|---|---|
+| Tilt RMS [rad] | 0.0037 / 0.0037 | 0.0453 / 0.0454 | 0.0455 / 0.0455 |
+| Tilt max [rad] | 0.0124 / 0.0124 | 0.0755 / 0.0755 | 0.1467 / 0.1467 |
+| Velocity RMS error [m/s] | 0.001 / 0.001 | 0.299 / 0.300 | 0.160 / 0.160 |
+| Yaw-rate RMS error [rad/s] | 0.000 / 0.000 | 0.218 / 0.221 | 0.330 / 0.330 |
+| Base height mean [m] | 0.7909 / 0.7909 | 0.7787 / 0.7789 | 0.7801 / 0.7801 |
+| Base height RMS error [m] | 0.0003 / 0.0003 | 0.0140 / 0.0138 | 0.0121 / 0.0121 |
+| Stance-foot slip max [mm] | 0.0 / 0.0 | 5.2 / 8.9 | 9.2 / 9.2 |
+| Stance-foot slip RMS [mm] (not banded) | 0.00 / 0.00 | 1.33 / 1.66 | 0.94 / 0.94 |
+| Stance phases (not banded) | 2 / 2 | 127 / 127 | 334 / 334 |
+| Final heading [rad] (not banded) | 0.001 / 0.001 | 0.093 / 0.104 | 0.141 / 0.141 |
+| Solve p99 [ms] | 8.73 / 9.08 | 9.89 / 10.31 | 10.20 / 9.42 |
+
+Each run of 2026-10-06 is within the bands of the 2026-10-02 documents, and against M0 the verdicts are those of the
+headline table: standing and the walk within, the turn outside by its tilt maximum alone (0.147 against 0.103 rad, the
+Euler wrap's transient above). The turn's heading still peaks at 5.39 rad and its initial-state gap at 2 pi, at
+39.72 s.
+
+**The centroidal documents** were left as recorded. The same runs on the deterministic libraries pass their bands and
+repeat bit for bit, but differ from them in 14 or 15 of 52 fields: the walks by a relative 1.2e-9 or less, the standing
+runs by 4e-8 or less, but for the DRC Atlas's base-height deviation, whose 1e-10 m differ by 1.2e-5. Hashing by value
+merges equal constants the old hash kept apart, and no deterministic hash reproduces merges that followed the heap.
+Whether to record them again is open; compare a centroidal run with them within the bands.

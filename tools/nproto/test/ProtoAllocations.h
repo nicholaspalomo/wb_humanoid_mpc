@@ -33,12 +33,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <gtest/gtest.h>
-
 #include <cstddef>
 #include <string>
 
 #include "absl/status/status.h"
+#include "gtest/gtest.h"
 
 #include "robot_runtime/robot_realtime/test/AllocationCounter.h"
 #include "tools/nproto/test/ProtoTestValues.h"
@@ -75,9 +74,9 @@ void ExpectConversionsIntoSizedObjectsDoNotAllocate(int repeatedSize = 3) {
 
   Struct value;
   ASSERT_TRUE(FromProto(first, &value).ok());
-  std::size_t before = robot::realtime::heapAllocationCount();
+  size_t before = robot::realtime::heapAllocationCount();
   const absl::Status status = FromProto(second, &value);
-  const std::size_t fromProtoAllocations = robot::realtime::heapAllocationCount() - before;
+  const size_t fromProtoAllocations = robot::realtime::heapAllocationCount() - before;
   ASSERT_TRUE(status.ok()) << status;
   EXPECT_EQ(fromProtoAllocations, 0u) << "FromProto() of " << name << " into a struct of its shape";
 
@@ -87,7 +86,7 @@ void ExpectConversionsIntoSizedObjectsDoNotAllocate(int repeatedSize = 3) {
   ToProto(firstValue, &message);
   before = robot::realtime::heapAllocationCount();
   ToProto(value, &message);
-  const std::size_t toProtoAllocations = robot::realtime::heapAllocationCount() - before;
+  const size_t toProtoAllocations = robot::realtime::heapAllocationCount() - before;
   EXPECT_EQ(toProtoAllocations, 0u) << "ToProto() of " << name << " into a message of its shape";
   EXPECT_TRUE(ProtoEquals(second, message));
 }

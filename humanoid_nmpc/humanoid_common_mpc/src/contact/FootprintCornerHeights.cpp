@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -23,19 +27,21 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>
+#include "pinocchio/fwd.hpp"
 
 #include "humanoid_common_mpc/contact/FootprintCornerHeights.h"
 
 #include <cmath>
 #include <cstdint>
+#include <memory>
+#include <string>
 #include <utility>
-
-#include <pinocchio/multibody/data.hpp>
-#include <pinocchio/multibody/model.hpp>
+#include <vector>
 
 #include "absl/log/check.h"
 #include "absl/strings/str_cat.h"
+#include "pinocchio/multibody/data.hpp"
+#include "pinocchio/multibody/model.hpp"
 
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
@@ -142,7 +148,7 @@ FootprintCornerHeights::FootprintCornerHeights(const FootprintCornerHeights& rhs
       modelName_(rhs.modelName_),
       modelFolder_(rhs.modelFolder_),
       verbose_(rhs.verbose_) {
-  createAdInterface(false);
+  createAdInterface(/*regenerate=*/false);
 }
 
 void FootprintCornerHeights::createAdInterface(bool regenerate) {
@@ -169,7 +175,7 @@ ad_vector_t FootprintCornerHeights::heightsFunction(const ad_vector_t& state) co
 
   ad_vector_t heights(frameIds_.size());
   for (size_t corner = 0; corner < frameIds_.size(); ++corner) {
-    heights(static_cast<long>(corner)) = data.oMf[frameIds_[corner]].translation()(2);
+    heights(static_cast<Eigen::Index>(corner)) = data.oMf[frameIds_[corner]].translation()(2);
   }
   return heights;
 }
@@ -184,7 +190,7 @@ matrix_t FootprintCornerHeights::getHeightsJacobian(const vector_t& state) const
 
 SmoothMinimumHeight smoothMinimumHeight(const vector_t& heights, scalar_t smoothing) {
   CHECK_GT(heights.size(), 0) << "[smoothMinimumHeight] needs at least one height";
-  CHECK_GT(smoothing, 0.0) << "[smoothMinimumHeight] contact_implicit.gapSmoothing must be positive";
+  CHECK_GT(smoothing, 0.0) << "[smoothMinimumHeight] contact_implicit.gap_smoothing must be positive";
 
   // Shifting by the true minimum before exponentiating is what keeps this finite: every exponent is then non-positive,
   // so the terms lie in (0, 1] and the sum is at least one - no overflow, and no underflow that could empty the sum.

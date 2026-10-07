@@ -10,14 +10,18 @@ supervisor (`humanoid_common_mpc:mpc_reset_supervisor`). No Pinocchio, no robot 
 | `include/humanoid_mpc_ipc/Topics.h` | `:humanoid_mpc_ipc` | the topic names, `ocs2::humanoid::ipc::topics::kMpcPolicy` etc., and `kAllTopics` |
 | `python/humanoid_mpc_ipc/topics.py` | `:topics_py` | the same names for the Python tools: `from humanoid_mpc_ipc import topics` |
 | `include/humanoid_mpc_ipc/MpcMessageConversions.h` | `:humanoid_mpc_ipc` | OCS2 types <-> messages |
-| `include/humanoid_mpc_ipc/SolutionTimeWindow.h` | `:humanoid_mpc_ipc` | cuts a solution to `mpc.solutionTimeWindow` |
+| `include/humanoid_mpc_ipc/SolutionTimeWindow.h` | `:humanoid_mpc_ipc` | cuts a solution to `mpc.solution_time_window` |
+| `include/humanoid_mpc_ipc/PolicyControllers.h` | `:humanoid_mpc_ipc` | a policy's controller as the `FeedforwardController` or `LinearController` the link carries, by its exact type |
 | `include/humanoid_mpc_ipc/RemoteMpcLink.h` | `:remote_mpc_link` | the robot side of the network MPC link, an `ocs2::MRT_BASE` |
 | `include/humanoid_mpc_ipc/RealtimePolicyEvaluator.h` | `:realtime_policy_evaluator` | evaluates the policy in use on the realtime thread, without allocating or logging |
 | `include/humanoid_mpc_ipc/MpcServer.h` | `:mpc_server` | the MPC side: the solve loop, driven by the bus |
 
 The C++ and Python topic names are tied together, and to the topic table of the distributed-runtime README, with
 `LINT.IfChange(topics)`; `:test_topics_py` reads `Topics.h` and checks that every constant has an equal Python twin.
-No topic may be a prefix of another, because ZeroMQ's SUB filter matches prefixes; both topic tests check that.
+No topic may be a prefix of another, because ZeroMQ's SUB filter matches prefixes; both topic tests check that. Besides
+the MPC link's streams and the operator's commands, the topics carry the GUI's two-copy Save: `operator/config_save`
+(`ConfigFileSave`, the saved file's text for the robot's persistent copy) and its answer `robot/config_save_status`
+(`ConfigFileSaveStatus`).
 
 ## Conversions
 
@@ -82,7 +86,7 @@ allocations (OCS2's interpolation and controllers return by value) and without i
 ```cpp
 RemoteMpcLink::Config config;
 config.dimensions = {.stateDim = nx, .inputDim = nu, .numModes = 4};  // checked on every observation and policy
-config.policyTimeout = 0.5;                           // [s, robot clock], mpcLink.policyTimeout
+config.policyTimeout = 0.5;                           // [s, robot clock], mpc_link.policy_timeout
 absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(bus, resetSupervisor, config);
 // ... or RemoteMpcLink::Create(busOptions, resetSupervisor, config) for a bus of its own, started and owned.
 bus.start();
@@ -167,7 +171,8 @@ bazel test //humanoid_nmpc/humanoid_mpc_ipc/...
 |---|---|
 | `:test_topics`, `:test_topics_py` | the topic names in C++ and Python |
 | `:test_mpc_message_conversions`, `:test_mpc_message_conversions_allocations` | lossless conversions; encoding into a kept message does not allocate |
-| `:test_solution_time_window` | GaussNewtonDDP's window rule on trajectories, events and both controllers |
+| `:test_solution_time_window` | upstream OCS2 GaussNewtonDDP's window rule on trajectories, events and both controllers |
+| `:test_policy_controllers` | the two controllers are told apart by their exact type, not by `getType()`: a `StateBasedLinearController` is refused by the conversions and the evaluator and left alone by the window |
 | `:test_remote_mpc_link_protocol` | the robot side against a scripted MPC node: which policies are taken, the handshake, health, link loss (the full reset it requests, the realtime thread's watchdog with the IO thread stalled, rewinds), lifetime |
 | `:test_mpc_server` | the MPC side against a scripted robot: resets and stamps, restarts, statuses, window, hooks, pacing, back-off |
 | `:test_remote_mpc_link` | both ends over loopback with OCS2's `ScriptedMpc`: a reset with a policy in flight, lost observations, solver failures, the policy timeout |

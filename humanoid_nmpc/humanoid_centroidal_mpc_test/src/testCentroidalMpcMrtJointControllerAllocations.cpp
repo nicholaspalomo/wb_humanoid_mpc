@@ -27,9 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <atomic>
 #include <cstddef>
@@ -37,17 +35,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <pinocchio/algorithm/centroidal.hpp>
-#include <pinocchio/algorithm/rnea.hpp>
+#include "absl/base/nullability.h"
+#include "absl/status/statusor.h"
+#include "gtest/gtest.h"
+#include "pinocchio/algorithm/centroidal.hpp"
+#include "pinocchio/algorithm/rnea.hpp"
 
-#include <humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h>
-#include <humanoid_common_mpc/mrt/ControllerEventSink.h>
-#include <robot_model/RobotDescription.h>
-#include <robot_model/RobotJointAction.h>
-#include <robot_model/RobotState.h>
-
+#include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
+#include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/NullMpcLink.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotJointAction.h"
+#include "robot_model/RobotState.h"
 #include "robot_runtime/robot_realtime/test/AllocationCounter.h"
 
 /*
@@ -78,7 +78,7 @@ class CountingSink final : public ControllerEventSink {
 };
 
 /** The modes the robot process hands the controller, in turn: every entry, and the hold of WB_MPC. */
-constexpr const char* kModes[] = {"ZERO_TORQUE", "JOINT_PD", "GRAVITY_COMP", "SAFETY", "JOINT_PD", "WB_MPC", "ZERO_TORQUE"};
+constexpr const char* absl_nonnull kModes[] = {"ZERO_TORQUE", "JOINT_PD", "GRAVITY_COMP", "SAFETY", "JOINT_PD", "WB_MPC", "ZERO_TORQUE"};
 /** Whether a mode's action needs the gravity compensation (the WB_MPC hold is JOINT_PD's). */
 constexpr bool kComputesGravity[] = {false, true, true, false, true, true, false};
 constexpr int kCyclesPerMode = 20;
@@ -89,9 +89,9 @@ void runModes(CentroidalMpcMrtJointController& controller,
               robot::model::RobotState& state,
               robot::model::RobotJointAction& action,
               scalar_t& time,
-              std::vector<std::size_t>* allocationsPerMode = nullptr) {
-  for (const char* mode : kModes) {
-    const std::size_t before = robot::realtime::heapAllocationCountOnThisThread();
+              std::vector<size_t>* absl_nullable allocationsPerMode = nullptr) {
+  for (const char* absl_nonnull mode : kModes) {
+    const size_t before = robot::realtime::heapAllocationCountOnThisThread();
     for (int cycle = 0; cycle < kCyclesPerMode; ++cycle) {
       controller.setControlMode(mode);
       controller.setNominalJointPositions(nominal);
@@ -105,12 +105,16 @@ void runModes(CentroidalMpcMrtJointController& controller,
 
 TEST(CentroidalMpcMrtJointControllerAllocations, TheObservationThePassiveModesAndTheHoldAddNoAllocationOfTheirOwn) {
   CentroidalTestingModelInterface model;
-  const robot::model::RobotDescription description(model.urdfFile);
+  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus = robot::model::RobotDescription::Create(model.urdfFile);
+  ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
+  const robot::model::RobotDescription& description = *descriptionOrStatus;
   robot::model::RobotState state(description);
   state.setRootPositionInWorldFrame(vector3_t(0.0, 0.0, 0.75));
   robot::model::RobotJointAction action(description);
-  CentroidalMpcMrtJointController controller(description, model.getModelSettings(), model.getMpcRobotModel(),
-                                             test_support::NullMpcLink::factory(), model.getPinocchioInterface());
+  absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = CentroidalMpcMrtJointController::Create(
+      description, model.getModelSettings(), model.getMpcRobotModel(), test_support::NullMpcLink::factory(), model.getPinocchioInterface());
+  ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
+  CentroidalMpcMrtJointController& controller = **controllerOrStatus;
   CountingSink sink;
   controller.setEventSink(&sink);
   const std::vector<scalar_t> nominal(description.getNumJoints(), 0.1);
@@ -122,22 +126,22 @@ TEST(CentroidalMpcMrtJointControllerAllocations, TheObservationThePassiveModesAn
   const vector_t v = vector_t::Zero(probe.getModel().nv);
   pinocchio::computeCentroidalMap(probe.getModel(), probe.getData(), q);
   pinocchio::nonLinearEffects(probe.getModel(), probe.getData(), q, v);
-  std::size_t before = robot::realtime::heapAllocationCountOnThisThread();
+  size_t before = robot::realtime::heapAllocationCountOnThisThread();
   pinocchio::computeCentroidalMap(probe.getModel(), probe.getData(), q);
-  const std::size_t perCentroidalMap = robot::realtime::heapAllocationCountOnThisThread() - before;
+  const size_t perCentroidalMap = robot::realtime::heapAllocationCountOnThisThread() - before;
   before = robot::realtime::heapAllocationCountOnThisThread();
   pinocchio::nonLinearEffects(probe.getModel(), probe.getData(), q, v);
-  const std::size_t perNonlinearEffects = robot::realtime::heapAllocationCountOnThisThread() - before;
+  const size_t perNonlinearEffects = robot::realtime::heapAllocationCountOnThisThread() - before;
 
   runModes(controller, nominal, state, action, time);  // the first time through, sizing what sizes itself on first use
   const int eventsBefore = sink.posted.load();
 
-  std::vector<std::size_t> allocationsPerMode;
+  std::vector<size_t> allocationsPerMode;
   allocationsPerMode.reserve(std::size(kModes));
   runModes(controller, nominal, state, action, time, &allocationsPerMode);
   ASSERT_EQ(allocationsPerMode.size(), std::size(kModes));
   for (size_t index = 0; index < allocationsPerMode.size(); ++index) {
-    const std::size_t pinocchio = kCyclesPerMode * (perCentroidalMap + (kComputesGravity[index] ? perNonlinearEffects : 0));
+    const size_t pinocchio = kCyclesPerMode * (perCentroidalMap + (kComputesGravity[index] ? perNonlinearEffects : 0));
     EXPECT_EQ(allocationsPerMode[index], pinocchio)
         << kCyclesPerMode << " cycles of " << kModes[index] << " (entry included) allocated beyond Pinocchio's " << perCentroidalMap
         << " per centroidal map and " << perNonlinearEffects << " per nonlinear effects";

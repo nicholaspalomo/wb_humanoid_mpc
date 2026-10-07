@@ -63,8 +63,11 @@ struct NodeEndpoint {
   std::string host;
   /** The TCP port, in [1, kMaxPort], or kEphemeralPort. */
   int port = kEphemeralPort;
-  /** The interface to bind instead of host, e.g. "0.0.0.0" on a machine whose address peers know. Empty: host. */
-  std::string bindHost;
+  /**
+   * The interface to bind instead of host, e.g. "0.0.0.0" on a machine whose address peers know. Empty: host. Defaulted
+   * here, so that the designated initializers that leave it out (`{.name = ..., .host = ..., .port = ...}`) set it.
+   */
+  std::string bindHost = "";
 
   /** "tcp://<bindHost or host>:<port>", with "*" for a wildcard host and for kEphemeralPort. */
   std::string bindEndpoint() const;

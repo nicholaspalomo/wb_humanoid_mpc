@@ -35,8 +35,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <ocs2_core/Types.h>
-#include <ocs2_core/automatic_differentiation/Types.h>
+#include "absl/base/no_destructor.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
 
 namespace ocs2 {
 
@@ -77,9 +78,7 @@ using ad_vector2_t = VECTOR2_T<ad_scalar_t>;
 using ad_vector3_t = VECTOR3_T<ad_scalar_t>;
 using ad_vector4_t = VECTOR4_T<ad_scalar_t>;
 using ad_vector6_t = VECTOR6_T<ad_scalar_t>;
-using ad_vector12_t = VECTOR12_T<ad_scalar_t>;
 using ad_matrix3_t = MATRIX3_T<ad_scalar_t>;
-using ad_matrix4_t = MATRIX4_T<ad_scalar_t>;
 using ad_matrix6_t = MATRIX6_T<ad_scalar_t>;
 using ad_quaternion_t = QUATERNION_T<ad_scalar_t>;
 
@@ -91,12 +90,12 @@ using ad_quaternion_t = QUATERNION_T<ad_scalar_t>;
 */
 /******************************************************************************************************/
 
-constexpr size_t N_CONTACTS = 2;
-constexpr size_t CONTACT_LEFT_INDEX = 0;
-constexpr size_t CONTACT_RIGHT_INDEX = 1;
+inline constexpr size_t kNumContacts = 2;
+inline constexpr size_t kContactLeftIndex = 0;
+inline constexpr size_t kContactRightIndex = 1;
 
 template <typename T>
-using feet_array_t = std::array<T, N_CONTACTS>;
+using feet_array_t = std::array<T, kNumContacts>;
 
 /** A per-foot array with every entry set to `value`; use it instead of brace lists that hard-code the number of feet. */
 template <typename T>
@@ -106,21 +105,16 @@ feet_array_t<T> makeFeetArray(const T& value) {
   return array;
 }
 
-template <typename T>
-using feet_vec_t = std::vector<T>;
-
 using contact_flag_t = feet_array_t<bool>;  // describes which feet are in contacts [left_contact, right_contact]
 
-constexpr size_t CONTACT_WRENCH_DIM = 6;
-constexpr size_t CONTACT_FORCE_DIM = 3;
-constexpr size_t CONTACT_TORQUE_DIM = 3;
+inline constexpr size_t kContactWrenchDim = 6;
 
-constexpr size_t WRENCH_FORCE_X_INDEX = 0;
-constexpr size_t WRENCH_FORCE_Y_INDEX = 1;
-constexpr size_t WRENCH_FORCE_Z_INDEX = 2;
-constexpr size_t WRENCH_TORQUE_X_INDEX = 3;
-constexpr size_t WRENCH_TORQUE_Y_INDEX = 4;
-constexpr size_t WRENCH_TORQUE_Z_INDEX = 5;
+inline constexpr size_t kWrenchForceXIndex = 0;
+inline constexpr size_t kWrenchForceYIndex = 1;
+inline constexpr size_t kWrenchForceZIndex = 2;
+inline constexpr size_t kWrenchTorqueXIndex = 3;
+inline constexpr size_t kWrenchTorqueYIndex = 4;
+inline constexpr size_t kWrenchTorqueZIndex = 5;
 
 namespace humanoid {
 
@@ -131,22 +125,23 @@ namespace humanoid {
 */
 /******************************************************************************************************/
 
-constexpr size_t BASE_POS_X_INDEX = 0;
-constexpr size_t BASE_POS_Y_INDEX = 1;
-constexpr size_t BASE_POS_Z_INDEX = 2;
+inline constexpr size_t kBasePosXIndex = 0;
+inline constexpr size_t kBasePosYIndex = 1;
+inline constexpr size_t kBasePosZIndex = 2;
 
-constexpr size_t BASE_ROT_YAW_INDEX = 0;
-constexpr size_t BASE_ROT_PITCH_INDEX = 1;
-constexpr size_t BASE_ROT_ROLL_INDEX = 2;
+inline constexpr size_t kBaseRotYawIndex = 0;
+inline constexpr size_t kBaseRotPitchIndex = 1;
+inline constexpr size_t kBaseRotRollIndex = 2;
 
-constexpr size_t BASE_TRANSLATION_DIM = 3;
-constexpr size_t BASE_ROTATION_DIM = 3;
-constexpr size_t FLOATING_BASE_DIM = BASE_TRANSLATION_DIM + BASE_ROTATION_DIM;  // 6 DoF
-constexpr size_t JOINT_COORDINATE_OFFSET = FLOATING_BASE_DIM;
+inline constexpr size_t kBaseTranslationDim = 3;
+inline constexpr size_t kBaseRotationDim = 3;
+inline constexpr size_t kFloatingBaseDim = kBaseTranslationDim + kBaseRotationDim;  // 6 DoF
+inline constexpr size_t kJointCoordinateOffset = kFloatingBaseDim;
 
 inline const std::vector<std::string>& getBaseDofNames() {
-  static const std::vector<std::string> baseDofNames = {"base_x", "base_y", "base_z", "base_yaw", "base_pitch", "base_roll"};
-  return baseDofNames;
+  static const absl::NoDestructor<std::vector<std::string>> kBaseDofNames(
+      std::vector<std::string>{"base_x", "base_y", "base_z", "base_yaw", "base_pitch", "base_roll"});
+  return *kBaseDofNames;
 }
 
 }  // namespace humanoid

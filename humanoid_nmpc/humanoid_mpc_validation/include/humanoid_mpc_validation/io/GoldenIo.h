@@ -33,8 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include <Eigen/Core>
-
+#include "Eigen/Core"
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -82,7 +82,7 @@ struct GoldenFile {
   std::vector<GoldenEntry> entries;
 
   /** The matrix labeled `label`, or nullptr. */
-  const golden_matrix_t* find(absl::string_view label) const;
+  const golden_matrix_t* absl_nullable find(absl::string_view label) const;
 };
 
 /**

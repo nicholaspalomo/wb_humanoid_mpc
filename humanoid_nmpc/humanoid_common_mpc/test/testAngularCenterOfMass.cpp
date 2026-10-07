@@ -1,20 +1,49 @@
-#include <gtest/gtest.h>
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
 
 #include <cstddef>
 #include <cstdlib>
 #include <iterator>
 #include <memory>
-#include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/acom/AcomSirenWeightsAtlas.h"
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 
-using namespace ocs2;
-using namespace ocs2::humanoid;
+namespace ocs2::humanoid {
 
 namespace {
 
@@ -50,7 +79,7 @@ TEST_F(AngularCenterOfMassTest, ForwardPassDeterministic) {
   vector3_t offset2 = acomPtr_->computeJointOrientationOffset(qJoints);
 
   EXPECT_EQ(offset1.size(), 3);
-  EXPECT_TRUE(offset1.isApprox(offset2, 1e-15)) << "Forward pass is not deterministic.";
+  EXPECT_TRUE(offset1.isApprox(offset2, 1.0e-15)) << "Forward pass is not deterministic.";
 }
 
 /**
@@ -83,7 +112,7 @@ TEST_F(AngularCenterOfMassTest, AnalyticalJacobianMatchesFiniteDifference) {
   EXPECT_EQ(jacobian_analytical.cols(), static_cast<int>(inputDim));
 
   // Finite difference test
-  const scalar_t eps = 1e-6;
+  const scalar_t eps = 1.0e-6;
   matrix_t jacobian_fd = matrix_t::Zero(3, inputDim);
 
   for (size_t i = 0; i < inputDim; ++i) {
@@ -98,7 +127,7 @@ TEST_F(AngularCenterOfMassTest, AnalyticalJacobianMatchesFiniteDifference) {
     jacobian_fd.col(i) = (offset_plus - offset_minus) / (2.0 * eps);
   }
 
-  EXPECT_TRUE(jacobian_analytical.isApprox(jacobian_fd, 1e-4))
+  EXPECT_TRUE(jacobian_analytical.isApprox(jacobian_fd, 1.0e-4))
       << "Analytical Jacobian does not match Finite Difference approximation.\n"
       << "Max abs error: " << (jacobian_analytical - jacobian_fd).cwiseAbs().maxCoeff();
 }
@@ -116,13 +145,13 @@ TEST_F(AngularCenterOfMassTest, FullAcomOrientationEquivariance) {
   const vector3_t eulerZyxBase = q.segment<3>(3);
   const vector3_t deltaThetaZyx = acomXyzToZyx(acomPtr_->computeJointOrientationOffset(q.tail(inputDim)));
 
-  EXPECT_TRUE(acomPtr_->computeAcomOrientation(q).isApprox(eulerZyxBase + deltaThetaZyx, 1e-12))
+  EXPECT_TRUE(acomPtr_->computeAcomOrientation(q).isApprox(eulerZyxBase + deltaThetaZyx, 1.0e-12))
       << "ACoM orientation does not satisfy theta_aCOM = euler_zyx_base + P * Delta_theta(q_j).";
 
   // Translating the base must leave the orientation untouched.
   vector_t qTranslated = q;
   qTranslated.head<3>() += vector3_t(1.0, -2.0, 0.5);
-  EXPECT_TRUE(acomPtr_->computeAcomOrientation(qTranslated).isApprox(acomPtr_->computeAcomOrientation(q), 1e-15));
+  EXPECT_TRUE(acomPtr_->computeAcomOrientation(qTranslated).isApprox(acomPtr_->computeAcomOrientation(q), 1.0e-15));
 }
 
 /**
@@ -138,28 +167,35 @@ TEST_F(AngularCenterOfMassTest, FullAcomJacobianStructure) {
   EXPECT_EQ(J_acom.cols(), static_cast<int>(6 + inputDim));
 
   // Base position block must be zero: translating the base does not rotate it.
-  EXPECT_TRUE((J_acom.block<3, 3>(0, 0).isZero(1e-15))) << "Base position block is not zero.";
+  EXPECT_TRUE((J_acom.block<3, 3>(0, 0).isZero(1.0e-15))) << "Base position block is not zero.";
 
   // Base orientation block must be identity, since theta_aCOM is the base Euler
   // triple plus a joint-only offset.
-  EXPECT_TRUE((J_acom.block<3, 3>(0, 3).isApprox(matrix_t::Identity(3, 3), 1e-15))) << "Base orientation block is not identity.";
+  EXPECT_TRUE((J_acom.block<3, 3>(0, 3).isApprox(matrix_t::Identity(3, 3), 1.0e-15))) << "Base orientation block is not identity.";
 
   // Joint block must equal the standalone joint Jacobian, reordered to ZYX.
   const matrix_t J_delta_zyx = acomJacobianXyzToZyx(acomPtr_->computeJointOffsetJacobian(q.tail(inputDim)));
-  EXPECT_TRUE(J_acom.block(0, 6, 3, inputDim).isApprox(J_delta_zyx, 1e-15))
+  EXPECT_TRUE(J_acom.block(0, 6, 3, inputDim).isApprox(J_delta_zyx, 1.0e-15))
       << "Joint block of full Jacobian does not match the reordered standalone Jacobian.";
 }
 
-/**
- * Verifies that setWeights rejects an incorrect number of layers.
- */
-TEST_F(AngularCenterOfMassTest, SetWeightsRejectsWrongLayerCount) {
+/** Verifies that loadWeights rejects an incorrect number of layers and leaves the loaded network as it was. */
+TEST_F(AngularCenterOfMassTest, LoadWeightsRejectsWrongLayerCount) {
   const size_t inputDim = acomPtr_->getInputDim();
   constexpr int kArbitraryWidth = 8;
   std::vector<SirenLayerWeights> tooFew;
   tooFew.push_back({matrix_t::Zero(kArbitraryWidth, inputDim), vector_t::Zero(kArbitraryWidth)});
-  EXPECT_THROW(acomPtr_->setWeights(tooFew), std::runtime_error);
+  const vector_t qJoints = vector_t::Constant(inputDim, 0.1);
+  const vector3_t before = acomPtr_->computeJointOrientationOffset(qJoints);
+
+  const absl::Status refused = acomPtr_->loadWeights(tooFew);
+  EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(refused.message(), ::testing::HasSubstr("layers"));
+  EXPECT_TRUE(acomPtr_->computeJointOrientationOffset(qJoints).isApprox(before, 0.0)) << "a refused load changed the network";
 }
+
+// The evaluation guards are ABSL_CHECKs: a broken invariant ends the process with its message.
+using AngularCenterOfMassDeathTest = AngularCenterOfMassTest;
 
 /**
  * Verifies that a joint vector of the wrong length is rejected rather than read
@@ -167,26 +203,26 @@ TEST_F(AngularCenterOfMassTest, SetWeightsRejectsWrongLayerCount) {
  * this guard is the only thing standing between a stale weights header and
  * silent memory corruption inside the MPC.
  */
-TEST_F(AngularCenterOfMassTest, RejectsWrongJointVectorSize) {
+TEST_F(AngularCenterOfMassDeathTest, RejectsWrongJointVectorSize) {
   const size_t inputDim = acomPtr_->getInputDim();
   const vector_t tooShort = vector_t::Zero(inputDim - 1);
   const vector_t tooLong = vector_t::Zero(inputDim + 1);
 
-  EXPECT_THROW(acomPtr_->computeJointOrientationOffset(tooShort), std::runtime_error);
-  EXPECT_THROW(acomPtr_->computeJointOrientationOffset(tooLong), std::runtime_error);
-  EXPECT_THROW(acomPtr_->computeJointOffsetJacobian(tooShort), std::runtime_error);
-  EXPECT_THROW(acomPtr_->computeJointOffsetJacobian(tooLong), std::runtime_error);
+  EXPECT_DEATH(acomPtr_->computeJointOrientationOffset(tooShort), "wrong number of joint positions");
+  EXPECT_DEATH(acomPtr_->computeJointOrientationOffset(tooLong), "wrong number of joint positions");
+  EXPECT_DEATH(acomPtr_->computeJointOffsetJacobian(tooShort), "wrong number of joint positions");
+  EXPECT_DEATH(acomPtr_->computeJointOffsetJacobian(tooLong), "wrong number of joint positions");
 }
 
 /**
- * An evaluator built through the raw constructor has no weights until setWeights
+ * An evaluator built through the raw constructor has no weights until loadWeights
  * is called. It must say so instead of silently returning a zero offset, which
  * in an MPC cost is indistinguishable from a zero tracking weight.
  */
-TEST_F(AngularCenterOfMassTest, EvaluatingWithoutWeightsThrows) {
-  AngularCenterOfMass unloaded(/*inputDim=*/6, /*numLayers=*/2);
-  EXPECT_THROW(unloaded.computeJointOrientationOffset(vector_t::Zero(6)), std::runtime_error);
-  EXPECT_THROW(unloaded.computeJointOffsetJacobian(vector_t::Zero(6)), std::runtime_error);
+TEST(AngularCenterOfMassUnloadedDeathTest, EvaluatingWithoutWeightsDies) {
+  const AngularCenterOfMass unloaded(/*inputDim=*/6, /*numLayers=*/2);
+  EXPECT_DEATH(unloaded.computeJointOrientationOffset(vector_t::Zero(6)), "no weights loaded");
+  EXPECT_DEATH(unloaded.computeJointOffsetJacobian(vector_t::Zero(6)), "no weights loaded");
 }
 
 /**
@@ -206,3 +242,5 @@ TEST_F(AngularCenterOfMassTest, WeightsRecordJointOrdering) {
   EXPECT_STREQ(acom::AcomSirenWeightsAtlas::joint_names[1], "back_bky");
   EXPECT_STREQ(acom::AcomSirenWeightsAtlas::joint_names[2], "back_bkx");
 }
+
+}  // namespace ocs2::humanoid

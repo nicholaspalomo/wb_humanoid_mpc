@@ -35,14 +35,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <string>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-
-#include <ocs2_mpc/MPC_BASE.h>
+#include "ocs2_mpc/MPC_BASE.h"
 
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
+#include "humanoid_mpc_config/mpc_parameter_update.nproto.h"
 #include "humanoid_mpc_ipc/MpcMessageConversions.h"
 #include "humanoid_mpc_ipc/MpcServer.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
@@ -78,9 +79,12 @@ absl::Status applyWalkingVelocityCommand(const humanoid_mpc_msgs::WalkingVelocit
  *
  *   - operator/walking_velocity_command (latest delivery) -> Components::motionManager's setAndScaleVelocityCommand(),
  *     on the bus's IO thread; a command with a value that is not finite is rejected, logged and counted;
- *   - operator/mpc_parameters (latest delivery: an edit the solver has not applied yet is replaced by a newer one) ->
- *     Components::parameterUpdateSink, on the IO thread; the MpcParameterUpdaterModule it feeds applies the document
- *     in the preSolverRun() of the next solve.
+ *   - operator/mpc_parameters (latest delivery: an edit the solver has not applied yet is replaced by a newer one), the
+ *     tuning GUI's whole task file and contact planner's file (humanoid_mpc_config.MpcParameterUpdate) -> converted on
+ *     the IO thread and handed to Components::parameterUpdateSink; the MpcParameterUpdaterModule it feeds applies the
+ *     update in the preSolverRun() of the next solve. A message of another schema version, of another robot or of
+ *     another configuration (checkMpcParameterUpdate(), Config::robotName, Config::taskFileIdentity) and one that does
+ *     not convert are logged and counted, and nothing of them is handed over.
  *
  * With every policy the MpcServer publishes, it sends MpcPolicy.annotations (ViewerAnnotations.h): the contact planner's
  * target contact poses and the motion manager's scaled velocity command, and then calls the visualization publisher's
@@ -108,13 +112,13 @@ class MpcNodeRuntime {
   /** What the node is made of; see the class comment. */
   struct Components {
     /** The MPC (an SqpMpc with its reference manager and synchronized modules). Required. */
-    MPC_BASE* mpc = nullptr;
+    MPC_BASE* absl_nullable mpc = nullptr;
     /** The formulation's reset target (centroidalMpcResetTargetTrajectories(), wbMpcResetTargetTrajectories()). Required. */
     ipc::MpcServer::ResetTargetTrajectoriesFunction resetTargetTrajectories;
     /** The motion manager the velocity commands go to, also a synchronized module of `mpc`. Required. */
     std::shared_ptr<ProceduralMpcMotionManager> motionManager;
-    /** Where the documents of operator/mpc_parameters go; empty: the topic is not subscribed (no parameter updater). */
-    std::function<void(std::string yamlText)> parameterUpdateSink;
+    /** Where the updates of operator/mpc_parameters go; empty: the topic is not subscribed (no parameter updater). */
+    std::function<void(const mpc_config::MpcParameterUpdate& update)> parameterUpdateSink;
     /** The contact planner's reference manager, for the target contact patches; null: no patches are sent. */
     std::shared_ptr<const ContactPlanningReferenceManager> contactPlanningReferenceManager;
     /** Optional; see VisualizationAttacher. */
@@ -124,7 +128,18 @@ class MpcNodeRuntime {
   struct Config {
     /** The MPC's model, against which every observation is checked (the effective model of the OCP). */
     ipc::ModelDimensions dimensions;
-    /** [Hz] mpc.mpcDesiredFrequency; <= 0: one solve per new observation, as fast as they come. */
+    /**
+     * The robot the MPC runs (ModelSettings::robotName): an operator/mpc_parameters update whose task file names another
+     * robot is refused. Empty: not checked.
+     */
+    std::string robotName;
+    /**
+     * The configuration the MPC runs: configFileIdentity() of its task file. An operator/mpc_parameters update whose
+     * config_path is another (a GUI opened on another configuration of the robot, such as the centroidal G1's against
+     * the whole-body G1 MPC, whose robot_name is the same) is refused. Empty: not checked.
+     */
+    std::string taskFileIdentity;
+    /** [Hz] mpc.mpc_desired_frequency; <= 0: one solve per new observation, as fast as they come. */
     scalar_t mpcDesiredFrequency = -1.0;
     /** The failure policy of the solves. */
     MpcResetSupervisor::Config resetSupervisor;
@@ -138,6 +153,11 @@ class MpcNodeRuntime {
     /** Not finite, so not handed to the motion manager. */
     uint64_t velocityCommandsRejected = 0;
     uint64_t parameterUpdatesReceived = 0;
+    /**
+     * Received but not handed to the sink: of another schema version, robot or configuration (checkMpcParameterUpdate()),
+     * or refused by MpcParameterUpdate's FromProto().
+     */
+    uint64_t parameterUpdatesRejected = 0;
     ipc::MpcServer::Statistics server;
   };
 
@@ -171,12 +191,16 @@ class MpcNodeRuntime {
     std::atomic<uint64_t> velocityCommandsReceived{0};
     std::atomic<uint64_t> velocityCommandsRejected{0};
     std::atomic<uint64_t> parameterUpdatesReceived{0};
+    std::atomic<uint64_t> parameterUpdatesRejected{0};
   };
 
   MpcNodeRuntime(std::unique_ptr<robot::ipc::Bus> bus, std::shared_ptr<Counters> counters);
 
-  /** Subscribes the motion manager and the parameter sink to their topics. */
-  absl::Status subscribeOperatorInputs(const Components& components);
+  /**
+   * Subscribes the motion manager and the parameter sink, which refuses an update of another robot or configuration
+   * than `robotName` and `taskFileIdentity` (Config).
+   */
+  absl::Status subscribeOperatorInputs(const Components& components, const std::string& robotName, const std::string& taskFileIdentity);
 
   std::unique_ptr<robot::ipc::Bus> bus_;
   std::shared_ptr<Counters> counters_;

@@ -27,21 +27,22 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <array>
 #include <memory>
 #include <string>
 #include <vector>
 
-#include <humanoid_common_mpc/common/ModelSettings.h>
-#include <robot_model/ContactEstimatorRegistry.h>
-#include <robot_model/RobotDescription.h>
-#include <robot_model/RobotState.h>
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "gtest/gtest.h"
 
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc_app/robot/MujocoRobotBackend.h"
 #include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/RobotTestSupport.h"
+#include "robot_model/ContactEstimatorRegistry.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotState.h"
 
 /*
  * The robot backends by name: `mujoco` builds the simulator from the options the robot process gathers (headless here,
@@ -52,8 +53,9 @@ namespace ocs2::humanoid {
 namespace {
 
 RobotBackendOptions atlasOptions() {
-  const robot::model::RobotDescription description(robot_test::kAtlasUrdf);
-  const ModelSettings modelSettings(robot_test::kAtlasTask, robot_test::kAtlasUrdf, "centroidal_mpc_", /*verbose=*/false);
+  const robot::model::RobotDescription description = robot_test::atlasDescription();
+  const ModelSettings modelSettings =
+      ModelSettings::Create(robot_test::kAtlasTask, robot_test::kAtlasUrdf, "centroidal_mpc_", /*verbose=*/false).value();
   RobotBackendOptions options;
   options.robotName = "drc_atlas";
   options.urdfFile = robot_test::kAtlasUrdf;
@@ -87,7 +89,7 @@ TEST(RobotBackendRegistry, TheMujocoBackendIsBuiltByName) {
   EXPECT_FALSE(estimators.has("cheater_sim"));
   (*backend)->registerContactEstimators(estimators);
   EXPECT_TRUE(estimators.has("cheater_sim"));
-  std::array<vector3_t, N_CONTACTS> forces;
+  std::array<vector3_t, kNumContacts> forces;
   (*backend)->readMeasuredContactForces(forces);
   EXPECT_TRUE(forces[0].allFinite() && forces[1].allFinite());
 }
@@ -111,6 +113,20 @@ TEST(RobotBackendRegistry, ANewBackendIsOneAdd) {
   EXPECT_NE(registry.availableNames().find("replay (a recorded robot)"), std::string::npos);
   EXPECT_EQ(registry.create("replay", atlasOptions()).status().code(), absl::StatusCode::kUnimplemented);
   EXPECT_TRUE(built);
+}
+
+TEST(MujocoRobotBackend, ASimulatorThatDoesNotStartIsRefusedWithItsScene) {
+  RobotBackendOptions options = atlasOptions();
+  options.mjcfFile = "robot_models/drc_atlas/drc_atlas_description/urdf/no_such_scene.xml";
+  const absl::StatusOr<std::unique_ptr<MujocoRobotBackend>> backend = MujocoRobotBackend::Create(options);
+  EXPECT_EQ(backend.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_NE(backend.status().message().find("the MuJoCo simulator did not start on " + options.mjcfFile), std::string::npos)
+      << backend.status().message();
+
+  // A URDF the robot description refuses keeps the code RobotDescription::Create() gave it.
+  options = atlasOptions();
+  options.urdfFile = "robot_models/drc_atlas/drc_atlas_description/urdf/no_such_robot.urdf";
+  EXPECT_EQ(MujocoRobotBackend::Create(options).status().code(), absl::StatusCode::kNotFound);
 }
 
 TEST(MujocoRobotBackend, TheSimulatorConfigurationComesFromTheOptions) {

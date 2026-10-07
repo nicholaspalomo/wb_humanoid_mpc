@@ -31,11 +31,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <atomic>
+#include <memory>
 #include <optional>
+#include <utility>
 
-#include <ocs2_core/thread_support/Synchronized.h>
-#include <ocs2_oc/synchronized_module/ReferenceManager.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
+#include "absl/base/nullability.h"
+#include "ocs2_core/thread_support/Synchronized.h"
+#include "ocs2_oc/synchronized_module/ReferenceManager.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
@@ -81,9 +84,9 @@ class SwitchedModelReferenceManager : public ReferenceManager {
 
   contact_flag_t getContactFlags(scalar_t time) const;
 
-  bool isInStancePhase(scalar_t time) const { return (getContactFlags(time)[0] && getContactFlags(time)[1]); }
+  bool isInStancePhase(scalar_t time) const { return getContactFlags(time)[0] && getContactFlags(time)[1]; }
 
-  bool isInContact(scalar_t time, size_t contactIndex) const { return getContactFlags(time)[contactIndex]; };
+  bool isInContact(scalar_t time, size_t contactIndex) const { return getContactFlags(time)[contactIndex]; }
 
   /**
    * Switches the procedural arm swing of getDesiredState() on or off. Off by default. The MPC interfaces switch it on
@@ -128,7 +131,7 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * Task-space reference of a foot in swing at `time`, or empty when nothing has an opinion about where it lands: a
    * cubic sweep from where the foot actually lifted off to nominalFoothold() at its touch-down.
    *
-   * Present when `model_settings.nominal_foothold.stepWidth` is positive, or when any foothold heuristic is listed;
+   * Present when `nominal_foothold.step_width` is positive, or when any foothold heuristic is listed;
    * empty otherwise - the default, which leaves the foot cost's xy position weights switched off exactly as before. A
    * contact planner overrides this with its planned footholds (ContactPlanningReferenceManager), and never calls
    * nominalFoothold(), which is why the foothold heuristics are rejected under one.
@@ -265,12 +268,12 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   virtual std::optional<PlannedDcm> getPlannedDcm(scalar_t /*time*/) const { return std::nullopt; }
 
  protected:
-  virtual void modifyReferences(scalar_t initTime,
-                                scalar_t finalTime,
-                                const vector_t& initState,
-                                size_t initMode,
-                                TargetTrajectories& targetTrajectories,
-                                ModeSchedule& modeSchedule) override;
+  void modifyReferences(scalar_t initTime,
+                        scalar_t finalTime,
+                        const vector_t& initState,
+                        size_t initMode,
+                        TargetTrajectories& targetTrajectories,
+                        ModeSchedule& modeSchedule) override;
 
   /**
    * Reads the ground (getTerrainHeight()), records it as the applied ground (getAppliedTerrainHeight()) and returns it:
@@ -294,13 +297,13 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   /// [m] The ground the target in use stands on: the task file's until the first run, the applied ground after it. It
   /// used to start at 0 whatever the task file said, so the first run lifted a target that was already a world pose -
   /// the initial and the reset targets, taken from the measured state - by the whole terrain height.
-  scalar_t targetTerrainHeight_{0.0};
+  scalar_t targetTerrainHeight_ = 0.0;
   /// [m] The ground, as set (setTerrainHeight) and as applied by the last preSolverRun(); both start at the task file's.
   std::atomic<scalar_t> terrainHeight_{0.0};
   std::atomic<scalar_t> appliedTerrainHeight_{0.0};
 
   PinocchioInterface pinocchioInterface_;
-  const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
+  const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModelPtr_;
   ModeSchedule modeSchedule_;
 
   /** Records the measured base pose and, per foot in contact, where it currently stands (its lift-off position). */
@@ -308,21 +311,21 @@ class SwitchedModelReferenceManager : public ReferenceManager {
 
   // Measured state of the last solver run, for the nominal foothold. Filled only while it is enabled, so a
   // configuration without it does exactly the work it did before.
-  bool hasMeasuredState_{false};
-  scalar_t lastSolveTime_{0.0};
+  bool hasMeasuredState_ = false;
+  scalar_t lastSolveTime_ = 0.0;
   vector2_t measuredBasePosition_{vector2_t::Zero()};
-  scalar_t measuredBaseYaw_{0.0};
+  scalar_t measuredBaseYaw_ = 0.0;
   /// Where each foot was the last time it was measured in contact, i.e. where it lifted off from.
   feet_array_t<vector2_t> liftOffPositions_{makeFeetArray(vector2_t(vector2_t::Zero()))};
   /// [m/s] measured CoM linear velocity, and [m] measured CoM height above the mean foot height, at the last solve.
   /// Latched for the foothold heuristics, which are feedback laws on where the robot actually is rather than on the
   /// plan; filled only while a foothold heuristic is listed.
   vector2_t measuredComVelocity_{vector2_t::Zero()};
-  scalar_t measuredComHeight_{0.0};
+  scalar_t measuredComHeight_ = 0.0;
   /// [kg] the robot's mass, and [kg m^2] the yaw component of its composite inertia about the center of mass at the
   /// last solve. Together they invert the target's angular-momentum channel back into a commanded yaw rate.
-  scalar_t totalMass_{0.0};
-  scalar_t yawInertia_{0.0};
+  scalar_t totalMass_ = 0.0;
+  scalar_t yawInertia_ = 0.0;
   /** True while anything downstream needs captureMeasuredState() to do its work; see that function. */
   bool needsMeasuredState() const;
   /**
@@ -339,7 +342,7 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    */
   std::shared_ptr<LocomotionHeuristicLayer> heuristicLayerPtr_{std::make_shared<LocomotionHeuristicLayer>()};
 
-  bool armSwingReferenceActive_{false};
+  bool armSwingReferenceActive_ = false;
 
   std::shared_ptr<GaitSchedule> gaitSchedulePtr_;
   std::shared_ptr<SwingTrajectoryPlanner> swingTrajectoryPtr_;

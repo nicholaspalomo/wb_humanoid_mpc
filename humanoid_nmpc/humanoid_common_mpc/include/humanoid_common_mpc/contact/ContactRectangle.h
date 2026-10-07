@@ -30,6 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <string>
+#include <vector>
+
 #include "humanoid_common_mpc/contact/ContactPolygon.h"
 
 namespace ocs2::humanoid {
@@ -44,15 +47,7 @@ namespace ocs2::humanoid {
 ///
 class ContactRectangle : public ContactPolygon {
  public:
-  ContactRectangle(const PolygonBounds& polygonBounds, const ContactCenterPoint& contactCenterPoint, const scalar_t& scale_factor = 1.0);
-
-  static std::vector<vector3_t> pointsFromBounds(const PolygonBounds& polygonBounds, const scalar_t& scaleFactor);
-
-  static ContactRectangle loadContactRectangle(const std::string& taskFile,
-                                               const ModelSettings& modelSettings,
-                                               int contactIndex,
-                                               bool verbose = false);
-
+  ContactRectangle(const PolygonBounds& polygonBounds, const ContactCenterPoint& contactCenterPoint, scalar_t scaleFactor = 1.0);
 };  // namespace ContactPolygon
 
 }  // namespace ocs2::humanoid

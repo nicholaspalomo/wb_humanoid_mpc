@@ -1,8 +1,3 @@
-# Remove accidental build stuff put in here
-build/
-log/
-install/
-
 # Prerequisites
 *.d
 
@@ -65,16 +60,14 @@ bazel-*
 .bazel/
 .bazel-cache/
 MODULE.bazel.lock
-# The copy of the source tree that the ROS-era setup_env.sh made; an old checkout may still hold it.
-.bazel_ros_install/
 
 # CppAD generated code (runtime)
 cppad_code_gen/
 .env
 cartpole_renders/
 
-# Jupyter notebook checkpoints
-notebooks/.ipynb_checkpoints/
+# Jupyter notebook checkpoints, wherever a notebook is opened
+.ipynb_checkpoints/
 
 MUJOCO_LOG.TXT
 
@@ -98,3 +91,4 @@ user.bazelrc
 # The robot deployment's working files: the bundle copied out of Bazel for docker build, and the PID of a launch
 # target's laptop side (tools/deploy).
 .deploy/
+robot_config/

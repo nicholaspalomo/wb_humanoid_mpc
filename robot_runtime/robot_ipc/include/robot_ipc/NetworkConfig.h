@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -52,7 +53,7 @@ struct NetworkConfig {
   std::vector<NodeEndpoint> nodes;
 
   /** The node of that name, or nullptr. */
-  const NodeEndpoint* find(absl::string_view name) const;
+  const NodeEndpoint* absl_nullable find(absl::string_view name) const;
   /** The node names, in order, e.g. for an error message that lists the valid ones. */
   std::vector<std::string> nodeNames() const;
 
@@ -85,7 +86,7 @@ absl::Status validateNetworkConfig(const NetworkConfig& config);
  */
 std::string formatNetworkConfig(const NetworkConfig& config);
 
-/** The shipped network file, config/ipc/network.textproto: robot, mpc, operator and teleop on 127.0.0.1. */
+/** The shipped network file, config/ipc/network.textproto: robot, mpc, operator, teleop and config_push on 127.0.0.1. */
 NetworkConfig localhostNetworkConfig();
 
 }  // namespace robot::ipc

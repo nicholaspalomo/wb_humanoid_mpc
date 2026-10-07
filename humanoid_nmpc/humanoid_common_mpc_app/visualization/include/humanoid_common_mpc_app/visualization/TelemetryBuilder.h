@@ -34,13 +34,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <pinocchio/multibody/data.hpp>
-#include <pinocchio/multibody/model.hpp>
-
-#include <ocs2_mpc/SystemObservation.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-
+#include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/multibody/data.hpp"
+#include "pinocchio/multibody/model.hpp"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -78,7 +77,7 @@ class TelemetryBuilder {
   /** [s] Half the interval of the central differences of the reference's and the plan's velocities. */
   static constexpr scalar_t kAccelerationHalfInterval = 2.5e-3;
   /** [s] Consecutive samples closer than the first or further apart than the second give no measured acceleration. */
-  static constexpr scalar_t kMinDifferenceInterval = 1e-5;
+  static constexpr scalar_t kMinDifferenceInterval = 1.0e-5;
   static constexpr scalar_t kMaxDifferenceInterval = 1.0;
 
   /**
@@ -92,8 +91,8 @@ class TelemetryBuilder {
    * than the model's is ignored). The message is the builder's and the next call overwrites it.
    */
   const humanoid_mpc_msgs::TelemetrySeries& build(const DecodedRobotState& measured,
-                                                  const SystemObservation* observation,
-                                                  const PolicySnapshot* policy);
+                                                  const SystemObservation* absl_nullable observation,
+                                                  const PolicySnapshot* absl_nullable policy);
 
   /** Forgets the previous sample, so that the next one has no measured acceleration. */
   void reset() { hasPreviousSample_ = false; }
@@ -123,14 +122,15 @@ class TelemetryBuilder {
   absl::Status initialize(const VisualizationConfig& config);
 
   int addGroup(const std::string& path, const std::vector<std::string>& names);
-  double* values(int group) { return groupValues_[static_cast<size_t>(group)]->mutable_data(); }
-  void setValues(int group, const vector_t& values);
+  /** The values of `group`, which must have at least one name: an empty RepeatedField's mutable_data() may be null. */
+  double* absl_nonnull values(int group) { return groupValues_[static_cast<size_t>(group)]->mutable_data(); }
+  void setValues(int group, const vector_t& vector);
 
   /** The generalized velocities of `state` and `input` (MpcRobotModelBase::getGeneralizedVelocities()). */
   vector_t generalizedVelocities(const vector_t& state, const vector_t& input);
-  void computeReference(const DecodedRobotState& measured, const PolicySnapshot* policy);
-  void computePlan(const DecodedRobotState& measured, const PolicySnapshot* policy);
-  void updateKinematics(Source* source);
+  void computeReference(const DecodedRobotState& measured, const PolicySnapshot* absl_nullable policy);
+  void computePlan(const DecodedRobotState& measured, const PolicySnapshot* absl_nullable policy);
+  void updateKinematics(Source* absl_nonnull source);
 
   PinocchioInterface pinocchioInterface_;
   std::unique_ptr<MpcRobotModelBase<scalar_t>> robotModel_;
@@ -138,7 +138,7 @@ class TelemetryBuilder {
   feet_array_t<pinocchio::FrameIndex> contactFrames_{};
 
   humanoid_mpc_msgs::TelemetrySeries series_;
-  std::vector<google::protobuf::RepeatedField<double>*> groupValues_;
+  std::vector<google::protobuf::RepeatedField<double>* absl_nonnull> groupValues_;
 
   // The groups, by what they plot. Panel groups:
   std::array<int, 3> basePosition_{};

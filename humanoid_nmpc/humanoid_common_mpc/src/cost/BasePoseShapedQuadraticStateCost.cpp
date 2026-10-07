@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/cost/BasePoseShapedQuadraticStateCost.h"
 
+#include <utility>
+
 namespace ocs2::humanoid {
 
 BasePoseShapedQuadraticStateCost::BasePoseShapedQuadraticStateCost(matrix_t Q, const SwitchedModelReferenceManager& referenceManager)

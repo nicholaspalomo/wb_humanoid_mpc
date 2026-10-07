@@ -31,25 +31,31 @@
 Run it from the repository root as a module, `python3 -m tools.hooks.format_code`. It
 
 - trims trailing whitespace and ends every text file with exactly one newline;
-- applies the fixes of the enforced registry checks that `make format` owns (tools/hooks/checks.py,
+- applies the fixes of the registry checks that `make format` owns (tools/hooks/checks.py,
   `fixed_by_format`): rewrites such as floating-point radix points that cannot change behavior;
 - formats C++ with clang-format (.clang-format);
-- orders Python imports with isort (.isort.cfg) once the isort step has left PENDING;
+- orders Python imports with isort (.isort.cfg);
 - formats Python with black.
 
 The file set is tools/hooks/lint_files.py's: what git tracks or would track, without vendored code (lib/) and fixtures.
+
+A formatter that is missing, or of another version than the one the lint pins (tools/hooks/lint_code.py:
+pinned_version()), is not run: another clang-format or black formats differently, so `make lint` and CI would then
+disagree with the result. Each one skipped is reported as a warning (`make lint` with CI=true fails on it). A formatter
+that runs and fails is an error: the run exits non-zero.
 """
 
 import argparse
 from collections.abc import Callable, Sequence
 import functools
 import os
-import shutil
 import subprocess
 import sys
+from typing import NamedTuple
 
 from tools.hooks import check_types
 from tools.hooks import checks
+from tools.hooks import lint_code
 from tools.hooks import lint_files
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -93,20 +99,44 @@ def _fix(content: str, path: str, fixes: frozenset[str]) -> str:
     return checks.fix_file(content, path, fixes)
 
 
-def _run_quietly(command: list[str], root: str) -> None:
-    if shutil.which(command[0]) is None:
-        return
-    subprocess.run(
+class FormatterOutcome(NamedTuple):
+    """What one formatter did: a warning when it was not run, an error when it failed (each None otherwise)."""
+
+    warning: str | None = None
+    error: str | None = None
+
+
+def _run_formatter(command: list[str], root: str) -> FormatterOutcome:
+    """Runs a formatter when it is installed at its pinned version (lint_code.pinned_version())."""
+    tool = command[0]
+    problem = lint_code.tool_problem(root, tool)
+    if problem is not None:
+        return FormatterOutcome(warning=f"{problem}: {tool} was not run")
+    result = subprocess.run(
         command,
         cwd=root,
         check=False,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
     )
+    if result.returncode != 0:
+        return FormatterOutcome(
+            error=f"{tool} failed with status {result.returncode}: {result.stderr.strip()[:2000]}"
+        )
+    return FormatterOutcome()
 
 
-def format_repository(root: str) -> list[str]:
-    """Formats the repository at `root` in place and returns the files whose whitespace or registry fixes changed."""
+def format_repository(root: str) -> tuple[list[str], list[FormatterOutcome]]:
+    """Formats the repository at `root` in place.
+
+    Args:
+      root: The repository root.
+
+    Returns:
+      The files whose whitespace or registry fixes changed, and the outcome of each formatter that was not run or
+      failed.
+    """
     files = _formatted_files(root)
     modified = []
     fixes = checks.format_fixes()
@@ -131,10 +161,11 @@ def format_repository(root: str) -> list[str]:
         for path in files
         if path.endswith(".py") and lint_files.is_first_party(path)
     ]
+    commands = []
     if cpp:
-        _run_quietly(["clang-format", "-i", *cpp], root)
-    if python and "isort" not in checks.PENDING:
-        _run_quietly(
+        commands.append(["clang-format", "-i", *cpp])
+    if python:
+        commands.append(
             [
                 "isort",
                 "--quiet",
@@ -142,12 +173,11 @@ def format_repository(root: str) -> list[str]:
                 os.path.join(root, ISORT_CONFIG),
                 *lint_files.isort_package_arguments(root),
                 *python,
-            ],
-            root,
+            ]
         )
-    if python:
-        _run_quietly(["black", "--quiet", *python], root)
-    return modified
+        commands.append(["black", "--quiet", *python])
+    outcomes = [_run_formatter(command, root) for command in commands]
+    return modified, [o for o in outcomes if o.warning or o.error]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -156,14 +186,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         description="The repository's formatter (make format)."
     )
     parser.parse_args(argv)
-    modified = format_repository(REPO_ROOT)
+    modified, problems = format_repository(REPO_ROOT)
     if modified:
         print(f"✨ Formatted and ensured trailing newlines on {len(modified)} file(s).")
     else:
         print(
             "✅ All files properly formatted with required blank lines and trailing newlines."
         )
-    return 0
+    for outcome in problems:
+        if outcome.warning:
+            print(f"⚠️ Warning: {outcome.warning}.", file=sys.stderr)
+        if outcome.error:
+            print(f"❌ {outcome.error}", file=sys.stderr)
+    return 1 if any(outcome.error for outcome in problems) else 0
 
 
 if __name__ == "__main__":

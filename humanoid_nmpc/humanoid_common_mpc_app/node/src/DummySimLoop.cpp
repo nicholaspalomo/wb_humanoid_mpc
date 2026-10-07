@@ -34,13 +34,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstddef>
 #include <exception>
+#include <memory>
+#include <string>
 #include <utility>
 
 #include "absl/log/log.h"
+#include "absl/memory/memory.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/clock.h"
-
-#include <ocs2_core/reference/TargetTrajectories.h>
+#include "ocs2_core/reference/TargetTrajectories.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "robot_realtime/PeriodicTimer.h"
@@ -67,13 +69,13 @@ absl::StatusOr<std::unique_ptr<DummySimLoop>> DummySimLoop::Create(std::unique_p
   if (!std::isfinite(config.mpcDesiredFrequency)) {
     return absl::InvalidArgumentError(absl::StrCat("DummySimLoop: the MPC frequency is ", config.mpcDesiredFrequency, " Hz"));
   }
-  std::unique_ptr<DummySimLoop> loop(new DummySimLoop(std::move(bus), config));
+  std::unique_ptr<DummySimLoop> loop = absl::WrapUnique(new DummySimLoop(std::move(bus), config));
   ASSIGN_OR_RETURN(loop->link_, ipc::RemoteMpcLink::Create(*loop->bus_, loop->supervisor_, config.link));
   loop->link_->initRollout(&rollout);
   return loop;
 }
 
-DummySimLoop::DummySimLoop(std::unique_ptr<robot::ipc::Bus> bus, Config config) : bus_(std::move(bus)), config_(std::move(config)) {}
+DummySimLoop::DummySimLoop(std::unique_ptr<robot::ipc::Bus> bus, Config config) : bus_(std::move(bus)), config_(config) {}
 
 DummySimLoop::~DummySimLoop() {
   // Before the link and the supervisor its callbacks reach are destroyed.
@@ -106,50 +108,46 @@ absl::Status DummySimLoop::run(const SystemObservation& initialObservation, cons
                              : std::string("in real time"))
             << ".";
 
-  const std::chrono::nanoseconds period(static_cast<int64_t>(std::llround(1e9 / config_.simulationFrequency)));
+  const std::chrono::nanoseconds period(static_cast<int64_t>(std::llround(1.0e9 / config_.simulationFrequency)));
   robot::realtime::PeriodicTimer timer(period, robot::realtime::OverrunPolicy::kSkipMissedPeriods);
   SystemObservation observation = initialObservation;
-  try {
-    if (!synchronized) {
-      // The first rollout needs a policy in use; the buffer holds one, and updatePolicy() takes it unless the IO thread
-      // is moving a newer one in at this very moment.
-      while (!link_->updatePolicy()) {
-        if (shouldStop()) return absl::OkStatus();
-        absl::SleepFor(kPolicyPollPeriod);
+  if (!synchronized) {
+    // The first rollout needs a policy in use; the buffer holds one, and updatePolicy() takes it unless the IO thread
+    // is moving a newer one in at this very moment.
+    while (!link_->updatePolicy()) {
+      if (shouldStop()) return absl::OkStatus();
+      absl::SleepFor(kPolicyPollPeriod);
+    }
+    policyUpdates_.fetch_add(1);
+  }
+  timer.start();
+  for (size_t loopCounter = 0; !shouldStop(); ++loopCounter) {
+    if (synchronized) {
+      if (loopCounter % mpcUpdateRatio == 0 && !awaitPolicyFor(observation.time, shouldStop)) {
+        break;
       }
+    } else if (link_->updatePolicy()) {
       policyUpdates_.fetch_add(1);
     }
-    timer.start();
-    for (size_t loopCounter = 0; !shouldStop(); ++loopCounter) {
-      if (synchronized) {
-        if (loopCounter % mpcUpdateRatio == 0 && !awaitPolicyFor(observation.time, shouldStop)) {
-          break;
-        }
-      } else if (link_->updatePolicy()) {
-        policyUpdates_.fetch_add(1);
-      }
 
-      observation = forwardSimulation(observation);
+    ASSIGN_OR_RETURN(observation, forwardSimulation(observation));
 
-      // Synchronized, the MPC solves only from the observation of the step before its update.
-      if (!synchronized || (loopCounter + 1) % mpcUpdateRatio == 0) {
-        link_->setCurrentObservation(observation);
-      }
-      publishLatest(observation);
-      steps_.fetch_add(1);
-      LOG_EVERY_N_SEC(INFO, kLogPeriodSeconds) << "[DummySim] t = " << observation.time << " s, base state "
-                                               << observation.state.head(std::min<Eigen::Index>(12, observation.state.size())).transpose();
-      timer.waitForNextPeriod();
+    // Synchronized, the MPC solves only from the observation of the step before its update.
+    if (!synchronized || (loopCounter + 1) % mpcUpdateRatio == 0) {
+      link_->setCurrentObservation(observation);
     }
-  } catch (const std::exception& error) {
-    return absl::InternalError(absl::StrCat("DummySimLoop: the rollout of the plant failed at t = ", observation.time, ": ", error.what()));
+    publishLatest(observation);
+    steps_.fetch_add(1);
+    LOG_EVERY_N_SEC(INFO, kLogPeriodSeconds) << "[DummySim] t = " << observation.time << " s, base state "
+                                             << observation.state.head(std::min<Eigen::Index>(12, observation.state.size())).transpose();
+    timer.waitForNextPeriod();
   }
   LOG(INFO) << "[DummySim] Stopped at t = " << observation.time << " s.";
   return absl::OkStatus();
 }
 
 bool DummySimLoop::awaitInitialPolicy(const SystemObservation& initialObservation, const std::function<bool()>& shouldStop) {
-  const std::chrono::nanoseconds period(static_cast<int64_t>(std::llround(1e9 / config_.simulationFrequency)));
+  const std::chrono::nanoseconds period(static_cast<int64_t>(std::llround(1.0e9 / config_.simulationFrequency)));
   robot::realtime::PeriodicTimer timer(period, robot::realtime::OverrunPolicy::kSkipMissedPeriods);
   timer.start();
   while (!link_->initialPolicyReceived()) {
@@ -182,11 +180,15 @@ bool DummySimLoop::awaitPolicyFor(scalar_t time, const std::function<bool()>& sh
   return false;
 }
 
-SystemObservation DummySimLoop::forwardSimulation(const SystemObservation& observation) {
+absl::StatusOr<SystemObservation> DummySimLoop::forwardSimulation(const SystemObservation& observation) {
   const scalar_t timeStep = 1.0 / config_.simulationFrequency;
   SystemObservation next;
   next.time = observation.time + timeStep;
-  link_->rolloutPolicy(observation.time, observation.state, timeStep, next.state, next.input, next.mode);
+  try {  // NOLINT(exceptions): MRT_BASE::rolloutPolicy() and OCS2's rollouts throw; their exception becomes a Status here.
+    link_->rolloutPolicy(observation.time, observation.state, timeStep, next.state, next.input, next.mode);
+  } catch (const std::exception& error) {  // NOLINT(exceptions): the boundary of the try above.
+    return absl::InternalError(absl::StrCat("DummySimLoop: the rollout of the plant failed at t = ", observation.time, ": ", error.what()));
+  }
   return next;
 }
 

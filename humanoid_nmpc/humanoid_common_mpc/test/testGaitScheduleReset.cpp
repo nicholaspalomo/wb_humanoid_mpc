@@ -27,13 +27,10 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <cmath>
-#include <memory>
 #include <vector>
 
-#include <ocs2_oc/synchronized_module/ReferenceManager.h>
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/GaitScheduleUpdater.h"
@@ -50,18 +47,18 @@ namespace {
 
 // The shipped reference files: a stance schedule and a stance template of 0.5 s.
 ModeSchedule initialSchedule() {
-  return ModeSchedule({0.5}, {ModeNumber::STANCE, ModeNumber::STANCE});
+  return ModeSchedule({0.5}, {ModeNumber::kStance, ModeNumber::kStance});
 }
 ModeSequenceTemplate stanceTemplate() {
-  return ModeSequenceTemplate({0.0, 0.5}, {ModeNumber::STANCE});
+  return ModeSequenceTemplate({0.0, 0.5}, {ModeNumber::kStance});
 }
 ModeSequenceTemplate trotTemplate() {
-  return ModeSequenceTemplate({0.0, 0.35, 0.7}, {ModeNumber::LF, ModeNumber::RF});
+  return ModeSequenceTemplate({0.0, 0.35, 0.7}, {ModeNumber::kLf, ModeNumber::kRf});
 }
 
 bool hasSwing(const ModeSchedule& schedule, scalar_t from, scalar_t to) {
   for (scalar_t time = from; time <= to; time += 0.01) {
-    if (schedule.modeAtTime(time) != ModeNumber::STANCE) return true;
+    if (schedule.modeAtTime(time) != ModeNumber::kStance) return true;
   }
   return false;
 }
@@ -91,43 +88,26 @@ TEST(GaitScheduleReset, AResetScheduleAnswersExactlyAsAFreshOne) {
   EXPECT_EQ(used.getModeSchedule(6.0, 8.0).modeSequence, fresh.getModeSchedule(6.0, 8.0).modeSequence);
 }
 
-TEST(GaitScheduleUpdater, AFirstEventThatClosesALeftSwingDoesNotReadBeforeTheSchedule) {
+TEST(UpdateGaitSchedule, AFirstEventThatClosesALeftSwingDoesNotReadBeforeTheSchedule) {
   // The first phase of the schedule is a left-foot swing that ends after the switching time: the phase before it, where
   // the new gait would start, does not exist. The updater used to read the event before the first one.
-  std::shared_ptr<GaitSchedule> schedule =
-      std::make_shared<GaitSchedule>(ModeSchedule({5.0, 5.3}, {ModeNumber::LF, ModeNumber::STANCE, ModeNumber::STANCE}), stanceTemplate(),
-                                     /*phaseTransitionStanceTime=*/0.0);
+  GaitSchedule schedule(ModeSchedule({5.0, 5.3}, {ModeNumber::kLf, ModeNumber::kStance, ModeNumber::kStance}), stanceTemplate(),
+                        /*phaseTransitionStanceTime=*/0.0);
   const scalar_t initTime = 1.0;
   const scalar_t finalTime = 2.0;
-  const ModeSchedule before = schedule->getModeSchedule(initTime, finalTime + (finalTime - initTime));
+  const ModeSchedule before = schedule.getModeSchedule(initTime, finalTime + (finalTime - initTime));
   ASSERT_EQ(before.eventTimes.front(), 5.0);
-  ASSERT_EQ(before.modeAtTime(before.eventTimes.front()), ModeNumber::LF) << "the case under test: the first phase is a left swing";
+  ASSERT_EQ(before.modeAtTime(before.eventTimes.front()), ModeNumber::kLf) << "the case under test: the first phase is a left swing";
 
-  GaitScheduleUpdater::updateGaitSchedule(schedule, trotTemplate(), initTime, finalTime);
+  updateGaitSchedule(schedule, trotTemplate(), initTime, finalTime);
 
   // The new gait starts where that swing ends, the first event of the schedule: the trot is tiled from there.
-  const ModeSchedule after = schedule->getModeSchedule(initTime, /*upperBoundTime=*/8.0);
+  const ModeSchedule after = schedule.getModeSchedule(initTime, /*upperBoundTime=*/8.0);
   ASSERT_FALSE(after.eventTimes.empty());
   EXPECT_DOUBLE_EQ(after.eventTimes.front(), 5.0);
-  EXPECT_EQ(after.modeAtTime(5.0 + 0.1), ModeNumber::LF) << "the trot begins after the first event";
-  EXPECT_EQ(after.modeAtTime(5.0 + 0.35 + 0.1), ModeNumber::RF);
+  EXPECT_EQ(after.modeAtTime(5.0 + 0.1), ModeNumber::kLf) << "the trot begins after the first event";
+  EXPECT_EQ(after.modeAtTime(5.0 + 0.35 + 0.1), ModeNumber::kRf);
   for (const scalar_t eventTime : after.eventTimes) EXPECT_TRUE(std::isfinite(eventTime));
-}
-
-TEST(GaitScheduleUpdater, AnUpdaterDropsAGaitReceivedBeforeAReset) {
-  std::shared_ptr<GaitSchedule> schedule =
-      std::make_shared<GaitSchedule>(initialSchedule(), stanceTemplate(), /*phaseTransitionStanceTime=*/0.0);
-  GaitScheduleUpdater updater(schedule);
-  updater.updateModeSequence(trotTemplate());
-  updater.reset();
-  updater.preSolverRun(/*initTime=*/1.0, /*finalTime=*/2.0, vector_t(), ReferenceManager());
-  EXPECT_FALSE(hasSwing(schedule->getModeSchedule(1.0, 3.0), /*from=*/1.0, /*to=*/3.0))
-      << "a gait received before the reset was inserted after it";
-
-  // Positive control: without the reset the gait is inserted.
-  updater.updateModeSequence(trotTemplate());
-  updater.preSolverRun(/*initTime=*/1.0, /*finalTime=*/2.0, vector_t(), ReferenceManager());
-  EXPECT_TRUE(hasSwing(schedule->getModeSchedule(1.0, 4.0), /*from=*/1.0, /*to=*/4.0));
 }
 
 }  // namespace

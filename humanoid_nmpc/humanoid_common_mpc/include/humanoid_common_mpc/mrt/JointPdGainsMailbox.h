@@ -33,13 +33,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <cstdint>
 
-#include <robot_core/TripleBuffer.h>
-
 #include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/synchronization/mutex.h"
 
 #include "humanoid_common_mpc/mrt/JointPdGains.h"
+#include "robot_core/TripleBuffer.h"
 
 namespace ocs2::humanoid {
 
@@ -65,6 +64,7 @@ class JointPdGainsMailbox {
 
   JointPdGainsMailbox(const JointPdGainsMailbox&) = delete;
   JointPdGainsMailbox& operator=(const JointPdGainsMailbox&) = delete;
+  ~JointPdGainsMailbox() = default;
 
   /** Any thread: the place in line of a document handed in now, for post(). Take it before the document is parsed. */
   uint64_t takeTicket() { return nextTicket_.fetch_add(1) + 1; }

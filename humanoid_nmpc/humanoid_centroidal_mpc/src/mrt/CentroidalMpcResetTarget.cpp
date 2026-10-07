@@ -27,11 +27,11 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcResetTarget.h"
 
-#include <ocs2_centroidal_model/AccessHelperFunctions.h>
+#include "ocs2_centroidal_model/AccessHelperFunctions.h"
 
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 

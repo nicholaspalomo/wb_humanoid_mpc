@@ -1,19 +1,12 @@
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 
 # humanoid_common_mpc_app/teleop - the keyboard velocity teleoperation of the C++ era on the IPC bus: a walking command
 # typed as a line, published on operator/walking_velocity_command as the bus node "teleop". See README.md.
 
 package(default_visibility = ["//visibility:public"])
-
-# No -Wpedantic: Abseil's int128.h, which absl/status pulls in, would print a hundred warnings per file.
-_COPTS = [
-    "-std=c++20",
-    "-Wall",
-    "-Wextra",
-    "-Werror=return-type",
-]
 
 cc_library(
     name = "teleop",
@@ -21,22 +14,31 @@ cc_library(
         "src/KeyboardVelocityCommand.cpp",
         "src/LineReader.cpp",
         "src/VelocityCommandRepeater.cpp",
+        "src/config/reference/KeyboardCommandLimitsFromConfig.cpp",
     ],
     hdrs = [
         "include/humanoid_common_mpc_app/teleop/KeyboardVelocityCommand.h",
         "include/humanoid_common_mpc_app/teleop/LineReader.h",
         "include/humanoid_common_mpc_app/teleop/VelocityCommandRepeater.h",
+        "include/humanoid_common_mpc_app/teleop/config/reference/KeyboardCommandLimitsFromConfig.h",
     ],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     includes = ["include"],
     deps = [
+        # The typed reference file (humanoid_common_mpc/config/ConfigFiles.h).
+        "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//humanoid_nmpc/humanoid_mpc_ipc",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
         "//lib/ocs2:ocs2_core",
         "//robot_runtime/robot_ipc",
+        "//tools/nproto:nproto_runtime",
         "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/memory",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
@@ -48,16 +50,17 @@ cc_library(
 )
 
 # LINT.IfChange(teleop_binary)
-# bazel run //humanoid_nmpc/humanoid_common_mpc_app/teleop:velocity_keyboard_command -- --reference_file=<reference.yaml>
+# bazel run //humanoid_nmpc/humanoid_common_mpc_app/teleop:velocity_keyboard_command -- --reference_file=<reference.textproto>
 cc_binary(
     name = "velocity_keyboard_command",
     srcs = ["src/VelocityKeyboardCommandMain.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":teleop",
         "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
         "//humanoid_nmpc/humanoid_common_mpc_app/node:node_process",
         "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/flags:flag",
         "@abseil-cpp//absl/flags:parse",
         "@abseil-cpp//absl/flags:usage",
@@ -71,13 +74,13 @@ cc_binary(
 )
 # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/teleop/README.md:teleop_binary, //humanoid_nmpc/docs/distributed_runtime/README.md:process_table)
 
-# The command limits of every shipped reference.yaml, a typed line, the normalized command, reading lines without
+# The command limits of every shipped reference.textproto, a typed line, the normalized command, reading lines without
 # blocking a shutdown, and the 25 Hz republication on a loopback bus.
 cc_test(
     name = "test_keyboard_velocity_command",
     size = "small",
     srcs = ["test/testKeyboardVelocityCommand.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     data = [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
@@ -91,6 +94,7 @@ cc_test(
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
         "//robot_runtime/robot_core:resource_paths",
         "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
@@ -98,4 +102,31 @@ cc_test(
         "@abseil-cpp//absl/time",
         "@googletest//:gtest_main",
     ],
+)
+
+# ==============================================================================
+# The typed configuration files (humanoid_nmpc/humanoid_mpc_config)
+# ==============================================================================
+
+# The typed configuration's tests (test/config/reference/). The conversion itself is in :teleop (src/config/reference/).
+_CONFIG_TEST_DEPS = [
+    ":teleop",
+    "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+    "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+    "//tools/nproto:nproto_runtime",
+    "@abseil-cpp//absl/base:nullability",
+    "@abseil-cpp//absl/status",
+    "@abseil-cpp//absl/status:statusor",
+    "@abseil-cpp//absl/strings",
+    "@abseil-cpp//absl/strings:string_view",
+    "@eigen",
+    "@googletest//:gtest_main",
+]
+
+cc_test(
+    name = "config_reference_test",
+    size = "small",
+    srcs = glob(["test/config/reference/*.cpp"]),
+    copts = FIRST_PARTY_COPTS,
+    deps = _CONFIG_TEST_DEPS,
 )

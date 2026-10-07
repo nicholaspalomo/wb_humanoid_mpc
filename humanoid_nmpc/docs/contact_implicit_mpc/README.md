@@ -56,7 +56,7 @@ itself off while the mode schedule called a foot a swing foot -- `ContactWrenchC
 had already pinned the swinging foot's wrench to zero, so there was nothing left for a cone to bound. This formulation
 removes `zero_wrench`, and the gate then leaves a foot the schedule calls a swing foot with an **unbounded** wrench:
 adhesion, unlimited friction, a center of pressure anywhere. On a robot running
-`contactInputParameterization: basis_vectors` it is worse still, because the explicit wrench cone is skipped in favor
+`contact_input_parameterization: "basis_vectors"` it is worse still, because the explicit wrench cone is skipped in favor
 of the structural guarantee that `lambda >= 0` gives, so the non-negativity barrier is the only bound there is -- and it
 was gated too. A negative scaling is an
 adhesive, outside-the-cone wrench, and the complementarity product is sign-blind and does not object to it.
@@ -79,7 +79,7 @@ rows together, the second, un-gated, carries `Fz >= 0` as a row of its own besid
 keyed off `zero_wrench` rather than off the three terms, because a task file that drops the pin without listing them
 has the same hole.
 
-On `contactInputParameterization: basis_vectors` neither list entry is what bounds the scalings: `lambda >= 0` is the
+On `contact_input_parameterization: "basis_vectors"` neither list entry is what bounds the scalings: `lambda >= 0` is the
 whole of the cone there, and `CentroidalMpcInterface` builds `BasisScalingNonNegativityConstraint` for every contact
 whatever the lists say, gated exactly as `zero_wrench` dictates (humanoid_nmpc/docs/contact_basis_vectors/README.md,
 section 7). A friction cone bounds only the *assembled* wrench and says nothing about the individual scalings, so the
@@ -88,10 +88,10 @@ and the interface then insisted on that entry once `zero_wrench` was gone -- and
 `zero_wrench` but dropped `contact_wrench_cone` run with no bound on the scalings at all.
 
 One caveat that is a tuning decision rather than a rule, and is therefore reported rather than patched: un-gated,
-`contacts.basisNonNegativityBarrier.mu` is the **only** thing holding every contact wrench inside its cone, at every
+`contacts.basis_non_negativity_barrier.mu` is the **only** thing holding every contact wrench inside its cone, at every
 node. It ships at `0.01`, which was tuned while the term was a redundant regularizer -- the swing foot's scalings were
 pinned by `zero_wrench` and the stance foot's pulled positive by `R`. The same job is done by
-`contactWrenchConeSoftConstraint.mu = 0.2` in the wrench parameterization. Note in particular that a scaling pair
+`contact_wrench_cone_soft_constraint.mu = 0.2` in the wrench parameterization. Note in particular that a scaling pair
 `(+a, -a)` costs only `mu a^2` and leaves the load indicator `f_n = sum(lambda)` at zero, so **both** contact-implicit
 products stay blind to it. `CentroidalMpcInterface` logs a warning when the un-gated barrier is the softer of the two;
 tune it against a foot in flight before trusting the formulation on hardware.
@@ -109,7 +109,7 @@ linearizes through the result, so `friction_force_cone` is safe to list in eithe
 Un-gating is not quite enough on its own, because an always-active cone is evaluated on a foot at **zero wrench**, and
 two of the three were not satisfied there:
 
-* `ContactWrenchConeConstraint` carries `minNormalForce` and `mu * gripperForce` in its constant column. Both are
+* `ContactWrenchConeConstraint` carries `min_normal_force` and `mu * gripper_force` in its constant column. Both are
   statements about a foot the schedule has declared loaded -- the first demands a normal force a foot in flight cannot
   produce. They are dropped when the term is un-gated, leaving the homogeneous cone, which the zero wrench satisfies
   exactly and which is the same set `ContactWrenchConeBasisMatrix` verifies its generators against.
@@ -144,7 +144,7 @@ non-zero, which is the property a new input parameterization could otherwise bre
 
 The slip term constrains **three** of the six components of the foot's twist: the two tangential linear velocities and
 the spin about the contact normal. The pivot row matters as much as the two linear ones — the `zero_velocity`
-constraint this replaces was a full six-row twist constraint with `constrainOrientation: true`, and a loaded foot left
+constraint this replaces was a full six-row twist constraint (a `stance_constraint` with the orientation rows), and a loaded foot left
 free to yaw walks the robot sideways out from under itself. The normal velocity and the two rocking rates are left
 free on purpose: the first because forbidding it would forbid lift-off under load and reintroduce the scheduling this
 formulation removes, and the second because rolling the foot about its heel and toe edges under load is exactly how a
@@ -171,7 +171,7 @@ linearizes. The consequences are the ones the paper's architecture needs:
   So a foot the solver lands early, or keeps down, is still priced by `R` as if it were swinging until its scheduled
   touch-down, is left out of the terminal support, and is planned for as if it were in the air. The planner learns of
   the solver's contact choices only through the `phase_resetting` execution rule, fed by a contact source (the
-  simulator's ground truth or an estimator); it is commented out in the shipped `contact_planning.yaml` files. Section
+  simulator's ground truth or an estimator); it is commented out in the shipped `contact_planning.textproto` files. Section
   5 lists it with the other switch-on prerequisites.
 
 All three terms are bilinear in the force and the foot kinematics, so their linear approximations are assembled in
@@ -180,7 +180,7 @@ closed form from the kinematics' own linearization and the constant row that map
 `FootprintCornerHeights`, which tapes one first-order CppAD model of the corner heights per foot (section 3a), and the
 slip term reads the contact frame's `PinocchioEndEffectorKinematicsCppAd`, the same code-generated model
 `zero_velocity` used. The corner-height library is keyed to the corner geometry, so an edit to `contact_rectangle` or
-`contact_frame_translation` selects a new library even with `recompileLibrariesCppAd: false`.
+`contact_frame_translation` selects a new library even with `model_settings.recompile_libraries_cpp_ad: false`.
 
 `f_n` is the third component of the model's contact force, and which normal that is depends on the model: the WORLD
 vertical for the wrench-space models, and the contact frame's own normal under `BasisInputsModelDecorator`. Both are
@@ -206,13 +206,14 @@ correct, because the terms use `f_n` as a load indicator; see "What `f_n` actual
 * the formulation with the hard `normal_velocity`, or without the soft one (below).
 
 The VALUES of the `contact_implicit` block have a check of their own, `validateContactImplicitConfig()`
-(`MpcFormulationConfig.h`), which returns InvalidArgument naming the `contact_implicit.<key>` that is out of range: a
+(`MpcFormulationConfig.h`), which returns InvalidArgument naming the `contact_implicit.<field>` that is out of range: a
 reference or the smoothing length that is not positive, since each is a divisor, or a weight that is negative, which
 would reward the violation it prices. `CentroidalMpcInterface` runs it before it builds any term of the formulation,
 whenever the formulation is listed, so `Create()` returns that Status; the terms' constructors CHECK the references and
-the smoothing length only as a last line of defense. Its KEYS have one too, `checkContactImplicitBlockKeys()`: a key the
-block carries that the code does not read - a renamed or misspelled one - is refused by name, with the list of the keys
-the block may carry, whether or not the formulation is listed. Both checks run again on every hot reload (section 4).
+the smoothing length only as a last line of defense. Its FIELDS are the schema's (`ContactImplicitConfig`,
+`humanoid_mpc_config/contact_implicit_config.proto`): a field the block carries that the schema does not have - a
+renamed or misspelled one - is refused by the strict parser with its file, line and column, whether or not the
+formulation is listed. Both checks run again on every hot reload (section 4).
 
 `normal_velocity` has to go **from `hard_constraints`**, and an earlier version of this document was wrong to leave it
 listed there as a mere shaping term. It is a **hard equality** on the contact frame's vertical velocity for every foot the schedule
@@ -227,20 +228,20 @@ refuses the formulation without it. Deleting the row outright was tried, and the
 ground without lifting them. The reason is worth
 stating precisely, because it is not where one would look:
 
-* the only vertical term left is `task_space_foot_cost_weights.pos_z`, at 150;
-* against it stand the leg-joint entries of `Q`, whose reference posture is the standing crouch of
-  `reference.yaml`'s `defaultJointState` - and `defaultBaseHeight` equals the pelvis-to-sole distance at that posture
+* the only vertical term left is `task_space_foot_cost.weights.pos_z`, at 150;
+* against it stand the leg-joint entries of `state_weights`, whose reference posture is the standing crouch of
+  `reference.textproto`'s `default_joint_state` - and `default_base_height` equals the pelvis-to-sole distance at that posture
   to five decimals, so the posture prior is literally *the foot on the floor*. Every millimeter of lift is charged
-  against `Q` at scaling 85, and the `orientation_x/y` weights of 800 add the ankle's share by insisting the sole stay
+  against `state_weights` at scaling 85, and the `orientation_x/y` weights of 800 add the ankle's share by insisting the sole stay
   flat. The effective vertical stiffness at the sole is of order 1e4, so the fight is about 100:1 and the static
   equilibrium swing height is a couple of millimeters;
 * and the same leg at that crouch is roughly **eighty times more compliant horizontally than vertically**, so the
   cheapest way to serve a forward command is to slide the foot rather than lift it. The shuffle is not a tuning
   accident; it is what that stiffness ratio asks for.
 
-None of this bit while `normal_velocity` was a hard equality, because an equality has infinite weight and `Q` never got
-a vote on swing height. As a soft constraint the same row - `v_z - zdot_ref - positionErrorGain_z (z_ref - z)`, weight
-`model_settings.foot_constraint.normalVelocitySoftConstraintWeight` - shapes the swing and is overruled whenever
+None of this bit while `normal_velocity` was a hard equality, because an equality has infinite weight and `state_weights` never
+got a vote on swing height. As a soft constraint the same row - `v_z - zdot_ref - position_error_gain_z (z_ref - z)`, weight
+`model_settings.foot_constraint.normal_velocity_soft_constraint_weight` - shapes the swing and is overruled whenever
 anything else pays more, which is exactly what a schedule-derived reference should be.
 
 One weight rather than two, deliberately: the hard row combines a velocity feedforward and a position feedback in a
@@ -266,8 +267,8 @@ which gives the whole body weight to the schedule's stance feet and none to the 
 `zero_wrench`, and removing it along with the hard one was tried. It does not work, and the failure is worth recording:
 spreading the weight over all feet makes the nominal force on the foot that should be in the air half the body weight,
 so R pulls it there, and the complementarity penalty's curvature on that foot's height is
-`complementarityWeight (f_n/f_ref)^2 / heightReference^2` - about 1950 at half body weight, against the 150 of
-`task_space_foot_cost_weights.pos_z` trying to lift it. **The foot rises about six millimeters and stops.** With the
+`complementarity_weight (f_n/f_ref)^2 / height_reference^2` - about 1950 at half body weight, against the 150 of
+`task_space_foot_cost.weights.pos_z` trying to lift it. **The foot rises about six millimeters and stops.** With the
 schedule-derived nominal restored, R pulls the swing foot's force towards zero, the complementarity term goes quiet as
 it does, and the swing height reference is free to lift the foot. That nudge is the only asymmetry in an otherwise
 symmetric contact problem: without it the solver has no reason to prefer lifting one foot over the other, or over
@@ -292,21 +293,21 @@ rocking rates free, that is the ordinary case and not an exceptional one.
 
 Both terms now share one `FootprintCornerHeights`, so they cannot disagree again. `h` in the product is the height of the
 **lowest** corner. The exact minimum is not differentiable precisely at the flat-footed stance where the robot spends
-most of its time, so it is blended over `contact_implicit.gapSmoothing` (1 mm):
+most of its time, so it is blended over `contact_implicit.gap_smoothing` (1 mm):
 
 ```
-softmin(h) = m - gapSmoothing * log( (1/N) sum_i exp(-(h_i - m) / gapSmoothing) ),   m = min_i h_i
+softmin(h) = m - gap_smoothing * log( (1/N) sum_i exp(-(h_i - m) / gap_smoothing) ),   m = min_i h_i
 ```
 
 The `1/N` is the part that matters, and getting it wrong is worse than not smoothing at all. Without it this is the
-standard log-sum-exp softmin, which at a **flat** foot returns `m - log(N) * gapSmoothing` = `m - 1.39 mm`: it
+standard log-sum-exp softmin, which at a **flat** foot returns `m - log(N) * gap_smoothing` = `m - 1.39 mm`: it
 under-reports the gap, and does so worst in the common case. The complementarity penalty is two-sided, so a negative
 reported gap is minimized by pushing the foot **up** until the reported gap reaches zero -- a permanent 1.39 mm hover
 under full load, with nothing to oppose it, because the penetration hinge is identically zero above the ground and
-`task_space_foot_cost_weights.activeInStance` is `false`. That is the same disease as the log barrier section 6 removed.
+`task_space_foot_cost.active_in_stance` is `false`. That is the same disease as the log barrier section 6 removed.
 
 Normalized by `N` the bound is exact in value and in gradient at a flat foot, never falls below the true minimum, and
-errs only in the safe direction. The bias is `gapSmoothing * log(N / k)`, where `k` is how many corners sit at the
+errs only in the safe direction. The bias is `gap_smoothing * log(N / k)`, where `k` is how many corners sit at the
 minimum -- not a single number, which is easy to get wrong:
 
 | corners down | when | reported gap minus true | equilibrium penetration at full load |
@@ -315,9 +316,9 @@ minimum -- not a single number, which is easy to get wrong:
 | 2 | an edge: the ordinary heel strike or toe-off | `s log 2` = 0.69 mm | 0.050 mm |
 | 1 | a single corner: needs pitch *and* roll at once | `s log 4` = 1.39 mm | 0.187 mm |
 
-The equilibrium column balances the complementarity curvature `C = complementarityWeight * (f_n/f_ref)^2 /
-heightReference^2` = 7812 at full body weight against the hinge of EVERY corner that is down, `k * penetrationWeight`
-with `penetrationWeight` = 5e4, so the bias is attenuated by `C / (C + k P)`: 13.8x on an edge, whose two corners both
+The equilibrium column balances the complementarity curvature `C = complementarity_weight * (f_n/f_ref)^2 /
+height_reference^2` = 7812 at full body weight against the hinge of EVERY corner that is down, `k * penetration_weight`
+with `penetration_weight` = 5e4, so the bias is attenuated by `C / (C + k P)`: 13.8x on an edge, whose two corners both
 resist, and 7.4x on a single corner. Both numbers are below the compliance of any real sole.
 `testFootprintCornerHeights` holds the formula by minimizing the two terms' energy directly.
 
@@ -355,70 +356,71 @@ Normalization also repairs a second defect in the slip term: two of its rows are
 third is a yaw rate in rad/s, and squaring them under one weight declared one rad/s to be exactly as bad as one m/s —
 a statement about SI units, not about the robot. Each row now carries a reference in its own units.
 
-`config/mpc/task.yaml`, block `contact_implicit`:
+`config/mpc/task.textproto`, block `contact_implicit`:
 
-| Key | Meaning |
+| Field | Meaning |
 | --- | --- |
-| `complementarityWeight` | cost of a foot at `heightReference` carrying full body weight |
-| `slipWeight` | cost of a foot sliding at `velocityReference` under full body weight |
-| `heightReference` | [m] normally `swing_trajectory_config.swingHeight` |
-| `velocityReference`, `angularVelocityReference` | [m/s], [rad/s] a slide and a pivot that would already be failures |
-| `penetrationWeight` | the one-sided quadratic hinge on `h >= 0`: cost `w h^2 / 2` below the ground, exactly zero on or above it |
-| `gapSmoothing` | [m] the length the footprint corners' minimum height is blended over; see section 3a |
+| `complementarity_weight` | cost of a foot at `height_reference` carrying full body weight |
+| `slip_weight` | cost of a foot sliding at `velocity_reference` under full body weight |
+| `height_reference` | [m] normally `swing_trajectory_config.swing_height` |
+| `velocity_reference`, `angular_velocity_reference` | [m/s], [rad/s] a slide and a pivot that would already be failures |
+| `penetration_weight` | the one-sided quadratic hinge on `h >= 0`: cost `w h^2 / 2` below the ground, exactly zero on or above it |
+| `gap_smoothing` | [m] the length the footprint corners' minimum height is blended over; see section 3a |
 
-The keys are one list, `ModelSettings::contactImplicitKeys()`, which ModelSettings loads the block with,
-`validateContactImplicitConfig()` checks and the parameter updater hot-reloads, so no two of them can read different
-keys; the task files are tied to it with `LINT.IfChange`, and `humanoid_common_mpc:testMpcFormulationConfig` checks that
-every shipped block carries exactly its keys. Every key is hot-reloadable. A reload that carries a key the list does not
-know, or a value the start-up check would refuse, is refused AS A WHOLE with a warning naming the key: the terms keep
-every value they had, while the rest of the file still applies.
+The fields are the schema's `ContactImplicitConfig`, which the start-up and the parameter updater convert with one
+function, `contactImplicitFromConfig()`, so no two of them can read different fields; `ModelSettings::contactImplicitKeys()`
+says which of them are weights and which divisors for `validateContactImplicitConfig()`. Every field is
+hot-reloadable. A reload is the whole file: a field the block leaves out takes its schema default, as at start-up. A
+block holding a value the start-up check would refuse is refused AS A WHOLE with a warning naming the field: the terms
+keep every value they had, while the rest of the file still applies.
 
-Where the ground is is NOT in this block: it is the top-level `terrainHeight` of the task file, shared with the swing
-trajectories and the landing targets. There used to be two answers -- this block had its own key, while
+Where the ground is is NOT in this block: it is the top-level `terrain_height` of the task file, shared with the swing
+trajectories and the landing targets. There used to be two answers -- this block had its own field, while
 `SwitchedModelReferenceManager::adaptToCurrentGroundHeight()` computed an estimate from the stance feet and then
 discarded it on the next line, silently returning 0. They agreed only because both were pinned to the same constant.
 
 The reference manager owns the ground from start-up on (`SwitchedModelReferenceManager::setTerrainHeight()`): it builds
-the swing trajectories and the landing targets of the contact planner on it. A hot reload of `terrainHeight` hands the
+the swing trajectories and the landing targets of the contact planner on it. A hot reload of `terrain_height` hands the
 new value to the reference manager, which applies it at the next solve, and the updater moves the complementarity and
 penetration terms onto the ground the reference manager applied (`getAppliedTerrainHeight()`) at the start of that same
 solve. So the foot references the solver tracks and the two terms never describe two grounds, not even for the one
 solve after the reload. (The updater used to write the new height into the two terms only, and the swing trajectories
 and the landing targets kept the launch value until the next start.) The base-height reference follows the ground as
-well: `defaultBaseHeight` and the commanded pelvis height are heights above it
+well: `default_base_height` and the commanded pelvis height are heights above it
 (`TargetTrajectoriesCalculatorBase::commandedBaseHeight()`, which in the MPC nodes reads the reference manager's applied
 ground, `getAppliedTerrainHeight()`), and a reload moves the target already in use by the change of the ground, once
 (`SwitchedModelReferenceManager::adaptToCurrentGroundHeight()`).
 
-The two residuals are dimensionless and O(1) at their worst case, so `complementarityWeight` and `slipWeight` are
-comparable **with each other**. They are NOT comparable with `task_space_foot_cost_weights`, and an earlier version of
+The two residuals are dimensionless and O(1) at their worst case, so `complementarity_weight` and `slip_weight` are
+comparable **with each other**. They are NOT comparable with `task_space_foot_cost.weights`, and an earlier version of
 this document said they were. That claim was wrong, and wrong in the direction that hides the problem.
 
 `pos_z` multiplies a residual in **meters**, not a normalized one. Its worst case over a swing is the apex,
-`heightReference` = 0.08 m, so the cost it can ever charge is
+`height_reference` = 0.08 m, so the cost it can ever charge is
 
 ```
-0.5 * pos_z * heightReference^2  =  0.5 * 150 * 0.0064  =  0.48
+0.5 * pos_z * height_reference^2  =  0.5 * 150 * 0.0064  =  0.48
 ```
 
-against the complementarity term's `0.5 * complementarityWeight * 1 = 25` for a foot at that height carrying full body
+against the complementarity term's `0.5 * complementarity_weight * 1 = 25` for a foot at that height carrying full body
 weight. Comparing the raw numbers 150 and 50 suggests the swing reference wins three to one; in cost it loses fifty to
-one. The factor between them is `heightReference^2 = 0.0064`, i.e. **156x**, and it is pure unit mismatch.
+one. The factor between them is `height_reference^2 = 0.0064`, i.e. **156x**, and it is pure unit mismatch.
 
 Two consequences follow, and they are the ones to tune against:
 
 * **the break-even load.** Holding the foot at the apex costs `0.5 * w_c * (f_n/f_ref)^2`; planting it costs
-  `0.5 * pos_z * heightReference^2`. They cross at `f_n/f_ref = heightReference * sqrt(pos_z / w_c)`, which for the
+  `0.5 * pos_z * height_reference^2`. They cross at `f_n/f_ref = height_reference * sqrt(pos_z / w_c)`, which for the
   shipped values is **14% of body weight**. Leak more than that onto the swing foot and landing early is simply the
   cheaper option.
 * **the curvature on foot height.** The complementarity term contributes
-  `complementarityWeight * (f_n/f_ref)^2 / heightReference^2`, which is 7800 at full body weight but only 150 - level
+  `complementarity_weight * (f_n/f_ref)^2 / height_reference^2`, which is 7800 at full body weight but only 150 - level
   with `pos_z` - at that same 14%. Quoting the 7800 figure without the load fraction overstates the effect at any
   realistic operating point.
 
 Neither of these is the largest vertical term in the problem, though. See the paragraphs on `normal_velocity` above:
-the leg-joint entries of `Q` regularize the swing leg towards a posture whose reference is the foot on the floor, at an
-effective vertical stiffness of order 1e4. The honest ordering of what holds a swing foot down is `Q` first,
+the leg-joint entries of `state_weights` regularize the swing leg towards a posture whose reference is the foot on the
+floor, at an effective vertical stiffness of order 1e4. The honest ordering of what holds a swing foot down is
+`state_weights` first,
 complementarity second, and `pos_z` is not in the fight at 150.
 
 ### Why the penetration term is a hinge and not a barrier
@@ -427,7 +429,7 @@ A relaxed log barrier is the wrong object for a unilateral condition whose solut
 which `h >= 0` is for every foot that is carrying the robot. It never reaches zero: with the values that shipped here
 (`mu = 0.1`, `delta = 0.01`) its derivative below `delta` is `mu (h - 2 delta) / delta^2` -- `-20` at `h = 0`, and
 negative, i.e. upward, at every height. The only term pulling a foot back down was the complementarity penalty, whose
-gradient in `h` is `C f^2 h` with `C = complementarityWeight / heightReference^2` and `f = f_n / f_ref`. Balancing the
+gradient in `h` is `C f^2 h` with `C = complementarity_weight / height_reference^2` and `f = f_n / f_ref`. Balancing the
 two, `h = (2 mu / delta) / (C f^2 + mu / delta^2)`:
 
 ```
@@ -441,13 +443,13 @@ has no such equilibrium: it does nothing at all until the foot is actually below
 
 ### Tuning order
 
-1. **Check `terrainHeight` first.** Log `h` for a foot in stance. If it is not within a few millimeters of zero, the
+1. **Check `terrain_height` first.** Log `h` for a foot in stance. If it is not within a few millimeters of zero, the
    contact frame sits off the sole and every stance foot carries a permanent residual that no weight can fix — set
-   `terrainHeight` to that offset instead. It is hot-reloadable, and moves the swing trajectories and the landing
+   `terrain_height` to that offset instead. It is hot-reloadable, and moves the swing trajectories and the landing
    targets with the two terms.
-2. **Penetration.** `penetrationWeight = 5e4`: a 1 cm penetration then has a restoring gradient of 500, decisively
+2. **Penetration.** `penetration_weight = 5e4`: a 1 cm penetration then has a restoring gradient of 500, decisively
    above anything that could push a foot down there, while its curvature is the same order as the complementarity
-   term's own (`complementarityWeight / heightReference^2 = 7.8e3`), so it does not wreck the QP's conditioning.
+   term's own (`complementarity_weight / height_reference^2 = 7.8e3`), so it does not wreck the QP's conditioning.
 3. **Complementarity.** Watch the normal force on a foot in flight. Raise the weight until it is negligible; if the
    foot starts landing early instead, you have passed `pos_z` and should raise `pos_z` rather than the weight.
 4. **Slip, last.** Watch the tangential velocity of a loaded foot.
@@ -457,25 +459,24 @@ force in flight versus early touchdown — without guesswork.
 
 ## 5. Switching it on
 
-In the robot's `config/mpc/task.yaml`:
+In the robot's `config/mpc/task.textproto`:
 
 <!-- LINT.IfChange(contact_implicit_switch_on_lists) -->
-```yaml
-hard_constraints: []                  # zero_wrench, zero_velocity AND normal_velocity all removed from HERE
+```textproto
+# no hard_constraints line: zero_wrench, zero_velocity AND normal_velocity all removed from HERE
 
-soft_constraints:
-  - normal_velocity                   # ...and normal_velocity re-listed HERE, as a cost
-  - joint_limits
-  - foot_collision
-  - contact_wrench_cone               # a cone is REQUIRED once zero_wrench is gone; see section 2a
-  - contact_complementarity
-  - force_weighted_slip
-  - ground_penetration
+soft_constraints: "normal_velocity"          # ...and normal_velocity re-listed HERE, as a cost
+soft_constraints: "joint_limits"
+soft_constraints: "foot_collision"
+soft_constraints: "contact_wrench_cone"      # a cone is REQUIRED once zero_wrench is gone; see section 2a
+soft_constraints: "contact_complementarity"
+soft_constraints: "force_weighted_slip"
+soft_constraints: "ground_penetration"
 ```
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/MpcFormulationConfig.cpp:soft_constraint_registry, //humanoid_nmpc/humanoid_common_mpc/src/common/MpcFormulationConfig.cpp:soft_constraint_names) -->
 
 A cone is not optional here: with `zero_wrench` gone it is what supplies `f_n >= 0`, and the loader refuses the list
-without `contact_wrench_cone` or `friction_force_cone`. On a robot running `contactInputParameterization: basis_vectors`
+without `contact_wrench_cone` or `friction_force_cone`. On a robot running `contact_input_parameterization: "basis_vectors"`
 the `lambda >= 0` barrier supplies it whatever is listed, and a listed `contact_wrench_cone` builds nothing more. Neither
 is the soft `normal_velocity` optional, which the loader insists on.
 
@@ -483,18 +484,18 @@ Three things outside the constraint lists have to be right as well, and nothing 
 
 * **something has to hold the feet apart.** `zero_velocity` was what pinned a stance foot in place; without it and
   without a contact planner, nothing has an opinion about where the feet go sideways, and they drift together until
-  the robot falls. Either set `contactScheduleSource: contact_planner`, or give `nominal_foothold.stepWidth` a positive value AND
-  `task_space_foot_cost_weights.pos_y` a non-zero weight -- the nominal foothold is only a target, and `pos_y` is what
-  holds the foot to it. The Atlas ships `stepWidth: 0.45` with `pos_y: 0`, so the target is computed and then weighted
+  the robot falls. Either set `contact_schedule_source: "contact_planner"`, or give `nominal_foothold.step_width` a positive value AND
+  `task_space_foot_cost.weights.pos_y` a non-zero weight -- the nominal foothold is only a target, and `pos_y` is what
+  holds the foot to it. The Atlas ships `step_width: 0.45` with `pos_y: 0`, so the target is computed and then weighted
   by zero; the SA01 ships both at zero.
-* **the planner has to hear about the solver's contact choices.** With `contactScheduleSource: contact_planner`, list
-  `phase_resetting` in `contact_planning.yaml`'s execution rules with a contact source, or the planner keeps planning
+* **the planner has to hear about the solver's contact choices.** With `contact_schedule_source: "contact_planner"`, list
+  `phase_resetting` in `contact_planning.textproto`'s execution rules with a contact source, or the planner keeps planning
   from the schedule it last applied while the solver lands feet early or keeps them down (section 2).
 * **the lateral center-of-mass reference** -- see section 7.
 
 Then validate in MuJoCo before hardware, in this order: stand still (no foot should leave the ground and no force
 should appear in flight), walk on flat ground at a low command, then a push. The symptom to watch for is a foot that
-hovers with force, which means `complementarityWeight` is too low for the scale of the other costs.
+hovers with force, which means `complementarity_weight` is too low for the scale of the other costs.
 
 ## 6. Tests
 
@@ -506,9 +507,9 @@ unnoticed -- the one test that reached for these terms, a hot-reload test of `Mp
 `humanoid_common_mpc:testMpcFormulationConfig` holds the loader on its own, with synthetic task files: the complete
 formulation loads with either cone, and every refusal of section 3 is reached with every earlier check satisfied and
 asserts a phrase only its own message carries, so deleting any one check turns exactly its own test red. It holds that
-`validateContactImplicitConfig()` refuses every out-of-range `contact_implicit` value with a message naming the key,
-and that `checkContactImplicitBlockKeys()` refuses a renamed key - every key in turn - naming it and listing the keys,
-and the retired `contact_implicit.terrainHeight` pointing at the top-level key; that the key list names every key once,
+`validateContactImplicitConfig()` refuses every out-of-range `contact_implicit` value with a message naming the field,
+that the strict parser refuses a renamed field of the block at its line, and the retired
+`contact_implicit.terrain_height` pointing at the top-level field; that the key list names every key once,
 each with a field of its own, and calls a key a weight exactly when its name does; and it loads **every robot's MPC task
 file**, as it stands in the tree, from its runfiles and asserts that the
 formulation is off and the cones are gated -- the default-off rule, kept out of the suites below so that an experiment
@@ -523,10 +524,10 @@ task file (including the hard `normal_velocity` and a missing soft one), that th
 whatever it is set to, that all three terms are built for every foot, that the schedule-gated hard constraints are
 gone, that the basis-scaling barrier is no longer gated, that ground penetration is checked at all four footprint
 corners with a penalty that is zero in value and gradient on the ground, that the gap the product measures is
-bracketed by the smallest penetration row and that row plus `log(N) * gapSmoothing` on PITCHED feet -- where it is also
+bracketed by the smallest penetration row and that row plus `log(N) * gap_smoothing` on PITCHED feet -- where it is also
 a centimeter below the sole center, so a product built on the contact frame would fail -- that one terrain height
-reaches both terms that need it and the reference manager, that `Create()` refuses a zero `gapSmoothing`, a negative
-`penetrationWeight` and a renamed key with a Status naming the key (the last with the formulation off, before any CppAD
+reaches both terms that need it and the reference manager, that `Create()` refuses a zero `gap_smoothing`, a negative
+`penetration_weight` and a renamed key with a Status naming the key (the last with the formulation off, before any CppAD
 model is built), that under basis-vector inputs the friction cone it builds is the un-gated one in a squared hinge whose
 zero sits on the cone, and that the soft `normal_velocity` is active during a scheduled swing and not in
 stance, prices a foot that stays down mid-swing, and carries the weight the task file configures (the test writes a
@@ -548,12 +549,11 @@ is the file's relaxed barrier and takes the reloaded `(mu, delta)` - both throug
 the one function the factory builds the penalties with and the updater rewrites them with.
 
 `humanoid_centroidal_mpc:testMpcParameterUpdaterModule` holds the hot reload on a task file with the formulation
-switched on: every key of the block, each set to a value that is neither the shipped one nor the default, reaches every
-term of every worker's copy of the problem - the weights as the penalties' parameters, the hinge's `delta` still 0 - and
-the test fails for a key it has no value for. A block with a zero divisor, a negative weight, a value that is not a
-number or a renamed key is refused as a whole with a warning naming the key, while the rest of the file applies; a
-block that carries only some of the keys applies those and leaves every other value where it was running, not at its
-default. And a reloaded `terrainHeight`, on a problem that has the contact planner as well, reaches the reference
+switched on: every field of the block, each set to a value that is neither the shipped one nor the default, reaches
+every term of every worker's copy of the problem - the weights as the penalties' parameters, the hinge's `delta` still
+0. A block with a zero divisor or a negative weight is refused as a whole with a warning naming the field, while the
+rest of the file applies; a block the reload leaves out, or whose fields it leaves out, is applied at its defaults, as
+at start-up. And a reloaded `terrain_height`, on a problem that has the contact planner as well, reaches the reference
 manager at once and nothing else, then moves the stance and touch-down height references, the landing targets and both
 terms together at the next solve - or, for an updater given no reference manager, reaches both terms at once.
 
@@ -595,7 +595,7 @@ footprint moved under an unchanged name prefix gets heights of the NEW geometry,
 `humanoid_common_mpc:testFootprintCornerHeights` covers the smoothed minimum on its own, away from any robot model, so
 the properties the formulation depends on are stated where they can be read: it is **exact** in value and gradient at a
 flat foot -- the property the `1/N` buys and the reason the plain log-sum-exp softmin could not be used -- it never
-reports less clearance than the lowest corner, its bias is the whole family `gapSmoothing * log(N / k)` for `k` corners
+reports less clearance than the lowest corner, its bias is the whole family `gap_smoothing * log(N / k)` for `k` corners
 down -- exact flat, 0.69 mm on an edge, 1.39 mm on a single corner, and monotone between them -- the equilibrium
 penetration against the hinge is that bias attenuated by `C / (C + k P)`, its weights are a convex combination that
 really is its gradient, it is exact under a rigid lift of the foot, and it stays finite when corners are far enough
@@ -605,7 +605,7 @@ apart for the exponentials to underflow.
 
 The contact-implicit terms are only half of what the lateral direction needs. First, something has to place the feet
 sideways at all once `zero_velocity` no longer pins them: the contact planner, or the nominal foothold with a non-zero
-`task_space_foot_cost_weights.pos_y` (section 5). Without either, the feet drift together until the robot falls. Second,
+`task_space_foot_cost.weights.pos_y` (section 5). Without either, the feet drift together until the robot falls. Second,
 the whole-body MPC has to be *asked* for the center-of-mass motion the reduced-order planner is placing feet for — see
 section 3c of [hlip_contact_planner](../hlip_contact_planner/README.md) and the `planned_com_override` execution rule.
 Without it, narrowing steps and a sideways drift appear whether or not this formulation is enabled.

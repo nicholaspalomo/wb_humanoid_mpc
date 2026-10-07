@@ -29,7 +29,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <robot_model/ContactEstimator.h>
+#include <string>
+#include <vector>
+
+#include "robot_model/ContactEstimator.h"
 
 namespace robot::model {
 

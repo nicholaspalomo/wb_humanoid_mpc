@@ -27,9 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <chrono>
 #include <memory>
@@ -37,12 +35,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include <ocs2_centroidal_model/AccessHelperFunctions.h>
-#include <ocs2_mpc/MPC_Settings.h>
-#include <ocs2_mpc_test/ScriptedMpc.h>
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
-#include <robot_model/RobotDescription.h>
-#include <robot_model/RobotState.h>
+#include "absl/status/statusor.h"
+#include "gtest/gtest.h"
+#include "ocs2_centroidal_model/AccessHelperFunctions.h"
+#include "ocs2_mpc/MPC_Settings.h"
+#include "ocs2_mpc_test/ScriptedMpc.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcResetTarget.h"
@@ -50,6 +48,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "humanoid_common_mpc/mrt/MpcLink.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotState.h"
 #include "support/AtlasReferenceStack.h"
 
 /*
@@ -73,7 +73,7 @@ SystemObservation movingObservation(const AtlasReferenceStack& stack, scalar_t t
   observation.state(11) = -0.03;                                                                   // roll
   observation.state.tail(3).array() += 0.2;
   observation.input = vector_t::Zero(stack.model().getInputDim());
-  observation.mode = ModeNumber::STANCE;
+  observation.mode = ModeNumber::kStance;
   return observation;
 }
 
@@ -117,8 +117,8 @@ TEST(CentroidalMpcResetTarget, HoldsTheObservedConfigurationStillAndUprightWithT
   const vector3_t left = stack.model().getContactForceInWorldFrame(state, input, /*contactIndex=*/0);
   const vector3_t right = stack.model().getContactForceInWorldFrame(state, input, /*contactIndex=*/1);
   const scalar_t weight = computeRobotWeight(stack.pinocchioInterface());
-  EXPECT_NEAR(left.z() + right.z(), weight, 1e-9 * weight);
-  EXPECT_NEAR(left.z(), right.z(), 1e-9 * weight);
+  EXPECT_NEAR(left.z() + right.z(), weight, 1.0e-9 * weight);
+  EXPECT_NEAR(left.z(), right.z(), 1.0e-9 * weight);
 }
 
 /** The controller's link, made by a factory that keeps the reset target the controller hands it. */
@@ -141,10 +141,14 @@ class CapturingFactory {
 
 TEST(CentroidalMpcResetTarget, IsWhatTheControllerHandsItsMpcLink) {
   AtlasReferenceStack stack;
-  const robot::model::RobotDescription description(stack.urdfFile());
+  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus = robot::model::RobotDescription::Create(stack.urdfFile());
+  ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
+  const robot::model::RobotDescription& description = *descriptionOrStatus;
   CapturingFactory capturing(stack.mpc());
-  const CentroidalMpcMrtJointController controller(description, stack.modelSettings(), stack.model(), capturing.factory(),
-                                                   stack.pinocchioInterface());
+  absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = CentroidalMpcMrtJointController::Create(
+      description, stack.modelSettings(), stack.model(), capturing.factory(), stack.pinocchioInterface());
+  // The controller, which owns the link the factory captured, lives in controllerOrStatus for the whole test.
+  ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
   ASSERT_TRUE(capturing.resetTarget());
   for (const scalar_t time : {0.0, 1.25, 7.5}) {
     const SystemObservation observation = movingObservation(stack, time);
@@ -156,7 +160,9 @@ TEST(CentroidalMpcResetTarget, IsWhatTheControllerHandsItsMpcLink) {
 
 TEST(CentroidalMpcResetTarget, IsWhatTheInProcessLinkResetsTheMpcTo) {
   const AtlasReferenceStack stack;
-  const robot::model::RobotDescription description(stack.urdfFile());
+  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus = robot::model::RobotDescription::Create(stack.urdfFile());
+  ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
+  const robot::model::RobotDescription& description = *descriptionOrStatus;
   // A bare scripted MPC: no synchronized module rewrites the target after the reset, so the reference manager keeps it.
   mpc_test::ScriptedMpc mpc(mpc::Settings(), stack.model().getInputDim());
 
@@ -173,8 +179,11 @@ TEST(CentroidalMpcResetTarget, IsWhatTheInProcessLinkResetsTheMpcTo) {
   SystemObservation startObservation;
   {
     // The default constructor's link: InProcessMpcLink, which resets the MPC fully from the start observation.
-    CentroidalMpcMrtJointController controller(description, stack.modelSettings(), stack.model(), mpc, stack.pinocchioInterface(),
-                                               /*mpcDesiredFrequency=*/100.0);
+    absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus =
+        CentroidalMpcMrtJointController::Create(description, stack.modelSettings(), stack.model(), mpc, stack.pinocchioInterface(),
+                                                /*mpcDesiredFrequency=*/100.0);
+    ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
+    CentroidalMpcMrtJointController& controller = **controllerOrStatus;
     controller.startMpcThread(robotState);
     const std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
     while (!controller.ready() && std::chrono::steady_clock::now() < deadline) {

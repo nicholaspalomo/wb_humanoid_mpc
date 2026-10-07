@@ -34,7 +34,6 @@ import unittest
 from unittest import mock
 
 from tools.hooks import check_test_support
-from tools.hooks import checks
 from tools.hooks import python_language as language
 
 
@@ -110,7 +109,7 @@ class LanguageTest(unittest.TestCase):
             ["assert x is not None\n"],
             ["if x is None:\n    raise ValueError(x)\n"],
         )
-        check = check_test_support.assert_registered(self, "py-assert", pending=True)
+        check = check_test_support.assert_registered(self, "py-assert")
         self.assertFalse(check.applies_to("tools/test_x.py"))
 
     def test_exception_name(self):
@@ -157,6 +156,41 @@ class LanguageTest(unittest.TestCase):
             language.check_type_comment,
             ["x = []  # type: List[int]\n", "x = f()  # type: ignore\n"],
             ["x = f()  # type: ignore[attr-defined]\n", "x: list[int] = []\n"],
+        )
+
+    def test_pragma_reason(self):
+        self.assert_cases(
+            language.check_pragma_reason,
+            [
+                "x = f()  # type: ignore[attr-defined]\n",
+                "x = f()  # type: ignore[attr-defined]  # NOLINT(py-type-comment)\n",
+                "except Exception:  # pylint: disable=broad-exception-caught\n",
+                "import h5py  # pylint: disable=import-outside-toplevel\n",
+                "\n# pylint: disable=wrong-import-position\nimport a\n",
+                "# pylint: disable-next=consider-using-with\nproc = subprocess.Popen(cmd)\n",
+                "# pylint: skip-file\n",
+                "# pylint: skip-file  # A generated file.\n",
+            ],
+            [
+                "x = f()  # type: ignore[attr-defined]  # The stub lacks it.\n",
+                "except Exception:  # pylint: disable=broad-exception-caught  # A Tk callback must not raise.\n",
+                "# pylint: disable=wrong-import-position  # JAX_PLATFORMS is set above.\nimport a\n",
+                "# JAX_PLATFORMS is set above, before JAX is imported.\n# pylint: disable=wrong-import-position\nimport a\n",
+                # The black-split form: the pragma above a statement black wrapped onto several lines.
+                "# pylint: disable-next=consider-using-with  # tearDown() deletes it.\nproc = subprocess.Popen(\n    cmd,\n)\n",
+                "x = 1  # pylint: enable=invalid-name\n",
+                's = "# type: ignore[x] in a string"\n',
+                "x = f()  # type: ignore[attr-defined, arg-type]  # Both are the stub's.\n",
+                "x = 1  # pylint: disable=invalid-name,protected-access  # The paper's notation.\n",
+            ],
+        )
+        # A pragma is not the reason of the pragma below it.
+        self.assertEqual(
+            _count(
+                language.check_pragma_reason,
+                "# pylint: disable-next=protected-access\n# pylint: disable-next=invalid-name\nx = a._b\n",
+            ),
+            2,
         )
 
     def test_main_guard(self):
@@ -231,7 +265,7 @@ class ShebangTest(unittest.TestCase):
         )
 
     def test_the_registry_runs_it(self):
-        check_test_support.assert_registered(self, "py-shebang", pending=True)
+        check_test_support.assert_registered(self, "py-shebang")
 
 
 class RegistryTest(unittest.TestCase):
@@ -248,12 +282,11 @@ class RegistryTest(unittest.TestCase):
             ("py-exception-name", "class Failure(Exception):\n    pass\n"),
             ("py-power-feature", "eval(s)\n"),
             ("py-type-comment", "x = []  # type: List[int]\n"),
+            ("py-pragma-reason", "x = f()  # type: ignore[attr-defined]\n"),
             ("py-main-guard", "print('at import')\n"),
         ]:
             with self.subTest(check=name):
-                check_test_support.assert_check_behaves(
-                    self, name, flagged, "src/a.py", pending=name in language_pending()
-                )
+                check_test_support.assert_check_behaves(self, name, flagged, "src/a.py")
 
     def test_a_long_ternary_behaves(self):
         check_test_support.assert_check_behaves(
@@ -261,7 +294,6 @@ class RegistryTest(unittest.TestCase):
             "py-long-ternary",
             "x = (\n    f(a,\n      b)\n    if c\n    else d\n)\n",
             "src/a.py",
-            pending=True,
         )
 
     def test_the_backslash_check_is_registered(self):
@@ -274,11 +306,6 @@ class RegistryTest(unittest.TestCase):
             )[0].check,
             "py-backslash",
         )
-
-
-def language_pending() -> frozenset[str]:
-    """The checks of python_language.py that are still PENDING."""
-    return frozenset(check.name for check in language.CHECKS) & checks.PENDING
 
 
 if __name__ == "__main__":

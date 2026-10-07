@@ -51,9 +51,10 @@ class FsmStateMailbox {
 
   FsmStateMailbox(const FsmStateMailbox&) = delete;
   FsmStateMailbox& operator=(const FsmStateMailbox&) = delete;
+  ~FsmStateMailbox() = default;
 
   /** Realtime thread. */
-  void write(absl::string_view mode, bool gantryLocked, std::uint64_t controllerResets, bool mpcHealthy);
+  void write(absl::string_view mode, bool gantryLocked, uint64_t controllerResets, bool mpcHealthy);
 
   /** Communication thread: the newest state, when one was written since the last call. */
   bool take(msgs::FsmState& state);

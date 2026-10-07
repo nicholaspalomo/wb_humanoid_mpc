@@ -30,46 +30,43 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <iostream>
 #include <map>
 #include <string>
 #include <vector>
 
-#include <ocs2_core/misc/LoadData.h>
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 
-enum ModeNumber {  // {LF, RF}
-  FLY = 0,
-  RF = 1,
-  LF = 2,
-  STANCE = 3,
+/**
+ * The contact modes of the two feet. A mode number is the stance flags {LF, RF} read as the bits of a two-bit number
+ * (stanceLeg2ModeNumber()), which is how ModeSchedule stores it: as a size_t.
+ */
+// NOLINTNEXTLINE(totw-unscoped-enum): a mode number IS the size_t ModeSchedule stores; every use spells ModeNumber::k...
+enum ModeNumber {
+  kFly = 0,
+  kRf = 1,
+  kLf = 2,
+  kStance = 3,
 };
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-inline contact_flag_t modeNumber2StanceLeg(const size_t& modeNumber) {
-  contact_flag_t stanceLegs;  // {LF, RF}
-
-  switch (modeNumber) {
-    case 0:
-      stanceLegs = contact_flag_t{false, false};
-      break;  // 0:  0-leg-stance
-    case 1:
-      stanceLegs = contact_flag_t{false, true};
-      break;  // 1:  RH
-    case 2:
-      stanceLegs = contact_flag_t{true, false};
-      break;  // 2:  LH
-    case 3:
-      stanceLegs = contact_flag_t{true, true};
-      break;  // 3:  LH, RH
+/** The stance flags {LF, RF} of `modeNumber`; no foot is in stance for a number that is not a mode. Realtime-safe. */
+inline contact_flag_t modeNumber2StanceLeg(size_t modeNumber) {
+  if (modeNumber > static_cast<size_t>(ModeNumber::kStance)) {
+    return contact_flag_t{false, false};
   }
-
-  return stanceLegs;
+  // The inverse of stanceLeg2ModeNumber(): bit 1 is the left foot, bit 0 the right one.
+  return contact_flag_t{(modeNumber & 2U) != 0, (modeNumber & 1U) != 0};
 }
 
 /******************************************************************************************************/
@@ -84,30 +81,27 @@ inline size_t stanceLeg2ModeNumber(const contact_flag_t& stanceLegs) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-inline std::string modeNumber2String(const size_t& modeNumber) {
-  // build the map from mode number to name
-  std::map<size_t, std::string> modeToName;
-  modeToName[FLY] = "FLY";
-  modeToName[RF] = "RF";
-  modeToName[LF] = "LF";
-  modeToName[STANCE] = "STANCE";
-
-  return modeToName[modeNumber];
+/** The name of `modeNumber` in the gait files (FLY, RF, LF or STANCE), or an empty string for a number that is not a mode. */
+inline std::string modeNumber2String(size_t modeNumber) {
+  // Indexed by the mode number.
+  // LINT.IfChange(mode_names)
+  constexpr std::array<absl::string_view, static_cast<size_t>(ModeNumber::kStance) + 1> kModeNames = {"FLY", "RF", "LF", "STANCE"};
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/mode_sequence_template_config.proto:mode_names)
+  return modeNumber < kModeNames.size() ? std::string(kModeNames[modeNumber]) : std::string();
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-inline size_t string2ModeNumber(const std::string& modeString) {
-  // build the map from name to mode number
-  std::map<std::string, size_t> nameToMode;
-  nameToMode["FLY"] = FLY;
-  nameToMode["RF"] = RF;
-  nameToMode["LF"] = LF;
-  nameToMode["STANCE"] = STANCE;
-
-  return nameToMode[modeString];
+/** The mode number a gait file names `modeString` (FLY, RF, LF or STANCE), or InvalidArgument naming the valid names. */
+inline absl::StatusOr<size_t> parseModeNumber(absl::string_view modeString) {
+  for (const ModeNumber mode : {ModeNumber::kFly, ModeNumber::kRf, ModeNumber::kLf, ModeNumber::kStance}) {
+    if (modeString == modeNumber2String(mode)) {
+      return static_cast<size_t>(mode);
+    }
+  }
+  return absl::InvalidArgumentError(absl::StrCat("'", modeString, "' is not a mode; the modes are FLY, RF, LF and STANCE."));
 }
 
 }  // namespace ocs2::humanoid

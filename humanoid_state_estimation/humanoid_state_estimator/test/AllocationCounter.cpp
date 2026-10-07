@@ -32,31 +32,33 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <atomic>
 #include <cstddef>
 
+#include "absl/base/nullability.h"
+
 namespace {
 
 // Constant-initialized, so that it is ready before the first allocation of static initialization.
-constinit std::atomic<std::size_t> allocations_since_start{0};
+constinit std::atomic<size_t> allocations_since_start{0};
 
 }  // namespace
 
 // glibc's own entry points. Defining malloc, calloc and realloc in the binary interposes them on every caller in the
 // process; free needs no counting and stays glibc's.
 extern "C" {
-void* __libc_malloc(std::size_t size);
-void* __libc_calloc(std::size_t count, std::size_t size);
-void* __libc_realloc(void* pointer, std::size_t size);
+void* absl_nullable __libc_malloc(size_t size);
+void* absl_nullable __libc_calloc(size_t count, size_t size);
+void* absl_nullable __libc_realloc(void* absl_nullable pointer, size_t size);
 
-void* malloc(std::size_t size) noexcept {
+void* absl_nullable malloc(size_t size) noexcept {
   ++allocations_since_start;
   return __libc_malloc(size);
 }
 
-void* calloc(std::size_t count, std::size_t size) noexcept {
+void* absl_nullable calloc(size_t count, size_t size) noexcept {
   ++allocations_since_start;
   return __libc_calloc(count, size);
 }
 
-void* realloc(void* pointer, std::size_t size) noexcept {
+void* absl_nullable realloc(void* absl_nullable pointer, size_t size) noexcept {
   ++allocations_since_start;
   return __libc_realloc(pointer, size);
 }
@@ -64,7 +66,7 @@ void* realloc(void* pointer, std::size_t size) noexcept {
 
 namespace ocs2::humanoid::estimation {
 
-std::size_t heapAllocationCount() {
+size_t heapAllocationCount() {
   return allocations_since_start.load();
 }
 

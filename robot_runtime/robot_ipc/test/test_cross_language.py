@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """The Python and the C++ bus frame messages identically.
 
 The Python bus publishes TestSample messages; the C++ echo binary (test/BusEchoMain.cpp, a typed C++ subscription)
@@ -6,17 +33,18 @@ subscription and sees its raw frames. A message of another type on the C++ side'
 which proves it reads the second frame as the type name.
 """
 
+from collections.abc import Callable
 import os
 import queue
 import subprocess
 import threading
 import time
 import unittest
-from typing import Callable, Dict, List, Tuple
 
-from robot_ipc import EPHEMERAL_PORT, Bus, NetworkConfig, NodeEndpoint
 from robot_ipc_test import test_event_pb2
 from robot_ipc_test import test_sample_pb2
+
+import robot_ipc
 
 TIMEOUT = 30.0
 TO_CPP = "test/to_cpp"
@@ -53,6 +81,7 @@ class EchoProcess:
     """The C++ echo binary, with its standard output read on a thread so that every read can time out."""
 
     def __init__(self, peer: str) -> None:
+        # pylint: disable-next=consider-using-with  # finish() and kill() end it; the test calls one of them.
         self._process = subprocess.Popen(
             [
                 os.environ["BUS_ECHO"],
@@ -76,7 +105,7 @@ class EchoProcess:
     def next_line(self) -> str:
         return self._lines.get(timeout=TIMEOUT)
 
-    def finish(self) -> Tuple[int, str]:
+    def finish(self) -> tuple[int, str]:
         """Closes its standard input, which stops it; returns its exit code and its STATS line."""
         assert self._process.stdin is not None
         self._process.stdin.close()
@@ -89,7 +118,7 @@ class EchoProcess:
             self._process.wait()
 
 
-def parse_stats(line: str) -> Dict[str, int]:
+def parse_stats(line: str) -> dict[str, int]:
     """Maps "STATS received=1 delivered=1 rejected=0" to {"received": 1, "delivered": 1, "rejected": 0}."""
     words = line.split()
     assert words and words[0] == "STATS", line
@@ -99,9 +128,15 @@ def parse_stats(line: str) -> Dict[str, int]:
 class CrossLanguageTest(unittest.TestCase):
 
     def setUp(self) -> None:
-        self.bus = Bus(
+        self.bus = robot_ipc.Bus(
             "python",
-            NetworkConfig(nodes=(NodeEndpoint("python", "127.0.0.1", EPHEMERAL_PORT),)),
+            robot_ipc.NetworkConfig(
+                nodes=(
+                    robot_ipc.NodeEndpoint(
+                        "python", "127.0.0.1", robot_ipc.EPHEMERAL_PORT
+                    ),
+                )
+            ),
         )
         self.addCleanup(self.bus.close)
         self.echo = EchoProcess(self.bus.bound_endpoint)
@@ -111,8 +146,8 @@ class CrossLanguageTest(unittest.TestCase):
         self.assertTrue(ready[1].startswith("tcp://127.0.0.1:"), ready)
 
         self.lock = threading.Lock()
-        self.echoes: Dict[int, test_sample_pb2.TestSample] = {}
-        self.frames: List[Tuple[str, str, bytes]] = []
+        self.echoes: dict[int, test_sample_pb2.TestSample] = {}
+        self.frames: list[tuple[str, str, bytes]] = []
         self.bus.connect(ready[1])
         self.bus.subscribe(FROM_CPP, test_sample_pb2.TestSample, self._on_echo, "all")
         self.bus.subscribe_all_topics(self._on_frames)

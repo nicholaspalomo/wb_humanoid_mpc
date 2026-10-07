@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <iostream>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/control/FeedforwardController.h>
 
 namespace ocs2 {
@@ -36,8 +38,9 @@ namespace ocs2 {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-FeedforwardController::FeedforwardController(const scalar_array_t& controllerTime, const vector_array_t& stateTrajectory,
-                                             ControllerBase* controller) {
+FeedforwardController::FeedforwardController(const scalar_array_t& controllerTime,
+                                             const vector_array_t& stateTrajectory,
+                                             ControllerBase* absl_nonnull controller) {
   if (controllerTime.size() != stateTrajectory.size()) {
     throw std::runtime_error("FeedforwardController Constructor: controllerTime and stateTrajectory sizes mismatch.");
   }
@@ -93,7 +96,8 @@ vector_t FeedforwardController::computeInput(scalar_t t, const vector_t& x) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void FeedforwardController::flatten(const scalar_array_t& timeArray, const std::vector<std::vector<double>*>& flatArray2) const {
+void FeedforwardController::flatten(const scalar_array_t& timeArray,
+                                    const std::vector<std::vector<double>* absl_nonnull>& flatArray2) const {
   const auto timeSize = timeArray.size();
   const auto dataSize = flatArray2.size();
 
@@ -128,7 +132,7 @@ void FeedforwardController::flattenSingle(scalar_t time, std::vector<double>& fl
 /******************************************************************************************************/
 /******************************************************************************************************/
 FeedforwardController FeedforwardController::unFlatten(const scalar_array_t& timeArray,
-                                                       const std::vector<std::vector<double> const*>& flatArray2) {
+                                                       const std::vector<const std::vector<double>* absl_nonnull>& flatArray2) {
   vector_array_t uffArray;
   uffArray.reserve(flatArray2.size());
 
@@ -141,8 +145,8 @@ FeedforwardController FeedforwardController::unFlatten(const scalar_array_t& tim
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void FeedforwardController::concatenate(const ControllerBase* nextController, int index, int length) {
-  if (auto nextFfwdCtrl = dynamic_cast<const FeedforwardController*>(nextController)) {
+void FeedforwardController::concatenate(const ControllerBase* absl_nonnull nextController, int index, int length) {
+  if (const FeedforwardController* absl_nullable nextFfwdCtrl = dynamic_cast<const FeedforwardController*>(nextController)) {
     if (!timeStamp_.empty() && timeStamp_.back() > nextFfwdCtrl->timeStamp_.front()) {
       throw std::runtime_error("Concatenate requires that the nextController comes later in time.");
     }
@@ -186,7 +190,7 @@ bool FeedforwardController::empty() const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-FeedforwardController* FeedforwardController::clone() const {
+FeedforwardController* absl_nonnull FeedforwardController::clone() const {
   return new FeedforwardController(*this);
 }
 

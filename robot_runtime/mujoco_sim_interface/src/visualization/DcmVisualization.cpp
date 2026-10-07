@@ -32,6 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstring>
 
+#include "absl/base/nullability.h"
+
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/visualization/GroundMarkerGeoms.h"
 
@@ -39,16 +41,16 @@ namespace robot::mujoco_sim_interface {
 
 void DcmVisualization::addSceneGeoms(const VisualizationFrame& frame) {
   if (frame.sim == nullptr || frame.state == nullptr || frame.scene == nullptr) return;
-  const mjModel* model = frame.sim->getModel();
+  const mjModel* absl_nonnull model = frame.sim->getModel();
   const RobotCentroidalState state = robotCentroidalState(model, frame.state->data);
   if (!state.valid) return;
   const double gravity = std::fabs(model->opt.gravity[2]);
   double dcm[2];
   divergentComponentOfMotion(state.com, state.comVelocity, state.com[2], gravity, dcm);
-  const MarkerColor green{0.1f, 0.9f, 0.3f, 0.9f};
+  const MarkerColor green{.r = 0.1f, .g = 0.9f, .b = 0.3f, .a = 0.9f};
   // The offset from the CoM's shadow to the DCM is the velocity term v / omega: a line on the ground makes it readable.
   if (frame.scene->ngeom < frame.scene->maxgeom) {
-    mjvGeom* line = &frame.scene->geoms[frame.scene->ngeom++];
+    mjvGeom* absl_nonnull line = &frame.scene->geoms[frame.scene->ngeom++];
     std::memset(line, 0, sizeof(mjvGeom));
     const mjtNum from[3] = {state.com[0], state.com[1], 0.004};
     const mjtNum to[3] = {dcm[0], dcm[1], 0.004};

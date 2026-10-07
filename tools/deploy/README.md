@@ -32,7 +32,7 @@ files sit at their repository paths, where the launch files name them.
 | `bin/humanoid_nmpc/humanoid_wb_mpc_app/humanoid_wb_mpc_robot` (+ `.runfiles/`) | the whole-body robot binary |
 | `bin/robot_entrypoint.sh`, `bin/netem.sh`, `bin/collect_runtime_libraries.sh` | the image's entry point, NETEM, the library check |
 | `launch/<robot>.sh` | the robot side of each robot configuration: its `launch/robot.textproto` exported with `//tools/launch:export_script` |
-| `robot_models/...` | every robot's configuration and description (task, reference, PD gains, URDF, MJCF, meshes), without the GUI's `.bak` and `.live` side files |
+| `robot_models/...` | every robot's configuration and description (the task, reference and PD gains textprotos, URDF, MJCF, meshes), without the git-ignored `.bak` and `.live` side files (`bazel/robot_files.bzl`) |
 | `config/ipc/network.textproto`, `config/ipc/two_machine.example.textproto` | the network files |
 
 The image runs no Python, so it cannot run the launcher: `export_script` turns the launch file into a POSIX sh script
@@ -74,7 +74,7 @@ for it yet:
   `PINOCCHIO_PYTHON=ON`.
 - The bundle must be built for the robot's architecture: in a dev container on an arm64 machine (natively, e.g. on the
   robot computer itself or an arm64 build machine, or under QEMU with `docker buildx`, which is very slow for this
-  code base). `bazel/system_libs.bzl` finds yaml-cpp in the architecture's multiarch directory.
+  code base).
 - Then `make deploy-robot ROBOT=... HOST=... DEV_CONTAINER=<the arm64 dev container>`. The image is built for the
   architecture the robot's Docker reports (`ssh <host> docker version`), or `PLATFORM=linux/arm64`; the script refuses a
   bundle whose robot binary is not of that architecture (its ELF header), and a `PLATFORM=` the robot does not run.
@@ -85,8 +85,8 @@ for it yet:
 
 - `network_mode: host`: the bus binds and connects at the network file's addresses on the host's interfaces.
 - `cap_add: [SYS_NICE, IPC_LOCK]` and `ulimits: {rtprio: 99, memlock: -1}`: `SCHED_FIFO` for the realtime thread and
-  `mlockall` for the process, which `--realtime_priority` asks for. No privileged mode and no device; the one mount is
-  the network file's (below).
+  `mlockall` for the process, which `--realtime_priority` asks for. No privileged mode and no device; the mounts are
+  the network file's and the stored configuration's (below).
 - `cpuset: ${WB_ROBOT_CPUSET}`: the cores the container may use (all by default). Pair it with
   `WB_ROBOT_REALTIME_CORES` and `WB_ROBOT_BACKEND_CORES`; a core outside the cpuset is reported and skipped.
 - `restart: unless-stopped`: a robot process that exits comes back, in ZERO_TORQUE.
@@ -95,6 +95,10 @@ for it yet:
   `WB_ROBOT_NETWORK_SOURCE`). Without swarm, docker compose implements a file config as a read-only bind mount of the
   file on the machine it runs on: the file must stay in the deployment directory, and the robot reads it when it
   starts (a new one takes effect at its next start, which a redeploy does).
+- The robot's stored configuration is the host directory `WB_ROBOT_CONFIG_SOURCE` (default `./robot_config` in the
+  deployment directory), bound read-write at `/var/lib/wb-humanoid-robot/config` with `create_host_path: true` (the
+  long syntax creates no missing host directory otherwise); the robot process of `ROBOT` keeps its files in
+  `/var/lib/wb-humanoid-robot/config/<ROBOT>` (`WB_ROBOT_CONFIG_STORE_DIR`, "The stored configuration" below).
 - Logs: json-file, 3 x 10 MB.
 
 <!-- LINT.IfChange(robot_memory_limit) -->
@@ -117,6 +121,9 @@ for it yet:
 | `WB_ROBOT_HEADLESS` | the image's: `true` in robot-runtime, `false` in robot-sim | the MuJoCo backend without its viewer |
 | `WB_ROBOT_REALTIME_PRIORITY` | `80` | `SCHED_FIFO` priority of the realtime thread; 0 = off |
 | `WB_ROBOT_REALTIME_CORES`, `WB_ROBOT_BACKEND_CORES` | `default` | cores of the realtime thread and of the backend's threads |
+| `WB_ROBOT_CONFIG_STORE_DIR` | `/var/lib/wb-humanoid-robot/config/<ROBOT>` (the compose file sets it) | the robot's stored configuration; empty: the bundle's files in place |
+| `WB_ROBOT_CONFIG_SEED` | `when_bundle_changes` (`every_start` in simulation) | when the bundle's files replace the stored copies |
+| `WB_ROBOT_CONFIG_SOURCE` | `./robot_config` | the host directory of the stored configuration (not a launch-file variable) |
 | `NETEM`, `NETEM_INTERFACE` | none, `lo` | tc-netem on the bus's packets (below) |
 
 The `WB_ROBOT_*` variables of the robot process are the variables of `launch/robot.textproto`; empty means the launch
@@ -124,8 +131,8 @@ file's value.
 <!-- LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/launch/robot.textproto:robot_variables, //docker-compose.robot.yaml:robot_environment) -->
 
 Two overrides: `docker-compose.robot.sim.yaml` (the robot-sim image, `DISPLAY`, Mesa's software renderer, no
-restart, and the checkout's `robot_models` mounted read-only, see "Simulation") and `docker-compose.robot.netem.yaml`
-(`NET_ADMIN`, for NETEM only).
+restart, the checkout's `robot_models` mounted read-only and the stored configuration in a volume, see "Simulation")
+and `docker-compose.robot.netem.yaml` (`NET_ADMIN`, for NETEM only).
 
 ## Deploying
 
@@ -139,7 +146,8 @@ restart, and the checkout's `robot_models` mounted read-only, see "Simulation") 
    `docker pull` on the host;
 4. installs the deployment directory `~/wb-humanoid-robot` (`DEPLOY_DIR=`) on the host: `docker-compose.robot.yaml`, the
    NETEM override, `network.textproto` (`NETWORK=`), a `.env` with the settings (`deploy_robot.sh environment` prints
-   it) and the unit `wb-humanoid-robot@.service`;
+   it), the unit `wb-humanoid-robot@.service` and the directory `robot_config/` of the stored configuration, which a
+   deploy creates and never empties;
 5. `SERVICE=install` installs the unit (sudo), `SERVICE=enable` also enables it at boot and (re)starts it;
 6. restarts the robot when it runs already, so that a redeploy takes effect at once: `SERVICE=enable` restarts the
    unit (`enable --now` would leave an active oneshot unit, and the container it started, on the old image), and
@@ -166,6 +174,7 @@ remote host needs `NETWORK=` (`config/ipc/two_machine.example.textproto`). Every
 | `BACKEND`, `MEMORY_LIMIT` | `--backend`, `--memory_limit` | the launch file's (`mujoco`), the compose file's (`4g`) |
 | `CPUSET`, `REALTIME_PRIORITY`, `REALTIME_CORES`, `BACKEND_CORES` | `--cpuset`, ... | the compose file's, the launch file's |
 | `NETEM`, `NETEM_INTERFACE` | `--netem`, `--netem_interface` | none, `lo` |
+| `CONFIG_SEED` | `--config_seed` | the launch file's, `when_bundle_changes` ("The stored configuration") |
 | `DEPLOY_DIR` | `--deploy_dir` | `wb-humanoid-robot` in the host's home |
 | `DEV_CONTAINER` | `--dev_container` | `devcontainer-app-1` |
 
@@ -191,6 +200,60 @@ checkout, no Bazel.
 
 The robot process starts in ZERO_TORQUE whatever the MPC does, and holds JOINT_PD while the MPC link is down; start
 order does not matter (humanoid_nmpc/docs/distributed_runtime/README.md, "Deployment").
+
+Deploy the robot, the MPC node and the operator GUI from one commit. The robot process and the MPC node refuse, log
+and count the tuning GUI's payloads of another schema version (humanoid_nmpc/humanoid_mpc_config/README.md, "Version
+skew"), so a GUI built from another commit tunes nothing: the robot runs its files.
+
+## The stored configuration
+
+The tuning GUI's **Save** writes two copies: the laptop's file, which the MPC node reads, and the robot's, which it sends
+over the bus (`operator/config_save`) to the robot process, which checks it as it would check the file at start-up and
+stores it (humanoid_nmpc/docs/distributed_runtime/README.md, "Saving the configuration"). The robot's copies live in its
+store, `/var/lib/wb-humanoid-robot/config/<ROBOT>/` in the container, the host's `~/wb-humanoid-robot/robot_config/<ROBOT>/`
+by default, and outlive the container, a restart and a redeploy:
+
+<!-- LINT.IfChange(config_store_layout) -->
+| File in the store | What |
+|---|---|
+| `mpc/task.textproto`, `command/reference.textproto`, `controller/joint_pd_gains.textproto` | the files the robot reads, at their paths below the robot's `config/` |
+| `<file>.seed` | the bundled bytes the file was last seeded from |
+| `<file>.bak` | the copy a save or a reseeding replaced |
+| `<file>.rejected` | a stored copy the robot did not start with where the bundle's started, replaced by the bundle's |
+| `mpc/contact_planning.textproto` | the bundle's contact planner's file, copied at every start; no save writes it |
+| `.booting` | a start that is not confirmed yet (below); one left there makes the next start fall back to the bundle, unless the machine booted in between |
+<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotConfigDirectory.cpp:config_store_layout) -->
+
+The image's bundle - built from the checkout the deploy ran in - is the seed. At every start the robot process copies a
+missing file from it and applies the seed policy (`CONFIG_SEED=`, `WB_ROBOT_CONFIG_SEED`):
+
+<!-- LINT.IfChange(config_seed_policies) -->
+| Policy | A stored copy is replaced by the bundle's file |
+|---|---|
+| `when_bundle_changes` (default) | when the bundle's file differs from the one it was seeded from: a deploy that changed the file reaches the robot, a restart without one keeps the robot's saves |
+| `every_start` | at every start: a save lasts until the next start (the simulation's default) |
+| `never` | never once there: only a save changes it |
+<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/RobotConfigDirectory.h:config_seed_policies) -->
+
+A stored configuration never keeps the robot from starting: a start that fails on stored copies is tried on the
+bundle's files, touching none of them; when the bundle starts, the stored copies are renamed `.rejected` and the robot
+runs the bundle's, and when it fails too (a port in use, a backend that does not come up) the stored copies are kept
+and the robot ends with the error. The start after one that died before it was confirmed rejects them the same way,
+unless the machine booted in between (a power cut is not the files' fault). `.rejected` keeps one generation.
+
+<!-- LINT.IfChange(boot_confirmation_time) -->
+A start is confirmed once its realtime loop has run 10 s.
+<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/RobotStartup.h:boot_confirmation_time) -->
+
+- Reset the store to the bundle: `docker compose --project-directory ~/wb-humanoid-robot run --rm --entrypoint sh robot
+  -c 'rm -rf /var/lib/wb-humanoid-robot/config/$ROBOT'`, then start the robot again (or deploy with `CONFIG_SEED=every_start`
+  once).
+- Re-send a file edited on the laptop without the GUI: `bazel run //humanoid_nmpc/remote_control:push_robot_config --
+  <file>`, which publishes it as the bus node `config_push` and prints the robot's answer. A deployment's own network
+  file needs that node only for this tool.
+- Anything that can publish on the bus can now replace the robot's three configuration files, as it can already
+  command its FSM: keep the bus on the robot's private network (humanoid_nmpc/docs/distributed_runtime/README.md, "Trust
+  model").
 
 ## NETEM
 
@@ -230,12 +293,15 @@ a session refuses to start while another robot side holds them - a robot deploye
 simulation - and says how to stop it; `make launch-<robot>-dummy-sim` checks the same.
 <!-- LINT.ThenChange(//tools/deploy/session.sh:sim_project) -->
 
-One difference from the robot, for tuning: the checkout's `robot_models` is mounted read-only over the image's copy
-(`docker-compose.robot.sim.yaml`). The robot process then reads the files the MPC node reads and the GUI's "Save to
-YAML" and an editor write, and its watchers reload `joint_pd_gains.yaml` and the task file's controller-side keys
-(`contactEstimator`, `contact_wrench_gate`) while it runs, as the ROS sims did. A deployed robot reads the copy in its
-image; there, what the GUI publishes on the bus (`operator/pd_gains`, `operator/mpc_parameters`) reaches it, and a file
-edited on the laptop takes effect with the next deploy. The MuJoCo viewer draws on `DISPLAY` through the X server's abstract socket on
+The simulated robot is seeded from the checkout: its `robot_models` is mounted read-only over the image's copy, and its
+stored configuration is the compose project's volume `robot_config` (in place of the host directory), reseeded at
+every start (`WB_ROBOT_CONFIG_SEED` defaults to `every_start` there, so a `git checkout` of a file is what the next
+start runs). While it runs, the GUI's **Save** reaches it over the bus as it reaches the robot, and its watchers reload
+the stored `joint_pd_gains.textproto` and the task file's controller-side fields (`contact_estimator`,
+`contact_wrench_gate`); the live updates (`operator/pd_gains`, `operator/mpc_parameters`) reach it too
+(`robot_models/README.md`, "Tuning"). An editor's save of a checkout file reaches the laptop's MPC node through its
+watcher, and the simulated robot at its next start or at once with `push_robot_config`. `WB_ROBOT_CONFIG_SEED=when_bundle_changes`
+runs the robot's own policy. The MuJoCo viewer draws on `DISPLAY` through the X server's abstract socket on
 the host's network: the VNC desktop's `:99` (`-vnc`), or the host's display (`xhost +SI:localuser:root` lets the
 container's root draw there). `HEADLESS=true` runs it without the viewer. When the laptop side ends, the robot
 container stops; `make kill-sims` (`session.sh stop`) ends what a session left.
@@ -266,13 +332,14 @@ that can reach Docker (`session.sh` then mounts the checkout by its host path, f
 - `:test_pack_bundle`: sorted, root-owned, dated-0 entries, symlinks resolved, modes, the same bytes for the same inputs,
   malformed manifests.
 - `:test_robot_bundle`: the bundle's layout and entries, no GUI side files, every library of the robot binaries found
-  from inside it (`libmujoco` from its own runfiles), every robot's script starting its binary with files of the bundle,
-  and the environment choosing the network file, the viewer and the priority.
+  from inside it (`libmujoco` from its own runfiles), every robot's script starting its binary with files of the bundle
+  and without a store, and the environment choosing the network file, the viewer, the priority and the store.
 - `:test_deploy_files`: `netem.sh` and the entry point against a recording `tc` (only the bus's ports, cleared after the
   run, SIGTERM forwarded, the exit status kept, unknown robots refused, the image's viewer default); the compose files
   (realtime settings, no privileged mode, memory cap without swap, the environment equal to the launch files'
-  variables, NET_ADMIN only with NETEM); the unit; the Dockerfile's robot stages (nothing to build with in the runtime
-  image, only GL in the sim image); the deployment script's commands (`--dry_run`) and `.env`; the Makefile's robot
+  variables, the stored configuration's host directory and the simulation's volume at the same target with its
+  `every_start` seed, NET_ADMIN only with NETEM); the unit; the Dockerfile's robot stages (nothing to build with in the runtime
+  image, only GL in the sim image); the deployment script's commands (`--dry_run`, the store's directory) and `.env` (the seed policy); the Makefile's robot
   table against the dev container README.
 
 `//robot_models/tests:test_launch_files` checks the launch files themselves, `//tools/launch:test_launch_script` the

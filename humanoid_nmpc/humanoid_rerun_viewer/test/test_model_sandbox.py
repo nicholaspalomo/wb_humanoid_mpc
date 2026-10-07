@@ -1,22 +1,52 @@
-"""Tests for model_sandbox.py: the joint positions and the scene they make, when the scene goes out, the slider ranges,
-the binary's scene over a loopback bus, and the slider window where Tk can open one."""
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""Tests for model_sandbox.py.
+
+They cover the joint positions and the scene they make, when the scene goes out, the slider ranges, the binary's scene
+over a loopback bus, and the slider window where Tk can open one.
+"""
 
 import math
 import os
 import socket
 import tempfile
 import threading
+import tkinter
 import unittest
-from typing import List
 
-import robot_ipc
-from humanoid_mpc_ipc import topics
 from humanoid_mpc_msgs import visualization_scene_pb2
-from operator_test_support import requires_display
 
+from humanoid_mpc_ipc import topics
 from humanoid_rerun_viewer import model_sandbox
 from humanoid_rerun_viewer import scene_contract
 from humanoid_rerun_viewer import urdf_kinematics
+import operator_test_support
+import robot_ipc
 
 _RUNFILES_ROOT = os.path.join(os.environ.get("TEST_SRCDIR", ""), "_main")
 G1_URDF = os.path.join(
@@ -107,7 +137,7 @@ class ScenePublisherTest(unittest.TestCase):
     def setUp(self) -> None:
         self.scene = two_joint_scene()
         self.clock = FakeClock()
-        self.sent: List[visualization_scene_pb2.VisualizationScene] = []
+        self.sent: list[visualization_scene_pb2.VisualizationScene] = []
         self.accept = True
 
         def publish(message: visualization_scene_pb2.VisualizationScene) -> bool:
@@ -142,8 +172,13 @@ class ScenePublisherTest(unittest.TestCase):
         self.assertEqual(len(self.sent), 1)
 
     def test_the_period_must_be_positive(self) -> None:
-        with self.assertRaises(ValueError):
-            model_sandbox.ScenePublisher(self.scene, lambda message: True, 0.0)
+        # NaN too: the validator's `not period > 0.0` rejects it, where `period <= 0.0` would let it through.
+        for period in (0.0, -1.0, math.nan):
+            with self.subTest(period=period):
+                with self.assertRaises(ValueError):
+                    model_sandbox.ScenePublisher(
+                        self.scene, lambda message: True, period
+                    )
 
 
 class SliderRangeTest(unittest.TestCase):
@@ -167,12 +202,12 @@ class BinaryTest(unittest.TestCase):
     def test_the_nominal_pose_of_the_g1_reaches_the_bus(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             network_file = os.path.join(directory, "network.textproto")
-            with open(network_file, "w") as stream:
+            with open(network_file, "w", encoding="utf-8") as stream:
                 stream.write(
                     f'nodes {{ name: "mpc" host: "127.0.0.1" port: {free_port()} }}\n'
                 )
             network = robot_ipc.load_network_config(network_file)
-            received: List[visualization_scene_pb2.VisualizationScene] = []
+            received: list[visualization_scene_pb2.VisualizationScene] = []
             arrived = threading.Event()
 
             def on_scene(message: visualization_scene_pb2.VisualizationScene) -> None:
@@ -189,9 +224,10 @@ class BinaryTest(unittest.TestCase):
                 delivery="all",
             )
             with listener:
-                status: List[int] = []
-                runner = threading.Thread(
-                    target=lambda: status.append(
+                status: list[int] = []
+
+                def run_sandbox() -> None:
+                    status.append(
                         model_sandbox.main(
                             [
                                 "--urdf",
@@ -207,7 +243,8 @@ class BinaryTest(unittest.TestCase):
                             ]
                         )
                     )
-                )
+
+                runner = threading.Thread(target=run_sandbox)
                 runner.start()
                 self.assertTrue(arrived.wait(timeout=10.0), "no viz/scene arrived")
                 runner.join(timeout=20.0)
@@ -229,12 +266,31 @@ class BinaryTest(unittest.TestCase):
             model_sandbox.EXIT_USAGE,
         )
 
+    def test_a_republish_period_that_is_not_positive_is_a_usage_error(self) -> None:
+        # NaN too: `not period > 0.0` rejects it, where `period <= 0.0` would let it through. The URDF exists, so
+        # the period's check is what fails.
+        for period in ("0", "-1", "nan"):
+            with self.subTest(period=period):
+                with self.assertLogs("model_sandbox", level="ERROR") as logs:
+                    status = model_sandbox.main(
+                        [
+                            "--urdf",
+                            G1_URDF,
+                            "--joint_source",
+                            "nominal",
+                            "--republish_period",
+                            period,
+                        ]
+                    )
+                self.assertEqual(status, model_sandbox.EXIT_USAGE)
+                self.assertIn(
+                    "--republish_period must be positive", "\n".join(logs.output)
+                )
 
-@requires_display
+
+@operator_test_support.requires_display
 class SliderWindowTest(unittest.TestCase):
     def test_a_slider_per_joint_moves_the_scene(self) -> None:
-        import tkinter
-
         root = tkinter.Tk()
         root.withdraw()
         try:

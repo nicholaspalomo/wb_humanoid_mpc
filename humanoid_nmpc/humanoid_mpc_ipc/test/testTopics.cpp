@@ -27,15 +27,14 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include "humanoid_mpc_ipc/Topics.h"
-
-#include <gtest/gtest.h>
-
 #include <array>
 #include <cstddef>
 
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
+
+#include "humanoid_mpc_ipc/Topics.h"
 
 namespace ocs2::humanoid::ipc::topics {
 namespace {
@@ -85,6 +84,17 @@ TEST(TopicsTest, TheMpcLinkTopicsAreListed) {
   int listed = 0;
   for (const absl::string_view topic : kAllTopics) {
     listed += (topic == kRobotMpcObservation || topic == kMpcPolicy) ? 1 : 0;
+  }
+  EXPECT_EQ(listed, 2);
+}
+
+TEST(TopicsTest, TheSaveAndItsStatusAreListedOnceEach) {
+  // The two-copy Save: the GUI's file on the operator's topic, the robot's answer on its own.
+  EXPECT_EQ(kOperatorConfigSave, "operator/config_save");
+  EXPECT_EQ(kRobotConfigSaveStatus, "robot/config_save_status");
+  int listed = 0;
+  for (const absl::string_view topic : kAllTopics) {
+    listed += (topic == kOperatorConfigSave || topic == kRobotConfigSaveStatus) ? 1 : 0;
   }
   EXPECT_EQ(listed, 2);
 }

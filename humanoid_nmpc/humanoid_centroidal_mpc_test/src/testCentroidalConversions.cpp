@@ -28,20 +28,18 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cmath>
 #include <functional>
 
-#include <pinocchio/algorithm/center-of-mass.hpp>
-#include <pinocchio/algorithm/centroidal.hpp>
-#include <pinocchio/algorithm/frames.hpp>
-
-#include <ocs2_centroidal_model/AccessHelperFunctions.h>
-#include <ocs2_centroidal_model/CentroidalModelPinocchioMapping.h>
-#include <ocs2_centroidal_model/ModelHelperFunctions.h>
+#include "gtest/gtest.h"
+#include "ocs2_centroidal_model/AccessHelperFunctions.h"
+#include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
+#include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/algorithm/centroidal.hpp"
+#include "pinocchio/algorithm/frames.hpp"
 
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -115,7 +113,7 @@ TEST(TestCentroidalConversions, theBaseTwistOfTheMappingCarriesTheMomentumOfTheS
   const vector6_t momentum = info.robotMass * centroidal_model::getNormalizedMomentum(state, info);
   pinocchio::Data data(model);
   const vector6_t wholeBodyMomentum = pinocchio::computeCentroidalMomentum(model, data, q, v).toVector();
-  EXPECT_LT((wholeBodyMomentum - momentum).norm(), 1e-9 * momentum.norm())
+  EXPECT_LT((wholeBodyMomentum - momentum).norm(), 1.0e-9 * momentum.norm())
       << "state: " << momentum.transpose() << "\nwhole body: " << wholeBodyMomentum.transpose();
   EXPECT_TRUE(v.tail(info.actuatedDofNum) == centroidal_model::getJointVelocities(input, info)) << "the joints move as the input says";
 
@@ -123,7 +121,7 @@ TEST(TestCentroidalConversions, theBaseTwistOfTheMappingCarriesTheMomentumOfTheS
   vector_t withoutBaseTwist = v;
   withoutBaseTwist.head<6>().setZero();
   const vector6_t jointsOnly = pinocchio::computeCentroidalMomentum(model, data, q, withoutBaseTwist).toVector();
-  EXPECT_GT((jointsOnly - momentum).norm(), 1e-2 * momentum.norm());
+  EXPECT_GT((jointsOnly - momentum).norm(), 1.0e-2 * momentum.norm());
 }
 
 TEST(TestCentroidalConversions, theMomentumRateIsTheNewtonEulerSumOfTheContactWrenchesAndGravity) {
@@ -156,7 +154,8 @@ TEST(TestCentroidalConversions, theMomentumRateIsTheNewtonEulerSumOfTheContactWr
   const vector_t input = makeInput(info);
   const vector6_t rate = info.robotMass * getNormalizedCentroidalMomentumRate(pinocchioInterface, info, input);
   const vector6_t expected = expectedRate(input);
-  EXPECT_LT((rate - expected).norm(), 1e-9 * expected.norm()) << "rate: " << rate.transpose() << "\nNewton-Euler: " << expected.transpose();
+  EXPECT_LT((rate - expected).norm(), 1.0e-9 * expected.norm())
+      << "rate: " << rate.transpose() << "\nNewton-Euler: " << expected.transpose();
 
   // Positive control: the moments depend on where each foot is, so exchanging the feet's forces changes the rate.
   vector_t exchanged = input;

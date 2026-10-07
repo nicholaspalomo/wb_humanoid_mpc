@@ -3,6 +3,11 @@
 Implementation proposal, since implemented on the branch this document lives on. Section 9 records what was built and
 where the implementation deviates from the plan below; the plan itself is kept as written for the review record.
 
+The file this document calls `contact_planning.yaml` has since become `config/mpc/contact_planning.textproto`, a
+`humanoid_mpc_config.ContactPlanningFile` parsed strictly, with the same blocks, lists and terms under snake_case field
+names (`numNodes` is `planner.num_nodes`, `bigM` is `shared.big_m`, a list is one `execution: "..."` line per entry) and
+without the `contact_planning:` wrapper. Its current layout is section 2.10 of [humanoid_nmpc/docs/README.md](../README.md).
+
 The mixed-integer contact planner (`humanoid_common_mpc/contact_planning/`, section 2 of
 [humanoid_nmpc/docs/README.md](../README.md)) is formulated in one place: `LipContactPlanner::buildProblem()` writes the
 reduced model, every cost, every constraint row and the input bounds straight into HPIPM stage matrices, and
@@ -29,9 +34,9 @@ Goals
 2. The formulation is selected in `contact_planning.yaml` by term lists (`dynamics`, `costs`, `soft_constraints`,
    `hard_constraints`, `logic_rules`, `search`, `execution`), with one parameter block per term, in the style of the
    task file's `costs` / `soft_constraints` / `hard_constraints` lists.
-3. Every term's parameters are hot-reloadable by name through the existing parameter updater, the GUI tab and the ROS
-   parameter topic; the term lists themselves can also be re-assembled at runtime because the planner rebuilds its QP
-   on every plan anyway.
+3. Every term's parameters are hot-reloadable by name through the existing parameter updater, the GUI tab and
+   `operator/mpc_parameters` on the bus; the term lists themselves can also be re-assembled at runtime because the
+   planner rebuilds its QP on every plan anyway.
 4. The heuristics around the planner become named, individually selectable pipeline stages with their own parameter
    blocks: the search stages inside the planner (warm start, diving, event-shift local search, heading
    re-linearization) and the execution rules in the reference manager (phase resetting, cadence modulation, DCM step
@@ -43,8 +48,8 @@ Non-goals
 
 * No change to the mathematics of any existing term, rule or heuristic. New capability that falls out of the structure
   (per-term slack penalties, a term switched off that is on today) ships disabled or at today's values.
-* No generalization of the biped-specific terms to `N_CONTACTS > 2`. The terms that assume two feet keep a
-  `static_assert(N_CONTACTS == 2)`; the structure makes a later generalization local to those terms.
+* No generalization of the biped-specific terms to `kNumContacts > 2`. The terms that assume two feet keep a
+  `static_assert(kNumContacts == 2)`; the structure makes a later generalization local to those terms.
 * No change to `MixedIntegerOcpQp` and `OcpQpHpipmSolver`: the branch-and-bound only rewrites the binaries' box bounds
   of the problem it is given, and stays unaware of terms.
 * No change to the NMPC side: `ContactPlan`, `mergeModeSchedules`, `getSwingFootReference`, the target contact poses and
@@ -119,8 +124,8 @@ Steps 1, 4, 6 and 8 are the core of the manager. Steps 3, 5 and 7 are heuristics
 | `OptimalControlProblem` with term collections | `buildProblem()` | `ContactPlanningProblem` with `Collection<T>` members (the OCS2 `Collection` template, reused as is) |
 | `SystemDynamicsBase` | inline `A` / `B` fill, `makeLayout` | `LipModelBlock` terms that declare variables, fill dynamics and bounds, set `x0`, decode the plan |
 | `StateInputCost`, `StateCost`, `finalCost` | `addQuadraticResidual` calls | `LipCost` terms with a node set (running, terminal, all nodes, last running node) |
-| soft `StateInputConstraint` + penalty | `RowBuilder::add(..., soft = true)` | `LipConstraint` terms with `Softness::SOFT` and their own slack penalty (default: today's global one) |
-| hard equality / inequality constraints | `RowBuilder::add(..., soft = false)` | `LipConstraint` terms with `Softness::HARD` |
+| soft `StateInputConstraint` + penalty | `RowBuilder::add(..., soft = true)` | `LipConstraint` terms with `Softness::kSoft` and their own slack penalty (default: today's global one) |
+| hard equality / inequality constraints | `RowBuilder::add(..., soft = false)` | `LipConstraint` terms with `Softness::kHard` |
 | (no analog: the binaries are not part of the NMPC) | `propagate()`, `assignmentCost()` | `ContactLogicRule` and `AssignmentCost` terms over a shared `ContactLogicState` |
 | `PreComputation` | `constraintAxes`, `frameTerm`, `previousPlanShift`, `yawInertia` | `ContactPlanningContext`, computed once per plan |
 | `MpcFormulationTasks` and its YAML lists | none | `ContactPlanningFormulation`: term lists and per-term parameter blocks |
@@ -194,7 +199,7 @@ class ContactPlanningTerm {
   virtual TermParameters getParameters() const = 0;            // for the start-up print and the GUI
 };
 
-enum class NodeSet { RUNNING, TERMINAL, ALL, LAST_RUNNING };
+enum class NodeSet { kRunning, kTerminal, kAll, kLastRunning };
 
 class LipCost : public ContactPlanningTerm {
  public:
@@ -203,7 +208,7 @@ class LipCost : public ContactPlanningTerm {
   virtual void addToStage(const ContactPlanningContext& ctx, int node, StageAccumulator& stage) const = 0;
 };
 
-enum class Softness { HARD, SOFT };
+enum class Softness { kHard, kSoft };
 
 class LipConstraint : public ContactPlanningTerm {
  public:

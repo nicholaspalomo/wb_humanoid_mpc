@@ -29,12 +29,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_core/augmented_lagrangian/StateInputAugmentedLagrangianCollection.h"
 
+#include "absl/base/nullability.h"
+
 namespace ocs2 {
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-StateInputAugmentedLagrangianCollection* StateInputAugmentedLagrangianCollection::clone() const {
+StateInputAugmentedLagrangianCollection* absl_nonnull StateInputAugmentedLagrangianCollection::clone() const {
   return new StateInputAugmentedLagrangianCollection(*this);
 }
 

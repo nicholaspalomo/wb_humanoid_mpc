@@ -33,21 +33,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <gtest/gtest.h>
-
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
-
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
+#include "gtest/gtest.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
 
-#include "VisualizationTestRobot.h"
 #include "humanoid_common_mpc_app/visualization/EulerAngles.h"
 #include "humanoid_common_mpc_app/visualization/RobotStateDecoder.h"
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.pb.h"
+#include "humanoid_nmpc/humanoid_common_mpc_app/visualization/test/VisualizationTestRobot.h"
 
 namespace ocs2::humanoid::visualization {
 namespace {
 
-constexpr scalar_t kTolerance = 1e-12;
+constexpr scalar_t kTolerance = 1.0e-12;
 
 TEST(EulerAnglesTest, TheAnglesOfARotationComeBack) {
   for (const vector3_t& eulerAnglesZyx : {vector3_t(0.3, 0.2, 0.1), vector3_t(-2.5, -1.2, 3.0), vector3_t(1.0, 0.0, -0.7)}) {
@@ -67,9 +66,9 @@ TEST(EulerAnglesTest, AYawAloneIsAYaw) {
 
 TEST(EulerAnglesTest, ARotationAtTheGimbalLockIsFinite) {
   matrix3_t rotation = getRotationMatrixFromZyxEulerAngles<scalar_t>(vector3_t(0.4, M_PI / 2.0, 0.1));
-  rotation(2, 0) = -1.0 - 1e-12;  // rounding past the domain of asin()
+  rotation(2, 0) = -1.0 - 1.0e-12;  // rounding past the domain of asin()
   EXPECT_TRUE(eulerAnglesZyxFromRotation(rotation).allFinite());
-  EXPECT_NEAR(eulerAnglesZyxFromRotation(rotation)(1), M_PI / 2.0, 1e-9);
+  EXPECT_NEAR(eulerAnglesZyxFromRotation(rotation)(1), M_PI / 2.0, 1.0e-9);
 }
 
 class RobotStateDecoderTest : public ::testing::Test {
@@ -97,10 +96,10 @@ class RobotStateDecoderTest : public ::testing::Test {
     return 0;
   }
 
-  static test::TestRobot* robot_;
+  static test::TestRobot* absl_nullable robot_;
 };
 
-test::TestRobot* RobotStateDecoderTest::robot_ = nullptr;
+test::TestRobot* absl_nullable RobotStateDecoderTest::robot_ = nullptr;
 
 TEST_F(RobotStateDecoderTest, TheBaseIsInTheWorldFrame) {
   const vector3_t rollPitchYaw(0.1, 0.2, M_PI / 2.0);
@@ -171,7 +170,7 @@ TEST_F(RobotStateDecoderTest, TheEffortAppliedIsThePdLawOfTheAction) {
       EXPECT_EQ(state.jointFeedForwardEfforts[joint], 0.0);
       continue;
     }
-    EXPECT_NEAR(state.jointEfforts[joint], 3.0 + 100.0 * (0.5 - position) + 2.0 * (0.2 - 0.1), 1e-9) << fullJoints[joint];
+    EXPECT_NEAR(state.jointEfforts[joint], 3.0 + 100.0 * (0.5 - position) + 2.0 * (0.2 - 0.1), 1.0e-9) << fullJoints[joint];
     EXPECT_EQ(state.jointPositionTargets[joint], 0.5);
     EXPECT_EQ(state.jointVelocityTargets[joint], 0.2);
     EXPECT_EQ(state.jointFeedForwardEfforts[joint], 3.0);

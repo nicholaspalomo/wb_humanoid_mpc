@@ -54,22 +54,22 @@ namespace robot::realtime {
  */
 struct LoopTimingSnapshot {
   /// The number of the reporting window this snapshot closes, from 1; 0 until the first window has closed.
-  std::uint64_t window = 0;
+  uint64_t window = 0;
   double targetPeriodS = 0.0;
 
   // Since the statistics were constructed.
-  std::uint64_t totalCycles = 0;
+  uint64_t totalCycles = 0;
   /// Cycles whose compute time exceeded the target period.
-  std::uint64_t totalOverruns = 0;
+  uint64_t totalOverruns = 0;
   /// Deadlines the timer dropped (TimerWakeup::missedPeriods), i.e. cycles that never ran.
-  std::uint64_t totalMissedPeriods = 0;
+  uint64_t totalMissedPeriods = 0;
 
   // Over the reporting window.
   /// From the start of the window's first period to the start of its last cycle.
   double windowDurationS = 0.0;
-  std::uint64_t windowCycles = 0;
-  std::uint64_t windowOverruns = 0;
-  std::uint64_t windowMissedPeriods = 0;
+  uint64_t windowCycles = 0;
+  uint64_t windowOverruns = 0;
+  uint64_t windowMissedPeriods = 0;
   /// The time between the starts of consecutive cycles. All zero when the window measured no period.
   double meanPeriodS = 0.0;
   double minPeriodS = 0.0;

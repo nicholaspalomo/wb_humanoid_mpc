@@ -29,11 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <robot_model/ContactEstimatorRegistry.h>
-
 #include <cstdint>
 #include <string>
 #include <vector>
+
+#include "robot_model/ContactEstimatorRegistry.h"
 
 namespace robot::mujoco_sim_interface {
 
@@ -78,8 +78,8 @@ class CheaterSimContactEstimator final : public robot::model::ContactEstimator {
   const MujocoSimInterface& sim_;
 };
 
-/** Name of the CheaterSimContactEstimator in the ContactEstimatorRegistry (task file `contactEstimator: cheater_sim`). */
-constexpr const char* kCheaterSimContactEstimatorName = "cheater_sim";
+/** Name of the CheaterSimContactEstimator in the ContactEstimatorRegistry (task file `contact_estimator: "cheater_sim"`). */
+inline constexpr char kCheaterSimContactEstimatorName[] = "cheater_sim";
 
 /** Adds the CheaterSimContactEstimator of `sim` to `registry` under kCheaterSimContactEstimatorName. */
 void registerCheaterSimContactEstimator(robot::model::ContactEstimatorRegistry& registry, const MujocoSimInterface& sim);

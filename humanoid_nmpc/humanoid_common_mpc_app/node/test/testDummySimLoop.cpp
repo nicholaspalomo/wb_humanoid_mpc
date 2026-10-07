@@ -27,22 +27,24 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <cmath>
 #include <memory>
+#include <stdexcept>
 #include <thread>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/match.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-
-#include <ocs2_core/dynamics/LinearSystemDynamics.h>
-#include <ocs2_mpc/SystemObservation.h>
-#include <ocs2_oc/rollout/TimeTriggeredRollout.h>
+#include "gtest/gtest.h"
+#include "ocs2_core/dynamics/LinearSystemDynamics.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_oc/rollout/RolloutBase.h"
+#include "ocs2_oc/rollout/TimeTriggeredRollout.h"
 
 #include "humanoid_common_mpc_app/node/DummySimLoop.h"
 #include "humanoid_mpc_ipc/MpcServer.h"
@@ -63,10 +65,29 @@ namespace test_support = ::ocs2::humanoid::ipc::test_support;
 
 constexpr scalar_t kSimulationFrequency = 100.0;  // [Hz]
 
+/** A plant whose every rollout throws, as an OCS2 rollout does when its integration fails. */
+class ThrowingRollout final : public RolloutBase {
+ public:
+  ThrowingRollout() : RolloutBase(rollout::Settings()) {}
+  ThrowingRollout* absl_nonnull clone() const override { return new ThrowingRollout(*this); }
+  vector_t run(scalar_t /*initTime*/,
+               const vector_t& /*initState*/,
+               scalar_t /*finalTime*/,
+               ControllerBase* absl_nullable /*controller*/,
+               ModeSchedule& /*modeSchedule*/,
+               scalar_array_t& /*timeTrajectory*/,
+               size_array_t& /*postEventIndices*/,
+               vector_array_t& /*stateTrajectory*/,
+               vector_array_t& /*inputTrajectory*/) override {
+    throw std::runtime_error("the integration diverged");
+  }
+};
+
 /** The scripted MPC on an MPC node's bus, and the dummy simulator's loop on a robot's bus, connected. */
 class Harness {
  public:
-  explicit Harness(scalar_t mpcDesiredFrequency)
+  /** The plant is `plant` (cloned), or with none a linear system that holds its state. */
+  explicit Harness(scalar_t mpcDesiredFrequency, const RolloutBase* absl_nullable plant = nullptr)
       : mpc_(test_support::makeScriptedMpc()),
         dynamics_(matrix_t::Zero(test_support::kStateDim, test_support::kStateDim),
                   matrix_t::Zero(test_support::kStateDim, test_support::kInputDim)),
@@ -87,7 +108,8 @@ class Harness {
     loopConfig.simulationFrequency = kSimulationFrequency;
     loopConfig.mpcDesiredFrequency = mpcDesiredFrequency;
     loopConfig.link.dimensions = test_support::modelDimensions();
-    absl::StatusOr<std::unique_ptr<DummySimLoop>> loop = DummySimLoop::Create(std::move(robotBus), rollout_, loopConfig);
+    const RolloutBase& rollout = plant != nullptr ? *plant : static_cast<const RolloutBase&>(rollout_);
+    absl::StatusOr<std::unique_ptr<DummySimLoop>> loop = DummySimLoop::Create(std::move(robotBus), rollout, loopConfig);
     EXPECT_TRUE(loop.ok()) << loop.status();
     loop_ = *std::move(loop);
   }
@@ -99,6 +121,8 @@ class Harness {
     server_->stop();
     mpcBus_->stop();
   }
+  Harness(const Harness&) = delete;
+  Harness& operator=(const Harness&) = delete;
 
   /** Runs the loop on a thread of its own for `duration` of wall time, then stops it; returns its status. */
   absl::Status runFor(absl::Duration duration) {
@@ -151,7 +175,7 @@ TEST(DummySimLoop, SynchronizedWithTheMpcEveryUpdateTakesThePolicySolvedForIt) {
   EXPECT_EQ(statistics.synchronizedPolicies, (statistics.steps + 1) / 2);
   // The plant's clock advanced by exactly one step per step.
   const SystemObservation latest = harness.loop().latestObservation();
-  EXPECT_NEAR(latest.time, 0.5 + static_cast<scalar_t>(statistics.steps) / kSimulationFrequency, 1e-9);
+  EXPECT_NEAR(latest.time, 0.5 + static_cast<scalar_t>(statistics.steps) / kSimulationFrequency, 1.0e-9);
   // The plant holds its state under the scripted MPC's zero input.
   EXPECT_TRUE(latest.state.isApproxToConstant(1.0));
   expectNoResetAfterTheFirst(harness.server().statistics(), statistics.link);
@@ -167,6 +191,18 @@ TEST(DummySimLoop, InRealTimeEveryStepTakesTheNewestPolicy) {
   EXPECT_EQ(statistics.synchronizedPolicies, 0);
   EXPECT_GT(harness.server().statistics().policiesPublished, 1);
   expectNoResetAfterTheFirst(harness.server().statistics(), statistics.link);
+}
+
+TEST(DummySimLoop, ARolloutThatThrowsEndsTheLoopWithAnInternalError) {
+  const ThrowingRollout plant;
+  Harness harness(/*mpcDesiredFrequency=*/-1.0, &plant);
+  const absl::Status status = harness.runFor(absl::Seconds(1));
+  EXPECT_EQ(status.code(), absl::StatusCode::kInternal) << status;
+  EXPECT_TRUE(absl::StrContains(status.message(), "the rollout of the plant failed at t = 0.5")) << status;
+  EXPECT_TRUE(absl::StrContains(status.message(), "the integration diverged")) << status;
+  // The loop ended at its first step, so the plant never moved.
+  EXPECT_EQ(harness.loop().statistics().steps, 0);
+  EXPECT_EQ(harness.loop().latestObservation().time, 0.5);
 }
 
 TEST(DummySimLoop, StopsWhileWaitingForAnMpcThatIsNotThere) {

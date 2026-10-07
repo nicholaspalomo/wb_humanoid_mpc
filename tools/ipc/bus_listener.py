@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """A receive-only client of the IPC bus: reads the network file and connects one SUB socket to every node.
 
 The bus (humanoid_nmpc/docs/distributed_runtime/README.md) has no broker: every publishing process binds one PUB
@@ -11,9 +38,10 @@ implemented here on pyzmq directly, so that the tool checks the documented frami
 It never publishes and never binds.
 """
 
+from collections.abc import Sequence
 import os
 import time
-from typing import List, NamedTuple, Optional, Sequence
+from typing import NamedTuple
 
 import zmq
 
@@ -37,7 +65,7 @@ class NetworkConfigError(ValueError):
     """The network file is missing or does not describe the nodes of the bus."""
 
 
-def parse_network_config(text: str, source: str) -> List[Node]:
+def parse_network_config(text: str, source: str) -> list[Node]:
     """The nodes of the text of a network file, in file order; `source` names it in the error messages.
 
     Raises:
@@ -49,8 +77,14 @@ def parse_network_config(text: str, source: str) -> List[Node]:
         raise NetworkConfigError(str(error)) from None
 
 
-def load_network_config(path: str) -> List[Node]:
+def load_network_config(path: str) -> list[Node]:
     """The nodes of the network file at `path`, in file order.
+
+    Args:
+        path: The network file.
+
+    Returns:
+        Its nodes, in file order.
 
     Raises:
         NetworkConfigError: the file cannot be read or is not a valid network file.
@@ -70,8 +104,14 @@ def resolve_input_path(path: str) -> str:
 
     A relative path is looked up in the directory the tool was started from (BUILD_WORKING_DIRECTORY under `bazel
     run`, which changes into the runfiles tree) and then in the repository root (BUILD_WORKSPACE_DIRECTORY), so that
-    the default network file is found from anywhere in the checkout. Returns the first existing candidate, or the
-    first candidate when none exists, so that the error names the path the user meant.
+    the default network file is found from anywhere in the checkout.
+
+    Args:
+        path: The path as the command line gives it, absolute or relative.
+
+    Returns:
+        `path` itself when it is absolute, else the first candidate that exists, or the first candidate when none
+        exists, so that the error names the path the user meant.
     """
     if os.path.isabs(path):
         return path
@@ -109,8 +149,8 @@ class BusListener:
     def __init__(
         self,
         endpoints: Sequence[str],
-        topic: Optional[str] = None,
-        context: Optional[zmq.Context] = None,
+        topic: str | None = None,
+        context: zmq.Context | None = None,
         receive_high_water_mark: int = DEFAULT_RECEIVE_HIGH_WATER_MARK,
     ) -> None:
         if not endpoints:
@@ -132,11 +172,12 @@ class BusListener:
 
     @classmethod
     def from_nodes(
-        cls, nodes: Sequence[Node], topic: Optional[str] = None
+        cls, nodes: Sequence[Node], topic: str | None = None
     ) -> "BusListener":
+        """A listener connected to the endpoint of every node of a network file."""
         return cls([node.connect_endpoint() for node in nodes], topic=topic)
 
-    def receive(self, timeout_s: float) -> Optional[BusMessage]:
+    def receive(self, timeout_s: float) -> BusMessage | None:
         """The next message of the subscribed topic, or None when none arrived within `timeout_s` seconds."""
         deadline = time.monotonic() + max(timeout_s, 0.0)
         while True:
@@ -151,7 +192,8 @@ class BusListener:
             if time.monotonic() >= deadline:
                 return None
 
-    def _parse(self, frames: List[bytes], receive_time: float) -> Optional[BusMessage]:
+    def _parse(self, frames: list[bytes], receive_time: float) -> BusMessage | None:
+        """The message of `frames`, or None for a malformed one (counted) or one of a longer topic (dropped)."""
         if len(frames) != FRAME_COUNT:
             self.malformed_messages += 1
             return None

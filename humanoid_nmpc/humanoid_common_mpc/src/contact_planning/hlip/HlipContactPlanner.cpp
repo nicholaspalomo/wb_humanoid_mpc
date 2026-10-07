@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -29,11 +33,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <cmath>
 #include <functional>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 
@@ -46,17 +53,17 @@ using Rotation2 = Eigen::Matrix<scalar_t, 2, 2>;
  * [s] a phase shorter than this that covers no interval is not emitted: a swing whose touch-down is due within it has
  * landed where the foot is, and the next phase starts at once.
  */
-constexpr scalar_t kMinPhaseDuration = 1e-6;
+constexpr scalar_t kMinPhaseDuration = 1.0e-6;
 
 /** [m] a step cut by less than this is not counted as clipped. */
-constexpr scalar_t kStepClipTolerance = 1e-9;
+constexpr scalar_t kStepClipTolerance = 1.0e-9;
 
 /** [s] slack on the window an executed event time must fall in to be taken as the switch between two committed nodes. */
-constexpr scalar_t kSwitchTimeTolerance = 1e-9;
+constexpr scalar_t kSwitchTimeTolerance = 1.0e-9;
 
 /** Steps the start-up check rolls the reduced model forward for, and the tolerance [m] it calls a width settled at. */
 constexpr int kStartUpSteps = 12;
-constexpr scalar_t kStartUpSettledTolerance = 1e-3;
+constexpr scalar_t kStartUpSettledTolerance = 1.0e-3;
 
 Rotation2 rotation(scalar_t yaw) {
   const scalar_t cosine = std::cos(yaw);
@@ -73,18 +80,18 @@ contact_flag_t stanceOnly(size_t stanceFoot) {
 }
 
 size_t otherFoot(size_t foot) {
-  return foot == CONTACT_LEFT_INDEX ? CONTACT_RIGHT_INDEX : CONTACT_LEFT_INDEX;
+  return foot == kContactLeftIndex ? kContactRightIndex : kContactLeftIndex;
 }
 
 bool bothFeetDown(const contact_flag_t& contacts) {
-  return contacts[CONTACT_LEFT_INDEX] && contacts[CONTACT_RIGHT_INDEX];
+  return contacts[kContactLeftIndex] && contacts[kContactRightIndex];
 }
 
 /** The foot in flight in a contact state, or -1 when both feet are down (and when neither is). */
 int swingFootOf(const contact_flag_t& contacts) {
   if (bothFeetDown(contacts)) return -1;
-  if (!contacts[CONTACT_LEFT_INDEX] && !contacts[CONTACT_RIGHT_INDEX]) return -1;
-  return contacts[CONTACT_LEFT_INDEX] ? static_cast<int>(CONTACT_RIGHT_INDEX) : static_cast<int>(CONTACT_LEFT_INDEX);
+  if (!contacts[kContactLeftIndex] && !contacts[kContactRightIndex]) return -1;
+  return contacts[kContactLeftIndex] ? static_cast<int>(kContactRightIndex) : static_cast<int>(kContactLeftIndex);
 }
 
 /**
@@ -96,7 +103,7 @@ int swingFootOf(const contact_flag_t& contacts) {
 scalar_t elapsedInCurrentPhase(const ContactPlannerInput& input) {
   const int swingFoot = swingFootOf(input.contacts);
   if (swingFoot < 0) {
-    return std::min(input.phaseElapsedTime[CONTACT_LEFT_INDEX], input.phaseElapsedTime[CONTACT_RIGHT_INDEX]);
+    return std::min(input.phaseElapsedTime[kContactLeftIndex], input.phaseElapsedTime[kContactRightIndex]);
   }
   return input.phaseElapsedTime[static_cast<size_t>(swingFoot)];
 }
@@ -139,25 +146,24 @@ std::string startUpVerdict(const ContactPlanningConfig& config, scalar_t demand)
   if (demand <= params.maxStepWidth) return " (fits)\n";
   const std::vector<scalar_t> widths = HlipContactPlanner::startUpLateralWidths(config, kStartUpSteps);
   const int settled = settlingStep(widths, params.stepWidth);
-  const std::vector<scalar_t> firstWidths(widths.begin(),
-                                          widths.begin() + std::min<std::ptrdiff_t>(6, static_cast<std::ptrdiff_t>(widths.size())));
+  const std::vector<scalar_t> firstWidths(widths.begin(), widths.begin() + std::min<ptrdiff_t>(6, static_cast<ptrdiff_t>(widths.size())));
   const std::string rolledOut = absl::StrJoin(firstWidths, ", ");
   if (settled >= 0) {
     return absl::StrCat(
         " <-- DOES NOT FIT: the first step is clipped, which costs the deadbeat property. The reduced model still recovers the "
         "nominal width after ",
-        settled, " steps (widths ", rolledOut, ", ... m); shorten hlip.sspDuration or raise hlip.maxStepWidth for margin.\n");
+        settled, " steps (widths ", rolledOut, ", ... m); shorten hlip.ssp_duration or raise hlip.max_step_width for margin.\n");
   }
   return absl::StrCat(
       " <-- DOES NOT FIT: the first step is clipped, and the reduced model then locks into an alternating wide/narrow limit "
       "cycle it never leaves (widths ",
-      rolledOut, ", ... m). Shorten hlip.sspDuration or raise hlip.maxStepWidth.\n");
+      rolledOut, ", ... m). Shorten hlip.ssp_duration or raise hlip.max_step_width.\n");
 }
 
 }  // namespace
 
 HlipModel HlipContactPlanner::makeModel(const ContactPlanningConfig& config) {
-  return HlipModel(config.hlip.sspDuration, config.hlip.dspDuration, config.shared.comHeight, config.shared.gravity);
+  return HlipModel(config.hlip.sspDuration, config.hlip.dspDuration, config.pendulumHeight(), config.shared.gravity);
 }
 
 HlipContactPlanner::HlipContactPlanner(ContactPlanningConfig config)
@@ -175,8 +181,7 @@ absl::Status HlipContactPlanner::setConfig(const ContactPlanningConfig& config) 
 size_t HlipContactPlanner::nextSwingFoot(const ContactPlannerInput& input) {
   if (input.lastSwungFoot >= 0) return otherFoot(static_cast<size_t>(input.lastSwungFoot));
   // Nothing has swung yet: the foot that has been in contact the longest has had the most time to be unloaded.
-  return input.phaseElapsedTime[CONTACT_LEFT_INDEX] >= input.phaseElapsedTime[CONTACT_RIGHT_INDEX] ? CONTACT_LEFT_INDEX
-                                                                                                   : CONTACT_RIGHT_INDEX;
+  return input.phaseElapsedTime[kContactLeftIndex] >= input.phaseElapsedTime[kContactRightIndex] ? kContactLeftIndex : kContactRightIndex;
 }
 
 std::optional<scalar_t> HlipContactPlanner::zeroCommandOrbitLateralVelocity(const ContactPlannerInput& input) const {
@@ -187,7 +192,7 @@ std::optional<scalar_t> HlipContactPlanner::zeroCommandOrbitLateralVelocity(cons
   if (swingFoot >= 0) {
     // The single support began at the lift-off after the impact that placed the stance foot: that step's pre-impact
     // state, carried through the impact and the double support, then flowed for as long as the swing has been in flight.
-    const bool placesLeftFoot = swingFoot == static_cast<int>(CONTACT_LEFT_INDEX);
+    const bool placesLeftFoot = swingFoot == static_cast<int>(kContactLeftIndex);
     const HlipModel::State& beforeStanceStep = placesLeftFoot ? orbit.second : orbit.first;
     const scalar_t stanceStep = placesLeftFoot ? -stepWidth : stepWidth;
     const HlipModel::State atLiftOff =
@@ -197,7 +202,7 @@ std::optional<scalar_t> HlipContactPlanner::zeroCommandOrbitLateralVelocity(cons
   }
   if (bothFeetDown(input.contacts) && input.lastSwungFoot >= 0) {
     // After the touch-down of the last swing the orbit drifts at that step's pre-impact velocity.
-    return (input.lastSwungFoot == static_cast<int>(CONTACT_LEFT_INDEX) ? orbit.first : orbit.second)(1);
+    return (input.lastSwungFoot == static_cast<int>(kContactLeftIndex) ? orbit.first : orbit.second)(1);
   }
   return std::nullopt;
 }
@@ -322,7 +327,7 @@ std::vector<HlipContactPlanner::GaitPhase> HlipContactPlanner::buildGait(const C
     // (a double support shorter than the node that holds it) keep the brief state between them as a phase of its own
     // that covers no interval.
     std::vector<std::pair<scalar_t, size_t>> switches;
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    for (size_t foot = 0; foot < kNumContacts; ++foot) {
       if (next[foot] != contacts[foot]) switches.emplace_back(committedSwitchTime(input, sampleTimes, node, foot, dt), foot);
     }
     std::sort(switches.begin(), switches.end());
@@ -415,7 +420,7 @@ vector2_t HlipContactPlanner::deadbeatStep(const HlipModel::State& preImpactX,
   const scalar_t leftStep = params.stepWidth + lateralDrift;    // the step that places the left foot
   const scalar_t rightStep = -params.stepWidth + lateralDrift;  // the step that places the right foot
   const std::pair<HlipModel::State, HlipModel::State> orbitY = model_.periodTwoOrbit(leftStep, rightStep);
-  const bool placesLeftFoot = swingFoot == CONTACT_LEFT_INDEX;
+  const bool placesLeftFoot = swingFoot == kContactLeftIndex;
   const scalar_t nominalStepY = placesLeftFoot ? leftStep : rightStep;
   const HlipModel::State orbitStateY = placesLeftFoot ? orbitY.first : orbitY.second;
 
@@ -473,12 +478,12 @@ ContactPlan HlipContactPlanner::plan(const ContactPlannerInput& input) {
   struct PhaseRollOut {
     vector2_t comPosition;  // world, at the start of the phase
     vector2_t comVelocity;
-    size_t stanceFoot = CONTACT_LEFT_INDEX;  // single support only
+    size_t stanceFoot = kContactLeftIndex;  // single support only
     Rotation2 world_R_phase = Rotation2::Identity();
     HlipModel::State stateX = HlipModel::State::Zero();  // relative to the stance foot, in the phase's heading frame
     HlipModel::State stateY = HlipModel::State::Zero();
     feet_array_t<vector2_t> feet;  // during the phase: a swinging foot at its landing spot
-    feet_array_t<scalar_t> footYaws;
+    feet_array_t<scalar_t> footYaws = makeFeetArray(0.0);
   };
   std::vector<PhaseRollOut> rollOut;
   rollOut.reserve(gait.size());
@@ -575,7 +580,7 @@ ContactPlan HlipContactPlanner::plan(const ContactPlannerInput& input) {
   // stepping cadence on the other) and so does the roll-out that produced it.
   if (!walking) {
     const feet_array_t<vector2_t>& standingFeet = rollOut.back().feet;
-    const vector2_t supportCenter = 0.5 * (standingFeet[CONTACT_LEFT_INDEX] + standingFeet[CONTACT_RIGHT_INDEX]);
+    const vector2_t supportCenter = 0.5 * (standingFeet[kContactLeftIndex] + standingFeet[kContactRightIndex]);
     for (int node = 0; node < numNodes; ++node) {
       plan.comPosition[node] = alpha * plan.comPosition[node] + (1.0 - alpha) * supportCenter;
       plan.comVelocity[node] *= alpha;
@@ -592,7 +597,7 @@ ContactPlan HlipContactPlanner::plan(const ContactPlannerInput& input) {
     if (phase.isSingleSupport()) {
       plan.zmp[interval] = feet[otherFoot(static_cast<size_t>(phase.swingFoot))];
     } else {
-      plan.zmp[interval] = 0.5 * (feet[CONTACT_LEFT_INDEX] + feet[CONTACT_RIGHT_INDEX]);
+      plan.zmp[interval] = 0.5 * (feet[kContactLeftIndex] + feet[kContactRightIndex]);
     }
   }
 
@@ -658,15 +663,15 @@ std::string HlipContactPlanner::formulationSummary(const ContactPlanningConfig& 
   return absl::StrCat(
       "[HlipContactPlanner] closed-form H-LIP contact planner (arXiv:2502.15630)\n", "  cadence      : single support ", params.sspDuration,
       " s, double support ", params.dspDuration, " s, stride ", 2.0 * stepDuration, " s\n", "  pendulum     : height ",
-      config.shared.comHeight, " m, omega ", model.naturalFrequency(), " 1/s\n", "  step law     : deadbeat, K = [",
+      config.pendulumHeight(), " m, omega ", model.naturalFrequency(), " 1/s\n", "  step law     : deadbeat, K = [",
       model.deadbeatGain()(0), ", ", model.deadbeatGain()(1), "] (closed form, nothing tuned)\n",
       "  nominal orbit: period one along the heading, ", "period two laterally at a step width of ", params.stepWidth, " m\n",
       "  step clip    : |dx| <= ", params.maxStepLength, " m, step width in [", params.minStepWidth, ", ", params.maxStepWidth, "] m\n",
       "  stand / walk : alpha = tanh(", params.blend.sharpness, " (phi - ", params.blend.threshold,
       ")) / 2 + 1/2, lateral velocity measured against the zero-command stepping orbit\n", "  grid         : ", config.planner.numNodes,
       " intervals x ", config.planner.dt, " s = ", config.horizon(), " s\n", "  heading model: ", config.usesHeadingModel() ? "on" : "off",
-      "\n", "  start-up     : the first step out of a standstill needs ", startUpDemand, " m of lateral step, against a maxStepWidth of ",
-      params.maxStepWidth, startUpVerdict(config, startUpDemand),
+      "\n", "  start-up     : the first step out of a standstill needs ", startUpDemand,
+      " m of lateral step, against an hlip.max_step_width of ", params.maxStepWidth, startUpVerdict(config, startUpDemand),
       "  no optimization is performed: no costs, no constraints, no search (the formulation's cost, constraint, logic and search "
       "lists are not read)\n",
       "  execution    : ", execution.empty() ? std::string("none") : absl::StrJoin(execution, ", "),

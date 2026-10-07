@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 
 #include <ocs2_core/penalties/penalties/PenaltyBase.h>
@@ -79,7 +81,7 @@ class MultidimensionalPenalty final {
    * @param [in] h: Vector of inequality constraint values.
    * @return Penalty: The penalty cost.
    */
-  scalar_t getValue(scalar_t t, const vector_t& h, const vector_t* l = nullptr) const;
+  scalar_t getValue(scalar_t t, const vector_t& h, const vector_t* absl_nullable l = nullptr) const;
 
   /**
    * Get the derivative of the penalty cost.
@@ -89,8 +91,9 @@ class MultidimensionalPenalty final {
    * @param [in] h: The constraint linear approximation.
    * @return The penalty cost quadratic approximation.
    */
-  ScalarFunctionQuadraticApproximation getQuadraticApproximation(scalar_t t, const VectorFunctionLinearApproximation& h,
-                                                                 const vector_t* l = nullptr) const;
+  ScalarFunctionQuadraticApproximation getQuadraticApproximation(scalar_t t,
+                                                                 const VectorFunctionLinearApproximation& h,
+                                                                 const vector_t* absl_nullable l = nullptr) const;
 
   /**
    * Get the derivative of the penalty cost.
@@ -100,8 +103,9 @@ class MultidimensionalPenalty final {
    * @param [in] h: The constraint quadratic approximation.
    * @return The penalty cost quadratic approximation.
    */
-  ScalarFunctionQuadraticApproximation getQuadraticApproximation(scalar_t t, const VectorFunctionQuadraticApproximation& h,
-                                                                 const vector_t* l = nullptr) const;
+  ScalarFunctionQuadraticApproximation getQuadraticApproximation(scalar_t t,
+                                                                 const VectorFunctionQuadraticApproximation& h,
+                                                                 const vector_t* absl_nullable l = nullptr) const;
 
   /**
    * Updates the Lagrange multipliers.
@@ -129,7 +133,9 @@ class MultidimensionalPenalty final {
   std::vector<std::unique_ptr<augmented::AugmentedPenaltyBase>>& getPenaltyPtrArray() { return penaltyPtrArray_; }
 
  private:
-  std::tuple<scalar_t, vector_t, vector_t> getPenaltyValue1stDev2ndDev(scalar_t t, const vector_t& h, const vector_t* l) const;
+  std::tuple<scalar_t, vector_t, vector_t> getPenaltyValue1stDev2ndDev(scalar_t t,
+                                                                       const vector_t& h,
+                                                                       const vector_t* absl_nullable l) const;
 
   std::vector<std::unique_ptr<augmented::AugmentedPenaltyBase>> penaltyPtrArray_;
 };

@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/FallRecoveryTypes.h"
 
+#include <string>
+
 #include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
@@ -44,23 +46,23 @@ absl::string_view settlePhaseDescription(SettlePhase phase) {
     case SettlePhase::kSettlingOnFeet:
       return "waiting for the robot to come to rest on its feet";
     case SettlePhase::kIdle:
-    default:
       return "idle";
   }
+  return "idle";  // not an enumerator: no -Wswitch default, so that a new phase must be described (ToTW #147)
 }
 
-std::string discontinuityReason(DiscontinuityCause cause, std::uint64_t resetEpoch, double tilt, double maxTilt) {
+std::string discontinuityReason(DiscontinuityCause cause, uint64_t resetEpoch, double tilt, double maxTilt) {
   switch (cause) {
     case DiscontinuityCause::kSimulatorReset:
       return absl::StrCat("the simulator put the robot back in its initial state (reset epoch ", resetEpoch, ")");
     case DiscontinuityCause::kGantryLocked:
       return "the gantry was locked";
     case DiscontinuityCause::kTiltCaught:
-      return absl::StrCat("the base tilted ", tilt, " rad, past simMaxBaseTiltAngle ", maxTilt, " rad");
+      return absl::StrCat("the base tilted ", tilt, " rad, past sim_max_base_tilt_angle ", maxTilt, " rad");
     case DiscontinuityCause::kNone:
-    default:
       return "no discontinuity";
   }
+  return "no discontinuity";  // not an enumerator (ToTW #147)
 }
 
 }  // namespace ocs2::humanoid

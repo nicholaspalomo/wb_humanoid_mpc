@@ -5,19 +5,25 @@
 # Flattened directory layout: lib/ocs2/<package>/
 #   core/          (was ocs2_core)
 #   oc/            (was ocs2_oc)
-#   ddp/           (was ocs2_ddp)
 #   sqp/sqp/       (was ocs2_sqp/ocs2_sqp)
 #   mpc/           (was ocs2_mpc)
 #   robotic_tools/ (was ocs2_robotic_tools)
 #   thirdparty/    (was ocs2_thirdparty)
-#   test_tools/qp_solver/ (was ocs2_test_tools/ocs2_qp_solver)
 #   pinocchio/pinocchio_interface/ (was ocs2_pinocchio/ocs2_pinocchio_interface)
 #   pinocchio/centroidal_model/    (was ocs2_pinocchio/ocs2_centroidal_model)
 
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 
-package(default_visibility = ["//visibility:public"])
+# The include directories of these vendored libraries (the OCS2 packages and their CppAD / iit copies) reach the
+# targets that depend on them as -isystem: they are third-party headers there, so the first-party warning flags
+# (bazel/copts.bzl) report first-party code only. A target's own -I directories stay first-party.
+# LINT.IfChange(system_include_paths)
+package(
+    default_visibility = ["//visibility:public"],
+    features = ["system_include_paths"],
+)
+# LINT.ThenChange(//bazel/copts.bzl:first_party_copts)
 
 # ==============================================================================
 # Shared compile options for all OCS2 packages
@@ -52,7 +58,7 @@ cc_library(
 # ==============================================================================
 
 # The value types of ocs2_core (scalar_t, vector_t, matrix_t and the function approximations) and the linear algebra
-# their checks use, with nothing but Eigen: no CppAD, no integrators, no YAML. Code that needs only the types, such as
+# their checks use, with nothing but Eigen: no CppAD, no integrators. Code that needs only the types, such as
 # the state estimator, depends on this rather than on ocs2_core, which re-exports it.
 _OCS2_CORE_TYPES_SRCS = [
     "core/src/Types.cpp",
@@ -73,7 +79,10 @@ cc_library(
     copts = _OCS2_COPTS,
     includes = ["core/include"],
     linkopts = _OCS2_LINKOPTS,
-    deps = ["@eigen"],
+    deps = [
+        "@abseil-cpp//absl/base:nullability",
+        "@eigen",
+    ],
 )
 
 cc_library(
@@ -94,12 +103,13 @@ cc_library(
     deps = [
         ":ocs2_core_types",
         ":ocs2_thirdparty",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log",
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@eigen",
-        "@yaml_cpp",
     ],
 )
 
@@ -121,6 +131,7 @@ cc_library(
     deps = [
         ":ocs2_core",
         ":ocs2_thirdparty",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:check",
         "@eigen",
     ],
@@ -145,6 +156,7 @@ cc_library(
         ":ocs2_core",
         ":ocs2_oc",
         ":ocs2_thirdparty",
+        "@abseil-cpp//absl/base:nullability",
         "@eigen",
     ],
 )
@@ -167,6 +179,7 @@ cc_library(
     deps = [
         ":ocs2_core",
         ":ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/strings",
@@ -175,53 +188,7 @@ cc_library(
 )
 
 # ==============================================================================
-# 6. ocs2_qp_solver
-# ==============================================================================
-
-cc_library(
-    name = "ocs2_qp_solver",
-    srcs = glob(
-        ["test_tools/qp_solver/src/**/*.cpp"],
-        exclude = ["test_tools/qp_solver/src/**/test/**"],
-        allow_empty = True,
-    ),
-    hdrs = glob(["test_tools/qp_solver/include/**"], allow_empty = True),
-    copts = _OCS2_COPTS,
-    includes = ["test_tools/qp_solver/include"],
-    linkopts = _OCS2_LINKOPTS,
-    deps = [
-        ":ocs2_core",
-        ":ocs2_oc",
-        "@eigen",
-    ],
-)
-
-# ==============================================================================
-# 7. ocs2_ddp
-# ==============================================================================
-
-cc_library(
-    name = "ocs2_ddp",
-    srcs = glob(
-        ["ddp/src/**/*.cpp"],
-        exclude = ["ddp/src/**/test/**"],
-        allow_empty = True,
-    ),
-    hdrs = glob(["ddp/include/**"], allow_empty = True),
-    copts = _OCS2_COPTS,
-    includes = ["ddp/include"],
-    linkopts = _OCS2_LINKOPTS,
-    deps = [
-        ":ocs2_core",
-        ":ocs2_oc",
-        ":ocs2_mpc",
-        ":ocs2_qp_solver",
-        "@eigen",
-    ],
-)
-
-# ==============================================================================
-# 8-9. blasfeo + hpipm: provided as @blasfeo and @hpipm system repos
+# 6-7. blasfeo + hpipm: provided as @blasfeo and @hpipm system repos
 # ==============================================================================
 
 cc_library(
@@ -238,6 +205,7 @@ cc_library(
     deps = [
         ":ocs2_core",
         ":ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
         "@blasfeo",
         "@hpipm",
         "@eigen",
@@ -245,7 +213,7 @@ cc_library(
 )
 
 # ==============================================================================
-# 10. ocs2_sqp
+# 8. ocs2_sqp
 # ==============================================================================
 
 cc_library(
@@ -263,8 +231,8 @@ cc_library(
         ":ocs2_core",
         ":ocs2_oc",
         ":ocs2_mpc",
-        ":ocs2_qp_solver",
         ":ocs2_hpipm_catkin",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log",
         "@blasfeo",
         "@hpipm",
@@ -273,7 +241,7 @@ cc_library(
 )
 
 # ==============================================================================
-# 11. ocs2_pinocchio_interface
+# 9. ocs2_pinocchio_interface
 # ==============================================================================
 
 cc_library(
@@ -292,6 +260,7 @@ cc_library(
         ":ocs2_oc",
         ":ocs2_robotic_tools",
         ":ocs2_thirdparty",
+        "@abseil-cpp//absl/base:nullability",
         "@pinocchio",
         "@urdf",
         "@eigen",
@@ -309,6 +278,7 @@ cc_test(
     deps = [
         ":ocs2_core",
         ":ocs2_pinocchio_interface",
+        "@abseil-cpp//absl/base:nullability",
         "@eigen",
         "@googletest//:gtest_main",
         "@pinocchio",
@@ -316,7 +286,7 @@ cc_test(
 )
 
 # ==============================================================================
-# 12. ocs2_centroidal_model
+# 10. ocs2_centroidal_model
 # ==============================================================================
 
 cc_library(
@@ -334,6 +304,7 @@ cc_library(
         ":ocs2_core",
         ":ocs2_robotic_tools",
         ":ocs2_pinocchio_interface",
+        "@abseil-cpp//absl/base:nullability",
         "@pinocchio",
         "@urdf",
         "@eigen",
@@ -356,6 +327,7 @@ cc_library(
         ":ocs2_core",
         ":ocs2_mpc",
         ":ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
         "@eigen",
     ],
 )
@@ -369,6 +341,7 @@ cc_test(
         ":ocs2_mpc",
         ":ocs2_mpc_test_support",
         ":ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@googletest//:gtest_main",
     ],
@@ -386,18 +359,7 @@ cc_test(
     copts = _OCS2_COPTS,
     deps = [
         ":ocs2_core_types",
-        "@eigen",
-        "@googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "test_property_tree",
-    size = "small",
-    srcs = ["core/test/misc/testPropertyTree.cpp"],
-    copts = _OCS2_COPTS,
-    deps = [
-        ":ocs2_core",
+        "@abseil-cpp//absl/base:nullability",
         "@eigen",
         "@googletest//:gtest_main",
     ],
@@ -410,6 +372,7 @@ cc_test(
     copts = _OCS2_COPTS,
     deps = [
         ":ocs2_core",
+        "@abseil-cpp//absl/base:nullability",
         "@eigen",
         "@googletest//:gtest_main",
     ],
@@ -428,44 +391,7 @@ cc_test(
     copts = _OCS2_COPTS,
     deps = [
         ":ocs2_core",
-        "@eigen",
-        "@googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "test_load_data_yaml",
-    size = "small",
-    srcs = ["core/test/misc/testLoadDataYaml.cpp"],
-    copts = _OCS2_COPTS,
-    data = glob(["core/test/misc/data/**"]),
-    deps = [
-        ":ocs2_core",
-        "@eigen",
-        "@yaml_cpp",
-        "@googletest//:gtest_main",
-    ],
-)
-
-# The upstream hybrid SLQ test: a mass bouncing on a wall, through StateTriggeredRollout. Its reference trajectory is
-# extended with the native ODE45 stepper, which replaced the odeint one it used.
-cc_test(
-    name = "test_bouncing_mass",
-    size = "small",
-    srcs = [
-        "ddp/test/bouncingmass/BouncingMassTest.cpp",
-        "ddp/test/bouncingmass/OverallReference.cpp",
-        "ddp/test/bouncingmass/Reference.cpp",
-        "ddp/test/include/ocs2_ddp/test/bouncingmass/OverallReference.h",
-        "ddp/test/include/ocs2_ddp/test/bouncingmass/Reference.h",
-        "ddp/test/include/ocs2_ddp/test/bouncingmass/SystemModel.h",
-    ],
-    copts = _OCS2_COPTS,
-    includes = ["ddp/test/include"],
-    deps = [
-        ":ocs2_core",
-        ":ocs2_ddp",
-        ":ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
         "@eigen",
         "@googletest//:gtest_main",
     ],
@@ -488,6 +414,24 @@ cc_test(
         ":ocs2_core",
         ":ocs2_oc",
         ":ocs2_sqp",
+        "@abseil-cpp//absl/base:nullability",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# SqpSolver::setLiveSettings(), the live retuning of the parameter updater: a solve after it is the solve of a solver
+# constructed with the same values, bit for bit (the filter line search included), and no other setting changes.
+cc_test(
+    name = "test_sqp_live_settings",
+    size = "small",
+    srcs = ["sqp/sqp/test/testSqpLiveSettings.cpp"],
+    copts = _OCS2_COPTS,
+    deps = [
+        ":ocs2_core",
+        ":ocs2_oc",
+        ":ocs2_sqp",
+        "@abseil-cpp//absl/base:nullability",
         "@eigen",
         "@googletest//:gtest_main",
     ],
@@ -511,6 +455,7 @@ cc_library(
     includes = ["oc/test/include"],
     deps = [
         ":ocs2_core",
+        "@abseil-cpp//absl/base:nullability",
         "@eigen",
     ],
 )
@@ -522,6 +467,7 @@ cc_test(
     copts = _OCS2_COPTS,
     deps = [
         ":ocs2_core",
+        "@abseil-cpp//absl/base:nullability",
         "@eigen",
         "@googletest//:gtest_main",
     ],
@@ -534,6 +480,7 @@ cc_test(
     copts = _OCS2_COPTS,
     deps = [
         ":ocs2_core",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/status:statusor",
         "@eigen",
@@ -550,6 +497,7 @@ cc_test(
     tags = ["exclusive"],
     deps = [
         ":ocs2_core",
+        "@abseil-cpp//absl/base:nullability",
         "@eigen",
         "@googletest//:gtest_main",
     ],
@@ -563,6 +511,38 @@ cc_test(
     tags = ["exclusive"],
     deps = [
         ":ocs2_core",
+        "@abseil-cpp//absl/base:nullability",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# Tapes and generates C sources, but compiles none: not exclusive.
+cc_test(
+    name = "test_cppad_codegen_determinism",
+    size = "small",
+    srcs = ["core/test/automatic_differentiation/testCppAdCodegenDeterminism.cpp"],
+    copts = _OCS2_COPTS,
+    deps = [
+        ":ocs2_core",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/functional:function_ref",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# Generates and compiles small CppAD libraries: exclusive, so that its compiler runs do not overlap other tests.
+cc_test(
+    name = "test_cppad_generator_stamp",
+    size = "medium",
+    srcs = ["core/test/automatic_differentiation/testCppAdGeneratorStamp.cpp"],
+    copts = _OCS2_COPTS,
+    tags = ["exclusive"],
+    deps = [
+        ":ocs2_core",
+        "@abseil-cpp//absl/base:nullability",
         "@eigen",
         "@googletest//:gtest_main",
     ],
@@ -580,6 +560,7 @@ cc_test(
         ":ocs2_core",
         ":ocs2_manifold_test_support",
         ":ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
         "@eigen",
         "@googletest//:gtest_main",
     ],
@@ -594,6 +575,7 @@ cc_test(
         ":ocs2_core",
         ":ocs2_manifold_test_support",
         ":ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
         "@eigen",
         "@googletest//:gtest_main",
     ],
@@ -608,21 +590,7 @@ cc_test(
         ":ocs2_core",
         ":ocs2_mpc",
         ":ocs2_oc",
-        "@eigen",
-        "@googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "test_ddp_state_manifold_guard",
-    size = "small",
-    srcs = ["ddp/test/testDdpStateManifoldGuard.cpp"],
-    copts = _OCS2_COPTS,
-    deps = [
-        ":ocs2_core",
-        ":ocs2_ddp",
-        ":ocs2_manifold_test_support",
-        ":ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
         "@eigen",
         "@googletest//:gtest_main",
     ],
@@ -639,6 +607,7 @@ cc_test(
         ":ocs2_manifold_test_support",
         ":ocs2_oc",
         ":ocs2_sqp",
+        "@abseil-cpp//absl/base:nullability",
         "@eigen",
         "@googletest//:gtest_main",
     ],

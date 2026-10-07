@@ -35,8 +35,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cstring>
 #include <exception>
+#include <string>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/strings/str_cat.h"
 
 #include "robot_realtime/LoopTimingStats.h"
@@ -70,7 +72,7 @@ absl::Status RealtimeLoopRunner::start(CycleFunction cycle, FaultFunction fault)
     started_ = true;
     cycle_ = std::move(cycle);
     fault_ = std::move(fault);
-    running_.store(true, std::memory_order_release);  // NOLINT(argument-comment): libstdc++ names the value __i.
+    running_.store(true, std::memory_order_release);
     thread_ = std::thread([this]() { run(); });
   }
   configured_.WaitForNotification();
@@ -78,7 +80,7 @@ absl::Status RealtimeLoopRunner::start(CycleFunction cycle, FaultFunction fault)
 }
 
 void RealtimeLoopRunner::stop() {
-  stopRequested_.store(true, std::memory_order_release);  // NOLINT(argument-comment): libstdc++ names the value __i.
+  stopRequested_.store(true, std::memory_order_release);
   absl::MutexLock lock(lifecycleMutex_);
   if (thread_.joinable()) {
     thread_.join();
@@ -110,36 +112,37 @@ void RealtimeLoopRunner::run() {
   while (!stopRequested_.load(std::memory_order_acquire)) {
     const robot::realtime::TimerWakeup wakeup = timer.waitForNextPeriod();
     if (stopRequested_.load(std::memory_order_acquire)) break;
-    try {
+    // The cycle runs the controller, which calls OCS2 and Pinocchio code that throws: the class comment's A CYCLE THAT
+    // THROWS boundary, which puts the robot in its safe state instead of letting the exception end the process.
+    try {  // NOLINT(exceptions): see above
       cycle_();
-    } catch (const std::exception& error) {
+    } catch (const std::exception& error) {  // NOLINT(exceptions): see above
       recordFault(error.what());
       break;
-    } catch (...) {
+    } catch (...) {  // NOLINT(exceptions): see above
       recordFault("an exception that is not a std::exception");
       break;
     }
-    cycles_.fetch_add(1, std::memory_order_relaxed);  // NOLINT(argument-comment): libstdc++ names the value __i.
+    cycles_.fetch_add(1, std::memory_order_relaxed);
     if (statistics.addCycle(wakeup, robot::realtime::monotonicNow())) {
       timing_.writeSlot() = statistics.lastSnapshot();
       timing_.publishWrite();
     }
   }
-  running_.store(false, std::memory_order_release);  // NOLINT(argument-comment): libstdc++ names the value __i.
+  running_.store(false, std::memory_order_release);
 }
 
-void RealtimeLoopRunner::recordFault(const char* message) {
-  const std::size_t length = std::min(std::strlen(message), faultMessage_.size() - 1);
+void RealtimeLoopRunner::recordFault(const char* absl_nonnull message) {
+  const size_t length = std::min(std::strlen(message), faultMessage_.size() - 1);
   std::memcpy(faultMessage_.data(), message, length);
   faultMessage_[length] = '\0';
   if (fault_ != nullptr) {
-    try {
+    try {  // NOLINT(exceptions): the fault function must not throw; if it does, the loop ends all the same
       fault_();
-    } catch (...) {
-      // The fault function must not throw; if it does, the loop ends all the same.
+    } catch (...) {  // NOLINT(exceptions, bugprone-empty-catch): see above; the cycle's fault is what faultMessage() reports
     }
   }
-  faulted_.store(true, std::memory_order_release);  // NOLINT(argument-comment): libstdc++ names the value __i.
+  faulted_.store(true, std::memory_order_release);
 }
 
 std::string RealtimeLoopRunner::faultMessage() const {

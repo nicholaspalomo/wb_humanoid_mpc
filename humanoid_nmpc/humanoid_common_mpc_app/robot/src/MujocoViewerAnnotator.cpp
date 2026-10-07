@@ -35,19 +35,20 @@ namespace {
 robot::mujoco_sim_interface::TargetContactPatch::Kind viewerKind(msgs::TargetContactPatch::Kind kind) {
   switch (kind) {
     case msgs::TargetContactPatch::Kind::kSwingInFlight:
-      return robot::mujoco_sim_interface::TargetContactPatch::Kind::SWING_IN_FLIGHT;
+      return robot::mujoco_sim_interface::TargetContactPatch::Kind::kSwingInFlight;
     case msgs::TargetContactPatch::Kind::kNextSwing:
-      return robot::mujoco_sim_interface::TargetContactPatch::Kind::NEXT_SWING;
+      return robot::mujoco_sim_interface::TargetContactPatch::Kind::kNextSwing;
     case msgs::TargetContactPatch::Kind::kStance:
-    default:
-      return robot::mujoco_sim_interface::TargetContactPatch::Kind::STANCE;
+      return robot::mujoco_sim_interface::TargetContactPatch::Kind::kStance;
   }
+  // A value from the wire that is no enumerator (the message is open, as a proto enum is) is drawn as a stance patch.
+  return robot::mujoco_sim_interface::TargetContactPatch::Kind::kStance;
 }
 
 }  // namespace
 
 MujocoViewerAnnotator::MujocoViewerAnnotator(robot::mujoco_sim_interface::MujocoSimInterface& simulator) : simulator_(simulator) {
-  patches_.reserve(N_CONTACTS);
+  patches_.reserve(kNumContacts);
 }
 
 void MujocoViewerAnnotator::apply(const msgs::ViewerAnnotations& annotations) {

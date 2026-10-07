@@ -15,7 +15,7 @@ message ViewerAnnotations {
 
   // One per contact, in contact order; empty when the contact planner is not in use.
   repeated TargetContactPatch target_contact_patches = 1;
-  // The walking command after the reference.yaml limits are applied [m/s, m/s, rad/s].
+  // The walking command after the reference.textproto limits are applied [m/s, m/s, rad/s].
   double scaled_velocity_x = 2;
   double scaled_velocity_y = 3;
   double scaled_yaw_rate = 4;

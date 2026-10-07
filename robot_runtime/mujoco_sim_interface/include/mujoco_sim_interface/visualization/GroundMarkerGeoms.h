@@ -29,25 +29,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <mujoco/mujoco.h>
+#include "absl/base/nullability.h"
+#include "mujoco/mujoco.h"
 
 namespace robot::mujoco_sim_interface {
 
 /** Color of a ground marker. */
 struct MarkerColor {
-  float r{1.0f};
-  float g{1.0f};
-  float b{1.0f};
-  float a{1.0f};
+  float r = 1.0f;
+  float g = 1.0f;
+  float b = 1.0f;
+  float a = 1.0f;
 };
 
 /**
  * Decor geoms shared by the centroidal markers of the viewer (center of mass, ZMP, DCM): a flat disc on the ground plane
  * at (x, y), a sphere in space, and a thin vertical line between a point and its projection on the ground. Each call
- * appends one geom to the scene and returns false when the scene is full.
+ * appends one geom to the scene and returns false when the scene is full or null.
  */
-bool addGroundDiscGeom(mjvScene* scene, double x, double y, double radius, const MarkerColor& color);
-bool addSphereGeom(mjvScene* scene, const double position[3], double radius, const MarkerColor& color);
-bool addVerticalLineGeom(mjvScene* scene, const double position[3], double groundHeight, double width, const MarkerColor& color);
+bool addGroundDiscGeom(mjvScene* absl_nullable scene, double x, double y, double radius, const MarkerColor& color);
+bool addSphereGeom(mjvScene* absl_nullable scene, const double position[absl_nonnull 3], double radius, const MarkerColor& color);
+bool addVerticalLineGeom(
+    mjvScene* absl_nullable scene, const double position[absl_nonnull 3], double groundHeight, double width, const MarkerColor& color);
 
 }  // namespace robot::mujoco_sim_interface

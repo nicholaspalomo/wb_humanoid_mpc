@@ -151,6 +151,34 @@ class LlvmToolsTest(unittest.TestCase):
         )
         self.assertEqual({image, script, wrapper}, {image})
 
+    def test_clang_tidy_is_one_exact_build_everywhere(self):
+        # A point release can change what a check reports, and the wrapper's pin is part of every action's key.
+        image = _version(
+            "docker/Dockerfile", r"^ARG CLANG_TIDY_PACKAGE_VERSION=(\S+)\s*$"
+        )
+        script = _version(
+            "docker/install_llvm_tools.sh",
+            r'^CLANG_TIDY_PACKAGE_VERSION="\$\{CLANG_TIDY_PACKAGE_VERSION:-(\S+)\}"$',
+        )
+        self.assertEqual(script, image)
+        upstream = re.match(r"^\d+:(\d+\.\d+\.\d+)~", image)
+        assert upstream is not None, f"{image} is not an apt.llvm.org package version"
+        wrapper = _version(
+            "tools/clang_tidy/run_clang_tidy.sh", r"^CLANG_TIDY_FULL_VERSION=(\S+)$"
+        )
+        self.assertEqual(wrapper, upstream.group(1))
+        major = _version("docker/Dockerfile", r"^ARG CLANG_TIDY_VERSION=(\d+)\s*$")
+        self.assertTrue(
+            wrapper.startswith(major + "."), f"{wrapper} is not clang-tidy {major}"
+        )
+        installer = check_test_support.read_repository_file(
+            "docker/install_llvm_tools.sh"
+        )
+        self.assertIn(
+            '"clang-tidy-${CLANG_TIDY_VERSION}=${CLANG_TIDY_PACKAGE_VERSION}"',
+            installer,
+        )
+
     def test_clang_format_is_ubuntus_everywhere(self):
         image = _version("docker/Dockerfile", r"^ARG CLANG_FORMAT_VERSION=(\d+)\s*$")
         script = _version(

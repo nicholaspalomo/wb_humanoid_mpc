@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """The Python network file loader: the properties testNetworkConfig.cpp checks for the C++ one.
 
 A malformed textproto is an error naming its line and column, every invalid node is an error naming the node,
@@ -10,20 +37,13 @@ import tempfile
 import unittest
 
 import robot_ipc
-from robot_ipc import (
-    EPHEMERAL_PORT,
-    MAX_PORT,
-    NetworkConfig,
-    NetworkConfigError,
-    NodeEndpoint,
-)
 
 # Relative to the test's runfiles directory (data dependency //config/ipc:network.textproto).
 SHIPPED_NETWORK_FILE = "config/ipc/network.textproto"
 SOURCE = "test.textproto"
 
 
-def parse(text: str) -> NetworkConfig:
+def parse(text: str) -> robot_ipc.NetworkConfig:
     return robot_ipc.parse_network_config(text, SOURCE)
 
 
@@ -44,11 +64,12 @@ nodes {
         )
         self.assertEqual(config.node_names(), ["robot", "mpc"])
         robot = config.find("robot")
-        self.assertEqual(robot, NodeEndpoint("robot", "127.0.0.1", 5600))
+        assert robot is not None  # Narrows the type; the next line compares it.
+        self.assertEqual(robot, robot_ipc.NodeEndpoint("robot", "127.0.0.1", 5600))
         self.assertEqual(robot.bind_endpoint(), "tcp://127.0.0.1:5600")
         self.assertEqual(robot.connect_endpoint(), "tcp://127.0.0.1:5600")
         mpc = config.find("mpc")
-        self.assertIsNotNone(mpc)
+        assert mpc is not None  # The test fails here, and mypy narrows the type.
         # bind_host decides where the node binds; host stays where the others connect.
         self.assertEqual(mpc.bind_endpoint(), "tcp://*:5610")
         self.assertEqual(mpc.connect_endpoint(), "tcp://192.168.1.20:5610")
@@ -58,6 +79,12 @@ nodes {
         shipped = robot_ipc.load_network_config(SHIPPED_NETWORK_FILE)
         self.assertEqual(shipped, robot_ipc.localhost_network_config())
         robot_ipc.validate_network_config(shipped)
+        # push_robot_config publishes as a node of its own, so that it runs next to the GUI, which binds "operator".
+        config_push = shipped.find("config_push")
+        assert (
+            config_push is not None
+        )  # The test fails here, and mypy narrows the type.
+        self.assertEqual(config_push.connect_endpoint(), "tcp://127.0.0.1:5622")
 
     def test_wildcard_host_binds_every_interface_and_is_reached_over_loopback(
         self,
@@ -75,13 +102,17 @@ nodes { name: "mpc" host: "*" port: 5610 }
                 self.assertTrue(node.connect_endpoint().startswith("tcp://127.0.0.1:"))
 
     def test_ephemeral_port_is_for_networks_built_in_code(self) -> None:
-        config = NetworkConfig(
-            nodes=(NodeEndpoint("test", "127.0.0.1", EPHEMERAL_PORT),)
+        config = robot_ipc.NetworkConfig(
+            nodes=(
+                robot_ipc.NodeEndpoint("test", "127.0.0.1", robot_ipc.EPHEMERAL_PORT),
+            )
         )
         robot_ipc.validate_network_config(config)
         self.assertEqual(config.nodes[0].bind_endpoint(), "tcp://127.0.0.1:*")
         # In a file, port 0 is a port left out: the other processes could not connect to it.
-        with self.assertRaisesRegex(NetworkConfigError, r"nodes\[0\] \(test\)\.port"):
+        with self.assertRaisesRegex(
+            robot_ipc.NetworkConfigError, r"nodes\[0\] \(test\)\.port"
+        ):
             parse('nodes { name: "test" host: "127.0.0.1" port: 0 }')
 
     def test_missing_file_raises_file_not_found(self) -> None:
@@ -93,16 +124,18 @@ nodes { name: "mpc" host: "*" port: 5610 }
             path = os.path.join(directory, "network.textproto")
             with open(path, "w", encoding="utf-8") as file:
                 file.write('nodes { name: "robot" prot: 5600 }\n')
-            with self.assertRaises(NetworkConfigError) as raised:
+            with self.assertRaises(robot_ipc.NetworkConfigError) as raised:
                 robot_ipc.load_network_config(path)
         self.assertTrue(str(raised.exception).startswith(f"{path}:1:"))
 
     def test_formatted_networks_parse_back_unchanged(self) -> None:
-        with_bind_host = NetworkConfig(
+        with_bind_host = robot_ipc.NetworkConfig(
             nodes=(
-                NodeEndpoint("robot", "192.168.1.10", 5600, bind_host="0.0.0.0"),
-                NodeEndpoint("mpc-laptop_2", "laptop.local", 65535),
-                NodeEndpoint("operator", "*", 1),
+                robot_ipc.NodeEndpoint(
+                    "robot", "192.168.1.10", 5600, bind_host="0.0.0.0"
+                ),
+                robot_ipc.NodeEndpoint("mpc-laptop_2", "laptop.local", 65535),
+                robot_ipc.NodeEndpoint("operator", "*", 1),
             )
         )
         for config in (robot_ipc.localhost_network_config(), with_bind_host):
@@ -239,7 +272,7 @@ class MalformedFileTest(unittest.TestCase):
     def test_every_malformed_file_is_rejected_with_its_line_and_column(self) -> None:
         for description, text, line, fragment in MALFORMED_FILES:
             with self.subTest(description=description):
-                with self.assertRaises(NetworkConfigError) as raised:
+                with self.assertRaises(robot_ipc.NetworkConfigError) as raised:
                     parse(text)
                 message = str(raised.exception)
                 # "<source>:<line>:<column>: <problem>"
@@ -256,7 +289,7 @@ class InvalidFileTest(unittest.TestCase):
     def test_every_invalid_file_is_rejected_with_the_offending_node(self) -> None:
         for description, text, key in INVALID_FILES:
             with self.subTest(description=description):
-                with self.assertRaises(NetworkConfigError) as raised:
+                with self.assertRaises(robot_ipc.NetworkConfigError) as raised:
                     parse(text)
                 message = str(raised.exception)
                 self.assertTrue(message.startswith(f"{SOURCE}: {key}"), message)
@@ -265,32 +298,38 @@ class InvalidFileTest(unittest.TestCase):
 class ValidateTest(unittest.TestCase):
 
     def test_validation_of_a_code_built_network_names_the_node(self) -> None:
-        with self.assertRaisesRegex(NetworkConfigError, r"^nodes\[1\] \(robot\)\.name"):
+        with self.assertRaisesRegex(
+            robot_ipc.NetworkConfigError, r"^nodes\[1\] \(robot\)\.name"
+        ):
             robot_ipc.validate_network_config(
-                NetworkConfig(
+                robot_ipc.NetworkConfig(
                     nodes=(
-                        NodeEndpoint("robot", "127.0.0.1", 5600),
-                        NodeEndpoint("robot", "127.0.0.1", 5601),
+                        robot_ipc.NodeEndpoint("robot", "127.0.0.1", 5600),
+                        robot_ipc.NodeEndpoint("robot", "127.0.0.1", 5601),
                     )
                 )
             )
-        with self.assertRaises(NetworkConfigError):
-            robot_ipc.validate_network_config(NetworkConfig(nodes=()))
-        for port in (MAX_PORT + 1, -1):
+        with self.assertRaises(robot_ipc.NetworkConfigError):
+            robot_ipc.validate_network_config(robot_ipc.NetworkConfig(nodes=()))
+        for port in (robot_ipc.MAX_PORT + 1, -1):
             with self.subTest(port=port):
                 with self.assertRaisesRegex(
-                    NetworkConfigError, r"^nodes\[0\] \(robot\)\.port"
+                    robot_ipc.NetworkConfigError, r"^nodes\[0\] \(robot\)\.port"
                 ):
                     robot_ipc.validate_network_config(
-                        NetworkConfig(nodes=(NodeEndpoint("robot", "127.0.0.1", port),))
+                        robot_ipc.NetworkConfig(
+                            nodes=(robot_ipc.NodeEndpoint("robot", "127.0.0.1", port),)
+                        )
                     )
         with self.assertRaisesRegex(
-            NetworkConfigError, r"^nodes\[0\] \(robot\)\.bind_host"
+            robot_ipc.NetworkConfigError, r"^nodes\[0\] \(robot\)\.bind_host"
         ):
             robot_ipc.validate_network_config(
-                NetworkConfig(
+                robot_ipc.NetworkConfig(
                     nodes=(
-                        NodeEndpoint("robot", "127.0.0.1", 5600, bind_host="tcp://*"),
+                        robot_ipc.NodeEndpoint(
+                            "robot", "127.0.0.1", 5600, bind_host="tcp://*"
+                        ),
                     )
                 )
             )

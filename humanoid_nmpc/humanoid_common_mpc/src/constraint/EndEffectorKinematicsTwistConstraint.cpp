@@ -31,6 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/EndEffectorKinematicsTwistConstraint.h"
 
 #include <cmath>
+#include <utility>
+
+#include "absl/log/absl_check.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 
@@ -40,7 +43,7 @@ namespace {
 /** The quaternion-distance orientation error is half the rotation angle, so its rate is half the angular velocity. */
 constexpr scalar_t kHalfAngleScaling = 0.5;
 /** 1 + v.n below this value means the end-effector normal is (almost) opposite to the plane normal. */
-constexpr scalar_t kAntiParallelThreshold = 1e-6;
+constexpr scalar_t kAntiParallelThreshold = 1.0e-6;
 }  // namespace
 
 /******************************************************************************************************/
@@ -51,13 +54,12 @@ EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(const
                                                                            size_t numConstraints,
                                                                            Config config)
     : StateInputConstraint(ConstraintOrder::Linear),
+      ground_plane_normal_(0.0, 0.0, 1.0),
       endEffectorKinematicsPtr_(endEffectorKinematics.clone()),
       numConstraints_(numConstraints),
-      ground_plane_normal_(0.0, 0.0, 1.0),
       config_(std::move(config)) {
-  if (endEffectorKinematicsPtr_->getIds().size() != 1) {
-    throw std::runtime_error("[EndEffectorKinematicsTwistConstraint] this class only accepts a single end-effector!");
-  }
+  ABSL_CHECK(endEffectorKinematicsPtr_->getIds().size() == 1)
+      << "[EndEffectorKinematicsTwistConstraint] this class only accepts a single end-effector!";
 }
 
 /******************************************************************************************************/
@@ -66,10 +68,10 @@ EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(const
 
 EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(const EndEffectorKinematicsTwistConstraint& rhs)
     : StateInputConstraint(rhs),
-      endEffectorKinematicsPtr_(rhs.endEffectorKinematicsPtr_->clone()),
-      numConstraints_(rhs.numConstraints_),
       ground_plane_normal_(rhs.ground_plane_normal_),
       constrainYawRateAboutNormal_(rhs.constrainYawRateAboutNormal_),
+      endEffectorKinematicsPtr_(rhs.endEffectorKinematicsPtr_->clone()),
+      numConstraints_(rhs.numConstraints_),
       config_(rhs.config_) {}
 
 /******************************************************************************************************/
@@ -78,12 +80,6 @@ EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(const
 
 void EndEffectorKinematicsTwistConstraint::configure(Config&& config) {
   // Config matrices are always 6D (full pose). The constraint slices to numConstraints_ rows at evaluation time.
-  assert(config.b.rows() == 6);
-  assert(config.Ax.size() > 0 || config.Av.size() > 0);
-  assert((config.Ax.size() > 0 && config.Ax.rows() == 6) || config.Ax.size() == 0);
-  assert((config.Ax.size() > 0 && config.Ax.cols() == 6) || config.Ax.size() == 0);
-  assert((config.Av.size() > 0 && config.Av.rows() == 6) || config.Av.size() == 0);
-  assert((config.Av.size() > 0 && config.Av.cols() == 6) || config.Av.size() == 0);
   config_ = std::move(config);
 }
 
@@ -94,7 +90,7 @@ void EndEffectorKinematicsTwistConstraint::configure(Config&& config) {
 /******************************************************************************************************/
 
 matrix3_t EndEffectorKinematicsTwistConstraint::getAngularVelocityToOrientationErrorRateMap(const vector_t& state) const {
-  const auto orientation = endEffectorKinematicsPtr_->getOrientation(state).front();
+  const quaternion_t orientation = endEffectorKinematicsPtr_->getOrientation(state).front();
   const vector3_t v = orientation.toRotationMatrix() * vector3_t::UnitZ();  // end-effector normal in the world frame
   const vector3_t& n = ground_plane_normal_;
 
@@ -123,16 +119,16 @@ matrix3_t EndEffectorKinematicsTwistConstraint::getAngularVelocityToOrientationE
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-vector_t EndEffectorKinematicsTwistConstraint::getValue(scalar_t time,
+vector_t EndEffectorKinematicsTwistConstraint::getValue(scalar_t /*time*/,
                                                         const vector_t& state,
                                                         const vector_t& input,
-                                                        const PreComputation& preComp) const {
+                                                        const PreComputation& /*preComp*/) const {
   vector_t f = config_.b.head(numConstraints_);
 
   if (config_.Ax.size() > 0) {
     // Foot pose: position and orientation error with respect to the ground normal. The orientation error (a kinematics
     // call) is only evaluated when the active rows use it, mirroring getLinearApproximation.
-    const auto Ax = config_.Ax.topRows(numConstraints_);
+    const Eigen::Ref<const matrix_t> Ax = config_.Ax.topRows(numConstraints_);
     vector6_t footPose = vector6_t::Zero();
     footPose.head<3>() = endEffectorKinematicsPtr_->getPosition(state).front();
     if (!Ax.rightCols(3).isZero(0.0)) {
@@ -158,10 +154,10 @@ vector_t EndEffectorKinematicsTwistConstraint::getValue(scalar_t time,
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-VectorFunctionLinearApproximation EndEffectorKinematicsTwistConstraint::getLinearApproximation(scalar_t time,
+VectorFunctionLinearApproximation EndEffectorKinematicsTwistConstraint::getLinearApproximation(scalar_t /*time*/,
                                                                                                const vector_t& state,
                                                                                                const vector_t& input,
-                                                                                               const PreComputation& preComp) const {
+                                                                                               const PreComputation& /*preComp*/) const {
   VectorFunctionLinearApproximation linearApproximation =
       VectorFunctionLinearApproximation::Zero(numConstraints_, state.size(), input.size());
 
@@ -169,12 +165,12 @@ VectorFunctionLinearApproximation EndEffectorKinematicsTwistConstraint::getLinea
 
   if (config_.Ax.size() > 0) {
     const matrix_t Ax = config_.Ax.topRows(numConstraints_);
-    const auto positionApprox = endEffectorKinematicsPtr_->getPositionLinearApproximation(state).front();
+    const VectorFunctionLinearApproximation positionApprox = endEffectorKinematicsPtr_->getPositionLinearApproximation(state).front();
     linearApproximation.f.noalias() += Ax.leftCols(3) * positionApprox.f;
     linearApproximation.dfdx.noalias() += Ax.leftCols(3) * positionApprox.dfdx;
 
     if (!Ax.rightCols(3).isZero(0.0)) {
-      const auto orientationApprox =
+      const VectorFunctionLinearApproximation orientationApprox =
           endEffectorKinematicsPtr_->getOrientationErrorWrtPlaneLinearApproximation(state, {ground_plane_normal_}).front();
       linearApproximation.f.noalias() += Ax.rightCols(3) * orientationApprox.f;
       linearApproximation.dfdx.noalias() += Ax.rightCols(3) * orientationApprox.dfdx;
@@ -182,7 +178,7 @@ VectorFunctionLinearApproximation EndEffectorKinematicsTwistConstraint::getLinea
   }
 
   if (config_.Av.size() > 0) {
-    const auto twistApprox = endEffectorKinematicsPtr_->getTwistLinearApproximation(state, input).front();
+    const VectorFunctionLinearApproximation twistApprox = endEffectorKinematicsPtr_->getTwistLinearApproximation(state, input).front();
     matrix_t Av = config_.Av.topRows(numConstraints_);
     if (!Av.rightCols(3).isZero(0.0)) {
       // The mapping is treated as constant at the linearization point: it depends on the state, but that dependence

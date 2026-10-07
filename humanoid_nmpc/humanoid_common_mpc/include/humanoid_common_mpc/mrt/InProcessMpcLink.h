@@ -37,13 +37,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <thread>
 
-#include <ocs2_mpc/MPC_BASE.h>
-#include <ocs2_mpc/MPC_MRT_Interface.h>
-#include <ocs2_mpc/MRT_BASE.h>
-#include <ocs2_mpc/SystemObservation.h>
-
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_mpc/MPC_BASE.h"
+#include "ocs2_mpc/MPC_MRT_Interface.h"
+#include "ocs2_mpc/MRT_BASE.h"
+#include "ocs2_mpc/SystemObservation.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/mrt/MpcLink.h"
@@ -116,12 +116,15 @@ class InProcessMpcLink final : public MpcLink {
 
   /**
    * @param mpc          The MPC to advance; it must outlive the link.
-   * @param resetTarget  The target every reset restarts the MPC from (see MpcLink::ResetTargetFunction); must be set.
+   * @param resetTarget  The target every reset restarts the MPC from (see MpcLink::ResetTargetFunction); must be set, or
+   *                     the constructor dies.
    */
   InProcessMpcLink(MPC_BASE& mpc, ResetTargetFunction resetTarget, Config config);
 
   /** Stops the solver thread, if it runs, and waits for it. */
   ~InProcessMpcLink() override;
+  InProcessMpcLink(const InProcessMpcLink&) = delete;
+  InProcessMpcLink& operator=(const InProcessMpcLink&) = delete;
 
   /** The MpcLinkFactory of the MRT joint controllers for an InProcessMpcLink over `mpc`, which must outlive the link. */
   static MpcLinkFactory factory(MPC_BASE& mpc, Config config);
@@ -129,9 +132,9 @@ class InProcessMpcLink final : public MpcLink {
   /**
    * factory(), and the factory points `*created` at every link it makes, for a caller that runs the solver iterations
    * of the controller's link itself (Execution::kCaller). The link is the controller's: `*created` is valid while the
-   * controller is, and `created` must outlive the factory's calls.
+   * controller is, and `created` must outlive the factory's calls; a null `created` dies.
    */
-  static MpcLinkFactory factory(MPC_BASE& mpc, Config config, InProcessMpcLink** created);
+  static MpcLinkFactory factory(MPC_BASE& mpc, Config config, InProcessMpcLink* absl_nullable* absl_nullable created);
 
   /**
    * Hands the MPC the initial observation and starts the solver thread, which begins with a full reset from it; with

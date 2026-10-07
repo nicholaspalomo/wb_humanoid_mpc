@@ -35,14 +35,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include <gtest/gtest.h>
-
-#include <ocs2_mpc/CommandData.h>
-#include <ocs2_oc/oc_data/PerformanceIndex.h>
-#include <ocs2_oc/oc_data/PrimalSolution.h>
-
+#include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -52,14 +48,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/synchronization/notification.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "gtest/gtest.h"
+#include "ocs2_mpc/CommandData.h"
+#include "ocs2_oc/oc_data/PerformanceIndex.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 
-#include "VisualizationTestRobot.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc_app/visualization/SceneContract.h"
 #include "humanoid_common_mpc_app/visualization/VisualizationPublisher.h"
 #include "humanoid_mpc_ipc/Topics.h"
 #include "humanoid_mpc_msgs/telemetry_series.pb.h"
 #include "humanoid_mpc_msgs/visualization_scene.pb.h"
+#include "humanoid_nmpc/humanoid_common_mpc_app/visualization/test/VisualizationTestRobot.h"
 #include "robot_ipc/Bus.h"
 #include "robot_ipc/BusOptions.h"
 #include "robot_ipc/Delivery.h"
@@ -152,22 +152,23 @@ class VisualizationPublisherTest : public ::testing::Test {
     if (!taskFile.empty()) {
       model.taskFile = taskFile;
     }
-    absl::StatusOr<std::unique_ptr<VisualizationPublisher>> publisher = VisualizationPublisher::Create(model, sink_.function(), options);
+    absl::StatusOr<std::unique_ptr<VisualizationPublisher>> publisher =
+        VisualizationPublisher::Create(model, sink_.function(), std::move(options));
     EXPECT_TRUE(publisher.ok()) << publisher.status();
     return publisher.ok() ? std::move(*publisher) : nullptr;
   }
 
-  /** A copy of the G1's task file with rerunSceneFrequency set to `frequency`. */
+  /** A copy of the G1's task file with rerun_scene_frequency set to `frequency`. */
   static std::string taskFileWithSceneFrequency(double frequency) {
     std::ifstream stream(robot_->taskFile());
     std::stringstream text;
     text << stream.rdbuf();
     const std::string original = text.str();
     const std::string replaced =
-        absl::StrReplaceAll(original, {{"rerunSceneFrequency: 30", absl::StrCat("rerunSceneFrequency: ", frequency)}});
-    EXPECT_NE(replaced, original) << "the G1's task file does not set rerunSceneFrequency: 30";
-    const char* directory = std::getenv("TEST_TMPDIR");
-    const std::string path = absl::StrCat(directory != nullptr ? directory : "/tmp", "/task_scene_frequency.yaml");
+        absl::StrReplaceAll(original, {{"rerun_scene_frequency: 30", absl::StrCat("rerun_scene_frequency: ", frequency)}});
+    EXPECT_NE(replaced, original) << "the G1's task file does not set rerun_scene_frequency: 30";
+    const char* absl_nullable directory = std::getenv("TEST_TMPDIR");
+    const std::string path = absl::StrCat(directory != nullptr ? directory : "/tmp", "/task_scene_frequency.textproto");
     std::ofstream(path) << replaced;
     return path;
   }
@@ -176,11 +177,11 @@ class VisualizationPublisherTest : public ::testing::Test {
     return robot_->robotState(time, vector3_t(0.0, 0.0, 0.75), vector3_t::Zero());
   }
 
-  static test::TestRobot* robot_;
+  static test::TestRobot* absl_nullable robot_;
   RecordingSink sink_;
 };
 
-test::TestRobot* VisualizationPublisherTest::robot_ = nullptr;
+test::TestRobot* absl_nullable VisualizationPublisherTest::robot_ = nullptr;
 
 TEST_F(VisualizationPublisherTest, EverySampleBecomesOneSeriesInOrder) {
   std::unique_ptr<VisualizationPublisher> publisher = create();
@@ -216,7 +217,7 @@ TEST_F(VisualizationPublisherTest, ASlowPublisherMakesTheQueueDropSamplesAndNeve
   CommandData command;
   PrimalSolution solution;
   robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11, /*normalForce=*/300.0, vector2_t::Zero(), &command, &solution);
-  const SystemObservation observation = robot_->observation(/*time=*/0.0, ModeNumber::STANCE);
+  const SystemObservation observation = robot_->observation(/*time=*/0.0, ModeNumber::kStance);
   const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
   size_t accepted = 0;
   const size_t pushes = 100;
@@ -246,7 +247,7 @@ TEST_F(VisualizationPublisherTest, TheSceneIsPublishedAtMostAtItsFrequency) {
   ASSERT_NE(publisher, nullptr);
   EXPECT_EQ(publisher->config().sceneFrequency, frequency);
   ASSERT_TRUE(publisher->start().ok());
-  SystemObservation observation = robot_->observation(/*time=*/0.0, ModeNumber::STANCE);
+  SystemObservation observation = robot_->observation(/*time=*/0.0, ModeNumber::kStance);
   publisher->setObservation(observation);
   ASSERT_TRUE(waitFor([&] { return sink_.sceneCount() >= 1; }));
   const size_t first = sink_.sceneCount();
@@ -272,11 +273,11 @@ TEST_F(VisualizationPublisherTest, NothingNewPublishesNoScene) {
   ASSERT_TRUE(publisher->start().ok());
   absl::SleepFor(absl::Milliseconds(100));
   EXPECT_EQ(sink_.sceneCount(), 0u) << "a scene without anything to draw";
-  publisher->setObservation(robot_->observation(/*time=*/0.0, ModeNumber::STANCE));
+  publisher->setObservation(robot_->observation(/*time=*/0.0, ModeNumber::kStance));
   ASSERT_TRUE(waitFor([&] { return sink_.sceneCount() >= 1; }));
   absl::SleepFor(absl::Milliseconds(300));
   EXPECT_EQ(sink_.sceneCount(), 1u);
-  publisher->setObservation(robot_->observation(/*time=*/0.1, ModeNumber::STANCE));
+  publisher->setObservation(robot_->observation(/*time=*/0.1, ModeNumber::kStance));
   ASSERT_TRUE(waitFor([&] { return sink_.sceneCount() >= 2; }));
   publisher->stop();
   EXPECT_EQ(publisher->statistics().scenesPublished, 2u);
@@ -290,7 +291,7 @@ TEST_F(VisualizationPublisherTest, TheSceneDrawsTheLatestPolicyAndSample) {
   PrimalSolution solution;
   robot_->makePolicy(/*startTime=*/0.0, /*nodes=*/11, /*normalForce=*/300.0, vector2_t::Zero(), &command, &solution);
   // As MpcServer calls it after publishing a policy.
-  publisher->postSolveObserver()(command, solution, PerformanceIndex());
+  EXPECT_TRUE(publisher->postSolveObserver()(command, solution, PerformanceIndex()).ok());
   EXPECT_EQ(publisher->statistics().policiesSet, 1u);
   EXPECT_EQ(publisher->statistics().observationsSet, 1u);
   ASSERT_TRUE(publisher->pushRobotState(sampleAt(0.05)));
@@ -327,7 +328,7 @@ TEST_F(VisualizationPublisherTest, AClockThatGoesBackIsPlottedToo) {
     ASSERT_TRUE(publisher->pushRobotState(sampleAt(time)));
   }
   ASSERT_TRUE(waitFor([&] { return sink_.telemetryCount() == 4; }));
-  publisher->setObservation(robot_->observation(/*time=*/0.02, ModeNumber::STANCE));
+  publisher->setObservation(robot_->observation(/*time=*/0.02, ModeNumber::kStance));
   ASSERT_TRUE(waitFor([&] { return sink_.sceneCount() >= 1; }));
   publisher->stop();
   EXPECT_EQ(sink_.telemetryTimes(), (std::vector<double>{5.0, 5.01, 0.0, 0.01}));
@@ -362,7 +363,7 @@ TEST_F(VisualizationPublisherTest, InvalidOptionsAreRefused) {
 std::unique_ptr<robot::ipc::Bus> createBus(const std::string& name) {
   robot::ipc::BusOptions options;
   options.nodeName = name;
-  options.network.nodes = {robot::ipc::NodeEndpoint{.name = name, .host = "127.0.0.1", .port = robot::ipc::kEphemeralPort}};
+  options.network.nodes = {robot::ipc::NodeEndpoint{.name = name, .host = "127.0.0.1", .port = robot::ipc::kEphemeralPort, .bindHost = ""}};
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
   EXPECT_TRUE(bus.ok()) << bus.status();
   return bus.ok() ? std::move(*bus) : nullptr;
@@ -462,7 +463,7 @@ TEST_F(VisualizationPublisherTest, TheBusAttacherPublishesOnTheNodesBusFromTheRo
   ASSERT_TRUE(waitFor([&] {
     time += 0.01;
     // As the MpcServer calls it after every policy it publishes, and as the robot publishes its samples.
-    (*observer)(command, solution, PerformanceIndex());
+    EXPECT_TRUE((*observer)(command, solution, PerformanceIndex()).ok());
     EXPECT_TRUE(robotBus->publish(ipc::topics::kRobotState, sampleAt(time)).ok());
     absl::SleepFor(absl::Milliseconds(5));
     absl::MutexLock lock(&mutex);

@@ -43,11 +43,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-
 #include "google/protobuf/message.h"
 
 namespace nproto {
@@ -58,8 +58,13 @@ namespace nproto {
  * a non-repeated field given twice and a missing proto2 required field are all errors. The error is InvalidArgument,
  * one line per problem, "<sourceName>:<line>:<column>: <problem>" with 1-based line and column. On error the contents
  * of `message` are unspecified.
+ *
+ * The schema answers what it can (tools/nproto/README.md, "Retired fields"): an unknown field that the message lists as
+ * an (nproto.retired_field) is "'<name>' is retired: <replacement>"; otherwise the unknown-field error says "Did you
+ * mean ..." when the snake-cased name is a field, and ends with the message's (nproto.retired_layout_hint). A `text`
+ * whose leading comment block names another message (`# proto-message: pkg.Other`) is refused before it is parsed.
  */
-absl::Status ParseTextprotoInto(absl::string_view text, absl::string_view sourceName, google::protobuf::Message* message);
+absl::Status ParseTextprotoInto(absl::string_view text, absl::string_view sourceName, google::protobuf::Message* absl_nonnull message);
 
 /** The contents of the file at `path`. NotFound (or the error the OS reports) names the path. */
 absl::StatusOr<std::string> ReadTextFile(absl::string_view path);

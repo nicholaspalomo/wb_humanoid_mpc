@@ -1,0 +1,68 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "nproto/options.proto";
+import "nproto/retired_field_options.proto";
+
+// A robot's joint PD gains, config/controller/joint_pd_gains.textproto, and the GUI's live PD gains (operator/pd_gains):
+// the gains every joint starts from and the gains of named joints.
+//
+// A gain the file leaves out is inherited: a joint's from default_gains, default_gains' from the controller's own
+// defaults (CentroidalMpcMrtJointController, WBMpcMrtJointController). A joint of the MPC model that the file does not
+// name gets default_gains; a joint outside it (a fixed joint) gets a fraction of the default kp and kd
+// (kOtherJointDefaultGainScale) and the default torque limit. Entries for joints the controller does not command are
+// ignored, and so are the torque limits for a controller that commands none (the whole-body one). Every gain it reads
+// is a finite non-negative number, and a joint is named at most once.
+// Next ID: 3
+message JointPdGainsFile {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::JointPdGainsFile";
+  option (nproto.retired_field) = {
+    name: "default"
+    replacement: "the gains every joint starts from are default_gains"
+  };
+
+  reserved 3 to max;
+
+  // The gains every joint starts from; each one absent: the controller's default.
+  // Next ID: 4
+  message Gains {
+    reserved 4 to max;
+
+    // [N m/rad]
+    double kp = 1 [(humanoid_mpc_config.tuning) = { unit: "N m/rad" }];
+    // [N m s/rad]
+    double kd = 2 [(humanoid_mpc_config.tuning) = { unit: "N m s/rad" }];
+    // [N m] The limit of the commanded torque; read only by a controller that commands one.
+    double torque_limit = 3 [
+      (humanoid_mpc_config.tuning) = {
+        unit: "N m"
+        exclude_reason: "a safety limit of the actuators, not a gain: set it in the file"
+      }
+    ];
+  }
+
+  // The gains of one joint, by its URDF name; each gain absent: default_gains'.
+  // Next ID: 5
+  message JointGains {
+    reserved 5 to max;
+
+    string joint = 1 [default = ""];
+    // [N m/rad]
+    double kp = 2 [(humanoid_mpc_config.tuning) = { unit: "N m/rad" }];
+    // [N m s/rad]
+    double kd = 3 [(humanoid_mpc_config.tuning) = { unit: "N m s/rad" }];
+    // [N m]
+    double torque_limit = 4 [
+      (humanoid_mpc_config.tuning) = {
+        unit: "N m"
+        exclude_reason: "a safety limit of the actuators, not a gain: set it in the file"
+      }
+    ];
+  }
+
+  Gains default_gains = 1 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT consumer: "robot" }];
+  // Each joint at most once (formerly a map by joint name), in any order.
+  repeated JointGains joint_gains = 2 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT consumer: "robot" }];
+}

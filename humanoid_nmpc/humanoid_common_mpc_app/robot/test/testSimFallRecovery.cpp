@@ -27,30 +27,31 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <memory>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include <mujoco/mujoco.h>
-#include <yaml-cpp/yaml.h>
-
-#include <pinocchio/algorithm/rnea.hpp>
-
+#include "absl/log/absl_check.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
-
-#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "gtest/gtest.h"
+#include "mujoco/mujoco.h"
+#include "pinocchio/algorithm/rnea.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
 #include "humanoid_common_mpc_app/robot/SimFallRecovery.h"
+#include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
 
 /*
  * The fall recovery of the robot process with the MuJoCo backend, against the real simulator, headless, on the shipped
@@ -68,10 +69,10 @@ namespace {
 using robot::mujoco_sim_interface::MujocoSimConfig;
 using robot::mujoco_sim_interface::MujocoSimInterface;
 
-constexpr const char* kAtlasScene = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml";
-constexpr const char* kAtlasUrdf = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
-constexpr const char* kAtlasTask = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml";
-constexpr const char* kAtlasGains = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/controller/joint_pd_gains.yaml";
+constexpr char kAtlasScene[] = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml";
+constexpr char kAtlasUrdf[] = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
+constexpr char kAtlasTask[] = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto";
+constexpr char kAtlasGains[] = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/controller/joint_pd_gains.textproto";
 constexpr scalar_t kControlPeriod = 0.01;  // [s]
 
 std::unique_ptr<MujocoSimInterface> makeSim(bool gantryLocked) {
@@ -80,12 +81,14 @@ std::unique_ptr<MujocoSimInterface> makeSim(bool gantryLocked) {
   config.headless = true;
   config.isGantryLocked = gantryLocked;
   config.gantryHold = "weld_constraint";
-  return std::make_unique<MujocoSimInterface>(config, kAtlasUrdf);
+  absl::StatusOr<std::unique_ptr<MujocoSimInterface>> sim = MujocoSimInterface::Create(config, kAtlasUrdf);
+  ABSL_CHECK_OK(sim.status());
+  return *std::move(sim);
 }
 
 /** The joints of the Atlas MPC model, which the sim loops judge rest on. */
 std::vector<size_t> mpcJoints(const MujocoSimInterface& sim) {
-  const ModelSettings modelSettings(kAtlasTask, kAtlasUrdf, "centroidal_mpc_", /*verbose=*/false);
+  const ModelSettings modelSettings = ModelSettings::Create(kAtlasTask, kAtlasUrdf, "centroidal_mpc_", /*verbose=*/false).value();
   return sim.getRobotDescription().getJointIndices(modelSettings.mpcModelJointNames);
 }
 
@@ -121,26 +124,27 @@ std::vector<scalar_t> currentPosture(MujocoSimInterface& sim) {
 
 /**
  * JOINT_PD as CentroidalMpcMrtJointController computes it: a PD to `nominal` with the robot's own gains
- * (config/controller/joint_pd_gains.yaml), and on the joints of the MPC model the gravity torques of the base-held
+ * (config/controller/joint_pd_gains.textproto), and on the joints of the MPC model the gravity torques of the base-held
  * robot as feedforward.
  */
 class AtlasJointPd {
  public:
   explicit AtlasJointPd(const MujocoSimInterface& sim)
-      : modelSettings_(kAtlasTask, kAtlasUrdf, "centroidal_mpc_", /*verbose=*/false),
-        pinocchioInterface_(createCustomPinocchioInterface(kAtlasTask, kAtlasUrdf, modelSettings_)),
+      : modelSettings_(ModelSettings::Create(kAtlasTask, kAtlasUrdf, "centroidal_mpc_", /*verbose=*/false).value()),
+        pinocchioInterface_(loadCustomPinocchioInterface(kAtlasTask, kAtlasUrdf, modelSettings_).value()),
         mpcJoints_(sim.getRobotDescription().getJointIndices(modelSettings_.mpcModelJointNames)) {
-    const YAML::Node root = YAML::LoadFile(kAtlasGains);
+    const absl::StatusOr<mpc_config::JointPdGainsFile> gains = loadJointPdGainsFile(kAtlasGains);
+    ABSL_CHECK_OK(gains.status());
+    const mpc_config::JointPdGainsFile::Gains& defaults = gains->default_gains;
+    ABSL_CHECK(defaults.kp.has_value() && defaults.kd.has_value()) << kAtlasGains << " sets no default_gains";
     const robot::model::RobotDescription& description = sim.getRobotDescription();
-    kp_.assign(description.getNumJoints(), root["default_gains"]["kp"].as<scalar_t>());
-    kd_.assign(description.getNumJoints(), root["default_gains"]["kd"].as<scalar_t>());
-    const YAML::Node jointGains = root["joint_gains"];
-    for (YAML::const_iterator entry = jointGains.begin(); entry != jointGains.end(); ++entry) {
-      const std::string name = entry->first.as<std::string>();
-      if (!description.containsJoint(name)) continue;
-      const size_t index = description.getJointIndex(name);
-      if (entry->second["kp"]) kp_[index] = entry->second["kp"].as<scalar_t>();
-      if (entry->second["kd"]) kd_[index] = entry->second["kd"].as<scalar_t>();
+    kp_.assign(description.getNumJoints(), defaults.kp.value_or(0.0));
+    kd_.assign(description.getNumJoints(), defaults.kd.value_or(0.0));
+    for (const mpc_config::JointPdGainsFile::JointGains& entry : gains->joint_gains) {
+      if (!description.containsJoint(entry.joint)) continue;
+      const size_t index = description.getJointIndex(entry.joint);
+      if (entry.kp.has_value()) kp_[index] = *entry.kp;
+      if (entry.kd.has_value()) kd_[index] = *entry.kd;
     }
   }
 
@@ -159,14 +163,18 @@ class AtlasJointPd {
 
     robot::model::RobotJointAction& action = sim.getRobotJointAction();
     for (size_t joint = 0; joint < nominal.size(); ++joint) {
-      if (!action.at(joint).has_value()) continue;
-      action.at(joint)->q_des = nominal[joint];
-      action.at(joint)->qd_des = 0.0;
-      action.at(joint)->kp = kp_[joint];
-      action.at(joint)->kd = kd_[joint];
-      action.at(joint)->feed_forward_effort = 0.0;
+      std::optional<robot::model::JointAction>& slot = action.at(joint);
+      if (!slot.has_value()) continue;
+      slot->q_des = nominal[joint];
+      slot->qd_des = 0.0;
+      slot->kp = kp_[joint];
+      slot->kd = kd_[joint];
+      slot->feed_forward_effort = 0.0;
     }
-    for (size_t i = 0; i < mpcJoints_.size(); ++i) action.at(mpcJoints_[i])->feed_forward_effort = gravity[i];
+    for (size_t i = 0; i < mpcJoints_.size(); ++i) {
+      std::optional<robot::model::JointAction>& slot = action.at(mpcJoints_[i]);
+      if (slot.has_value()) slot->feed_forward_effort = gravity[i];
+    }
     sim.applyJointAction();
   }
 
@@ -202,7 +210,7 @@ std::string describeRest(const robot::model::RobotState& state, const std::vecto
 }
 
 TEST(SimFallRecovery, EverySimulatorResetIsOneDiscontinuityWhereverTheGantryWas) {
-  const std::unique_ptr<MujocoSimInterface> sim = makeSim(false);
+  const std::unique_ptr<MujocoSimInterface> sim = makeSim(/*gantryLocked=*/false);
   SimFallRecovery recovery(recoveryConfig(0.0), *sim, mpcJoints(*sim));
   const std::vector<scalar_t> nominal = currentPosture(*sim);
   std::string mode = "WB_MPC";
@@ -237,7 +245,7 @@ TEST(SimFallRecovery, EverySimulatorResetIsOneDiscontinuityWhereverTheGantryWas)
 }
 
 TEST(SimFallRecovery, ATiltIsCaughtOnceAndAnOperatorLockAndUnlockAreSeen) {
-  const std::unique_ptr<MujocoSimInterface> sim = makeSim(false);
+  const std::unique_ptr<MujocoSimInterface> sim = makeSim(/*gantryLocked=*/false);
   SimFallRecovery recovery(recoveryConfig(0.0), *sim, mpcJoints(*sim));
   const std::vector<scalar_t> nominal = currentPosture(*sim);
   const double height = sim->getGantryHeight();
@@ -273,7 +281,7 @@ TEST(SimFallRecovery, ATiltIsCaughtOnceAndAnOperatorLockAndUnlockAreSeen) {
 }
 
 TEST(SimFallRecovery, ACaughtRobotIsLiftedSettledAndLoweredBeforeWbMpcIsAccepted) {
-  const std::unique_ptr<MujocoSimInterface> sim = makeSim(false);
+  const std::unique_ptr<MujocoSimInterface> sim = makeSim(/*gantryLocked=*/false);
   const SimFallRecovery::Config config = recoveryConfig(0.15);
   SimFallRecovery recovery(config, *sim, mpcJoints(*sim));
   const std::vector<scalar_t> nominal = currentPosture(*sim);
@@ -321,15 +329,15 @@ TEST(SimFallRecovery, ACaughtRobotIsLiftedSettledAndLoweredBeforeWbMpcIsAccepted
     EXPECT_LT(phaseStartTimes[phase] - phaseStartTimes[phase - 1], config.settleTimeout)
         << "phase " << phase - 1 << " timed out; when it ended: " << phaseEndStates[phase];
   }
-  EXPECT_NEAR(maxGantryHeight, standingHeight + config.catchLift, 1e-6) << "the gantry did not lift the robot clear of the ground";
-  EXPECT_NEAR(sim->getGantryHeight(), standingHeight, 1e-6) << "the gantry was not lowered back to the height of the catch";
+  EXPECT_NEAR(maxGantryHeight, standingHeight + config.catchLift, 1.0e-6) << "the gantry did not lift the robot clear of the ground";
+  EXPECT_NEAR(sim->getGantryHeight(), standingHeight, 1.0e-6) << "the gantry was not lowered back to the height of the catch";
   EXPECT_EQ(mode, "WB_MPC") << "WB_MPC is accepted once the robot has settled";
   EXPECT_TRUE(SimFallRecovery::isAtRest(sim->getRobotState(), nominal, joints, config))
       << "the robot was accepted without being at rest: " << describeRest(sim->getRobotState(), nominal, joints);
 }
 
 TEST(SimFallRecovery, AtRestMeansUprightStillAndAtTheNominalPosture) {
-  const std::unique_ptr<MujocoSimInterface> sim = makeSim(true);
+  const std::unique_ptr<MujocoSimInterface> sim = makeSim(/*gantryLocked=*/true);
   const std::vector<scalar_t> nominal = currentPosture(*sim);
   const SimFallRecovery::Config config = recoveryConfig(0.15);
   const std::vector<size_t> joints = mpcJoints(*sim);
@@ -351,10 +359,18 @@ TEST(SimFallRecovery, AtRestMeansUprightStillAndAtTheNominalPosture) {
   robot::model::RobotState moving = state;
   moving.setRootLinearVelocityInLocalFrame(vector3_t(0.2, 0.0, 0.0));
   EXPECT_FALSE(SimFallRecovery::isAtRest(moving, nominal, joints, config));
+
+  // A joint the state does not report has no say, whatever its nominal position.
+  std::vector<scalar_t> nominalWithAnExtraJoint = nominal;
+  nominalWithAnExtraJoint.push_back(5.0);
+  std::vector<size_t> jointsWithAnExtraJoint = joints;
+  jointsWithAnExtraJoint.push_back(nominal.size());
+  ASSERT_FALSE(state.hasJoint(nominal.size()));
+  EXPECT_TRUE(SimFallRecovery::isAtRest(state, nominalWithAnExtraJoint, jointsWithAnExtraJoint, config));
 }
 
 TEST(SimFallRecovery, ReportsTheCatchToTheEventLogInsteadOfLogging) {
-  const std::unique_ptr<MujocoSimInterface> sim = makeSim(false);
+  const std::unique_ptr<MujocoSimInterface> sim = makeSim(/*gantryLocked=*/false);
   RealtimeEventLog log;
   SimFallRecovery recovery(recoveryConfig(0.15), *sim, mpcJoints(*sim), &log);
   const std::vector<scalar_t> nominal = currentPosture(*sim);
@@ -377,8 +393,8 @@ TEST(SimFallRecovery, ReportsTheCatchToTheEventLogInsteadOfLogging) {
   });
   EXPECT_EQ(codes,
             (std::vector<RealtimeEventCode>{RealtimeEventCode::kCaughtAndSettling, RealtimeEventCode::kMpcModeRefusedWhileSettling}));
-  EXPECT_NE(caughtLine.find("past simMaxBaseTiltAngle 1 rad"), std::string::npos) << caughtLine;
-  EXPECT_NE(caughtLine.find("0.15 m (simGantryCatchLift)"), std::string::npos) << caughtLine;
+  EXPECT_NE(caughtLine.find("past sim_max_base_tilt_angle 1 rad"), std::string::npos) << caughtLine;
+  EXPECT_NE(caughtLine.find("0.15 m (sim_gantry_catch_lift)"), std::string::npos) << caughtLine;
 }
 
 }  // namespace

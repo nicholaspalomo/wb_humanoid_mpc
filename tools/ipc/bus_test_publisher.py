@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Test helpers: a raw pyzmq PUB socket on an ephemeral loopback port, and a network file that names it.
 
 The publisher frames its messages exactly as the bus does ([topic][full type name][payload], see
@@ -7,10 +34,10 @@ stopped, which makes the tests independent of ZeroMQ's subscription latency (a S
 misses what was sent before its subscription arrived).
 """
 
+from collections.abc import Sequence
 import os
 import threading
 import uuid
-from typing import Dict, List, Optional, Sequence
 
 import zmq
 
@@ -23,14 +50,15 @@ def unique_topic(name: str) -> str:
     return f"test/{name}_{uuid.uuid4().hex[:8]}"
 
 
-def frames(topic: str, type_name: str, payload: bytes) -> List[bytes]:
+def frames(topic: str, type_name: str, payload: bytes) -> list[bytes]:
+    """The three frames of a bus message: its topic, its full type name and its payload."""
     return [topic.encode("utf-8"), type_name.encode("utf-8"), payload]
 
 
 class FramePublisher:
     """A PUB socket bound to tcp://127.0.0.1:<ephemeral port> that publishes its messages round-robin."""
 
-    def __init__(self, context: Optional[zmq.Context] = None) -> None:
+    def __init__(self, context: zmq.Context | None = None) -> None:
         self._context = context if context is not None else zmq.Context.instance()
         self._socket = self._context.socket(zmq.PUB)
         self._socket.setsockopt(zmq.LINGER, 0)
@@ -39,20 +67,27 @@ class FramePublisher:
         self.port = int(endpoint.rsplit(":", 1)[1])
         self.published = 0
         self._stop = threading.Event()
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
 
     def start(
-        self, messages: Sequence[List[bytes]], period_s: float = DEFAULT_PERIOD_S
+        self, messages: Sequence[list[bytes]], period_s: float = DEFAULT_PERIOD_S
     ) -> "FramePublisher":
-        """Publishes `messages` (each a list of frames) in turn every `period_s` seconds, on a thread that owns the
-        socket from now on."""
+        """Publishes `messages` in turn every `period_s` seconds, on a thread that owns the socket from now on.
+
+        Args:
+          messages: The messages to publish round-robin, each a list of frames (frames()).
+          period_s: The time between two messages, in seconds.
+
+        Returns:
+          This publisher.
+        """
         self._thread = threading.Thread(
             target=self._publish, args=(list(messages), period_s), daemon=True
         )
         self._thread.start()
         return self
 
-    def _publish(self, messages: List[List[bytes]], period_s: float) -> None:
+    def _publish(self, messages: list[list[bytes]], period_s: float) -> None:
         index = 0
         try:
             while not self._stop.is_set():
@@ -64,6 +99,7 @@ class FramePublisher:
             self._socket.close()
 
     def stop(self) -> None:
+        """Stops publishing and closes the socket; waits up to 5 s for the thread."""
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=5.0)
@@ -77,11 +113,18 @@ class FramePublisher:
         self.stop()
 
 
-def write_network_file(directory: str, ports: Dict[str, int]) -> str:
-    """A network file in `directory` with one loopback node per entry of `ports`; returns its path.
+def write_network_file(directory: str, ports: dict[str, int]) -> str:
+    """A network file in `directory` with one loopback node per entry of `ports`.
 
     The file is a textproto of robot_ipc_proto.NetworkConfig (robot_runtime/robot_ipc/proto/network_config.proto),
     written by hand rather than by the bus library, as a user would write it.
+
+    Args:
+      directory: Where to write the file, network.textproto.
+      ports: The port of each node, by node name.
+
+    Returns:
+      The path of the file.
     """
     path = os.path.join(directory, "network.textproto")
     with open(path, "w", encoding="utf-8") as stream:

@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Packs the robot bundle (robot_bundle.bzl) into a deterministic tar file.
 
     pack_bundle --manifest <bundle>.manifest --output <bundle>.tar
@@ -9,18 +36,21 @@ by root and dated 0, and files are 0644 or 0755: two builds of the same inputs g
 """
 
 import argparse
+from collections.abc import Sequence
 import io
 import os
 import stat
 import sys
 import tarfile
-from typing import List, Optional, Sequence, Tuple
+from typing import TypeAlias
 
-Entry = Tuple[str, str, str]
+# A line of the manifest: the path in the bundle, the source file and the mode (`0`, `1` or `auto`).
+Entry: TypeAlias = tuple[str, str, str]
 
 
-def read_manifest(path: str) -> List[Entry]:
-    entries: List[Entry] = []
+def read_manifest(path: str) -> list[Entry]:
+    """The entries of the manifest at `path`; raises ValueError naming the line that is malformed or leaves the bundle."""
+    entries: list[Entry] = []
     with open(path, "r", encoding="utf-8") as stream:
         for number, line in enumerate(stream, start=1):
             line = line.rstrip("\n")
@@ -38,6 +68,7 @@ def read_manifest(path: str) -> List[Entry]:
 
 
 def _info(name: str, kind: bytes, mode: int, size: int = 0) -> tarfile.TarInfo:
+    """A tar header owned by root and dated 0."""
     info = tarfile.TarInfo(name)
     info.type = kind
     info.mode = mode
@@ -49,7 +80,8 @@ def _info(name: str, kind: bytes, mode: int, size: int = 0) -> tarfile.TarInfo:
 
 
 def pack(entries: Sequence[Entry], output: str) -> None:
-    directories = set()
+    """Writes the tar of `entries`, with an entry for every directory, to `output`; raises ValueError or OSError."""
+    directories: set[str] = set()
     for path, _, _ in entries:
         parent = os.path.dirname(path)
         while parent:
@@ -78,7 +110,8 @@ def pack(entries: Sequence[Entry], output: str) -> None:
                 )
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
+    """Packs the manifest of the command line `argv`; returns 1, after printing why, when it cannot."""
     parser = argparse.ArgumentParser(
         prog="pack_bundle", description=__doc__.splitlines()[0]
     )

@@ -35,30 +35,49 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
-
-#include <mujoco_sim_interface/MujocoSimInterface.h>
-#include <robot_model/ContactEstimator.h>
-#include <robot_model/RobotDescription.h>
-#include <robot_model/RobotJointAction.h>
-#include <robot_model/RobotState.h>
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc_app/robot/RobotController.h"
+#include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
+#include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "robot_ipc/Bus.h"
+#include "robot_model/ContactEstimator.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotJointAction.h"
+#include "robot_model/RobotState.h"
 
 /** What the tests of the robot process share: the Atlas files, headless simulators, loopback buses and a controller. */
 namespace ocs2::humanoid::robot_test {
 
-inline constexpr const char* kAtlasScene = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml";
-inline constexpr const char* kAtlasUrdf = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
-inline constexpr const char* kAtlasTask = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml";
-inline constexpr const char* kAtlasGains = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/controller/joint_pd_gains.yaml";
+inline constexpr char kAtlasScene[] = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml";
+inline constexpr char kAtlasUrdf[] = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
+inline constexpr char kAtlasTask[] = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto";
+inline constexpr char kAtlasGains[] = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/controller/joint_pd_gains.textproto";
+
+/**
+ * The value of `optional`, or a T() and a test failure when it is empty: for a test that reads a value it expects, so
+ * that no access is unchecked.
+ */
+template <typename T>
+T valueOrFail(std::optional<T> optional) {
+  if (!optional.has_value()) {
+    ADD_FAILURE() << "expected a value, got nullopt";
+    return T();
+  }
+  return *std::move(optional);
+}
+
+/** The robot description of the Atlas URDF (RobotDescription::Create()); the test ends when it cannot be read. */
+robot::model::RobotDescription atlasDescription();
 
 /** A headless simulator on the Atlas scene, held by the gantry (weld) or not. */
 std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface> makeHeadlessAtlas(bool gantryLocked);
@@ -90,25 +109,28 @@ class ScriptedRobotController final : public RobotController {
   void setContactEstimator(std::shared_ptr<robot::model::ContactEstimator> contactEstimator) override;
   const ContactWrenchGate::Config& contactWrenchGateConfig() const override { return gate_; }
   void setContactWrenchGateConfig(const ContactWrenchGate::Config& config) override;
-  absl::Status setPdGainsYaml(absl::string_view yamlText) override;
+  absl::Status setPdGains(const mpc_config::JointPdGainsFile& gains) override;
   void pollPdGainsFile() override { pdGainsPolls_.fetch_add(1); }
-  void setEventSink(ControllerEventSink* eventSink) override { eventSink_.store(eventSink); }
+  void setEventSink(ControllerEventSink* absl_nullable eventSink) override { eventSink_.store(eventSink); }
   void startMpc(const robot::model::RobotState& /*initialState*/) override { started_.store(true); }
   bool policyReady() override { return true; }
+  const std::vector<std::string>& robotJointNames() const override { return robotJointNames_; }
 
   // ---- The test thread.
+  /** The joints the controller claims to be built for (robotJointNames()); none until set. Before the loop runs. */
+  void setRobotJointNames(std::vector<std::string> names) { robotJointNames_ = std::move(names); }
   void setHealthy(bool healthy) { healthy_.store(healthy); }
   /** The next computeJointControlAction() throws std::runtime_error(`message`). */
   void throwInNextCycle(const std::string& message);
-  ControllerEventSink* eventSink() const { return eventSink_.load(); }
+  ControllerEventSink* absl_nullable eventSink() const { return eventSink_.load(); }
   std::string mode() const;
   std::string contactEstimatorName() const;
   ContactWrenchGate::Config gate() const;
-  std::uint64_t cycles() const { return cycles_.load(); }
-  std::uint64_t resets() const { return resets_.load(); }
-  std::uint64_t resetsAndHolds() const { return resetsAndHolds_.load(); }
-  std::uint64_t pdGainsDocuments() const { return pdGainsDocuments_.load(); }
-  std::uint64_t pdGainsPolls() const { return pdGainsPolls_.load(); }
+  uint64_t cycles() const { return cycles_.load(); }
+  uint64_t resets() const { return resets_.load(); }
+  uint64_t resetsAndHolds() const { return resetsAndHolds_.load(); }
+  uint64_t pdGainsDocuments() const { return pdGainsDocuments_.load(); }
+  uint64_t pdGainsPolls() const { return pdGainsPolls_.load(); }
   bool started() const { return started_.load(); }
   /** The posture handed over with the newest cycle. */
   std::vector<scalar_t> nominal() const;
@@ -124,14 +146,15 @@ class ScriptedRobotController final : public RobotController {
   std::vector<bool> estimatedFlags_;
   std::atomic<bool> healthy_{true};
   std::atomic<bool> started_{false};
-  std::atomic<ControllerEventSink*> eventSink_{nullptr};
+  std::atomic<ControllerEventSink* absl_nullable> eventSink_{nullptr};
   std::string throwMessage_;  // written before throwInNextCycle_ is set
   std::atomic<bool> throwInNextCycle_{false};
-  std::atomic<std::uint64_t> cycles_{0};
-  std::atomic<std::uint64_t> resets_{0};
-  std::atomic<std::uint64_t> resetsAndHolds_{0};
-  std::atomic<std::uint64_t> pdGainsDocuments_{0};
-  std::atomic<std::uint64_t> pdGainsPolls_{0};
+  std::atomic<uint64_t> cycles_{0};
+  std::atomic<uint64_t> resets_{0};
+  std::atomic<uint64_t> resetsAndHolds_{0};
+  std::atomic<uint64_t> pdGainsDocuments_{0};
+  std::atomic<uint64_t> pdGainsPolls_{0};
+  std::vector<std::string> robotJointNames_;
 };
 
 }  // namespace ocs2::humanoid::robot_test

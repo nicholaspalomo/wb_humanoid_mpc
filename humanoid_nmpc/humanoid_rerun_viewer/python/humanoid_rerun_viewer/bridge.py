@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Maps the bus's visualization and status messages onto a Rerun recording.
 
     recording = new_recording("humanoid_nmpc")
@@ -14,15 +41,13 @@ logged at most once per LOG_PERIOD_S for each topic and reason; an unexpected er
 `statistics.handler_errors` the same way.
 """
 
+from collections.abc import Callable, Sequence
 import dataclasses
 import functools
 import logging
 import math
 import time
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, TypeVar
-
-import numpy as np
-import rerun as rr
+from typing import Any, TypeVar
 
 from humanoid_mpc_msgs import arrows_pb2
 from humanoid_mpc_msgs import fsm_state_pb2
@@ -33,6 +58,8 @@ from humanoid_mpc_msgs import robot_model_instance_pb2
 from humanoid_mpc_msgs import spheres_pb2
 from humanoid_mpc_msgs import telemetry_series_pb2
 from humanoid_mpc_msgs import visualization_scene_pb2
+import numpy as np
+import rerun as rr
 
 from humanoid_mpc_ipc import topics
 from humanoid_rerun_viewer import palette
@@ -58,11 +85,11 @@ _UNLISTED_RADIUS = {
     MarkerKind.SPHERES: scene_contract.POINT_MARKER_RADIUS,
     MarkerKind.LINE_STRIPS: scene_contract.TRAJECTORY_RADIUS,
 }
-_UNLISTED_COLORS: Tuple[palette.Rgba, ...] = (palette.with_alpha(palette.BLACK, 1.0),)
+_UNLISTED_COLORS: tuple[palette.Rgba, ...] = (palette.with_alpha(palette.BLACK, 1.0),)
 
 
 def new_recording(
-    application_id: str, recording_id: Optional[str] = None
+    application_id: str, recording_id: str | None = None
 ) -> rr.RecordingStream:
     """A recording for the bridge: its own stream (not Rerun's global one), without Rerun's log_time timeline."""
     recording = rr.RecordingStream(application_id, recording_id=recording_id)
@@ -70,7 +97,7 @@ def new_recording(
     return recording
 
 
-class MalformedMessage(ValueError):
+class MalformedMessageError(ValueError):
     """A message, or a part of one, that does not fit the contract; its text is the reason it is counted under."""
 
 
@@ -79,18 +106,19 @@ class BridgeStatistics:
     """What the bridge did, per topic."""
 
     # Messages each handler took, by topic.
-    handled: Dict[str, int] = dataclasses.field(default_factory=dict)
+    handled: dict[str, int] = dataclasses.field(default_factory=dict)
     # Messages or parts of them that did not fit the contract and were skipped, by (topic, reason).
-    malformed: Dict[Tuple[str, str], int] = dataclasses.field(default_factory=dict)
+    malformed: dict[tuple[str, str], int] = dataclasses.field(default_factory=dict)
     # Unexpected exceptions in a handler, by topic.
-    handler_errors: Dict[str, int] = dataclasses.field(default_factory=dict)
+    handler_errors: dict[str, int] = dataclasses.field(default_factory=dict)
     # Link poses logged, and skipped because they had not changed.
     link_poses_logged: int = 0
     link_poses_unchanged: int = 0
     # Scalar groups of viz/telemetry buffered.
     telemetry_groups: int = 0
 
-    def malformed_count(self, topic: Optional[str] = None) -> int:
+    def malformed_count(self, topic: str | None = None) -> int:
+        """The malformed messages or parts counted under `topic`, or under every topic when it is None."""
         return sum(
             count
             for (malformed_topic, _), count in self.malformed.items()
@@ -98,6 +126,7 @@ class BridgeStatistics:
         )
 
     def handler_error_count(self) -> int:
+        """The unexpected handler exceptions, over every topic."""
         return sum(self.handler_errors.values())
 
 
@@ -106,7 +135,7 @@ class _RateLimitedLog:
 
     def __init__(self, clock: Callable[[], float]) -> None:
         self._clock = clock
-        self._last: Dict[Any, float] = {}
+        self._last: dict[Any, float] = {}
 
     def warning(self, kind: Any, text: str, exc_info: bool = False) -> None:
         now = self._clock()
@@ -124,13 +153,15 @@ def _guarded(topic: str) -> Callable[[_Handler], _Handler]:
     def decorate(handler: _Handler) -> _Handler:
         @functools.wraps(handler)
         def guarded(self: "RerunBridge", message: Any) -> None:
+            # pylint: disable=protected-access  # `self` is the RerunBridge whose own method this wraps.
             statistics = self.statistics
             statistics.handled[topic] = statistics.handled.get(topic, 0) + 1
             try:
                 handler(self, message)
-            except MalformedMessage as error:
+            except MalformedMessageError as error:
                 self._count_malformed(topic, str(error))
-            except Exception:  # pylint: disable=broad-except
+            # pylint: disable-next=broad-exception-caught  # A handler error must not end the bus's receive thread.
+            except Exception:
                 statistics.handler_errors[topic] = (
                     statistics.handler_errors.get(topic, 0) + 1
                 )
@@ -140,7 +171,7 @@ def _guarded(topic: str) -> Callable[[_Handler], _Handler]:
                     exc_info=True,
                 )
 
-        return guarded  # type: ignore[return-value]
+        return guarded  # type: ignore[return-value]  # functools.wraps keeps the handler's signature, mypy sees it lost.
 
     return decorate
 
@@ -188,7 +219,7 @@ class RerunBridge:
     def __init__(
         self,
         recording: rr.RecordingStream,
-        model: Optional[urdf_model.RobotModel],
+        model: urdf_model.RobotModel | None,
         instances: Sequence[
             scene_contract.RobotInstanceStyle
         ] = scene_contract.ROBOT_INSTANCES,
@@ -212,27 +243,27 @@ class RerunBridge:
         self._links_with_visuals = (
             model.links_with_visuals() if model is not None else frozenset()
         )
-        self._logged_instances: Set[str] = set()
-        self._last_link_poses: Dict[str, Tuple[float, ...]] = {}
+        self._logged_instances: set[str] = set()
+        self._last_link_poses: dict[str, tuple[float, ...]] = {}
         self._last_scene_time = -math.inf
         # The marker entities the last scene drew, with their kind.
-        self._drawn_markers: Dict[str, MarkerKind] = {}
+        self._drawn_markers: dict[str, MarkerKind] = {}
         # Per telemetry entity: the series names its SeriesLines carry.
-        self._series_names: Dict[str, Tuple[str, ...]] = {}
-        self._status_series_logged: Set[str] = set()
-        self._latest_robot_time: Optional[float] = None
-        self._last_fsm_state: Optional[Tuple[Any, ...]] = None
-        self._last_mpc_health: Optional[Tuple[Any, ...]] = None
-        self._last_mpc_resets: Optional[Tuple[int, int]] = None
-        self._warned: Set[Any] = set()
-        self._last_report: Dict[str, int] = {}
+        self._series_names: dict[str, tuple[str, ...]] = {}
+        self._status_series_logged: set[str] = set()
+        self._latest_robot_time: float | None = None
+        self._last_fsm_state: tuple[Any, ...] | None = None
+        self._last_mpc_health: tuple[Any, ...] | None = None
+        self._last_mpc_resets: tuple[int, int] | None = None
+        self._warned: set[Any] = set()
+        self._last_report: dict[str, int] = {}
 
     # ------------------------------------------------------------------------------------------------------------------
     # Static data
     # ------------------------------------------------------------------------------------------------------------------
 
     @property
-    def model(self) -> Optional[urdf_model.RobotModel]:
+    def model(self) -> urdf_model.RobotModel | None:
         return self._model
 
     @property
@@ -282,7 +313,7 @@ class RerunBridge:
             self._warned.add(key)
             _LOGGER.warning("%s", text)
 
-    def _set_time(self, robot_time: Optional[float], wall_time: float) -> None:
+    def _set_time(self, robot_time: float | None, wall_time: float) -> None:
         """Sets the timelines of the following log() calls of this thread."""
         self._recording.reset_time()
         if robot_time is not None:
@@ -295,10 +326,9 @@ class RerunBridge:
 
     @_guarded(topics.VIZ_SCENE)
     def handle_scene(self, scene: visualization_scene_pb2.VisualizationScene) -> None:
-        """Moves the robot instances to the scene's link poses and draws its markers; clears markers it no longer
-        names."""
+        """Moves the robots to the scene's link poses, draws its markers and clears the markers it no longer names."""
         if not _finite(scene.time):
-            raise MalformedMessage("the scene's time is not finite")
+            raise MalformedMessageError("the scene's time is not finite")
         if scene.time < self._last_scene_time:
             # The robot's clock went back (a restarted simulation): poses at the new times must all be logged.
             self._last_link_poses.clear()
@@ -309,7 +339,7 @@ class RerunBridge:
         for robot in scene.robots:
             self._guarded_part(topics.VIZ_SCENE, self._log_robot, robot)
 
-        drawn: Dict[str, MarkerKind] = {}
+        drawn: dict[str, MarkerKind] = {}
         for kind, markers, log in (
             (MarkerKind.ARROWS, scene.arrows, self._log_arrows),
             (MarkerKind.SPHERES, scene.spheres, self._log_spheres),
@@ -340,16 +370,17 @@ class RerunBridge:
         try:
             log(part)
             return True
-        except MalformedMessage as error:
+        except MalformedMessageError as error:
             self._count_malformed(topic, str(error))
             return False
 
     def _log_robot(self, robot: robot_model_instance_pb2.RobotModelInstance) -> None:
+        """Logs the changed link poses of one robot instance, first logging its meshes if it is new."""
         name = robot.name
         if not scene_contract.is_valid_relative_path(name) or "/" in name:
-            raise MalformedMessage(f"invalid robot instance name '{name}'")
+            raise MalformedMessageError(f"invalid robot instance name '{name}'")
         if len(robot.link_names) != len(robot.link_poses):
-            raise MalformedMessage(
+            raise MalformedMessageError(
                 f"robot '{name}' has {len(robot.link_names)} link names but {len(robot.link_poses)} poses"
             )
         if self._meshes is None:
@@ -382,12 +413,12 @@ class RerunBridge:
                 orientation.w,
             )
             if not all(math.isfinite(value) for value in values):
-                raise MalformedMessage(
+                raise MalformedMessageError(
                     f"robot '{name}' link '{link}' has a pose that is not finite"
                 )
             norm = math.sqrt(sum(value * value for value in values[3:]))
             if norm < _MIN_QUATERNION_NORM:
-                raise MalformedMessage(
+                raise MalformedMessageError(
                     f"robot '{name}' link '{link}' has a zero quaternion"
                 )
             path = scene_contract.link_path(name, link)
@@ -413,7 +444,7 @@ class RerunBridge:
 
     def _marker_style(
         self, path: str, kind: MarkerKind
-    ) -> Tuple[float, Tuple[palette.Rgba, ...]]:
+    ) -> tuple[float, tuple[palette.Rgba, ...]]:
         spec = scene_contract.MARKERS_BY_PATH.get(path)
         if spec is not None and spec.kind == kind:
             return spec.default_radius, spec.default_colors
@@ -428,13 +459,13 @@ class RerunBridge:
         path: str,
         colors: Sequence[Any],
         count: int,
-        defaults: Tuple[palette.Rgba, ...],
+        defaults: tuple[palette.Rgba, ...],
     ) -> np.ndarray:
         """The colors of `count` elements: the message's (one for all, or one each), else the marker's defaults."""
-        if len(colors) == 0:
+        if not colors:
             return _defaults_rgba8(defaults, count)
         if len(colors) not in (1, count):
-            raise MalformedMessage(
+            raise MalformedMessageError(
                 f"'{path}' has {len(colors)} colors for {count} elements (give one, or one each)"
             )
         rgba = _colors_rgba8(colors)
@@ -446,17 +477,18 @@ class RerunBridge:
         return rgba
 
     def _log_arrows(self, arrows: arrows_pb2.Arrows) -> None:
+        """Draws one Arrows marker, with the contract's radius and colors where the message gives none."""
         radius_default, color_defaults = self._marker_style(
             arrows.path, MarkerKind.ARROWS
         )
         origins = _vector3_array(arrows.origins)
         vectors = _vector3_array(arrows.vectors)
         if len(origins) != len(vectors):
-            raise MalformedMessage(
+            raise MalformedMessageError(
                 f"'{arrows.path}' has {len(origins)} origins but {len(vectors)} vectors"
             )
         if not (np.isfinite(origins).all() and np.isfinite(vectors).all()):
-            raise MalformedMessage(
+            raise MalformedMessageError(
                 f"'{arrows.path}' has coordinates that are not finite"
             )
         radius = arrows.radius if arrows.radius > 0.0 else radius_default
@@ -473,19 +505,22 @@ class RerunBridge:
         )
 
     def _log_spheres(self, spheres: spheres_pb2.Spheres) -> None:
+        """Draws one Spheres marker, with the contract's radius and colors where the message gives none."""
         radius_default, color_defaults = self._marker_style(
             spheres.path, MarkerKind.SPHERES
         )
         centers = _vector3_array(spheres.centers)
         count = len(centers)
         if not np.isfinite(centers).all():
-            raise MalformedMessage(f"'{spheres.path}' has centers that are not finite")
-        if len(spheres.radii) == 0:
+            raise MalformedMessageError(
+                f"'{spheres.path}' has centers that are not finite"
+            )
+        if not spheres.radii:
             radii = np.array([radius_default], dtype=np.float32)
         elif len(spheres.radii) in (1, count):
             radii = np.asarray(spheres.radii, dtype=np.float32)
         else:
-            raise MalformedMessage(
+            raise MalformedMessageError(
                 f"'{spheres.path}' has {len(spheres.radii)} radii for {count} spheres (give one, or one each)"
             )
         self._recording.log(
@@ -500,16 +535,17 @@ class RerunBridge:
         )
 
     def _log_line_strips(self, line_strips: line_strips_pb2.LineStrips) -> None:
+        """Draws one LineStrips marker, with the contract's radius and colors where the message gives none."""
         radius_default, color_defaults = self._marker_style(
             line_strips.path, MarkerKind.LINE_STRIPS
         )
-        strips: List[np.ndarray] = []
+        strips: list[np.ndarray] = []
         defaults = _defaults_rgba8(color_defaults, len(line_strips.strips))
         colors = np.empty((len(line_strips.strips), 4), dtype=np.uint8)
         for index, strip in enumerate(line_strips.strips):
             points = _vector3_array(strip.points)
             if not np.isfinite(points).all():
-                raise MalformedMessage(
+                raise MalformedMessageError(
                     f"'{line_strips.path}' strip {index} has points that are not finite"
                 )
             strips.append(points)
@@ -542,12 +578,12 @@ class RerunBridge:
     def handle_telemetry(self, series: telemetry_series_pb2.TelemetrySeries) -> None:
         """Buffers every ScalarGroup at telemetry/<path>; flush() sends them."""
         if not _finite(series.time):
-            raise MalformedMessage("the telemetry's time is not finite")
+            raise MalformedMessageError("the telemetry's time is not finite")
         robot_time = series.time
         self._latest_robot_time = robot_time
         wall_time = self._clock()
-        rows: List[Tuple[str, Sequence[float]]] = []
-        paths: Set[str] = set()
+        rows: list[tuple[str, Sequence[float]]] = []
+        paths: set[str] = set()
         for group in series.groups:
             path = group.path
             if path in paths:
@@ -606,7 +642,8 @@ class RerunBridge:
         """Sends the buffered scalars; returns how many rows."""
         try:
             return self._telemetry_batcher.flush() + self._batcher.flush()
-        except Exception:  # pylint: disable=broad-except
+        # pylint: disable-next=broad-exception-caught  # A failed send is counted; it must not end the flush timer.
+        except Exception:
             self.statistics.handler_errors["flush"] = (
                 self.statistics.handler_errors.get("flush", 0) + 1
             )
@@ -618,7 +655,8 @@ class RerunBridge:
         try:
             self._recording.flush(timeout_sec=timeout)
             return True
-        except Exception:  # pylint: disable=broad-except
+        # pylint: disable-next=broad-exception-caught  # Rerun raises no documented type; shutdown goes on without it.
+        except Exception:
             _LOGGER.warning(
                 "the recording did not reach its sink within %.1f s", timeout
             )
@@ -631,10 +669,11 @@ class RerunBridge:
     def _status_scalars(
         self,
         series: status_contract.StatusSeries,
-        robot_time: Optional[float],
+        robot_time: float | None,
         wall_time: float,
         values: Sequence[float],
     ) -> None:
+        """Buffers one row of a status series, first logging its static SeriesLines."""
         if series.path not in self._status_series_logged:
             self._status_series_logged.add(series.path)
             self._recording.log(
@@ -642,9 +681,7 @@ class RerunBridge:
             )
         self._batcher.append(series.path, robot_time, wall_time, values)
 
-    def _text(
-        self, path: str, robot_time: Optional[float], text: str, level: str
-    ) -> None:
+    def _text(self, path: str, robot_time: float | None, text: str, level: str) -> None:
         self._set_time(robot_time, self._clock())
         self._recording.log(path, rr.TextLog(text, level=level))
 
@@ -786,9 +823,15 @@ class RerunBridge:
     # Reports
     # ------------------------------------------------------------------------------------------------------------------
 
-    def report(self, bus_rejected: int = 0) -> Optional[str]:
-        """A line about the problems since the last report (malformed parts, handler errors, messages the bus
-        rejected), also written to the bridge's text log; None when there were none."""
+    def report(self, bus_rejected: int = 0) -> str | None:
+        """Describes the problems since the last report in one line, which it also writes to the bridge's text log.
+
+        Args:
+            bus_rejected: how many messages the bus has rejected so far, in total; the line counts the new ones.
+
+        Returns:
+            The new malformed parts, handler errors and rejected messages, or None when there were none.
+        """
         totals = {
             "malformed": self.statistics.malformed_count(),
             "handler errors": self.statistics.handler_error_count(),
@@ -810,7 +853,8 @@ class RerunBridge:
                 text,
                 rr.TextLogLevel.WARN,
             )
-        except Exception:  # pylint: disable=broad-except
+        # pylint: disable-next=broad-exception-caught  # The report is returned even when Rerun cannot log it.
+        except Exception:
             self._log.warning(
                 "report", "logging the bridge's report failed", exc_info=True
             )

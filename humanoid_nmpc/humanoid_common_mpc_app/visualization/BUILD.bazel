@@ -2,6 +2,7 @@ load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("@rules_python//python:defs.bzl", "py_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 
 # humanoid_common_mpc_app/visualization - the visualization publisher of the MPC process (README.md): viz/scene and
 # viz/telemetry for the Rerun bridge, computed on a low-priority thread from the MPC's observation and policy and the
@@ -9,14 +10,6 @@ load("@rules_python//python:defs.bzl", "py_test")
 # robot.
 
 package(default_visibility = ["//visibility:public"])
-
-# No -Wpedantic: Abseil's int128.h, which absl/status pulls in, would print a hundred warnings per file.
-_COPTS = [
-    "-std=c++20",
-    "-Wall",
-    "-Wextra",
-    "-Werror=return-type",
-]
 
 cc_library(
     name = "visualization",
@@ -29,6 +22,7 @@ cc_library(
         "src/VisualizationConfig.cpp",
         "src/VisualizationModel.cpp",
         "src/VisualizationPublisher.cpp",
+        "src/config/robot/VisualizationConfigFromConfig.cpp",
     ],
     hdrs = [
         "include/humanoid_common_mpc_app/visualization/EulerAngles.h",
@@ -40,12 +34,15 @@ cc_library(
         "include/humanoid_common_mpc_app/visualization/VisualizationConfig.h",
         "include/humanoid_common_mpc_app/visualization/VisualizationModel.h",
         "include/humanoid_common_mpc_app/visualization/VisualizationPublisher.h",
+        "include/humanoid_common_mpc_app/visualization/config/robot/VisualizationConfigFromConfig.h",
     ],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     includes = ["include"],
     deps = [
         "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//humanoid_nmpc/humanoid_mpc_ipc",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto",
@@ -57,10 +54,13 @@ cc_library(
         "//robot_runtime/robot_core",
         "//robot_runtime/robot_ipc",
         "//robot_runtime/robot_realtime",
+        "//tools/nproto:nproto_runtime",
         "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/container:flat_hash_map",
         "@abseil-cpp//absl/container:flat_hash_set",
         "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/memory",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
@@ -70,7 +70,6 @@ cc_library(
         "@eigen",
         "@pinocchio",
         "@protobuf",
-        "@yaml_cpp",
     ],
 )
 
@@ -97,12 +96,12 @@ cc_library(
     testonly = True,
     srcs = ["test/VisualizationTestRobot.cpp"],
     hdrs = ["test/VisualizationTestRobot.h"],
-    copts = _COPTS,
-    strip_include_prefix = "test",
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":visualization",
         "//humanoid_nmpc/humanoid_centroidal_mpc",
         "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
         "//humanoid_nmpc/humanoid_wb_mpc",
         "//lib/ocs2:ocs2_centroidal_model",
@@ -111,6 +110,7 @@ cc_library(
         "//lib/ocs2:ocs2_oc",
         "//lib/ocs2:ocs2_pinocchio_interface",
         "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/status:statusor",
         "@eigen",
@@ -122,12 +122,14 @@ _TEST_DEPS = [
     ":test_robot",
     ":visualization",
     "//humanoid_nmpc/humanoid_common_mpc",
+    "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
     "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
     "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto",
     "//lib/ocs2:ocs2_core",
     "//lib/ocs2:ocs2_mpc",
     "//lib/ocs2:ocs2_oc",
     "//lib/ocs2:ocs2_pinocchio_interface",
+    "@abseil-cpp//absl/base:nullability",
     "@abseil-cpp//absl/container:flat_hash_map",
     "@abseil-cpp//absl/container:flat_hash_set",
     "@abseil-cpp//absl/status",
@@ -143,7 +145,7 @@ cc_test(
     name = "test_visualization_config",
     size = "small",
     srcs = ["test/testVisualizationConfig.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     data = _ROBOT_DATA,
     deps = _TEST_DEPS,
 )
@@ -153,7 +155,7 @@ cc_test(
     name = "test_robot_state_decoder",
     size = "small",
     srcs = ["test/testRobotStateDecoder.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     data = _ROBOT_DATA,
     deps = _TEST_DEPS,
 )
@@ -164,7 +166,7 @@ cc_test(
     name = "test_scene_builder",
     size = "small",
     srcs = ["test/testSceneBuilder.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     data = _ROBOT_DATA,
     deps = _TEST_DEPS,
 )
@@ -174,7 +176,7 @@ cc_test(
     name = "test_telemetry_builder",
     size = "small",
     srcs = ["test/testTelemetryBuilder.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     data = _ROBOT_DATA,
     deps = _TEST_DEPS,
 )
@@ -185,7 +187,7 @@ cc_test(
     name = "test_visualization_publisher",
     size = "small",
     srcs = ["test/testVisualizationPublisher.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     data = _ROBOT_DATA,
     deps = _TEST_DEPS + [
         "//humanoid_nmpc/humanoid_mpc_ipc",
@@ -201,7 +203,7 @@ cc_binary(
     name = "visualization_publisher_driver",
     testonly = True,
     srcs = ["test/VisualizationPublisherDriver.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     data = _ROBOT_DATA,
     deps = [
         ":test_robot",
@@ -210,6 +212,7 @@ cc_binary(
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_oc",
         "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/flags:flag",
         "@abseil-cpp//absl/flags:parse",
         "@abseil-cpp//absl/log",
@@ -233,4 +236,31 @@ py_test(
     env = {"VISUALIZATION_PUBLISHER_DRIVER": "$(rootpath :visualization_publisher_driver)"},
     main = "test/test_end_to_end.py",
     deps = ["//humanoid_nmpc/humanoid_rerun_viewer:test_support"],
+)
+
+# ==============================================================================
+# The typed configuration files (humanoid_nmpc/humanoid_mpc_config)
+# ==============================================================================
+
+# The typed configuration's tests (test/config/robot/). The conversion itself is in :visualization (src/config/robot/).
+_CONFIG_TEST_DEPS = [
+    ":visualization",
+    "//humanoid_nmpc/humanoid_common_mpc",
+    "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+    "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+    "//tools/nproto:nproto_runtime",
+    "@abseil-cpp//absl/base:nullability",
+    "@abseil-cpp//absl/status",
+    "@abseil-cpp//absl/status:statusor",
+    "@abseil-cpp//absl/strings",
+    "@abseil-cpp//absl/strings:string_view",
+    "@googletest//:gtest_main",
+]
+
+cc_test(
+    name = "config_robot_test",
+    size = "small",
+    srcs = glob(["test/config/robot/*.cpp"]),
+    copts = FIRST_PARTY_COPTS,
+    deps = _CONFIG_TEST_DEPS,
 )

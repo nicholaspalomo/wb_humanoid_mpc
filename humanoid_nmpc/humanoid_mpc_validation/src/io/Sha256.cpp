@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 
@@ -59,7 +60,7 @@ uint32_t rotateRight(uint32_t value) {
 }
 
 /** One 64-byte block into the running hash. */
-void compressBlock(const uint8_t* block, std::array<uint32_t, 8>& hash) {
+void compressBlock(const uint8_t* absl_nonnull block, std::array<uint32_t, 8>& hash) {
   std::array<uint32_t, 64> schedule{};
   for (size_t i = 0; i < 16; ++i) {
     schedule[i] = (static_cast<uint32_t>(block[4 * i]) << 24) | (static_cast<uint32_t>(block[4 * i + 1]) << 16) |

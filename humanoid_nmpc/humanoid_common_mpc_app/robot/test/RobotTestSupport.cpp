@@ -30,15 +30,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/RobotTestSupport.h"
 
 #include <chrono>
+#include <memory>
+#include <optional>
 #include <stdexcept>
+#include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 #include "absl/log/check.h"
+#include "absl/status/statusor.h"
 
 #include "humanoid_common_mpc/mrt/ControlMode.h"
 
 namespace ocs2::humanoid::robot_test {
+
+robot::model::RobotDescription atlasDescription() {
+  absl::StatusOr<robot::model::RobotDescription> description = robot::model::RobotDescription::Create(kAtlasUrdf);
+  CHECK_OK(description.status());
+  return *std::move(description);
+}
 
 std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface> makeHeadlessAtlas(bool gantryLocked) {
   robot::mujoco_sim_interface::MujocoSimConfig config;
@@ -46,13 +57,17 @@ std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface> makeHeadlessAtl
   config.headless = true;
   config.isGantryLocked = gantryLocked;
   config.gantryHold = "weld_constraint";
-  return std::make_unique<robot::mujoco_sim_interface::MujocoSimInterface>(config, kAtlasUrdf);
+  absl::StatusOr<std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface>> sim =
+      robot::mujoco_sim_interface::MujocoSimInterface::Create(config, kAtlasUrdf);
+  CHECK_OK(sim.status());
+  return *std::move(sim);
 }
 
 std::unique_ptr<robot::ipc::Bus> createLoopbackBus(const std::string& nodeName) {
   robot::ipc::BusOptions options;
   options.nodeName = nodeName;
-  options.network.nodes = {robot::ipc::NodeEndpoint{.name = nodeName, .host = "127.0.0.1", .port = robot::ipc::kEphemeralPort}};
+  options.network.nodes = {
+      robot::ipc::NodeEndpoint{.name = nodeName, .host = "127.0.0.1", .port = robot::ipc::kEphemeralPort, .bindHost = ""}};
   options.ioPollPeriod = absl::Milliseconds(5);
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
   CHECK_OK(bus.status());
@@ -104,7 +119,7 @@ void ScriptedRobotController::computeJointControlAction(const robot::model::Robo
   }
   if (contactEstimator_ != nullptr) {
     contactEstimator_->estimateContactFlags(robotState, estimatedFlags_);
-    for (size_t contact = 0; contact < N_CONTACTS && contact < estimatedFlags_.size(); ++contact) {
+    for (size_t contact = 0; contact < kNumContacts && contact < estimatedFlags_.size(); ++contact) {
       measuredContactFlags_[contact] = estimatedFlags_[contact];
     }
   }
@@ -126,7 +141,7 @@ void ScriptedRobotController::setContactWrenchGateConfig(const ContactWrenchGate
   gate_ = config;
 }
 
-absl::Status ScriptedRobotController::setPdGainsYaml(absl::string_view /*yamlText*/) {
+absl::Status ScriptedRobotController::setPdGains(const mpc_config::JointPdGainsFile& /*gains*/) {
   pdGainsDocuments_.fetch_add(1);
   return absl::OkStatus();
 }

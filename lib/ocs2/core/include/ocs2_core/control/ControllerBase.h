@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 #include <ocs2_core/control/ControllerType.h>
 
@@ -65,7 +67,7 @@ class ControllerBase {
    * @param[in] index: The starting index
    * @param[in] length: The length of the copy.
    */
-  virtual void concatenate(const ControllerBase* otherController, int index, int length) = 0;
+  virtual void concatenate(const ControllerBase* absl_nonnull otherController, int index, int length) = 0;
 
   /**
    * @brief Merges this controller with another controller that comes active later in time
@@ -74,7 +76,7 @@ class ControllerBase {
    *
    * @param[in] otherController: The control law to be appended.
    */
-  void concatenate(const ControllerBase* otherController) { concatenate(otherController, 0, otherController->size()); }
+  void concatenate(const ControllerBase* absl_nonnull otherController) { concatenate(otherController, 0, otherController->size()); }
 
   /**
    * @brief Returns the size of the controller.
@@ -107,7 +109,7 @@ class ControllerBase {
    * @warning Cloning implies that the caller takes ownership and deletes the created object.
    * @return Pointer to a new instance.
    */
-  virtual ControllerBase* clone() const = 0;
+  virtual ControllerBase* absl_nonnull clone() const = 0;
 
   /**
    * Displays controller's data.
@@ -126,7 +128,7 @@ class ControllerBase {
    * @param[in] timeArray array of query times
    * @param[out] flatArray2 The array of arrays that is to be filled, i.e., the compressed controller. One array per query time
    */
-  virtual void flatten(const scalar_array_t& timeArray, const std::vector<std::vector<double>*>& flatArray2) const {
+  virtual void flatten(const scalar_array_t& timeArray, const std::vector<std::vector<double>* absl_nonnull>& flatArray2) const {
     throw std::runtime_error("ControllerBase::flatten: not implemented.");
   }
 

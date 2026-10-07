@@ -33,10 +33,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <chrono>
 #include <cstdint>
+#include <memory>
 #include <optional>
-#include <stdexcept>
 #include <utility>
 
+#include "absl/base/nullability.h"
+#include "absl/log/absl_check.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
@@ -55,9 +57,7 @@ InProcessMpcLink::InProcessMpcLink(MPC_BASE& mpc, ResetTargetFunction resetTarge
       solverThreadName_(std::move(config.solverThreadName)),
       solveObserver_(std::move(config.solveObserver)),
       execution_(config.execution) {
-  if (!resetTarget_) {
-    throw std::invalid_argument("[InProcessMpcLink] a reset target function is required.");
-  }
+  ABSL_CHECK(resetTarget_ != nullptr) << "[InProcessMpcLink] a reset target function is required.";
 }
 
 InProcessMpcLink::~InProcessMpcLink() {
@@ -70,10 +70,8 @@ MpcLinkFactory InProcessMpcLink::factory(MPC_BASE& mpc, Config config) {
   };
 }
 
-MpcLinkFactory InProcessMpcLink::factory(MPC_BASE& mpc, Config config, InProcessMpcLink** created) {
-  if (created == nullptr) {
-    throw std::invalid_argument("[InProcessMpcLink] factory() needs a place to report the link it makes.");
-  }
+MpcLinkFactory InProcessMpcLink::factory(MPC_BASE& mpc, Config config, InProcessMpcLink* absl_nullable* absl_nullable created) {
+  ABSL_CHECK(created != nullptr) << "[InProcessMpcLink] factory() needs a place to report the link it makes.";
   return [&mpc, config = std::move(config), created](ResetTargetFunction resetTarget) -> std::unique_ptr<MpcLink> {
     auto link = std::make_unique<InProcessMpcLink>(mpc, std::move(resetTarget), config);
     *created = link.get();

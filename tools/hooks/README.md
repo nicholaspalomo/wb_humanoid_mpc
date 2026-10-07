@@ -10,9 +10,9 @@ Run everything from the repository root, as modules: `python3 -m tools.hooks.<mo
 
 | Command | What it does |
 |---|---|
-| `make format` (`python3 -m tools.hooks.format_code`) | Trailing whitespace and final newlines, the safe rewrites of the enforced checks, clang-format, isort (once its step is enforced) and black. |
+| `make format` (`python3 -m tools.hooks.format_code`) | Trailing whitespace and final newlines, the safe rewrites of the enforced checks, clang-format, isort and black. |
 | `make lint` (`python3 -m tools.hooks.lint_code`) | Every step below. It runs them all, then fails with a summary per step, so one run shows every finding. |
-| `python3 -m tools.hooks.lint_code --only <check>[,<check>...]` | Only the named registry checks or steps, pending ones included. |
+| `python3 -m tools.hooks.lint_code --only <check>[,<check>...]` | Only the named registry checks or steps. |
 | `python3 -m tools.hooks.lint_code --paths <dir> ...` | Only the files under the given paths. |
 | `python3 -m tools.hooks.lint_code --summary` | Counts per check and per Bazel package instead of the findings (token checks). |
 | `python3 -m tools.hooks.lint_code --fix --only <check>` | Applies the check's `fix_source` to the working tree first. |
@@ -60,8 +60,8 @@ says to rebuild the dev container. black and clang-format come from the image's 
   nullability scope, which adds `lib/ocs2` without `lib/ocs2/thirdparty`), `TEXT` or `NOT_THIRDPARTY`.
 - `check_source(source, path) -> list[Finding]`, a `description` (what it enforces and where the rule comes from), and a
   `hint` printed once under its findings.
-- `fix_source(source, path) -> str` where a rewrite exists; with `fixed_by_format=True`, `make format` applies it once
-  the check is enforced, so it must not be able to change behavior.
+- `fix_source(source, path) -> str` where a rewrite exists; with `fixed_by_format=True`, `make format` applies it, so it
+  must not be able to change behavior.
 
 A finding prints as `path:line:column: message [check]`. `lint_files.py` is the one place that defines the file sets:
 the vendored directories (`lib/`, `tools/ifttt-lint/`), the checked-in generated files, the fixture directories that
@@ -69,8 +69,8 @@ only the spelling checks read, test paths, and the Python import roots. `cpp_sou
 comment / string masker; use it rather than regular expressions over raw source.
 
 The modules: `argument_comments`, `include_style`, `boost_usage`, `american_spelling`, `proto_file_layout`,
-`proto_next_id`, `pointer_nullability`, `no_auto`, `cpp_google_style`, `cpp_totw`, `todo_format`,
-`inclusive_language`, `python_imports`, `python_docstrings` and `python_language`. `python3 -m tools.hooks.lint_code
+`proto_next_id`, `textproto_headers`, `yaml_usage`, `pointer_nullability`, `no_auto`, `cpp_google_style`, `cpp_totw`,
+`todo_format`, `inclusive_language`, `license_header`, `python_imports`, `python_docstrings` and `python_language`. `python3 -m tools.hooks.lint_code
 --only <name>` runs one check; the names and descriptions are in each module's `CHECKS`.
 
 ## NOLINT markers
@@ -87,12 +87,14 @@ The engine applies them, and five checks judge the markers themselves:
 |---|---|
 | `nolint-category` | a bare `NOLINT`, which would silence every cpplint and clang-tidy check on the line |
 | `nolint-reason` | a marker without a reason after the colon; such a marker suppresses nothing |
-| `nolint-unknown` | a name that is no registry check, cpplint category or clang-tidy check of `.clang-tidy` (or, while it exists, of `tools/clang_tidy/sweep.clang-tidy`) |
-| `nolint-unused` | a marker for a registry check, pending ones included, that suppresses no finding |
+| `nolint-unknown` | a name that is no registry check, cpplint category or clang-tidy check of `.clang-tidy` |
+| `nolint-unused` | a marker for a registry check that suppresses no finding |
 | `nolint-unbalanced` | a `NOLINTBEGIN` without its `NOLINTEND`, or the reverse |
 
 The same markers serve cpplint and clang-tidy; `lint_code` drops cpplint's "Unknown NOLINT error category" complaints
-about the registry's names. pylint's own messages use its pragma, `# pylint: disable=<message>  # <reason>`.
+about the registry's names, and its "Not in a NOLINT block" at the `NOLINTEND` of a block of registry or clang-tidy
+checks (cpplint opens blocks of its own categories only). pylint's own messages use its pragma,
+`# pylint: disable=<message>  # <reason>`.
 
 ## Adding a check
 
@@ -100,40 +102,33 @@ about the registry's names. pylint's own messages use its pragma, `# pylint: dis
    cannot change behavior. List it in the module's `CHECKS`, and add a new module to `_MODULE_CHECKS` in `checks.py`.
 2. Give the module a `py_library` and its `test_<module>.py` a `py_test` in `BUILD.bazel`. The test covers what the
    check detects and what it accepts, and calls `check_test_support.assert_check_behaves()`, which asserts the rest for
-   every check alike: registration (enforced or pending), NOLINT and NOLINTNEXTLINE, a marker without a reason,
+   every check alike: registration (`make lint` runs it), NOLINT and NOLINTNEXTLINE, a marker without a reason,
    `--git-staged` in a temporary git repository, the scope, and that a fix is a fixed point the check accepts.
-3. Fix every finding in the same change. A check that cannot be fixed at once goes into `PENDING` (below) with the
-   work that will fix it.
+3. Fix every finding in the same change. A check lands enforced or not at all: there is no list of checks that wait for
+   their findings to be fixed (below). Iterate with `--only <check> --paths <dir>`, `--summary` and `--fix`.
 4. List the rule in `AGENTS.md` ("Enforced by" or the ToTW table). The `registry` IFTTT label of `checks.py` points
-   there.
+   there, and `test_agents_style_sections.py` fails on a name there that no check has.
 
 A stock-tool rule goes into `.clang-tidy`, `CPPLINT.cfg` or `.pylintrc` instead, with the same three steps after the
 first.
 
-## Pending checks and the sweeps
+## Everything is enforced
 
-While the repository is being swept, a check that still has findings in the tree is pending:
+Every check of the registry, every cpplint category and pylint message the configurations leave on, every mypy option
+and every clang-tidy check of `.clang-tidy` is a hard failure in `make lint`, `make lint-tidy`, the pre-commit hook and
+CI. There is no baseline of findings, no list of checks that are skipped until their findings are fixed, no
+per-module section in `mypy.ini` and no second clang-tidy configuration. A justified exception is a marker on its line
+(above), and a rule that is wrong for the repository is switched off in its configuration with a comment that says why.
+`test_lint_enforcement.py` keeps it that way.
 
-- a token check is named in `checks.py:PENDING`;
-- a cpplint category is filtered in the `SWEEP` block of `CPPLINT.cfg`, and a pylint message disabled in the
-  `SWEEP_BEGIN` / `SWEEP_END` block of `.pylintrc`;
-- a module with mypy errors has a relaxing section in the `SWEEP` block of `mypy.ini` (only `ignore_errors = True` or a
-  relaxed `disallow_*`; `lint_code` rejects any other option and any section that names no module);
-- a clang-tidy check is listed only in `tools/clang_tidy/sweep.clang-tidy`.
-
-`make lint`, the pre-commit hook and CI skip pending checks; `--only` runs them. A sweep works like this:
+While you fix the findings of a new check, narrow the runs:
 
 ```bash
-python3 -m tools.hooks.lint_code --only no-auto,totw-at --paths humanoid_nmpc/humanoid_wb_mpc            # iterate
-python3 -m tools.hooks.lint_code --only pointer-nullability --summary                                 # progress
-python3 -m tools.hooks.lint_code --only float-literal --fix --paths robot_runtime                     # safe rewrites
-make lint-tidy-sweep PKG=//humanoid_nmpc/humanoid_wb_mpc/... PATHS=humanoid_nmpc/humanoid_wb_mpc     # clang-tidy
+python3 -m tools.hooks.lint_code --only no-auto,totw-at --paths humanoid_nmpc/humanoid_wb_mpc   # iterate
+python3 -m tools.hooks.lint_code --only exceptions --summary                                 # progress
+python3 -m tools.hooks.lint_code --only float-literal --fix --paths robot_runtime            # safe rewrites
+make lint-tidy PKG=//humanoid_nmpc/humanoid_wb_mpc/...                                       # clang-tidy
 ```
-
-A check leaves the pending set in the change that fixes its last finding: delete its name from `PENDING`, its line
-from the `SWEEP` block, or move it from `sweep.clang-tidy` to `.clang-tidy`. The tests of each check assert whether it
-is pending, so that change also flips `pending=True` in its test. When nothing is pending, `PENDING`, the `SWEEP`
-blocks, `sweep.clang-tidy` and its Make target are deleted, and a test keeps them deleted.
 
 ## Tests
 
@@ -147,4 +142,9 @@ blocks, `sweep.clang-tidy` and its Make target are deleted, and a test keeps the
   repository's configurations, and `test_lint_tool_versions.py` / `test_ci_formatter_versions.py`, which keep the
   lock, the Dockerfile, CI and `MODULE.bazel` in step;
 - `test_first_party_build_files.py`, which keeps `strip_include_prefix` / `include_prefix` out of first-party BUILD
-  files.
+  files, checks that every first-party C++ target compiles with `FIRST_PARTY_COPTS` (`bazel/copts.bzl`), and allows
+  no other warning flag in a BUILD or `.bzl` file than `-Werror` and a `-Wno-...` with its reason on the line;
+- `test_lint_enforcement.py`, which keeps the pending, sweep and baseline mechanisms deleted and checks that `make lint`,
+  the pre-commit hook and CI run every check;
+- `test_agents_style_sections.py`, which checks that every check, clang-tidy check and GCC flag the style sections of
+  `AGENTS.md` name exists, so that a rename or a typo there fails instead of leaving a rule that names nothing.

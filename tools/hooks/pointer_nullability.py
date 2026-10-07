@@ -35,16 +35,24 @@ annotations to nothing, so this check is the only one that sees them. It reports
   returns, members, locals, template arguments (`std::vector<Foo*>`), function and member pointers;
 - a misplaced annotation: `absl_nonnull Foo* p` (it qualifies Foo) or `Foo* const absl_nonnull p`; write
   `Foo* absl_nonnull const p`. An annotation in front of a smart pointer type (`absl_nonnull std::unique_ptr<T>`) is fine;
-- `absl_nonnull` on a declarator initialized or defaulted to `nullptr`, `NULL` or `0`;
+- `absl_nonnull` on a pointer given a null value: initialized or defaulted to `nullptr`, `NULL` or `0` (`= nullptr`,
+  `(nullptr)`, `{nullptr}`, `= {nullptr}`), value-initialized (`{}`, `= {}`), given a null branch of a conditional
+  (`= c ? &a : nullptr`), set to null in a member initializer list (`p_(nullptr)`, `p_{}`) or by an assignment
+  (`p_ = nullptr;`), or returned as null from a function declared to return `T* absl_nonnull`. A name declared both
+  `absl_nonnull` and `absl_nullable` in one file is left alone;
+- an annotation in a cast, `sizeof`, `alignof`, `typeid`, `decltype`, a type-trait argument or `new T*[n]`: an
+  annotated cast is an assertion that silences the analyzer, not documentation;
+- a declaration of more than one annotated pointer (`Foo* absl_nonnull a, * absl_nonnull b;`): one declarator per
+  declaration;
 - the spellings that are not used: `absl_nullability_unknown`, `ABSL_POINTERS_DEFAULT_NONNULL`, the removed
   `absl::Nonnull<>` / `absl::Nullable<>` / `absl::NullabilityUnknown<>` templates, and raw `_Nonnull` / `_Nullable` /
   `_Null_unspecified`;
 - a right-aligned declarator, `Foo *a` (clang-format's fallback for `Foo *a, *b`): one declarator per declaration;
 - a file that uses an annotation without `#include "absl/base/nullability.h"`.
 
-Exempt: casts (`static_cast<Foo*>`, C-style), `sizeof` / `alignof` / `typeid` / `decltype`, `new T*[n]`, type-trait
-arguments (`std::is_pointer_v<T*>`), and everything that is not code (comments, literals, preprocessor lines). An
-annotated cast is an assertion that silences the analyzer, not documentation.
+Exempt from the annotation: casts (`static_cast<Foo*>`, C-style), `sizeof` / `alignof` / `typeid` / `decltype`,
+`new T*[n]`, type-trait arguments (`std::is_pointer_v<T*>`), and everything that is not code (comments, literals,
+preprocessor lines).
 
 The classification relies on clang-format's PointerAlignment: Left layout: a declarator `*` is glued to the type on its
 left; a binary `*` has spaces on both sides; a unary `*` has none after it. It cannot see a pointer behind an alias
@@ -131,6 +139,15 @@ _AFTER_DECLARATOR = frozenset(
     {">", ">>", ",", ")", "&", "&&", "*", "[", "...", ";", "=", "{", ":"}
 )
 _NULL_VALUES = frozenset({"nullptr", "NULL", "0"})
+# What may stand between the `)` of a function's parameters and its body: qualifiers, specifiers, attributes' macros.
+_FUNCTION_SPECIFIERS = frozenset(
+    {"const", "volatile", "noexcept", "override", "final", "&", "&&", "mutable"}
+)
+_CAST_ANNOTATION = (
+    "in a cast, a type expression, a type-trait argument or a new-expression the pointer stays unannotated: an "
+    "annotated cast is an assertion that silences the analyzer, not documentation (AGENTS.md, 'Raw pointers carry "
+    "nullability')"
+)
 _C_CAST_CONTEXT = frozenset(
     {"=", "(", ",", "return", "+", "-", "?", ":", "{", "<<", "&&", "||", "!"}
 )
@@ -194,8 +211,21 @@ def _is_exempt(code: tuple[cpp_source.Token, ...], index: int) -> bool:
 
 
 def _is_c_style_cast(code: tuple[cpp_source.Token, ...], star: int) -> bool:
-    """True for the `*` of `(const char*)buf`: `(` type `*` `)` followed by an operand, after an operator."""
-    if star + 2 >= len(code) or code[star + 1].text != ")":
+    """True for the `*` of `(const char*)buf`: `(` type `*` `)` followed by an operand, after an operator.
+
+    An annotation between the `*` and the `)` (`(Foo* absl_nonnull)buf`) is skipped: the cast is still one.
+
+    Args:
+      code: The code tokens of the file.
+      star: The index of the `*`.
+
+    Returns:
+      Whether the `*` is the last token of a C-style cast's type.
+    """
+    close = star + 1
+    while close < len(code) and code[close].text in ANNOTATIONS:
+        close += 1
+    if close + 1 >= len(code) or code[close].text != ")":
         return False
     depth = 0
     k = star
@@ -210,7 +240,7 @@ def _is_c_style_cast(code: tuple[cpp_source.Token, ...], star: int) -> bool:
     if k <= 0:
         return False
     before = code[k - 1]
-    following = code[star + 2]
+    following = code[close + 1]
     return (
         before.text in _C_CAST_CONTEXT
         or (code[k].ws_before and before.kind == cpp_source.PUNCTUATOR)
@@ -267,6 +297,11 @@ class _Finder:
         self.path = path
         self.code = cpp_source.code_tokens(source)
         self.findings: list[check_types.Finding] = []
+        # The data members declared `T* absl_nonnull name_`, and every name declared `absl_nullable` (any scope): a
+        # member set to null in an initializer list or by an assignment is reported unless the file declares the same
+        # name nullable too (two classes, or a member and a local).
+        self.nonnull_members: set[str] = set()
+        self.nullable_names: set[str] = set()
 
     def add(self, token: cpp_source.Token, message: str) -> None:
         self.findings.append(
@@ -326,6 +361,7 @@ class _Finder:
                     token, f"`absl::{token.text}<>` was removed from Abseil: {_ADVICE}."
                 )
             i += 1
+        self._null_member_assignments()
         self._include()
         return self.findings
 
@@ -355,11 +391,15 @@ class _Finder:
                 if _is_exempt(code, i) or _is_c_style_cast(code, i):
                     return last
                 self._missing(stars, f"raw pointer `{previous.text}*`")
-                self._contradiction(last)
+                self._declarator(last)
             return last
         if not token.ws_before and previous.text == "(" and i >= 2:
             before = code[i - 2]
-            if previous.ws_before and _is_typeish(before):
+            # The return type ends in a name (`R (*)`), or in a `&`, `&&` or `*` glued to it (`R& (*)`, `R* (*)`).
+            returns_type = _is_typeish(before) or (
+                before.text in ("&", "&&", "*") and not before.ws_before
+            )
+            if previous.ws_before and returns_type:
                 k = i + 1
                 while k < n and (
                     code[k].text in ANNOTATIONS or code[k].text == "const"
@@ -387,34 +427,331 @@ class _Finder:
             )
         return last
 
-    def _contradiction(self, last: int) -> None:
-        """Reports `absl_nonnull` on a declarator that is initialized or defaulted to null."""
+    def _text(self, k: int) -> str:
+        return self.code[k].text if 0 <= k < len(self.code) else ""
+
+    def _name_end(self, k: int) -> int:
+        """The index after the declarator name, possibly qualified (`Foo::get`), at code[k]; k when there is none."""
         code = self.code
         n = len(code)
-        k = last + 1
-        if k >= n or code[k].text != "absl_nonnull":
-            return
-        k += 1
-        if k < n and code[k].text == "const":
-            k += 1
-        if k < n and code[k].kind == cpp_source.IDENTIFIER:
-            k += 1
-        if k + 1 < n and code[k].text == "=" and code[k + 1].text in _NULL_VALUES:
-            null = code[k + 1]
-        elif (
-            k + 2 < n
-            and code[k].text == "{"
-            and code[k + 1].text in _NULL_VALUES
-            and code[k + 2].text == "}"
+        if (
+            k >= n
+            or code[k].kind != cpp_source.IDENTIFIER
+            or code[k].text in _NOT_TYPE_WORDS
         ):
-            null = code[k + 1]
-        else:
+            return k
+        k += 1
+        while k < n:
+            if code[k].text == "<" and not code[k].ws_before:
+                close = cpp_source.matching_angle(code, k)
+                if close >= n or self._text(close + 1) != "::":
+                    break
+                k = close + 1
+            if (
+                code[k].text == "::"
+                and k + 1 < n
+                and code[k + 1].kind == cpp_source.IDENTIFIER
+            ):
+                k += 2
+                continue
+            break
+        return k
+
+    def _declarator(self, last: int) -> None:
+        """Judges the annotated declarator whose last `*` is code[last]: what it is given, and what it declares."""
+        code = self.code
+        annotation = self._text(last + 1)
+        if annotation not in ("absl_nonnull", "absl_nullable"):
             return
-        self.add(
-            code[last + 1],
-            f"`absl_nonnull` pointer initialized with `{null.text}`: it is nullable (`absl_nullable`), or it needs a "
-            "non-null value.",
-        )
+        k = last + 2
+        if self._text(k) == "const":
+            k += 1
+        name_end = self._name_end(k)
+        has_name = name_end > k
+        if has_name and name_end == k + 1 and self._text(name_end) != "(":
+            if annotation == "absl_nullable":
+                self.nullable_names.add(code[k].text)
+            elif cpp_source.scopes(self.source)[k][-1:] == (cpp_source.CLASS_SCOPE,):
+                self.nonnull_members.add(code[k].text)
+        body = None
+        if self._text(name_end) == "(" and has_name:
+            body = self._function_body(name_end)
+        elif not has_name and self._text(name_end) == "{":
+            # A trailing return type: `[]() -> Foo* absl_nonnull {` or `auto f() -> Foo* absl_nonnull {`.
+            body = name_end
+        if (
+            body is None
+            and has_name
+            and self._text(self._declarator_end(name_end)) == ","
+            and self._enclosing_bracket(last) in ("{", "")
+        ):
+            self.add(
+                code[k],
+                f"`{code[k].text}` is declared with another declarator after it: declare one variable per "
+                f"declaration (`T* {annotation} a; T* {annotation} b;`).",
+            )
+        if annotation != "absl_nonnull":
+            return
+        null = self._null_initializer(name_end)
+        if null is not None:
+            self.add(
+                code[last + 1],
+                f"`absl_nonnull` pointer initialized with `{null.text}`: it is nullable (`absl_nullable`), or it needs "
+                "a non-null value.",
+            )
+        if body is not None:
+            self._null_returns(body)
+
+    def _null_initializer(self, k: int) -> cpp_source.Token | None:
+        """The null that the initializer starting at code[k] gives a pointer (`= nullptr`, `{}`, `(0)`, ...), or None."""
+        if self._text(k) == "=":
+            k += 1
+            if self._text(k) in _NULL_VALUES:
+                return self.code[k]
+            if self._text(k) == "{":
+                return self._null_braces(k)
+            return self._null_branch(k)
+        if self._text(k) == "(":
+            if self._text(k + 1) in _NULL_VALUES and self._text(k + 2) == ")":
+                return self.code[k + 1]
+            return None
+        if self._text(k) == "{":
+            return self._null_braces(k)
+        return None
+
+    def _null_braces(self, k: int) -> cpp_source.Token | None:
+        """For the `{` at code[k]: the null of `{}` (value-initialization) or `{nullptr}`, or None."""
+        if self._text(k + 1) == "}":
+            return self.code[k]
+        if self._text(k + 1) in _NULL_VALUES and self._text(k + 2) == "}":
+            return self.code[k + 1]
+        return None
+
+    def _null_branch(self, k: int) -> cpp_source.Token | None:
+        """The null branch of a conditional initializer starting at code[k] (`c ? &a : nullptr`), or None."""
+        code = self.code
+        n = len(code)
+        question = -1
+        colon = -1
+        nested = 0
+        j = k
+        while j < n:
+            text = code[j].text
+            if text in ("(", "[", "{"):
+                j = cpp_source.matching(code, j) + 1
+                continue
+            if text in (")", "]", "}", ";", ","):
+                break
+            if text == "?":
+                if question < 0:
+                    question = j
+                else:
+                    nested += 1
+            elif text == ":" and question >= 0:
+                if nested:
+                    nested -= 1
+                elif colon < 0:
+                    colon = j
+            j += 1
+        if question < 0 or colon < 0:
+            return None
+        if colon == question + 2 and code[question + 1].text in _NULL_VALUES:
+            return code[question + 1]
+        if j == colon + 2 and code[colon + 1].text in _NULL_VALUES:
+            return code[colon + 1]
+        return None
+
+    def _declarator_end(self, k: int) -> int:
+        """The index of the `,`, `;` or closing bracket that ends the declarator whose initializer starts at code[k]."""
+        code = self.code
+        n = len(code)
+        while self._text(k) == "[":
+            k = cpp_source.matching(code, k) + 1
+        if self._text(k) in ("(", "{"):
+            return cpp_source.matching(code, k) + 1
+        if self._text(k) != "=":
+            return k
+        k += 1
+        while k < n:
+            text = code[k].text
+            if text in ("(", "[", "{"):
+                k = cpp_source.matching(code, k) + 1
+                continue
+            if (
+                text == "<"
+                and not code[k].ws_before
+                and code[k - 1].kind == cpp_source.IDENTIFIER
+            ):
+                close = cpp_source.matching_angle(code, k)
+                if close < n:
+                    k = close + 1
+                    continue
+            if text in (",", ";", ")", "]", "}"):
+                return k
+            k += 1
+        return n
+
+    def _enclosing_bracket(self, index: int) -> str:
+        """The innermost unclosed `(`, `[`, `{` or template `<` before code[index]; "" at file scope."""
+        code = self.code
+        depth = 0
+        k = index - 1
+        while k >= 0:
+            text = code[k].text
+            if text in (")", "]", "}"):
+                depth += 1
+            elif text in ("(", "[", "{"):
+                if depth == 0:
+                    return text
+                depth -= 1
+            elif (
+                text == "<"
+                and depth == 0
+                and (not code[k].ws_before or self._text(k - 1) == "template")
+            ):
+                close = cpp_source.matching_angle(code, k)
+                if close >= index:
+                    return text
+            k -= 1
+        return ""
+
+    def _function_body(self, k: int) -> int | None:
+        """For the `(` of a parameter list at code[k], the index of the `{` of the function's body, or None."""
+        code = self.code
+        n = len(code)
+        j = cpp_source.matching(code, k) + 1
+        while j < n:
+            text = code[j].text
+            if text in _FUNCTION_SPECIFIERS or text in ANNOTATIONS:
+                j += 1
+            elif code[j].kind == cpp_source.IDENTIFIER:
+                # A specifier macro, `noexcept(...)`, or a name of a trailing return type.
+                j += 1
+                if self._text(j) == "(":
+                    j = cpp_source.matching(code, j) + 1
+            elif text in ("->", "::", "*"):
+                j += 1
+            else:
+                break
+        return j if self._text(j) == "{" else None
+
+    def _is_lambda_body(self, brace: int) -> bool:
+        """True when the `{` at code[brace] opens a lambda's body: `[...] {`, or `[...](...) [specifiers] {`."""
+        code = self.code
+        k = brace - 1
+        while k >= 0 and (
+            code[k].kind == cpp_source.IDENTIFIER
+            or code[k].text in ("->", "::", "*", "&", "&&", "<", ">")
+        ):
+            k -= 1
+        if self._text(k) == "]":
+            return True
+        if self._text(k) != ")":
+            return False
+        depth = 0
+        while k >= 0:
+            if code[k].text == ")":
+                depth += 1
+            elif code[k].text == "(":
+                depth -= 1
+                if depth == 0:
+                    break
+            k -= 1
+        return self._text(k - 1) == "]"
+
+    def _null_returns(self, body: int) -> None:
+        """Reports `return nullptr;` in the body, opened at code[body], of a function that returns `T* absl_nonnull`."""
+        code = self.code
+        end = cpp_source.matching(code, body)
+        j = body + 1
+        while j < end:
+            if code[j].text == "{" and self._is_lambda_body(j):
+                j = cpp_source.matching(code, j) + 1
+                continue
+            if (
+                code[j].text == "return"
+                and self._text(j + 1) in _NULL_VALUES
+                and self._text(j + 2) == ";"
+            ):
+                self.add(
+                    code[j + 1],
+                    f"`return {code[j + 1].text};` from a function that returns `absl_nonnull`: the return type is "
+                    "`absl_nullable`, or the function needs a non-null value.",
+                )
+            j += 1
+
+    def _in_member_initializer_list(self, name: int) -> bool:
+        """True when the name at code[name] begins an entry of a constructor's member initializer list."""
+        code = self.code
+        k = name - 1
+        while k >= 0:
+            text = code[k].text
+            if text == ":":
+                # The `:` after a constructor's parameters: `Foo(int a) : p_(...)`, `Foo() noexcept : ...`.
+                return self._text(k - 1) in (")", "noexcept")
+            if text in (")", "}"):
+                # A previous entry's arguments: `a_(x), b_{y}`.
+                depth = 0
+                while k >= 0:
+                    if code[k].text in (")", "}"):
+                        depth += 1
+                    elif code[k].text in ("(", "{"):
+                        depth -= 1
+                        if depth == 0:
+                            break
+                    k -= 1
+                k -= 1
+                continue
+            if (
+                text == ","
+                or code[k].kind == cpp_source.IDENTIFIER
+                or text in ("::", "<", ">")
+            ):
+                k -= 1
+                continue
+            return False
+        return False
+
+    def _null_member_assignments(self) -> None:
+        """Reports an `absl_nonnull` data member set to null: `p_(nullptr)`, `p_{}` in an initializer list, `p_ = nullptr;`."""
+        members = self.nonnull_members - self.nullable_names
+        if not members:
+            return
+        code = self.code
+        for j, token in enumerate(code):
+            if token.kind != cpp_source.IDENTIFIER or token.text not in members:
+                continue
+            previous = self._text(j - 1)
+            following = self._text(j + 1)
+            null = None
+            if (
+                following == "="
+                and previous not in ANNOTATIONS
+                and previous not in ("const", "*")
+            ):
+                if self._text(j + 2) in _NULL_VALUES and self._text(j + 3) in (
+                    ";",
+                    ",",
+                    ")",
+                    "}",
+                ):
+                    null = code[j + 2]
+            elif (
+                previous in (":", ",")
+                and following in ("(", "{")
+                and self._in_member_initializer_list(j)
+            ):
+                if following == "(":
+                    if self._text(j + 2) in _NULL_VALUES and self._text(j + 3) == ")":
+                        null = code[j + 2]
+                else:
+                    null = self._null_braces(j + 1)
+            if null is not None:
+                self.add(
+                    null,
+                    f"`{token.text}` is an `absl_nonnull` member and is set to `{null.text}`: it is nullable "
+                    "(`absl_nullable`), or it needs a non-null value.",
+                )
 
     def _array_parameter(self, i: int) -> None:
         """Reports an array parameter (`const double p[3]`) whose `[` carries no annotation."""
@@ -466,7 +803,17 @@ class _Finder:
         """Reports an annotation that does not directly follow its `*` or `[`."""
         code = self.code
         previous = code[i - 1] if i > 0 else None
-        if previous is not None and previous.text in ("*", "["):
+        if previous is not None and previous.text == "*":
+            star = i - 1
+            # A cast's `*` is glued to its type (`(const Foo* absl_nonnull)buf`); `R (*absl_nonnull)(A)` is a type.
+            typed = star > 0 and (
+                _is_typeish(code[star - 1])
+                or code[star - 1].text in ("const", "volatile")
+            )
+            if _is_exempt(code, star) or (typed and _is_c_style_cast(code, star)):
+                self.add(code[i], f"`{code[i].text}` {_CAST_ANNOTATION}.")
+            return
+        if previous is not None and previous.text == "[":
             return
         following = code[i + 1 : i + 4]
         texts = [t.text for t in following]

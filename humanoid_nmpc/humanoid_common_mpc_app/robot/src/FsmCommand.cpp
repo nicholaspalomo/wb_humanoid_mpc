@@ -65,15 +65,15 @@ absl::string_view fsmCommandModeName(FsmCommandKind kind) {
       return control_mode::kSafety;
     case FsmCommandKind::kLockGantry:
     case FsmCommandKind::kUnlockGantry:
-    default:
       return {};
   }
+  return {};  // not an enumerator (ToTW #147)
 }
 
 FsmCommandEvent makeFsmCommandEvent(FsmCommandKind kind, absl::string_view command) {
   FsmCommandEvent event;
   event.kind = kind;
-  const std::size_t length = std::min(command.size(), event.name.size() - 1);
+  const size_t length = std::min(command.size(), event.name.size() - 1);
   std::memcpy(event.name.data(), command.data(), length);
   event.name[length] = '\0';
   return event;

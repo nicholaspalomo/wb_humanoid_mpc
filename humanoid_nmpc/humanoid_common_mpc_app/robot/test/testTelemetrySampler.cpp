@@ -27,21 +27,21 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <array>
 #include <cmath>
 #include <string>
 #include <vector>
 
-#include <robot_model/RobotDescription.h>
-#include <robot_model/RobotJointAction.h>
-#include <robot_model/RobotState.h>
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc_app/robot/JointNamesByIndex.h"
 #include "humanoid_common_mpc_app/robot/TelemetrySampler.h"
 #include "humanoid_mpc_msgs/robot_state_sample.nproto.pb.h"
 #include "humanoid_mpc_msgs/robot_state_sample.pb.h"
+#include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/RobotTestSupport.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotJointAction.h"
+#include "robot_model/RobotState.h"
 
 /*
  * The telemetry of the realtime loop: one sample every decimation-th cycle, carrying the robot state, the joint action,
@@ -52,11 +52,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-constexpr const char* kAtlasUrdf = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
-
 class TelemetrySamplerTest : public ::testing::Test {
  protected:
-  TelemetrySamplerTest() : description_(kAtlasUrdf), state_(description_), action_(description_) {
+  TelemetrySamplerTest() : description_(robot_test::atlasDescription()), state_(description_), action_(description_) {
     state_.setTime(1.25);
     state_.setRootPositionInWorldFrame(vector3_t(0.1, -0.2, 0.9));
     state_.setRootRotationLocalToWorldFrame(quaternion_t(Eigen::AngleAxis<scalar_t>(0.3, vector3_t::UnitZ())));
@@ -65,7 +63,7 @@ class TelemetrySamplerTest : public ::testing::Test {
     for (size_t joint = 0; joint < description_.getNumJoints(); ++joint) {
       state_.setJointPosition(joint, 0.01 * static_cast<scalar_t>(joint));
       state_.setJointVelocity(joint, -0.02 * static_cast<scalar_t>(joint));
-      robot::model::JointAction& action = *action_.at(joint);
+      robot::model::JointAction& action = action_.at(joint).emplace();
       action.q_des = 0.03 * static_cast<scalar_t>(joint);
       action.qd_des = 0.5;
       action.kp = 100.0 + static_cast<scalar_t>(joint);
@@ -86,7 +84,7 @@ class TelemetrySamplerTest : public ::testing::Test {
   robot::model::RobotState state_;
   robot::model::RobotJointAction action_;
   const contact_flag_t flags_{true, false};
-  const std::array<vector3_t, N_CONTACTS> forces_{vector3_t(1.0, 2.0, 300.0), vector3_t(0.0, 0.0, 0.5)};
+  const std::array<vector3_t, kNumContacts> forces_{vector3_t(1.0, 2.0, 300.0), vector3_t(0.0, 0.0, 0.5)};
 };
 
 TEST_F(TelemetrySamplerTest, TakesOneSampleEveryDecimationCycles) {
@@ -122,14 +120,14 @@ TEST_F(TelemetrySamplerTest, TheSampleIsTheCycleAndRoundTripsThroughItsMessage) 
     const size_t index = static_cast<size_t>(joint);
     EXPECT_DOUBLE_EQ(sample.joint_positions[joint], state_.getJointPosition(index));
     EXPECT_DOUBLE_EQ(sample.joint_velocities[joint], state_.getJointVelocity(index));
-    EXPECT_DOUBLE_EQ(sample.joint_position_targets[joint], action_.at(index)->q_des);
-    EXPECT_DOUBLE_EQ(sample.joint_velocity_targets[joint], action_.at(index)->qd_des);
-    EXPECT_DOUBLE_EQ(sample.joint_kp[joint], action_.at(index)->kp);
-    EXPECT_DOUBLE_EQ(sample.joint_kd[joint], action_.at(index)->kd);
-    EXPECT_DOUBLE_EQ(sample.joint_feed_forward_efforts[joint], action_.at(index)->feed_forward_effort);
+    EXPECT_DOUBLE_EQ(sample.joint_position_targets[joint], robot_test::valueOrFail(action_.at(index)).q_des);
+    EXPECT_DOUBLE_EQ(sample.joint_velocity_targets[joint], robot_test::valueOrFail(action_.at(index)).qd_des);
+    EXPECT_DOUBLE_EQ(sample.joint_kp[joint], robot_test::valueOrFail(action_.at(index)).kp);
+    EXPECT_DOUBLE_EQ(sample.joint_kd[joint], robot_test::valueOrFail(action_.at(index)).kd);
+    EXPECT_DOUBLE_EQ(sample.joint_feed_forward_efforts[joint], robot_test::valueOrFail(action_.at(index)).feed_forward_effort);
   }
   EXPECT_EQ(sample.contact_flags, (std::vector<bool>{true, false}));
-  ASSERT_EQ(sample.measured_contact_wrenches.size(), N_CONTACTS);
+  ASSERT_EQ(sample.measured_contact_wrenches.size(), kNumContacts);
   EXPECT_DOUBLE_EQ(sample.measured_contact_wrenches[0].force.z, 300.0);
   EXPECT_DOUBLE_EQ(sample.measured_contact_wrenches[1].force.z, 0.5);
 
@@ -155,7 +153,8 @@ TEST_F(TelemetrySamplerTest, AJointWithoutAnActionHasANanPositionTarget) {
   EXPECT_TRUE(std::isnan(sample.joint_position_targets[row]));
   EXPECT_DOUBLE_EQ(sample.joint_kp[row], 0.0);
   EXPECT_DOUBLE_EQ(sample.joint_feed_forward_efforts[row], 0.0);
-  EXPECT_DOUBLE_EQ(sample.joint_position_targets[row + 1], action_.at(idle + 1)->q_des) << "the other joints keep theirs";
+  EXPECT_DOUBLE_EQ(sample.joint_position_targets[row + 1], robot_test::valueOrFail(action_.at(idle + 1)).q_des)
+      << "the other joints keep theirs";
 }
 
 TEST_F(TelemetrySamplerTest, AFullRingDropsAndCountsTheSamples) {

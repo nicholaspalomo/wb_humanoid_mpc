@@ -65,6 +65,10 @@ class MissingAnnotationTest(unittest.TestCase):
             ("std::atomic<T*> sink;", 1),
             ("void (*fn)(int);", 1),
             ("using F = R (*)(A);", 1),
+            ("using F = R& (*)(A&);", 1),
+            ("using F = R&& (*)(A);", 1),
+            ("using F = const char* (*)(A);", 2),
+            ("R& (*fn)(A&);", 1),
             ("int Foo::*member;", 1),
             ("auto lambda = [](Foo* f) { return f; };", 1),
             ("void g() { for (Foo* f : foos) {} }", 1),
@@ -101,6 +105,8 @@ class NotFlaggedTest(unittest.TestCase):
             "std::vector<Foo* absl_nonnull> v;",
             "void f(char* absl_nonnull* absl_nonnull argv);",
             "void (*absl_nonnull fn)(int);",
+            "using F = R& (*absl_nonnull)(A&);",
+            "using F = const char* absl_nonnull (*absl_nonnull)(A);",
             "int Foo::*absl_nullable member;",
             "void f(const double p[absl_nonnull 3]);",
             "absl_nonnull std::unique_ptr<Foo> p;",
@@ -115,6 +121,8 @@ class NotFlaggedTest(unittest.TestCase):
             "int x = **pp;",
             "int x = (*it).x;",
             "int x = (*fn)(3);",
+            "int x = a & (*fn)(3);",
+            "int x = a * (*fn)(3);",
             "struct A { A& f() { return *this; } };",
             "bool b = (*opt)[0] && (*opt)[1];",
             "x = 1'000 * y;",
@@ -182,6 +190,143 @@ class RulesTest(unittest.TestCase):
                 self.assertIn("initialized with", messages[0])
         self.assertEqual(_count("Foo* absl_nullable p = nullptr;"), 0)
 
+    def test_nonnull_given_null_in_any_other_form(self):
+        # Each null form, with the non-null counterpart that stays clean.
+        for flagged, clean in [
+            ("Foo* absl_nonnull p(nullptr);", "Foo* absl_nonnull p(&x);"),
+            ("Foo* absl_nonnull p{};", "Foo* absl_nonnull p{&x};"),
+            (
+                "struct S { Foo* absl_nonnull p = {}; };",
+                "struct S { Foo* absl_nonnull p = &x; };",
+            ),
+            ("void f(Foo* absl_nonnull p = {});", "void f(Foo* absl_nullable p = {});"),
+            (
+                "void f(Foo* absl_nonnull p = {nullptr});",
+                "void f(Foo* absl_nonnull p = {&x});",
+            ),
+            (
+                "Foo* absl_nonnull p = cond ? &a : nullptr;",
+                "Foo* absl_nonnull p = cond ? &a : &b;",
+            ),
+            (
+                "Foo* absl_nonnull p = cond ? NULL : &a;",
+                "Foo* absl_nullable p = cond ? NULL : &a;",
+            ),
+        ]:
+            with self.subTest(source=flagged):
+                messages = _messages(INCLUDE + flagged)
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn("initialized with", messages[0])
+            with self.subTest(source=clean):
+                self.assertEqual(_count(clean), 0)
+
+    def test_nonnull_member_set_to_null(self):
+        for flagged, clean in [
+            (
+                "class S { S() : p_(nullptr) {} Foo* absl_nonnull p_; };",
+                "class S { S() : p_(&x) {} Foo* absl_nonnull p_; };",
+            ),
+            (
+                "class S { S() : a_(1), p_{} {} int a_; Foo* absl_nonnull p_; };",
+                "class S { S() : a_(1), p_{&x} {} int a_; Foo* absl_nonnull p_; };",
+            ),
+            (
+                "class S { void reset() { p_ = nullptr; } Foo* absl_nonnull p_; };",
+                "class S { void reset() { q_ = nullptr; } Foo* absl_nonnull p_; std::unique_ptr<Foo> q_; };",
+            ),
+        ]:
+            with self.subTest(source=flagged):
+                messages = _messages(INCLUDE + flagged)
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn("is an `absl_nonnull` member", messages[0])
+            with self.subTest(source=clean):
+                self.assertEqual(_count(clean), 0)
+        # The same name nullable elsewhere in the file: left alone rather than guessed.
+        self.assertEqual(
+            _count(
+                "class A { Foo* absl_nonnull p_; };\nclass B { B() : p_(nullptr) {} Foo* absl_nullable p_; };"
+            ),
+            0,
+        )
+
+    def test_nonnull_function_returning_null(self):
+        for flagged, clean in [
+            (
+                "Foo* absl_nonnull f() { return nullptr; }",
+                "Foo* absl_nullable f() { return nullptr; }",
+            ),
+            (
+                "Foo* absl_nonnull Bar::get() const { if (x) { return &a; } return NULL; }",
+                "Foo* absl_nonnull Bar::get() const { if (x) { return &a; } return &b; }",
+            ),
+            (
+                "auto g = []() -> Foo* absl_nonnull { return nullptr; };",
+                "auto g = []() -> Foo* absl_nonnull { return &x; };",
+            ),
+        ]:
+            with self.subTest(source=flagged):
+                messages = _messages(INCLUDE + flagged)
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn("returns `absl_nonnull`", messages[0])
+            with self.subTest(source=clean):
+                self.assertEqual(_count(clean), 0)
+        # A nested lambda returns its own type.
+        self.assertEqual(
+            _count(
+                "Foo* absl_nonnull f() { auto l = []() -> Foo* absl_nullable { return nullptr; }; return &x; }"
+            ),
+            0,
+        )
+
+    def test_one_declarator_per_declaration(self):
+        for flagged in [
+            "Foo* absl_nonnull a, * absl_nonnull b;",
+            "Foo* absl_nullable a = nullptr, * absl_nullable b = nullptr;",
+            "struct S { Foo* absl_nonnull a, b; };",
+        ]:
+            with self.subTest(source=flagged):
+                messages = _messages(INCLUDE + flagged)
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn("one variable per declaration", messages[0])
+        for clean in [
+            "Foo* absl_nonnull a;\nFoo* absl_nonnull b;",
+            "void f(Foo* absl_nonnull a, Foo* absl_nonnull b);",
+            "template <typename T, T* absl_nonnull p, int N> struct X {};",
+            "std::map<Foo* absl_nonnull, int> m;",
+            "auto l = [](Foo* absl_nonnull a, int b) { return a; };",
+        ]:
+            with self.subTest(source=clean):
+                self.assertEqual(_count(clean), 0)
+
+    def test_annotated_casts_and_type_expressions(self):
+        for flagged, clean in [
+            (
+                "int* absl_nonnull x = static_cast<int* absl_nonnull>(y);",
+                "int* absl_nonnull x = static_cast<int*>(y);",
+            ),
+            (
+                "auto p = reinterpret_cast<const char* absl_nullable>(q);",
+                "auto p = reinterpret_cast<const char*>(q);",
+            ),
+            ("auto p = (const char* absl_nonnull)buf;", "auto p = (const char*)buf;"),
+            ("size_t n = sizeof(Foo* absl_nonnull);", "size_t n = sizeof(Foo*);"),
+            (
+                "constexpr bool b = std::is_pointer_v<T* absl_nonnull>;",
+                "constexpr bool b = std::is_pointer_v<T*>;",
+            ),
+            ("auto p = new Foo* absl_nonnull[3];", "auto p = new Foo*[3];"),
+        ]:
+            with self.subTest(source=flagged):
+                messages = _messages(INCLUDE + flagged)
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn("annotated cast is an assertion", messages[0])
+            with self.subTest(source=clean):
+                self.assertEqual(_count(clean), 0)
+        # A function-pointer type is a type, not a cast.
+        self.assertEqual(
+            _count("using F = absl::StatusOr<int> (*absl_nonnull)(const A& a);"), 0
+        )
+
     def test_banned_spellings(self):
         for source in [
             "Foo* absl_nullability_unknown p;",
@@ -208,13 +353,10 @@ class WiringTest(unittest.TestCase):
             INCLUDE + "void f(Foo* foo);\n",
             "src/a.cpp",
             clean=INCLUDE + "void f(Foo* absl_nonnull foo);\n",
-            pending=True,
         )
 
     def test_the_scope_is_first_party_and_lib_ocs2(self):
-        check = check_test_support.assert_registered(
-            self, "pointer-nullability", pending=True
-        )
+        check = check_test_support.assert_registered(self, "pointer-nullability")
         self.assertTrue(check.applies_to("lib/ocs2/core/include/ocs2_core/Types.h"))
         self.assertFalse(
             check.applies_to("lib/ocs2/thirdparty/include/cppad/cppad.hpp")

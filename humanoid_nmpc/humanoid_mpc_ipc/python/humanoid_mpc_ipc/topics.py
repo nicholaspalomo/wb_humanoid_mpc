@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """The topics of the IPC bus, the Python twin of include/humanoid_mpc_ipc/Topics.h.
 
 A topic is the first frame of every bus message (humanoid_nmpc/docs/distributed_runtime/README.md, "Topics"). The
@@ -5,8 +32,6 @@ comment of each constant names the message it carries and who publishes it. Zero
 the topic frame, so no topic may be a prefix of another (test/test_topics.py checks it, and that every constant here
 equals its C++ twin).
 """
-
-from typing import Tuple
 
 # LINT.IfChange(topics)
 # MpcObservation, robot -> MPC, every control cycle.
@@ -29,17 +54,21 @@ VIZ_TELEMETRY = "viz/telemetry"
 OPERATOR_WALKING_VELOCITY_COMMAND = "operator/walking_velocity_command"
 # FsmCommand, GUI -> robot, on change.
 OPERATOR_FSM_COMMAND = "operator/fsm_command"
-# YamlDocument, GUI -> MPC and robot, on edit.
+# MpcParameterUpdate (humanoid_mpc_config: the whole task and contact planner files), GUI -> MPC and robot, on edit.
 OPERATOR_MPC_PARAMETERS = "operator/mpc_parameters"
-# YamlDocument, GUI -> robot, on edit.
+# JointPdGainsFile (humanoid_mpc_config: the whole PD gains file), GUI -> robot, on edit.
 OPERATOR_PD_GAINS = "operator/pd_gains"
 # JointTargets, GUI -> robot, on edit (JOINT_PD only).
 OPERATOR_JOINT_TARGETS = "operator/joint_targets"
-# YamlDocument, GUI -> robot (simulation), on button press.
+# DodgeballThrow, GUI -> robot (simulation), on button press.
 OPERATOR_DODGEBALL_THROW = "operator/dodgeball_throw"
+# ConfigFileSave, GUI and push_robot_config -> robot, on Save: a configuration file for the robot's persistent copy.
+OPERATOR_CONFIG_SAVE = "operator/config_save"
+# ConfigFileSaveStatus, robot -> GUI and push_robot_config, once per ConfigFileSave.
+ROBOT_CONFIG_SAVE_STATUS = "robot/config_save_status"
 
 # Every topic above, for tools that list or check them.
-ALL_TOPICS: Tuple[str, ...] = (
+ALL_TOPICS: tuple[str, ...] = (
     ROBOT_MPC_OBSERVATION,
     ROBOT_STATE,
     ROBOT_FSM_STATE,
@@ -54,5 +83,7 @@ ALL_TOPICS: Tuple[str, ...] = (
     OPERATOR_PD_GAINS,
     OPERATOR_JOINT_TARGETS,
     OPERATOR_DODGEBALL_THROW,
+    OPERATOR_CONFIG_SAVE,
+    ROBOT_CONFIG_SAVE_STATUS,
 )
 # LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_ipc/include/humanoid_mpc_ipc/Topics.h:topics)

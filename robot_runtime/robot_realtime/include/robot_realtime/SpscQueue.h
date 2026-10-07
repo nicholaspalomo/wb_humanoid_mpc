@@ -43,7 +43,7 @@ namespace robot::realtime {
  * The alignment that keeps data written by different threads off each other's cache lines. 128 rather than 64 bytes:
  * x86's adjacent-line prefetcher pulls cache lines in pairs, and some ARM cores have 128-byte lines.
  */
-inline constexpr std::size_t kCacheLineSize = 128;
+inline constexpr size_t kCacheLineSize = 128;
 
 /**
  * A bounded, lock-free ring buffer between exactly one producer thread and exactly one consumer thread.
@@ -73,7 +73,7 @@ class SpscQueue {
    * @param prototype Every slot starts as a copy of it. Give it the size of the payloads that will be pushed, so that
    *                  pushing them does not allocate.
    */
-  explicit SpscQueue(std::size_t capacity, const T& prototype = T()) : slots_(capacity + 1, prototype) {
+  explicit SpscQueue(size_t capacity, const T& prototype = T()) : slots_(capacity + 1, prototype) {
     CHECK_GT(capacity, 0u) << "an SpscQueue must hold at least one value";
   }
 
@@ -81,6 +81,7 @@ class SpscQueue {
   SpscQueue& operator=(const SpscQueue&) = delete;
   SpscQueue(SpscQueue&&) = delete;
   SpscQueue& operator=(SpscQueue&&) = delete;
+  ~SpscQueue() = default;
 
   // ---------------------------------------------------------------------------------------------------------------
   // Producer (exactly one thread)
@@ -99,8 +100,8 @@ class SpscQueue {
    */
   template <typename Writer>
   bool tryPushInPlace(Writer&& writer) {
-    const std::size_t writeIndex = writeIndex_.load(std::memory_order_relaxed);
-    const std::size_t nextWriteIndex = advance(writeIndex);
+    const size_t writeIndex = writeIndex_.load(std::memory_order_relaxed);
+    const size_t nextWriteIndex = advance(writeIndex);
     if (nextWriteIndex == readIndexCache_) {
       readIndexCache_ = readIndex_.load(std::memory_order_acquire);
       if (nextWriteIndex == readIndexCache_) {
@@ -130,7 +131,7 @@ class SpscQueue {
    */
   template <typename Reader>
   bool tryPopInPlace(Reader&& reader) {
-    const std::size_t readIndex = readIndex_.load(std::memory_order_relaxed);
+    const size_t readIndex = readIndex_.load(std::memory_order_relaxed);
     if (readIndex == writeIndexCache_) {
       writeIndexCache_ = writeIndex_.load(std::memory_order_acquire);
       if (readIndex == writeIndexCache_) {
@@ -150,7 +151,7 @@ class SpscQueue {
   // ---------------------------------------------------------------------------------------------------------------
 
   /// The number of values the queue holds when full.
-  std::size_t capacity() const { return slots_.size() - 1; }
+  size_t capacity() const { return slots_.size() - 1; }
 
   /**
    * The number of values the queue held at one instant during the call, possibly out of date by the time it returns.
@@ -162,11 +163,11 @@ class SpscQueue {
    * loads kSizeSnapshotAttempts times in a row, the last read index loaded before the write index is used. Never more
    * than capacity(); it does not block, and it writes nothing either side reads.
    */
-  std::size_t sizeApprox() const {
-    std::size_t readIndex = readIndex_.load(std::memory_order_acquire);
+  size_t sizeApprox() const {
+    size_t readIndex = readIndex_.load(std::memory_order_acquire);
     for (int attempt = 1;; ++attempt) {
-      const std::size_t writeIndex = writeIndex_.load(std::memory_order_acquire);
-      const std::size_t readIndexAfter = readIndex_.load(std::memory_order_acquire);
+      const size_t writeIndex = writeIndex_.load(std::memory_order_acquire);
+      const size_t readIndexAfter = readIndex_.load(std::memory_order_acquire);
       if (readIndexAfter == readIndex || attempt == kSizeSnapshotAttempts) {
         return distance(readIndex, writeIndex);
       }
@@ -175,24 +176,24 @@ class SpscQueue {
   }
 
   /// The number of pushes that failed because the queue was full, since construction.
-  std::uint64_t droppedCount() const { return droppedCount_.load(std::memory_order_relaxed); }
+  uint64_t droppedCount() const { return droppedCount_.load(std::memory_order_relaxed); }
 
  private:
-  static_assert(std::atomic<std::size_t>::is_always_lock_free, "the indices must be lock-free atomics");
-  static_assert(std::atomic<std::uint64_t>::is_always_lock_free, "the drop counter must be a lock-free atomic");
+  static_assert(std::atomic<size_t>::is_always_lock_free, "the indices must be lock-free atomics");
+  static_assert(std::atomic<uint64_t>::is_always_lock_free, "the drop counter must be a lock-free atomic");
 
   // How often sizeApprox() reads the indices again while the consumer keeps moving the read index.
   static constexpr int kSizeSnapshotAttempts = 16;
 
   // One slot more than the capacity, so that a full queue (write index just behind the read index) and an empty one
   // (equal indices) are told apart without a shared counter.
-  std::size_t advance(std::size_t index) const {
-    const std::size_t next = index + 1;
+  size_t advance(size_t index) const {
+    const size_t next = index + 1;
     return next == slots_.size() ? 0 : next;
   }
 
   // The values from `readIndex` up to `writeIndex`, around the ring: at most capacity().
-  std::size_t distance(std::size_t readIndex, std::size_t writeIndex) const {
+  size_t distance(size_t readIndex, size_t writeIndex) const {
     return writeIndex >= readIndex ? writeIndex - readIndex : writeIndex + slots_.size() - readIndex;
   }
 
@@ -200,14 +201,14 @@ class SpscQueue {
   alignas(kCacheLineSize) std::vector<T> slots_;
 
   // Written by the producer only.
-  alignas(kCacheLineSize) std::atomic<std::size_t> writeIndex_{0};
-  std::size_t readIndexCache_ = 0;
-  std::atomic<std::uint64_t> droppedCount_{0};
+  alignas(kCacheLineSize) std::atomic<size_t> writeIndex_{0};
+  size_t readIndexCache_ = 0;
+  std::atomic<uint64_t> droppedCount_{0};
 
   // Written by the consumer only. The queue's alignment rounds its size up to whole cache lines, so whatever follows
   // the queue in memory does not share this line either.
-  alignas(kCacheLineSize) std::atomic<std::size_t> readIndex_{0};
-  std::size_t writeIndexCache_ = 0;
+  alignas(kCacheLineSize) std::atomic<size_t> readIndex_{0};
+  size_t writeIndexCache_ = 0;
 };
 
 }  // namespace robot::realtime

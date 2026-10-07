@@ -41,7 +41,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/log/log.h"
+#include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
@@ -92,8 +94,8 @@ absl::StatusOr<std::unique_ptr<VisualizationPublisher>> VisualizationPublisher::
   ASSIGN_OR_RETURN(std::unique_ptr<SceneBuilder> sceneBuilder, SceneBuilder::Create(model, config));
   ASSIGN_OR_RETURN(std::unique_ptr<TelemetryBuilder> telemetryBuilder, TelemetryBuilder::Create(model, config));
   LOG(INFO) << "[VisualizationPublisher] " << describeVisualizationConfig(config);
-  return std::unique_ptr<VisualizationPublisher>(new VisualizationPublisher(
-      model, std::move(config), std::move(publish), std::move(options), std::move(sceneBuilder), std::move(telemetryBuilder)));
+  return absl::WrapUnique(new VisualizationPublisher(model, std::move(config), std::move(publish), std::move(options),
+                                                     std::move(sceneBuilder), std::move(telemetryBuilder)));
 }
 
 absl::StatusOr<std::unique_ptr<VisualizationPublisher>> VisualizationPublisher::Create(const VisualizationModel& model,
@@ -104,9 +106,8 @@ absl::StatusOr<std::unique_ptr<VisualizationPublisher>> VisualizationPublisher::
       std::move(options));
 }
 
-VisualizationPublisher::BusAttacher VisualizationPublisher::MakeBusAttacher(VisualizationModel model,
-                                                                            Options options,
-                                                                            std::unique_ptr<VisualizationPublisher>* publisher) {
+VisualizationPublisher::BusAttacher VisualizationPublisher::MakeBusAttacher(
+    VisualizationModel model, Options options, std::unique_ptr<VisualizationPublisher>* absl_nullable publisher) {
   return [model = std::move(model), options = std::move(options), publisher](robot::ipc::Bus& bus) -> absl::StatusOr<PostSolveObserver> {
     if (publisher == nullptr) {
       return absl::InvalidArgumentError("the visualization attacher needs a place to keep its publisher.");
@@ -126,7 +127,7 @@ VisualizationPublisher::VisualizationPublisher(const VisualizationModel& model,
     : config_(std::move(config)),
       options_(std::move(options)),
       publish_(std::move(publish)),
-      scenePeriod_(std::chrono::nanoseconds(static_cast<int64_t>(1e9 / config_.sceneFrequency))),
+      scenePeriod_(std::chrono::nanoseconds(static_cast<int64_t>(1.0e9 / config_.sceneFrequency))),
       stateDim_(model.mpcRobotModel->getStateDim()),
       inputDim_(model.mpcRobotModel->getInputDim()),
       guard_(std::make_shared<CallbackGuard>()),
@@ -199,6 +200,7 @@ VisualizationPublisher::PostSolveObserver VisualizationPublisher::postSolveObser
   return [this](const CommandData& command, const PrimalSolution& solution, const PerformanceIndex& /*performance*/) {
     setPolicy(command, solution);
     setObservation(command.mpcInitObservation_);
+    return absl::OkStatus();
   };
 }
 
@@ -243,11 +245,11 @@ void VisualizationPublisher::run() {
   }
 }
 
-const SystemObservation* VisualizationPublisher::latestObservation() const {
+const SystemObservation* absl_nullable VisualizationPublisher::latestObservation() const {
   return hasObservation_ ? &observationMailbox_.readSlot() : nullptr;
 }
 
-const PolicySnapshot* VisualizationPublisher::latestPolicy() const {
+const PolicySnapshot* absl_nullable VisualizationPublisher::latestPolicy() const {
   return hasPolicy_ ? &policyMailbox_.readSlot() : nullptr;
 }
 
@@ -271,7 +273,7 @@ void VisualizationPublisher::poll() {
 
 void VisualizationPublisher::publishMessage(absl::string_view topic,
                                             const google::protobuf::Message& message,
-                                            std::atomic<uint64_t>* published) {
+                                            std::atomic<uint64_t>* absl_nonnull published) {
   const absl::Status status = publish_(topic, message);
   if (status.ok()) {
     ++*published;
@@ -295,10 +297,12 @@ void VisualizationPublisher::processRobotState(const QueuedRobotState& queued) {
   hasRobotState_ = true;
   latestRobotStateArrival_ = robot::realtime::monotonicNow();
   sceneInputsChanged_ = true;
-  try {
+  // The visualization thread's isolation point: the builders call Pinocchio's algorithms and OCS2, which throw for a
+  // model or a state they do not accept, and a sample that cannot be drawn is counted and logged, never fatal.
+  try {  // NOLINT(exceptions): Pinocchio and OCS2 throw; see the comment above.
     publishMessage(ipc::topics::kVizTelemetry, telemetryBuilder_->build(decoded_, latestObservation(), latestPolicy()),
                    &telemetryPublished_);
-  } catch (const std::exception& e) {
+  } catch (const std::exception& e) {  // NOLINT(exceptions): the boundary of the try above.
     ++buildFailures_;
     LOG_EVERY_N_SEC(WARNING, 5.0) << "[VisualizationPublisher] the telemetry of a robot/state sample failed: " << e.what();
   }
@@ -319,14 +323,15 @@ void VisualizationPublisher::publishScene(std::chrono::nanoseconds now) {
   if (nextSceneTime_ <= now) {
     nextSceneTime_ = now + scenePeriod_;
   }
-  try {
+  // The isolation point of processRobotState(), for the scene.
+  try {  // NOLINT(exceptions): Pinocchio and OCS2 throw; see processRobotState().
     const absl::Status built = sceneBuilder_->build(inputs, &scene_);
     if (!built.ok()) {
       ++buildFailures_;
       LOG_EVERY_N_SEC(WARNING, 5.0) << "[VisualizationPublisher] no scene: " << built;
       return;
     }
-  } catch (const std::exception& e) {
+  } catch (const std::exception& e) {  // NOLINT(exceptions): the boundary of the try above.
     ++buildFailures_;
     LOG_EVERY_N_SEC(WARNING, 5.0) << "[VisualizationPublisher] the scene failed: " << e.what();
     return;

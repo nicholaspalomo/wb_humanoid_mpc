@@ -45,6 +45,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <vector>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/control/ManifoldLinearController.h>
 #include <ocs2_core/cost/StateCost.h>
 #include <ocs2_core/cost/StateInputCost.h>
@@ -108,7 +110,7 @@ ScalarFunctionQuadraticApproximation attitudeTrackingApproximation(scalar_t t,
 
 class AttitudeTrackingCost final : public StateInputCost {
  public:
-  AttitudeTrackingCost* clone() const override { return new AttitudeTrackingCost(*this); }
+  AttitudeTrackingCost* absl_nonnull clone() const override { return new AttitudeTrackingCost(*this); }
   scalar_t getValue(scalar_t t,
                     const vector_t& x,
                     const vector_t& u,
@@ -137,7 +139,7 @@ class AttitudeTrackingCost final : public StateInputCost {
 
 class AttitudeTrackingFinalCost final : public StateCost {
  public:
-  AttitudeTrackingFinalCost* clone() const override { return new AttitudeTrackingFinalCost(*this); }
+  AttitudeTrackingFinalCost* absl_nonnull clone() const override { return new AttitudeTrackingFinalCost(*this); }
   scalar_t getValue(scalar_t t,
                     const vector_t& x,
                     const TargetTrajectories& /*targets*/,

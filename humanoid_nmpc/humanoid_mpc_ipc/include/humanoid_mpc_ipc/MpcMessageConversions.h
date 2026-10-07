@@ -31,14 +31,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstddef>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
-
-#include <ocs2_core/reference/ModeSchedule.h>
-#include <ocs2_core/reference/TargetTrajectories.h>
-#include <ocs2_mpc/CommandData.h>
-#include <ocs2_mpc/SystemObservation.h>
-#include <ocs2_oc/oc_data/PerformanceIndex.h>
-#include <ocs2_oc/oc_data/PrimalSolution.h>
+#include "ocs2_core/reference/ModeSchedule.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/CommandData.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_oc/oc_data/PerformanceIndex.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 
 #include "humanoid_mpc_msgs/mode_schedule.pb.h"
 #include "humanoid_mpc_msgs/mpc_policy.pb.h"
@@ -85,14 +85,14 @@ struct ModelDimensions {
 // ---------------------------------------------------------------------------------------------------------------------
 
 /** Writes `observation` into `message`. Allocates only while the message's state or input grows. */
-void toProto(const SystemObservation& observation, humanoid_mpc_msgs::SystemObservation* message);
+void toProto(const SystemObservation& observation, humanoid_mpc_msgs::SystemObservation* absl_nonnull message);
 
 /**
  * Reads `message` into `observation`. Requires a finite time, state and input. Decoding into the same observation
  * again allocates nothing while the dimensions stay the same, as Eigen keeps a vector's storage when its size does not
  * change.
  */
-absl::Status fromProto(const humanoid_mpc_msgs::SystemObservation& message, SystemObservation* observation);
+absl::Status fromProto(const humanoid_mpc_msgs::SystemObservation& message, SystemObservation* absl_nonnull observation);
 
 /**
  * Checks that `message` has a state of dimensions.stateDim and an input of dimensions.inputDim entries, and a mode
@@ -105,41 +105,41 @@ absl::Status checkDimensions(const humanoid_mpc_msgs::SystemObservation& message
 // ---------------------------------------------------------------------------------------------------------------------
 
 /** Writes `modeSchedule` into `message`. Allocates only while the message's arrays grow. */
-void toProto(const ModeSchedule& modeSchedule, humanoid_mpc_msgs::ModeSchedule* message);
+void toProto(const ModeSchedule& modeSchedule, humanoid_mpc_msgs::ModeSchedule* absl_nonnull message);
 
 /**
  * Reads `message` into `modeSchedule`. Requires at least one mode, one mode more than there are event times, and
  * finite event times that do not decrease (OCS2 looks modes up by binary search).
  */
-absl::Status fromProto(const humanoid_mpc_msgs::ModeSchedule& message, ModeSchedule* modeSchedule);
+absl::Status fromProto(const humanoid_mpc_msgs::ModeSchedule& message, ModeSchedule* absl_nonnull modeSchedule);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // TargetTrajectories
 // ---------------------------------------------------------------------------------------------------------------------
 
 /** Writes `targetTrajectories` into `message`, reusing its Vector messages. Allocates only while the message grows. */
-void toProto(const TargetTrajectories& targetTrajectories, humanoid_mpc_msgs::TargetTrajectories* message);
+void toProto(const TargetTrajectories& targetTrajectories, humanoid_mpc_msgs::TargetTrajectories* absl_nonnull message);
 
 /**
  * Reads `message` into `targetTrajectories`. Requires finite values, times that do not decrease, one state per time,
  * and either one input per time or none (OCS2 allows target trajectories without inputs). An empty message is the empty
  * TargetTrajectories. Decoding into the same object again allocates nothing while the sizes stay the same.
  */
-absl::Status fromProto(const humanoid_mpc_msgs::TargetTrajectories& message, TargetTrajectories* targetTrajectories);
+absl::Status fromProto(const humanoid_mpc_msgs::TargetTrajectories& message, TargetTrajectories* absl_nonnull targetTrajectories);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // PerformanceIndex
 // ---------------------------------------------------------------------------------------------------------------------
 
 /** Writes `performanceIndex` into `message`. Never allocates. */
-void toProto(const PerformanceIndex& performanceIndex, humanoid_mpc_msgs::PerformanceIndex* message);
+void toProto(const PerformanceIndex& performanceIndex, humanoid_mpc_msgs::PerformanceIndex* absl_nonnull message);
 
 /**
  * Reads `message` into `performanceIndex`. Accepts any value, NaN and infinity included: the performance index is a
  * diagnostic that no controller evaluates, and a NaN merit is what a diverged solve reports, which the receiver should
  * see rather than lose.
  */
-absl::Status fromProto(const humanoid_mpc_msgs::PerformanceIndex& message, PerformanceIndex* performanceIndex);
+absl::Status fromProto(const humanoid_mpc_msgs::PerformanceIndex& message, PerformanceIndex* absl_nonnull performanceIndex);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The policy: CommandData + PrimalSolution + PerformanceIndex <-> MpcPolicy
@@ -166,7 +166,7 @@ absl::Status fromProto(const humanoid_mpc_msgs::PerformanceIndex& message, Perfo
 absl::Status policyToProto(const CommandData& commandData,
                            const PrimalSolution& primalSolution,
                            const PerformanceIndex& performanceIndex,
-                           humanoid_mpc_msgs::MpcPolicy* message);
+                           humanoid_mpc_msgs::MpcPolicy* absl_nonnull message);
 
 /**
  * Reads the command data, the primal solution and the performance index of `message`, and rebuilds the controller:
@@ -178,9 +178,9 @@ absl::Status policyToProto(const CommandData& commandData,
  * node's state and input dimensions imply. Allocates the arrays of the primal solution and a new controller.
  */
 absl::Status policyFromProto(const humanoid_mpc_msgs::MpcPolicy& message,
-                             CommandData* commandData,
-                             PrimalSolution* primalSolution,
-                             PerformanceIndex* performanceIndex);
+                             CommandData* absl_nonnull commandData,
+                             PrimalSolution* absl_nonnull primalSolution,
+                             PerformanceIndex* absl_nonnull performanceIndex);
 
 /**
  * Checks that every state of `message` (init_observation, target_trajectories and state_trajectory) has

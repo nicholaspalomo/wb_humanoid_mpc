@@ -39,9 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
-
-#include <ocs2_mpc/SystemObservation.h>
-#include <ocs2_oc/rollout/RolloutBase.h>
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_oc/rollout/RolloutBase.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
@@ -79,7 +78,7 @@ class DummySimLoop {
   struct Config {
     /** [Hz] The plant's step rate (the ROS dummy's mrtDesiredFrequency, 100 Hz). Positive. */
     scalar_t simulationFrequency = 100.0;
-    /** [Hz] The MPC's rate (mpc.mpcDesiredFrequency): positive runs the loop synchronized with it, <= 0 in real time. */
+    /** [Hz] The MPC's rate (mpc.mpc_desired_frequency): positive runs the loop synchronized with it, <= 0 in real time. */
     scalar_t mpcDesiredFrequency = -1.0;
     /** The link to the MPC node: the model's dimensions, the policy timeout. */
     ipc::RemoteMpcLink::Config link;
@@ -132,8 +131,8 @@ class DummySimLoop {
   bool awaitInitialPolicy(const SystemObservation& initialObservation, const std::function<bool()>& shouldStop);
   /** Waits for a policy that starts at `time` (synchronized loop); false on stop. */
   bool awaitPolicyFor(scalar_t time, const std::function<bool()>& shouldStop);
-  /** One step of the plant under the policy in use. */
-  SystemObservation forwardSimulation(const SystemObservation& observation);
+  /** One step of the plant under the policy in use; Internal, with the exception's message, when the rollout throws. */
+  absl::StatusOr<SystemObservation> forwardSimulation(const SystemObservation& observation);
   void publishLatest(const SystemObservation& observation);
 
   std::unique_ptr<robot::ipc::Bus> bus_;

@@ -30,17 +30,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
-#include <ocs2_core/misc/LoadData.h>
-#include <ocs2_core/misc/Lookup.h>
-#include <ocs2_core/misc/Numerics.h>
-#include <ocs2_core/misc/PropertyTree.h>
-
 #include <algorithm>
 #include <functional>
-
-#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "absl/log/log.h"
+#include "ocs2_core/misc/Lookup.h"
+#include "ocs2_core/misc/Numerics.h"
+
+#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
 namespace ocs2::humanoid {
 
@@ -48,7 +48,7 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-SwingTrajectoryPlanner::SwingTrajectoryPlanner(Config config, size_t numFeet) : config_(std::move(config)), numFeet_(numFeet) {}
+SwingTrajectoryPlanner::SwingTrajectoryPlanner(Config config, size_t numFeet) : config_(config), numFeet_(numFeet) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -161,7 +161,7 @@ void SwingTrajectoryPlanner::update(const ModeSchedule& modeSchedule,
                                     const feet_array_t<scalar_array_t>& liftOffHeightSequence,
                                     const feet_array_t<scalar_array_t>& touchDownHeightSequence,
                                     const feet_array_t<std::optional<GroundSearch>>& groundSearches) {
-  constexpr scalar_t kSwingTimeTolerance = 1e-6;  // [s] event times that identify the same swing
+  constexpr scalar_t kSwingTimeTolerance = 1.0e-6;  // [s] event times that identify the same swing
   const std::vector<size_t>& modeSequence = modeSchedule.modeSequence;
   const std::vector<scalar_t>& eventTimes = modeSchedule.eventTimes;
 
@@ -169,18 +169,18 @@ void SwingTrajectoryPlanner::update(const ModeSchedule& modeSchedule,
 
   feet_array_t<std::vector<int>> startTimesIndices;
   feet_array_t<std::vector<int>> finalTimesIndices;
-  for (size_t leg = 0; leg < numFeet_; leg++) {
+  for (size_t leg = 0; leg < numFeet_; ++leg) {
     std::tie(startTimesIndices[leg], finalTimesIndices[leg]) = updateFootSchedule(eesContactFlagStocks[leg]);
   }
 
-  for (size_t j = 0; j < numFeet_; j++) {
+  for (size_t j = 0; j < numFeet_; ++j) {
     feetHeightTrajectories_[j].clear();
     feetHeightTrajectories_[j].reserve(modeSequence.size());
     impactProximityTrajectories_[j].clear();
     impactProximityTrajectories_[j].reserve(modeSequence.size());
     swingWindows_[j].clear();
     swingWindows_[j].reserve(modeSequence.size());
-    for (int p = 0; p < modeSequence.size(); ++p) {
+    for (int p = 0; p < static_cast<int>(modeSequence.size()); ++p) {
       const int swingStartIndex = startTimesIndices[j][p];
       const int swingFinalIndex = finalTimesIndices[j][p];
       checkThatIndicesAreValid(j, p, swingStartIndex, swingFinalIndex, modeSequence);
@@ -213,46 +213,58 @@ void SwingTrajectoryPlanner::update(const ModeSchedule& modeSchedule,
         swingWindows_[j].push_back(window);
         if (eesContactFlagStocks[j][p - 1] && eesContactFlagStocks[j][p + 1]) {  // For a swing leg, only in the air for current mode
 
-          const CubicSpline::Node liftOffHeight{swingStartTime, liftOffHeightSequence[j][p], scaling * config_.liftOffVelocity};
-          const CubicSpline::Node touchDownHeight{swingFinalTime, touchDownHeightSequence[j][p], scaling * config_.touchDownVelocity};
+          const CubicSpline::Node liftOffHeight{
+              .time = swingStartTime, .position = liftOffHeightSequence[j][p], .velocity = scaling * config_.liftOffVelocity};
+          const CubicSpline::Node touchDownHeight{
+              .time = swingFinalTime, .position = touchDownHeightSequence[j][p], .velocity = scaling * config_.touchDownVelocity};
           const scalar_t midHeight = std::min(liftOffHeightSequence[j][p], touchDownHeightSequence[j][p]) + scaling * config_.swingHeight;
           feetHeightTrajectories_[j].emplace_back(liftOffHeight, midHeight, touchDownHeight);
 
-          const CubicSpline::Node impactProximityLiftOff{swingStartTime, 1.0, scaling * config_.impactProximityFactorLiftOffVelocity};
-          const CubicSpline::Node impactProximityTouchDown{swingFinalTime, 1.0, scaling * config_.impactProximityFactorTouchDownVelocity};
+          const CubicSpline::Node impactProximityLiftOff{
+              .time = swingStartTime, .position = 1.0, .velocity = scaling * config_.impactProximityFactorLiftOffVelocity};
+          const CubicSpline::Node impactProximityTouchDown{
+              .time = swingFinalTime, .position = 1.0, .velocity = scaling * config_.impactProximityFactorTouchDownVelocity};
 
           impactProximityTrajectories_[j].emplace_back(impactProximityLiftOff, config_.impactProximityFactorMidPointValue,
                                                        impactProximityTouchDown);
         } else if (eesContactFlagStocks[j][p - 1]) {  // For foot just leaving the ground and staying in the air
           const scalar_t midHeight = liftOffHeightSequence[j][p] + config_.swingHeight;
-          const CubicSpline::Node liftOffHeight{swingStartTime, liftOffHeightSequence[j][p], config_.liftOffVelocity};
-          const CubicSpline::Node touchDownHeight{swingFinalTime, midHeight, 0.0};
+          const CubicSpline::Node liftOffHeight{
+              .time = swingStartTime, .position = liftOffHeightSequence[j][p], .velocity = config_.liftOffVelocity};
+          const CubicSpline::Node touchDownHeight{.time = swingFinalTime, .position = midHeight, .velocity = 0.0};
           feetHeightTrajectories_[j].emplace_back(liftOffHeight, midHeight, touchDownHeight);
 
-          const CubicSpline::Node impactProximityLiftOff{swingStartTime, 1.0, config_.impactProximityFactorLiftOffVelocity};
-          const CubicSpline::Node impactProximityTouchDown{swingFinalTime, config_.impactProximityFactorMidPointValue, 0.0};
+          const CubicSpline::Node impactProximityLiftOff{
+              .time = swingStartTime, .position = 1.0, .velocity = config_.impactProximityFactorLiftOffVelocity};
+          const CubicSpline::Node impactProximityTouchDown{
+              .time = swingFinalTime, .position = config_.impactProximityFactorMidPointValue, .velocity = 0.0};
 
           impactProximityTrajectories_[j].emplace_back(impactProximityLiftOff, config_.impactProximityFactorMidPointValue,
                                                        impactProximityTouchDown);
         } else if (eesContactFlagStocks[j][p + 1]) {  // For foot that was in the air and is impacting in the next mode
           const scalar_t midHeight = touchDownHeightSequence[j][p] + config_.swingHeight;
-          const CubicSpline::Node liftOffHeight{swingStartTime, midHeight, 0.0};
-          const CubicSpline::Node touchDownHeight{swingFinalTime, touchDownHeightSequence[j][p], config_.touchDownVelocity};
+          const CubicSpline::Node liftOffHeight{.time = swingStartTime, .position = midHeight, .velocity = 0.0};
+          const CubicSpline::Node touchDownHeight{
+              .time = swingFinalTime, .position = touchDownHeightSequence[j][p], .velocity = config_.touchDownVelocity};
           feetHeightTrajectories_[j].emplace_back(liftOffHeight, midHeight, touchDownHeight);
 
-          const CubicSpline::Node impactProximityLiftOff{swingStartTime, config_.impactProximityFactorMidPointValue, 0.0};
-          const CubicSpline::Node impactProximityTouchDown{swingFinalTime, 1.0, config_.impactProximityFactorTouchDownVelocity};
+          const CubicSpline::Node impactProximityLiftOff{
+              .time = swingStartTime, .position = config_.impactProximityFactorMidPointValue, .velocity = 0.0};
+          const CubicSpline::Node impactProximityTouchDown{
+              .time = swingFinalTime, .position = 1.0, .velocity = config_.impactProximityFactorTouchDownVelocity};
 
           impactProximityTrajectories_[j].emplace_back(impactProximityLiftOff, config_.impactProximityFactorMidPointValue,
                                                        impactProximityTouchDown);
         } else {  // For foot in the air for last, current and next mode
           const scalar_t midHeight = touchDownHeightSequence[j][p] + config_.swingHeight;
-          const CubicSpline::Node liftOffHeight{swingStartTime, midHeight, 0.0};
-          const CubicSpline::Node touchDownHeight{swingFinalTime, midHeight, 0.0};
+          const CubicSpline::Node liftOffHeight{.time = swingStartTime, .position = midHeight, .velocity = 0.0};
+          const CubicSpline::Node touchDownHeight{.time = swingFinalTime, .position = midHeight, .velocity = 0.0};
           feetHeightTrajectories_[j].emplace_back(liftOffHeight, midHeight, touchDownHeight);
 
-          const CubicSpline::Node impactProximityLiftOff{swingStartTime, config_.impactProximityFactorMidPointValue, 0.0};
-          const CubicSpline::Node impactProximityTouchDown{swingFinalTime, config_.impactProximityFactorMidPointValue, 0.0};
+          const CubicSpline::Node impactProximityLiftOff{
+              .time = swingStartTime, .position = config_.impactProximityFactorMidPointValue, .velocity = 0.0};
+          const CubicSpline::Node impactProximityTouchDown{
+              .time = swingFinalTime, .position = config_.impactProximityFactorMidPointValue, .velocity = 0.0};
 
           impactProximityTrajectories_[j].emplace_back(impactProximityLiftOff, config_.impactProximityFactorMidPointValue,
                                                        impactProximityTouchDown);
@@ -260,13 +272,13 @@ void SwingTrajectoryPlanner::update(const ModeSchedule& modeSchedule,
       } else {  // for a stance leg
         swingWindows_[j].push_back(SwingWindow{});
         // Note: setting the time here arbitrarily to 0.0 -> 1.0 makes the assert in CubicSpline fail
-        const CubicSpline::Node liftOff{0.0, liftOffHeightSequence[j][p], 0.0};
-        const CubicSpline::Node touchDown{1.0, liftOffHeightSequence[j][p], 0.0};
+        const CubicSpline::Node liftOff{.time = 0.0, .position = liftOffHeightSequence[j][p], .velocity = 0.0};
+        const CubicSpline::Node touchDown{.time = 1.0, .position = liftOffHeightSequence[j][p], .velocity = 0.0};
         feetHeightTrajectories_[j].emplace_back(liftOff, liftOffHeightSequence[j][p], touchDown);
 
         // If the foot is in contact the impact proximity factor is always 1.
-        const CubicSpline::Node impactProximityTouchDown{0.0, 1.0, 0};
-        const CubicSpline::Node impactProximityLiftOff{1.0, 1.0, 0};
+        const CubicSpline::Node impactProximityTouchDown{.time = 0.0, .position = 1.0, .velocity = 0};
+        const CubicSpline::Node impactProximityLiftOff{.time = 1.0, .position = 1.0, .velocity = 0};
 
         impactProximityTrajectories_[j].emplace_back(impactProximityTouchDown, 1.0, impactProximityLiftOff);
       }
@@ -286,7 +298,7 @@ std::pair<std::vector<int>, std::vector<int>> SwingTrajectoryPlanner::updateFoot
   std::vector<int> finalTimeIndexStock(numPhases, 0);
 
   // find the startTime and finalTime indices for swing feet
-  for (size_t i = 0; i < numPhases; i++) {
+  for (size_t i = 0; i < numPhases; ++i) {
     if (!contactFlagStock[i]) {
       std::tie(startTimeIndexStock[i], finalTimeIndexStock[i]) = findIndex(i, contactFlagStock);
     }
@@ -304,9 +316,9 @@ feet_array_t<std::vector<bool>> SwingTrajectoryPlanner::extractContactFlags(cons
   feet_array_t<std::vector<bool>> contactFlagStock;
   std::fill(contactFlagStock.begin(), contactFlagStock.end(), std::vector<bool>(numPhases));
 
-  for (size_t i = 0; i < numPhases; i++) {
+  for (size_t i = 0; i < numPhases; ++i) {
     const contact_flag_t contactFlag = modeNumber2StanceLeg(phaseIDsStock[i]);
-    for (size_t j = 0; j < numFeet_; j++) {
+    for (size_t j = 0; j < numFeet_; ++j) {
       contactFlagStock[j][i] = contactFlag[j];
     }
   }
@@ -327,7 +339,7 @@ std::pair<int, int> SwingTrajectoryPlanner::findIndex(size_t index, const std::v
 
   // find the starting time
   int startTimesIndex = -1;
-  for (int ip = index - 1; ip >= 0; ip--) {
+  for (int ip = index - 1; ip >= 0; --ip) {
     if (contactFlagStock[ip]) {
       startTimesIndex = ip;
       break;
@@ -336,7 +348,7 @@ std::pair<int, int> SwingTrajectoryPlanner::findIndex(size_t index, const std::v
 
   // find the final time
   int finalTimesIndex = numPhases - 1;
-  for (size_t ip = index + 1; ip < numPhases; ip++) {
+  for (size_t ip = index + 1; ip < numPhases; ++ip) {
     if (contactFlagStock[ip]) {
       finalTimesIndex = ip - 1;
       break;
@@ -355,20 +367,22 @@ void SwingTrajectoryPlanner::checkThatIndicesAreValid(
   const size_t numSubsystems = phaseIDsStock.size();
   if (startIndex < 0) {
     LOG(INFO) << "Subsystem: " << index << " out of " << numSubsystems - 1;
-    for (size_t i = 0; i < numSubsystems; i++) {
+    for (size_t i = 0; i < numSubsystems; ++i) {
       LOG(INFO) << "[" << i << "]: " << phaseIDsStock[i] << ",  ";
     }
     LOG(INFO);
 
+    // NOLINTNEXTLINE(exceptions): update() runs in the solve, inside OCS2 overrides with no status channel; it fails the solve.
     throw std::runtime_error("The time of take-off for the first swing of the EE with ID " + std::to_string(leg) + " is not defined.");
   }
-  if (finalIndex >= numSubsystems - 1) {
+  if (static_cast<size_t>(finalIndex) >= numSubsystems - 1) {
     LOG(INFO) << "Subsystem: " << index << " out of " << numSubsystems - 1;
-    for (size_t i = 0; i < numSubsystems; i++) {
+    for (size_t i = 0; i < numSubsystems; ++i) {
       LOG(INFO) << "[" << i << "]: " << phaseIDsStock[i] << ",  ";
     }
     LOG(INFO);
 
+    // NOLINTNEXTLINE(exceptions): update() runs in the solve, inside OCS2 overrides with no status channel; it fails the solve.
     throw std::runtime_error("The time of touch-down for the last swing of the EE with ID " + std::to_string(leg) + " is not defined.");
   }
 }
@@ -379,43 +393,6 @@ void SwingTrajectoryPlanner::checkThatIndicesAreValid(
 
 scalar_t SwingTrajectoryPlanner::swingTrajectoryScaling(scalar_t startTime, scalar_t finalTime, scalar_t swingTimeScale) {
   return std::min(1.0, (finalTime - startTime) / swingTimeScale);
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
-SwingTrajectoryPlanner::Config loadSwingTrajectorySettings(const std::string& fileName, const std::string& fieldName, bool verbose) {
-  PropertyTree pt;
-  loadData::readPropertyTree(fileName, pt);
-
-  if (verbose) {
-    LOG(INFO) << "\n #### Swing Trajectory Config:";
-    LOG(INFO) << "\n #### =============================================================================\n";
-  }
-
-  SwingTrajectoryPlanner::Config config;
-  const std::string prefix = fieldName + ".";
-
-  loadData::loadPtreeValue(pt, config.liftOffVelocity, prefix + "liftOffVelocity", verbose);
-  loadData::loadPtreeValue(pt, config.touchDownVelocity, prefix + "touchDownVelocity", verbose);
-  loadData::loadPtreeValue(pt, config.swingHeight, prefix + "swingHeight", verbose);
-  loadData::loadPtreeValue(pt, config.swingTimeScale, prefix + "swingTimeScale", verbose);
-  loadData::loadPtreeValue(pt, config.touchDownHeightOffset, prefix + "touchDownHeightOffset", verbose);
-
-  loadData::loadPtreeValue(pt, config.impactProximityFactorLiftOffVelocity, prefix + "impactProximityFactorLiftOffVelocity", verbose);
-  loadData::loadPtreeValue(pt, config.impactProximityFactorTouchDownVelocity, prefix + "impactProximityFactorTouchDownVelocity", verbose);
-  loadData::loadPtreeValue(pt, config.impactProximityFactorMidPointValue, prefix + "impactProximityFactorMidPointValue", verbose);
-
-  loadData::loadPtreeValue(pt, config.swingPitchAngle, prefix + "swingPitchAngle", verbose);
-  loadData::loadPtreeValue(pt, config.swingPitchRiseFraction, prefix + "swingPitchRiseFraction", verbose);
-  loadData::loadPtreeValue(pt, config.swingPitchFallFraction, prefix + "swingPitchFallFraction", verbose);
-
-  if (verbose) {
-    LOG(INFO) << " #### =============================================================================";
-  }
-
-  return config;
 }
 
 }  // namespace ocs2::humanoid

@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 
 namespace ocs2 {
@@ -48,7 +50,7 @@ class PenaltyBase {
   virtual ~PenaltyBase() = default;
 
   /** Clones the class */
-  virtual PenaltyBase* clone() const = 0;
+  virtual PenaltyBase* absl_nonnull clone() const = 0;
 
   /** Get the name of the penalty function. This method is only used during error handling. */
   virtual std::string name() const = 0;

@@ -27,10 +27,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include "humanoid_mpc_ipc/MpcMessageConversions.h"
-
-#include <gtest/gtest.h>
-
 #include <array>
 #include <bit>
 #include <cstddef>
@@ -44,15 +40,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/match.h"
+#include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/control/ControllerBase.h"
+#include "ocs2_core/control/ControllerType.h"
+#include "ocs2_core/control/FeedforwardController.h"
+#include "ocs2_core/control/LinearController.h"
 
-#include <ocs2_core/Types.h>
-#include <ocs2_core/control/ControllerBase.h>
-#include <ocs2_core/control/ControllerType.h>
-#include <ocs2_core/control/FeedforwardController.h>
-#include <ocs2_core/control/LinearController.h>
-
+#include "humanoid_mpc_ipc/MpcMessageConversions.h"
 #include "humanoid_mpc_msgs/controller_type.pb.h"
 #include "humanoid_mpc_msgs/mode_schedule.pb.h"
 #include "humanoid_mpc_msgs/mpc_policy.pb.h"
@@ -145,7 +143,7 @@ void expectSamePerformanceIndex(const PerformanceIndex& expected, const Performa
   EXPECT_TRUE(bitwiseEqual(expected.inequalityLagrangian, actual.inequalityLagrangian));
 }
 
-void expectSameController(const ControllerBase* expected, const ControllerBase* actual) {
+void expectSameController(const ControllerBase* absl_nullable expected, const ControllerBase* absl_nullable actual) {
   ASSERT_NE(expected, nullptr);
   ASSERT_NE(actual, nullptr);
   ASSERT_EQ(expected->getType(), actual->getType());
@@ -215,7 +213,7 @@ humanoid_mpc_msgs::MpcPolicy encode(const Policy& policy) {
   return message;
 }
 
-absl::Status decode(const humanoid_mpc_msgs::MpcPolicy& message, Policy* policy) {
+absl::Status decode(const humanoid_mpc_msgs::MpcPolicy& message, Policy* absl_nonnull policy) {
   return policyFromProto(message, &policy->commandData, &policy->primalSolution, &policy->performanceIndex);
 }
 
@@ -232,7 +230,7 @@ Policy roundTrip(const Policy& policy) {
 // ControllerBase::flatten() at `time`, the sampling the ROS interface sent.
 std::vector<std::vector<double>> flatten(const ControllerBase& controller, const scalar_array_t& time) {
   std::vector<std::vector<double>> samples(time.size());
-  std::vector<std::vector<double>*> sampleRefs;
+  std::vector<std::vector<double>* absl_nonnull> sampleRefs;
   for (std::vector<double>& sample : samples) {
     sampleRefs.push_back(&sample);
   }
@@ -250,8 +248,8 @@ scalar_array_t queryTimes(std::mt19937& generator, const scalar_array_t& timeTra
   scalar_array_t times;
   for (const scalar_t time : timeTrajectory) {
     times.push_back(time);
-    times.push_back(time - 1e-9);
-    times.push_back(time + 1e-9);
+    times.push_back(time - 1.0e-9);
+    times.push_back(time + 1.0e-9);
   }
   times.push_back(timeTrajectory.front() - 1.0);
   times.push_back(timeTrajectory.back() + 1.0);
@@ -266,12 +264,12 @@ scalar_array_t queryTimes(std::mt19937& generator, const scalar_array_t& timeTra
 class UnsupportedController final : public ControllerBase {
  public:
   vector_t computeInput(scalar_t /*t*/, const vector_t& /*x*/) override { return vector_t(); }
-  void concatenate(const ControllerBase* /*otherController*/, int /*index*/, int /*length*/) override {}
+  void concatenate(const ControllerBase* absl_nonnull /*otherController*/, int /*index*/, int /*length*/) override {}
   int size() const override { return 1; }
   ControllerType getType() const override { return ControllerType::BEHAVIORAL; }
   void clear() override {}
   bool empty() const override { return false; }
-  UnsupportedController* clone() const override { return new UnsupportedController(*this); }
+  UnsupportedController* absl_nonnull clone() const override { return new UnsupportedController(*this); }
 };
 
 // =====================================================================================================================
@@ -315,12 +313,14 @@ TEST(SystemObservationConversionTest, RejectsNonFiniteValuesAndLeavesTheOutputUn
   humanoid_mpc_msgs::SystemObservation valid;
   toProto(test_data::randomObservation(generator, /*stateDim=*/4, /*inputDim=*/2), &valid);
 
-  const std::vector<std::pair<std::function<void(humanoid_mpc_msgs::SystemObservation*)>, std::string>> cases = {
-      {[](humanoid_mpc_msgs::SystemObservation* message) { message->set_time(kNaN); }, "SystemObservation.time"},
-      {[](humanoid_mpc_msgs::SystemObservation* message) { message->set_state(/*index=*/2, kInfinity); }, "SystemObservation.state[2]"},
-      {[](humanoid_mpc_msgs::SystemObservation* message) { message->set_input(/*index=*/1, -kInfinity); }, "SystemObservation.input[1]"},
+  const std::vector<std::pair<std::function<void(humanoid_mpc_msgs::SystemObservation* absl_nonnull)>, std::string>> cases = {
+      {[](humanoid_mpc_msgs::SystemObservation* absl_nonnull message) { message->set_time(kNaN); }, "SystemObservation.time"},
+      {[](humanoid_mpc_msgs::SystemObservation* absl_nonnull message) { message->set_state(/*index=*/2, kInfinity); },
+       "SystemObservation.state[2]"},
+      {[](humanoid_mpc_msgs::SystemObservation* absl_nonnull message) { message->set_input(/*index=*/1, -kInfinity); },
+       "SystemObservation.input[1]"},
   };
-  for (const std::pair<std::function<void(humanoid_mpc_msgs::SystemObservation*)>, std::string>& testCase : cases) {
+  for (const std::pair<std::function<void(humanoid_mpc_msgs::SystemObservation* absl_nonnull)>, std::string>& testCase : cases) {
     humanoid_mpc_msgs::SystemObservation message = valid;
     testCase.first(&message);
     SystemObservation output = sentinel;
@@ -351,13 +351,16 @@ TEST(ModeScheduleConversionTest, RoundTripKeepsModesBeyondOneByte) {
 TEST(ModeScheduleConversionTest, RejectsInconsistentSchedules) {
   humanoid_mpc_msgs::ModeSchedule valid;
   toProto(ModeSchedule({1.0, 2.0}, {3, 4, 5}), &valid);
-  const std::vector<std::pair<std::function<void(humanoid_mpc_msgs::ModeSchedule*)>, std::string>> cases = {
-      {[](humanoid_mpc_msgs::ModeSchedule* message) { message->clear_mode_sequence(); }, "ModeSchedule.mode_sequence is empty"},
-      {[](humanoid_mpc_msgs::ModeSchedule* message) { message->add_mode_sequence(6); }, "ModeSchedule.mode_sequence has 4 modes"},
-      {[](humanoid_mpc_msgs::ModeSchedule* message) { message->set_event_times(1, 0.5); }, "ModeSchedule.event_times[1]"},
-      {[](humanoid_mpc_msgs::ModeSchedule* message) { message->set_event_times(/*index=*/0, kNaN); }, "ModeSchedule.event_times[0]"},
+  const std::vector<std::pair<std::function<void(humanoid_mpc_msgs::ModeSchedule* absl_nonnull)>, std::string>> cases = {
+      {[](humanoid_mpc_msgs::ModeSchedule* absl_nonnull message) { message->clear_mode_sequence(); },
+       "ModeSchedule.mode_sequence is empty"},
+      {[](humanoid_mpc_msgs::ModeSchedule* absl_nonnull message) { message->add_mode_sequence(6); },
+       "ModeSchedule.mode_sequence has 4 modes"},
+      {[](humanoid_mpc_msgs::ModeSchedule* absl_nonnull message) { message->set_event_times(1, 0.5); }, "ModeSchedule.event_times[1]"},
+      {[](humanoid_mpc_msgs::ModeSchedule* absl_nonnull message) { message->set_event_times(/*index=*/0, kNaN); },
+       "ModeSchedule.event_times[0]"},
   };
-  for (const std::pair<std::function<void(humanoid_mpc_msgs::ModeSchedule*)>, std::string>& testCase : cases) {
+  for (const std::pair<std::function<void(humanoid_mpc_msgs::ModeSchedule* absl_nonnull)>, std::string>& testCase : cases) {
     humanoid_mpc_msgs::ModeSchedule message = valid;
     testCase.first(&message);
     ModeSchedule output;
@@ -388,18 +391,19 @@ TEST(TargetTrajectoriesConversionTest, RejectsMismatchedLengthsUnsortedTimesAndN
   std::mt19937 generator(/*sd=*/6);
   humanoid_mpc_msgs::TargetTrajectories valid;
   toProto(test_data::randomTargetTrajectories(generator, /*nodes=*/4, /*stateDim=*/3, /*inputDim=*/2), &valid);
-  const std::vector<std::pair<std::function<void(humanoid_mpc_msgs::TargetTrajectories*)>, std::string>> cases = {
-      {[](humanoid_mpc_msgs::TargetTrajectories* message) { message->mutable_state()->RemoveLast(); },
+  const std::vector<std::pair<std::function<void(humanoid_mpc_msgs::TargetTrajectories* absl_nonnull)>, std::string>> cases = {
+      {[](humanoid_mpc_msgs::TargetTrajectories* absl_nonnull message) { message->mutable_state()->RemoveLast(); },
        "TargetTrajectories.state has 3 entries but TargetTrajectories.time has 4"},
-      {[](humanoid_mpc_msgs::TargetTrajectories* message) { message->mutable_input()->RemoveLast(); }, "TargetTrajectories.input has 3"},
-      {[](humanoid_mpc_msgs::TargetTrajectories* message) { message->set_time(/*index=*/2, message->time(0) - 1.0); },
+      {[](humanoid_mpc_msgs::TargetTrajectories* absl_nonnull message) { message->mutable_input()->RemoveLast(); },
+       "TargetTrajectories.input has 3"},
+      {[](humanoid_mpc_msgs::TargetTrajectories* absl_nonnull message) { message->set_time(/*index=*/2, message->time(0) - 1.0); },
        "TargetTrajectories.time[2]"},
-      {[](humanoid_mpc_msgs::TargetTrajectories* message) { message->mutable_state(1)->set_data(/*index=*/2, kNaN); },
+      {[](humanoid_mpc_msgs::TargetTrajectories* absl_nonnull message) { message->mutable_state(1)->set_data(/*index=*/2, kNaN); },
        "TargetTrajectories.state[1].data[2]"},
-      {[](humanoid_mpc_msgs::TargetTrajectories* message) { message->mutable_input(3)->set_data(/*index=*/0, kInfinity); },
+      {[](humanoid_mpc_msgs::TargetTrajectories* absl_nonnull message) { message->mutable_input(3)->set_data(/*index=*/0, kInfinity); },
        "TargetTrajectories.input[3].data[0]"},
   };
-  for (const std::pair<std::function<void(humanoid_mpc_msgs::TargetTrajectories*)>, std::string>& testCase : cases) {
+  for (const std::pair<std::function<void(humanoid_mpc_msgs::TargetTrajectories* absl_nonnull)>, std::string>& testCase : cases) {
     humanoid_mpc_msgs::TargetTrajectories message = valid;
     testCase.first(&message);
     TargetTrajectories output;
@@ -449,7 +453,7 @@ TEST(PolicyConversionTest, RoundTripReproducesASingleNodePolicy) {
     // A single node is a constant policy, before and after the trip.
     const vector_t state = test_data::randomVector(generator, /*size=*/5);
     EXPECT_TRUE(bitwiseEqual(policy.primalSolution.controllerPtr_->computeInput(/*t=*/-1.0, state),
-                             decoded.primalSolution.controllerPtr_->computeInput(/*t=*/1e3, state)));
+                             decoded.primalSolution.controllerPtr_->computeInput(/*t=*/1.0e3, state)));
   }
 }
 
@@ -511,7 +515,7 @@ TEST(PolicyConversionTest, KeepsBothNodesOfAnEvent) {
     // Just after the event the received policy interpolates from the post-event node, as the sent one does.
     Policy decoded;
     ASSERT_TRUE(decode(message, &decoded).ok());
-    const scalar_t afterEvent = primalSolution.timeTrajectory_[postEvent] + 1e-6;
+    const scalar_t afterEvent = primalSolution.timeTrajectory_[postEvent] + 1.0e-6;
     const vector_t state = test_data::randomVector(generator, shape.stateDim);
     const vector_t expected = primalSolution.controllerPtr_->computeInput(afterEvent, state);
     EXPECT_TRUE(bitwiseEqual(expected, decoded.primalSolution.controllerPtr_->computeInput(afterEvent, state)));
@@ -530,7 +534,7 @@ TEST(PolicyConversionTest, ControllerDataHasTheLayoutOfFlattenAndUnflatten) {
 
     const humanoid_mpc_msgs::MpcPolicy message = encode(policy);
     ASSERT_EQ(message.controller_data_size(), static_cast<int>(shape.nodes));
-    std::vector<const std::vector<double>*> flatRefs;
+    std::vector<const std::vector<double>* absl_nonnull> flatRefs;
     for (size_t k = 0; k < shape.nodes; ++k) {
       EXPECT_EQ(asStdVector(message.controller_data(static_cast<int>(k))), flat[k]) << "node " << k;
       flatRefs.push_back(&flat[k]);
@@ -608,20 +612,23 @@ TEST(PolicyConversionTest, RejectsPrimalSolutionsItCannotSendAndLeavesTheMessage
                    /*targetNodes=*/1);
   const humanoid_mpc_msgs::MpcPolicy previous = encode(randomPolicy(generator, {.nodes = 3}, /*targetNodes=*/1));
 
-  const std::vector<std::pair<std::function<void(PrimalSolution*)>, std::string>> cases = {
-      {[](PrimalSolution* primalSolution) { primalSolution->controllerPtr_.reset(); }, "is null"},
-      {[](PrimalSolution* primalSolution) { primalSolution->controllerPtr_ = std::make_unique<UnsupportedController>(); },
+  const std::vector<std::pair<std::function<void(PrimalSolution* absl_nonnull)>, std::string>> cases = {
+      {[](PrimalSolution* absl_nonnull primalSolution) { primalSolution->controllerPtr_.reset(); }, "is null"},
+      {[](PrimalSolution* absl_nonnull primalSolution) { primalSolution->controllerPtr_ = std::make_unique<UnsupportedController>(); },
        "only a FeedforwardController or a LinearController"},
-      {[](PrimalSolution* primalSolution) { primalSolution->controllerPtr_->clear(); }, "is empty but the time trajectory has 5 nodes"},
-      {[](PrimalSolution* primalSolution) { dynamic_cast<LinearController&>(*primalSolution->controllerPtr_).gainArray_.pop_back(); },
+      {[](PrimalSolution* absl_nonnull primalSolution) { primalSolution->controllerPtr_->clear(); },
+       "is empty but the time trajectory has 5 nodes"},
+      {[](PrimalSolution* absl_nonnull primalSolution) {
+         dynamic_cast<LinearController&>(*primalSolution->controllerPtr_).gainArray_.pop_back();
+       },
        "5 time stamps, 5 biases and 4 gains"},
-      {[](PrimalSolution* primalSolution) {
+      {[](PrimalSolution* absl_nonnull primalSolution) {
          LinearController& linear = dynamic_cast<LinearController&>(*primalSolution->controllerPtr_);
          linear.gainArray_[2] = matrix_t::Zero(3, 3);
        },
        "node 2 of the LinearController has a gain of 3 rows but a bias of 2 entries"},
   };
-  for (const std::pair<std::function<void(PrimalSolution*)>, std::string>& testCase : cases) {
+  for (const std::pair<std::function<void(PrimalSolution* absl_nonnull)>, std::string>& testCase : cases) {
     PrimalSolution primalSolution = policy.primalSolution;
     testCase.first(&primalSolution);
     humanoid_mpc_msgs::MpcPolicy message = previous;
@@ -639,7 +646,7 @@ TEST(PolicyConversionTest, RejectsPrimalSolutionsItCannotSendAndLeavesTheMessage
 struct MalformedPolicy {
   std::string description;
   ControllerType controllerType;
-  std::function<void(humanoid_mpc_msgs::MpcPolicy*)> corrupt;
+  std::function<void(humanoid_mpc_msgs::MpcPolicy* absl_nonnull)> corrupt;
   // A part of the error message, naming the offending field.
   std::string expectedError;
 };
@@ -650,7 +657,7 @@ TEST(PolicyConversionTest, RejectsMalformedMessagesAndLeavesTheOutputsUnchanged)
   constexpr ControllerType kFeedforward = ControllerType::FEEDFORWARD;
   const std::vector<MalformedPolicy> cases = {
       {"no nodes", kLinear,
-       [](MpcPolicy* message) {
+       [](MpcPolicy* absl_nonnull message) {
          message->clear_time_trajectory();
          message->clear_state_trajectory();
          message->clear_input_trajectory();
@@ -658,62 +665,71 @@ TEST(PolicyConversionTest, RejectsMalformedMessagesAndLeavesTheOutputsUnchanged)
          message->clear_post_event_indices();
        },
        "MpcPolicy.time_trajectory is empty"},
-      {"one state too few", kLinear, [](MpcPolicy* message) { message->mutable_state_trajectory()->RemoveLast(); },
+      {"one state too few", kLinear, [](MpcPolicy* absl_nonnull message) { message->mutable_state_trajectory()->RemoveLast(); },
        "MpcPolicy.state_trajectory has 7 entries but MpcPolicy.time_trajectory has 8"},
-      {"one input too few", kLinear, [](MpcPolicy* message) { message->mutable_input_trajectory()->RemoveLast(); },
+      {"one input too few", kLinear, [](MpcPolicy* absl_nonnull message) { message->mutable_input_trajectory()->RemoveLast(); },
        "MpcPolicy.input_trajectory has 7 entries"},
-      {"one controller node too many", kLinear, [](MpcPolicy* message) { message->add_controller_data(); },
+      {"one controller node too many", kLinear, [](MpcPolicy* absl_nonnull message) { message->add_controller_data(); },
        "MpcPolicy.controller_data has 9 entries"},
-      {"NaN state", kLinear, [](MpcPolicy* message) { message->mutable_state_trajectory(2)->set_data(/*index=*/1, kNaN); },
+      {"NaN state", kLinear, [](MpcPolicy* absl_nonnull message) { message->mutable_state_trajectory(2)->set_data(/*index=*/1, kNaN); },
        "MpcPolicy.state_trajectory[2].data[1]"},
-      {"infinite input", kLinear, [](MpcPolicy* message) { message->mutable_input_trajectory(0)->set_data(/*index=*/0, kInfinity); },
+      {"infinite input", kLinear,
+       [](MpcPolicy* absl_nonnull message) { message->mutable_input_trajectory(0)->set_data(/*index=*/0, kInfinity); },
        "MpcPolicy.input_trajectory[0].data[0]"},
-      {"NaN gain", kLinear, [](MpcPolicy* message) { message->mutable_controller_data(1)->set_data(/*index=*/3, kNaN); },
+      {"NaN gain", kLinear, [](MpcPolicy* absl_nonnull message) { message->mutable_controller_data(1)->set_data(/*index=*/3, kNaN); },
        "MpcPolicy.controller_data[1].data[3]"},
-      {"infinite time", kLinear, [](MpcPolicy* message) { message->set_time_trajectory(/*index=*/1, kInfinity); },
+      {"infinite time", kLinear, [](MpcPolicy* absl_nonnull message) { message->set_time_trajectory(/*index=*/1, kInfinity); },
        "MpcPolicy.time_trajectory[1]"},
-      {"time going back", kLinear, [](MpcPolicy* message) { message->set_time_trajectory(/*index=*/5, message->time_trajectory(0) - 1.0); },
+      {"time going back", kLinear,
+       [](MpcPolicy* absl_nonnull message) { message->set_time_trajectory(/*index=*/5, message->time_trajectory(0) - 1.0); },
        "MpcPolicy.time_trajectory[5]"},
       {"linear node one value short", kLinear,
-       [](MpcPolicy* message) { message->mutable_controller_data(3)->mutable_data()->RemoveLast(); },
+       [](MpcPolicy* absl_nonnull message) { message->mutable_controller_data(3)->mutable_data()->RemoveLast(); },
        "MpcPolicy.controller_data[3] has 11 entries but a LinearController node with 3 inputs and 3 states has 12"},
-      {"feedforward node one value long", kFeedforward, [](MpcPolicy* message) { message->mutable_controller_data(0)->add_data(1.0); },
+      {"feedforward node one value long", kFeedforward,
+       [](MpcPolicy* absl_nonnull message) { message->mutable_controller_data(0)->add_data(1.0); },
        "MpcPolicy.controller_data[0] has 4 entries but a FeedforwardController node with 3 inputs has 3"},
       {"linear data labeled feedforward", kLinear,
-       [](MpcPolicy* message) { message->set_controller_type(humanoid_mpc_msgs::CONTROLLER_TYPE_FEEDFORWARD); },
+       [](MpcPolicy* absl_nonnull message) { message->set_controller_type(humanoid_mpc_msgs::CONTROLLER_TYPE_FEEDFORWARD); },
        "MpcPolicy.controller_data[0] has 12 entries but a FeedforwardController node"},
       {"unknown controller type", kLinear,
-       [](MpcPolicy* message) { message->set_controller_type(humanoid_mpc_msgs::CONTROLLER_TYPE_UNKNOWN); },
+       [](MpcPolicy* absl_nonnull message) { message->set_controller_type(humanoid_mpc_msgs::CONTROLLER_TYPE_UNKNOWN); },
        "MpcPolicy.controller_type is 0"},
       {"controller type from a newer sender", kLinear,
-       [](MpcPolicy* message) { message->set_controller_type(static_cast<humanoid_mpc_msgs::ControllerType>(7)); },
+       [](MpcPolicy* absl_nonnull message) { message->set_controller_type(static_cast<humanoid_mpc_msgs::ControllerType>(7)); },
        "MpcPolicy.controller_type is 7"},
-      {"post-event index zero", kLinear, [](MpcPolicy* message) { message->set_post_event_indices(0, 0); },
+      {"post-event index zero", kLinear, [](MpcPolicy* absl_nonnull message) { message->set_post_event_indices(0, 0); },
        "MpcPolicy.post_event_indices[0] is 0"},
-      {"post-event index past the end", kLinear, [](MpcPolicy* message) { message->set_post_event_indices(0, 9); },
+      {"post-event index past the end", kLinear, [](MpcPolicy* absl_nonnull message) { message->set_post_event_indices(0, 9); },
        "MpcPolicy.post_event_indices[0] is 9; a post-event index lies in [1, 8]"},
-      {"post-event indices repeating", kLinear, [](MpcPolicy* message) { message->add_post_event_indices(message->post_event_indices(0)); },
+      {"post-event indices repeating", kLinear,
+       [](MpcPolicy* absl_nonnull message) { message->add_post_event_indices(message->post_event_indices(0)); },
        "MpcPolicy.post_event_indices[1] = 4 does not exceed"},
       {"mode schedule without modes", kLinear,
-       [](MpcPolicy* message) {
+       [](MpcPolicy* absl_nonnull message) {
          message->mutable_mode_schedule()->clear_mode_sequence();
          message->mutable_mode_schedule()->clear_event_times();
        },
        "MpcPolicy.mode_schedule.mode_sequence is empty"},
-      {"mode schedule with a mode too few", kLinear, [](MpcPolicy* message) { message->mutable_mode_schedule()->add_event_times(1e3); },
+      {"mode schedule with a mode too few", kLinear,
+       [](MpcPolicy* absl_nonnull message) { message->mutable_mode_schedule()->add_event_times(1.0e3); },
        "MpcPolicy.mode_schedule.mode_sequence has 2 modes but MpcPolicy.mode_schedule.event_times has 2"},
-      {"NaN event time", kLinear, [](MpcPolicy* message) { message->mutable_mode_schedule()->set_event_times(/*index=*/0, kNaN); },
+      {"NaN event time", kLinear,
+       [](MpcPolicy* absl_nonnull message) { message->mutable_mode_schedule()->set_event_times(/*index=*/0, kNaN); },
        "MpcPolicy.mode_schedule.event_times[0]"},
-      {"NaN initial state", kLinear, [](MpcPolicy* message) { message->mutable_init_observation()->set_state(/*index=*/0, kNaN); },
+      {"NaN initial state", kLinear,
+       [](MpcPolicy* absl_nonnull message) { message->mutable_init_observation()->set_state(/*index=*/0, kNaN); },
        "MpcPolicy.init_observation.state[0]"},
-      {"infinite initial time", kLinear, [](MpcPolicy* message) { message->mutable_init_observation()->set_time(kInfinity); },
+      {"infinite initial time", kLinear, [](MpcPolicy* absl_nonnull message) { message->mutable_init_observation()->set_time(kInfinity); },
        "MpcPolicy.init_observation.time"},
-      {"target state missing", kLinear, [](MpcPolicy* message) { message->mutable_target_trajectories()->mutable_state()->RemoveLast(); },
+      {"target state missing", kLinear,
+       [](MpcPolicy* absl_nonnull message) { message->mutable_target_trajectories()->mutable_state()->RemoveLast(); },
        "MpcPolicy.target_trajectories.state has 2 entries but MpcPolicy.target_trajectories.time has 3"},
-      {"target input missing", kLinear, [](MpcPolicy* message) { message->mutable_target_trajectories()->mutable_input()->RemoveLast(); },
+      {"target input missing", kLinear,
+       [](MpcPolicy* absl_nonnull message) { message->mutable_target_trajectories()->mutable_input()->RemoveLast(); },
        "MpcPolicy.target_trajectories.input has 2 entries"},
       {"target time going back", kLinear,
-       [](MpcPolicy* message) {
+       [](MpcPolicy* absl_nonnull message) {
          message->mutable_target_trajectories()->set_time(/*index=*/2, message->target_trajectories().time(0) - 1.0);
        },
        "MpcPolicy.target_trajectories.time[2]"},
@@ -726,7 +742,8 @@ TEST(PolicyConversionTest, RejectsMalformedMessagesAndLeavesTheOutputsUnchanged)
     testCase.corrupt(&message);
 
     const Policy sentinel = randomPolicy(generator, {.nodes = 2, .stateDim = 1, .inputDim = 1}, /*targetNodes=*/1);
-    Policy output = {sentinel.commandData, sentinel.primalSolution, sentinel.performanceIndex};
+    Policy output = {
+        .commandData = sentinel.commandData, .primalSolution = sentinel.primalSolution, .performanceIndex = sentinel.performanceIndex};
     const absl::Status status = decode(message, &output);
     EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << testCase.description << ": " << status;
     EXPECT_TRUE(absl::StrContains(status.message(), testCase.expectedError)) << testCase.description << ": " << status;
@@ -812,8 +829,8 @@ PayloadCount countPayload(const Policy& policy) {
   count.doubles += 1 + static_cast<size_t>(observation.state.size() + observation.input.size());
   const TargetTrajectories& targets = policy.commandData.mpcTargetTrajectories_;
   count.doubles += targets.timeTrajectory.size();
-  for (const vector_array_t* trajectory : {&targets.stateTrajectory, &targets.inputTrajectory, &policy.primalSolution.stateTrajectory_,
-                                           &policy.primalSolution.inputTrajectory_}) {
+  for (const vector_array_t* absl_nonnull trajectory : {&targets.stateTrajectory, &targets.inputTrajectory,
+                                                        &policy.primalSolution.stateTrajectory_, &policy.primalSolution.inputTrajectory_}) {
     for (const vector_t& vector : *trajectory) {
       count.doubles += static_cast<size_t>(vector.size());
       ++count.vectors;

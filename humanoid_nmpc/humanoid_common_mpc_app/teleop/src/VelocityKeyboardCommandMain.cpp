@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
 #include "absl/flags/usage.h"
@@ -55,7 +56,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_ipc/Bus.h"
 
 // LINT.IfChange(teleop_flags)
-ABSL_FLAG(std::string, reference_file, "", "The robot's reference file (config/command/reference.yaml): the command limits. Required.");
+ABSL_FLAG(std::string,
+          reference_file,
+          "",
+          "The robot's reference file (config/command/reference.textproto): the command limits. Required.");
 ABSL_FLAG(std::string,
           network_config,
           "",
@@ -68,10 +72,10 @@ ABSL_FLAG(std::string, ipc_node, "teleop", "The bus node this process publishes 
  * published on operator/walking_velocity_command until the next line (the ROS-era velocity_keyboard_command_node on the
  * bus). See humanoid_nmpc/humanoid_common_mpc_app/teleop/README.md.
  */
-int main(int argc, char** argv) {
+int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   absl::SetProgramUsageMessage(
       "Publishes the walking command typed in the terminal on operator/walking_velocity_command.\n"
-      "  velocity_keyboard_command --reference_file=<robot>/config/command/reference.yaml [--network_config=...] [--ipc_node=teleop]");
+      "  velocity_keyboard_command --reference_file=<robot>/config/command/reference.textproto [--network_config=...] [--ipc_node=teleop]");
   absl::ParseCommandLine(argc, argv);
   absl::InitializeLog();
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
@@ -106,14 +110,14 @@ int main(int argc, char** argv) {
   }
 
   ocs2::humanoid::teleop::LineReader reader(STDIN_FILENO);
-  const char* prompt = "Enter v_x [m/s], v_y [m/s], delta_height [m], ang_vel_z [rad/s] of the PELVIS, separated by spaces: ";
+  constexpr char kPrompt[] = "Enter v_x [m/s], v_y [m/s], delta_height [m], ang_vel_z [rad/s] of the PELVIS, separated by spaces: ";
   while (!ocs2::humanoid::node::shutdownRequested()) {
-    std::cout << prompt << std::flush;
+    std::cout << kPrompt << std::flush;
     const std::optional<std::string> line = reader.readLine([]() { return ocs2::humanoid::node::shutdownRequested(); });
     if (!line.has_value()) break;
 
-    // Before every command, so that a limit the operator has just changed in reference.yaml - through the tuning GUI or
-    // by hand - applies to the command about to be sent: the MPC scales it back by its own copy, which its parameter
+    // Before every command, so that a limit the operator has just changed in reference.textproto - through the tuning
+    // GUI or by hand - applies to the command about to be sent: the MPC scales it back by its own copy, which its parameter
     // updater reloads, and a stale copy here would make the robot walk at a speed nobody asked for.
     absl::StatusOr<ocs2::humanoid::teleop::KeyboardCommandLimits> reloaded =
         ocs2::humanoid::teleop::loadKeyboardCommandLimits(referenceFile);

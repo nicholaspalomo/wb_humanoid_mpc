@@ -27,19 +27,22 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include "humanoid_mpc_validation/closed_loop/WholeBodyClosedLoopDriver.h"
 
-#include <exception>
 #include <memory>
 #include <utility>
 
+#include "absl/memory/memory.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/parameter_update/CommandLimitsReloaders.h"
 #include "humanoid_wb_mpc/command/WBMpcTargetTrajectoriesCalculator.h"
+#include "humanoid_wb_mpc/mrt/WBMpcParameterUpdater.h"
 
 namespace ocs2::humanoid::validation {
 
@@ -49,7 +52,8 @@ absl::StatusOr<std::unique_ptr<WholeBodyClosedLoopDriver>> WholeBodyClosedLoopDr
     return absl::InvalidArgumentError(
         absl::StrCat("[WholeBodyClosedLoopDriver] ", configuration.name, " is not a whole-body configuration"));
   }
-  std::unique_ptr<WholeBodyClosedLoopDriver> driver(new WholeBodyClosedLoopDriver());
+  // The constructor is private.
+  std::unique_ptr<WholeBodyClosedLoopDriver> driver = absl::WrapUnique(new WholeBodyClosedLoopDriver());
   RETURN_IF_ERROR(driver->initialize(configuration, options));
   return driver;
 }
@@ -67,30 +71,35 @@ absl::Status WholeBodyClosedLoopDriver::initialize(const RobotConfiguration& con
                                    interface.getMpcRobotModel(), interface.getPinocchioInterface(), interface.getInitialState()));
   if (settings_.wbMpcFeedforward != WbMpcFeedforward::kInverseDynamics) {
     return absl::InvalidArgumentError(absl::StrCat(configuration.taskFile,
-                                                   ": wbMpcFeedforward: ", wbMpcFeedforwardName(settings_.wbMpcFeedforward),
+                                                   ": wb_mpc_feedforward: ", wbMpcFeedforwardName(settings_.wbMpcFeedforward),
                                                    "; the whole-body controller computes its feedforward with the inverse dynamics only."));
   }
 
   // The MPC node's side (WBMpcNode::Create()).
   // LINT.IfChange(whole_body_mpc_node_wiring)
-  std::unique_ptr<WBMpcTargetTrajectoriesCalculator> calculator = std::make_unique<WBMpcTargetTrajectoriesCalculator>(
-      configuration.referenceFile, interface.getMpcRobotModel(), interface.mpcSettings().timeHorizon_);
+  ASSIGN_OR_RETURN(std::unique_ptr<WBMpcTargetTrajectoriesCalculator> calculator,
+                   WBMpcTargetTrajectoriesCalculator::Create(configuration.referenceFile, interface.getMpcRobotModel(),
+                                                             interface.mpcSettings().timeHorizon_));
   calculator->setTerrainHeightSource(
       [referenceManager = interface.getSwitchedModelReferenceManagerPtr()]() { return referenceManager->getAppliedTerrainHeight(); });
   RETURN_IF_ERROR(
       initializeCommandPath(std::move(calculator), interface.getSwitchedModelReferenceManagerPtr(), interface.getMpcRobotModel()));
+  ASSIGN_OR_RETURN(parameterUpdater_,
+                   makeWholeBodyMpcParameterUpdater(mpc_.get(), interface, configuration.taskFile, configuration.referenceFile,
+                                                    makeCommandLimitsReloaders(calculator_.get(), motionManager_)));
+  mpc_->getSolverPtr()->addSynchronizedModule(parameterUpdater_);
   // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc_app/src/WBMpcNode.cpp:mpc_wiring)
 
   // The robot binary's side (WBMpcRobotMain.cpp), with the lockstep link in place of the remote one.
   // LINT.IfChange(whole_body_robot_controller)
-  std::unique_ptr<WBMpcMrtJointController> jointController;
-  try {
-    jointController = std::make_unique<WBMpcMrtJointController>(*robotDescription_, interface.modelSettings(),
-                                                                lockstepMpcLinkFactory(/*solverName=*/"WB MPC Solver Thread"),
-                                                                interface.getPinocchioInterface(), configuration.pdGainsFile);
-  } catch (const std::exception& error) {
-    return absl::InvalidArgumentError(absl::StrCat("the whole-body MRT joint controller did not start: ", error.what()));
+  absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> createdController = WBMpcMrtJointController::Create(
+      *robotDescription_, interface.modelSettings(), lockstepMpcLinkFactory(/*solverName=*/"WB MPC Solver Thread"),
+      interface.getPinocchioInterface(), configuration.pdGainsFile);
+  if (!createdController.ok()) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("the whole-body MRT joint controller did not start: ", createdController.status().message()));
   }
+  std::unique_ptr<WBMpcMrtJointController> jointController = *std::move(createdController);
   if (settings_.contactWrenchGate.has_value()) jointController->setContactWrenchGateConfig(*settings_.contactWrenchGate);
   if (settings_.safetyDecayTimeConstant.has_value()) jointController->setSafetyDecayTimeConstant(*settings_.safetyDecayTimeConstant);
   // The whole-body sim handed the controller its posture before its mode.

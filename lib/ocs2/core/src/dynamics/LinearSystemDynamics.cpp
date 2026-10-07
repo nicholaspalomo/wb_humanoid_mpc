@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/dynamics/LinearSystemDynamics.h>
 
+#include "absl/base/nullability.h"
+
 namespace ocs2 {
 
 /******************************************************************************************************/
@@ -44,7 +46,7 @@ LinearSystemDynamics::LinearSystemDynamics(matrix_t A, matrix_t B, matrix_t G /*
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-LinearSystemDynamics* LinearSystemDynamics::clone() const {
+LinearSystemDynamics* absl_nonnull LinearSystemDynamics::clone() const {
   return new LinearSystemDynamics(*this);
 }
 

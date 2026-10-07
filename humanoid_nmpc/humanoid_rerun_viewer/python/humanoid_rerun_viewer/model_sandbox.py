@@ -1,5 +1,34 @@
-"""The model sandbox: a robot's URDF drawn in Rerun without an MPC, at its nominal joint positions or at those of a
-slider per joint. It replaces RViz's display launch files with joint_state_publisher_gui.
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""The model sandbox: draws a robot's URDF in Rerun without an MPC, at its nominal joint positions or with sliders.
+
+It replaces RViz's display launch files with joint_state_publisher_gui: the joint positions are the nominal ones, or
+those of a slider per joint.
 
     bazel run //humanoid_nmpc/humanoid_rerun_viewer:model_sandbox -- --urdf <robot.urdf> [--joint_source sliders]
     bazel run //humanoid_nmpc/humanoid_rerun_viewer -- --urdf <robot.urdf>              # the bridge that draws it
@@ -17,22 +46,23 @@ for a usage or configuration error.
 """
 
 import argparse
+from collections.abc import Callable, Sequence
 import logging
 import math
 import signal
 import sys
 import threading
 import time
-from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple
+import tkinter
 
-import robot_ipc
-from humanoid_mpc_ipc import topics
 from humanoid_mpc_msgs import visualization_scene_pb2
 
+from humanoid_mpc_ipc import topics
 from humanoid_rerun_viewer import cli
 from humanoid_rerun_viewer import scene_contract
 from humanoid_rerun_viewer import urdf_kinematics
 from humanoid_rerun_viewer import urdf_model
+import robot_ipc
 
 _LOGGER = logging.getLogger("model_sandbox")
 
@@ -40,7 +70,7 @@ EXIT_OK = 0
 EXIT_USAGE = 2
 
 # LINT.IfChange(joint_sources)
-JOINT_SOURCES: Tuple[str, ...] = ("nominal", "sliders")
+JOINT_SOURCES: tuple[str, ...] = ("nominal", "sliders")
 # LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/README.md:joint_sources)
 
 # The range of a slider whose joint has no limit: one turn for a rotation, a meter either way for a translation [m].
@@ -50,7 +80,7 @@ _UNLIMITED_TRANSLATION = (-1.0, 1.0)
 _POLL_PERIOD_S = 0.05
 
 
-def slider_range(joint: urdf_kinematics.Joint) -> Tuple[float, float]:
+def slider_range(joint: urdf_kinematics.Joint) -> tuple[float, float]:
     """The range of a joint's slider: its limits, or one turn (one meter either way) where it has none."""
     unlimited = (
         _UNLIMITED_TRANSLATION
@@ -83,10 +113,10 @@ class SandboxScene:
         self._version = 0
 
     @property
-    def joints(self) -> Tuple[urdf_kinematics.Joint, ...]:
+    def joints(self) -> tuple[urdf_kinematics.Joint, ...]:
         return self.tree.movable_joints()
 
-    def positions(self) -> Dict[str, float]:
+    def positions(self) -> dict[str, float]:
         with self._lock:
             return dict(self._positions)
 
@@ -97,7 +127,14 @@ class SandboxScene:
             return self._version
 
     def set_position(self, joint: str, position: float) -> float:
-        """Moves `joint` to `position`, clamped to its limits; returns the position taken.
+        """Moves `joint` to `position`, clamped to its limits.
+
+        Args:
+            joint: the name of a settable joint (`joints`).
+            position: where to move it [rad or m].
+
+        Returns:
+            The position taken: `position` clamped to the joint's limits.
 
         Raises:
             KeyError: `joint` is not a settable joint of the robot.
@@ -168,8 +205,8 @@ class ScenePublisher:
         self._publish = publish
         self._republish_period = republish_period
         self._clock = clock
-        self._start: Optional[float] = None
-        self._last_publish: Optional[float] = None
+        self._start: float | None = None
+        self._last_publish: float | None = None
         self._published_version = -1
         self.published = 0
 
@@ -198,9 +235,7 @@ class SliderWindow:  # pragma: no cover - drawn by test_model_sandbox where a di
 
     TITLE = "Model Sandbox"
 
-    def __init__(self, scene: SandboxScene, root=None) -> None:
-        import tkinter
-
+    def __init__(self, scene: SandboxScene, root: tkinter.Tk | None = None) -> None:
         self._scene = scene
         self.root = root if root is not None else tkinter.Tk()
         self.root.title(f"{self.TITLE}: {scene.tree.name}")
@@ -217,8 +252,8 @@ class SliderWindow:  # pragma: no cover - drawn by test_model_sandbox where a di
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
-        self.sliders: Dict[str, "tkinter.Scale"] = {}
-        self._values: List["tkinter.DoubleVar"] = []
+        self.sliders: dict[str, tkinter.Scale] = {}
+        self._values: list[tkinter.DoubleVar] = []
         positions = scene.positions()
         for joint in scene.joints:
             lower, upper = slider_range(joint)
@@ -256,6 +291,7 @@ class SliderWindow:  # pragma: no cover - drawn by test_model_sandbox where a di
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """The parser of the sandbox's command line."""
     parser = argparse.ArgumentParser(
         prog="model_sandbox",
         description="Draws a URDF in Rerun at its nominal joint positions or at those of a slider per joint.",
@@ -297,7 +333,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(
         level=getattr(logging, args.log_level),

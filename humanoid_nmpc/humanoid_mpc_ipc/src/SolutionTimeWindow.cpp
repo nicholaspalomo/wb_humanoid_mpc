@@ -33,27 +33,31 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <vector>
 
-#include <ocs2_core/control/FeedforwardController.h>
-#include <ocs2_core/control/LinearController.h>
+#include "absl/base/nullability.h"
+#include "ocs2_core/control/ControllerBase.h"
+#include "ocs2_core/control/FeedforwardController.h"
+#include "ocs2_core/control/LinearController.h"
+
+#include "humanoid_mpc_ipc/PolicyControllers.h"
 
 namespace ocs2::humanoid::ipc {
 namespace {
 
 template <typename Array>
-void keepFirst(size_t length, Array* array) {
+void keepFirst(size_t length, Array* absl_nonnull array) {
   if (array->size() > length) {
-    array->erase(array->begin() + static_cast<std::ptrdiff_t>(length), array->end());
+    array->erase(array->begin() + static_cast<ptrdiff_t>(length), array->end());
   }
 }
 
-void trimController(scalar_t finalTime, ControllerBase* controller) {
-  if (FeedforwardController* feedforward = dynamic_cast<FeedforwardController*>(controller)) {
+void trimController(scalar_t finalTime, ControllerBase* absl_nonnull controller) {
+  if (FeedforwardController* absl_nullable feedforward = asFeedforwardController(*controller); feedforward != nullptr) {
     const size_t length = solutionWindowLength(feedforward->timeStamp_, finalTime);
     keepFirst(length, &feedforward->timeStamp_);
     keepFirst(length, &feedforward->uffArray_);
     return;
   }
-  if (LinearController* linear = dynamic_cast<LinearController*>(controller)) {
+  if (LinearController* absl_nullable linear = asLinearController(*controller); linear != nullptr) {
     const size_t length = solutionWindowLength(linear->timeStamp_, finalTime);
     keepFirst(length, &linear->timeStamp_);
     keepFirst(length, &linear->biasArray_);
@@ -73,7 +77,7 @@ size_t solutionWindowLength(const scalar_array_t& timeTrajectory, scalar_t final
   return length;
 }
 
-void trimToSolutionWindow(scalar_t finalTime, PrimalSolution* solution) {
+void trimToSolutionWindow(scalar_t finalTime, PrimalSolution* absl_nonnull solution) {
   const size_t length = solutionWindowLength(solution->timeTrajectory_, finalTime);
   keepFirst(length, &solution->timeTrajectory_);
   keepFirst(length, &solution->stateTrajectory_);

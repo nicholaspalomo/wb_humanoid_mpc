@@ -71,10 +71,6 @@ bool shutdownRequested() {
   return shutdownRequestedFlag.load();
 }
 
-void requestShutdown() {
-  shutdownRequestedFlag.store(true);
-}
-
 void waitForShutdown(absl::Duration pollPeriod) {
   while (!shutdownRequested()) {
     absl::SleepFor(pollPeriod);

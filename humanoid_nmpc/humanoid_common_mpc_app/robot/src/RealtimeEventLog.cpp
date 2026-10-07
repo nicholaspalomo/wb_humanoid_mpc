@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cstring>
+#include <string>
 
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
@@ -38,7 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 absl::string_view realtimeEventText(const RealtimeEvent& event) {
-  const std::size_t length = ::strnlen(event.text.data(), event.text.size());
+  const size_t length = ::strnlen(event.text.data(), event.text.size());
   return absl::string_view(event.text.data(), length);
 }
 
@@ -60,7 +61,7 @@ std::string formatRealtimeEvent(const RealtimeEvent& event) {
       return absl::StrCat("[SimFallRecovery] Caught on the gantry in JOINT_PD, resetting the controller: ",
                           discontinuityReason(static_cast<DiscontinuityCause>(event.detail), event.count, event.values[0], event.values[1]),
                           ". The gantry lifts the robot by ", event.values[2],
-                          " m (simGantryCatchLift) until it rests at the nominal posture, then lowers it back; WB_MPC is accepted after "
+                          " m (sim_gantry_catch_lift) until it rests at the nominal posture, then lowers it back; WB_MPC is accepted after "
                           "that.");
     case RealtimeEventCode::kDiscontinuity:
       return absl::StrCat("[SimFallRecovery] JOINT_PD, resetting the controller: ",
@@ -98,21 +99,30 @@ bool isWarningEvent(const RealtimeEvent& event) {
       return true;
     case RealtimeEventCode::kControllerEvent:
       return isWarningControllerEvent(makeControllerEvent(static_cast<ControllerEventCode>(event.detail), event.source));
-    default:
+    case RealtimeEventCode::kTorquesDisabled:
+    case RealtimeEventCode::kTorquesEnabled:
+    case RealtimeEventCode::kGantryLockCommanded:
+    case RealtimeEventCode::kGantryUnlockCommanded:
+    case RealtimeEventCode::kGantryUnlockedMpcReset:
+    case RealtimeEventCode::kSettleEndedByUnlock:
+    case RealtimeEventCode::kMpcModeRefusedWhileSettling:
+    case RealtimeEventCode::kSettled:
+    case RealtimeEventCode::kContactEstimatorSwapped:
       return false;
   }
+  return false;  // not an enumerator (ToTW #147)
 }
 
-RealtimeEventLog::RealtimeEventLog(std::size_t capacity) : queue_(capacity) {}
+RealtimeEventLog::RealtimeEventLog(size_t capacity) : queue_(capacity) {}
 
 bool RealtimeEventLog::post(
-    RealtimeEventCode code, std::int32_t detail, absl::string_view text, double value0, double value1, double value2, std::uint64_t count) {
+    RealtimeEventCode code, int32_t detail, absl::string_view text, double value0, double value1, double value2, uint64_t count) {
   return queue_.tryPushInPlace([&](RealtimeEvent& slot) {
     slot.code = code;
     slot.detail = detail;
     slot.values = {value0, value1, value2};
     slot.count = count;
-    const std::size_t length = std::min(text.size(), slot.text.size() - 1);
+    const size_t length = std::min(text.size(), slot.text.size() - 1);
     std::memcpy(slot.text.data(), text.data(), length);
     slot.text[length] = '\0';
     slot.source = "";
@@ -122,7 +132,7 @@ bool RealtimeEventLog::post(
 bool RealtimeEventLog::post(const ControllerEvent& event) {
   return queue_.tryPushInPlace([&](RealtimeEvent& slot) {
     slot.code = RealtimeEventCode::kControllerEvent;
-    slot.detail = static_cast<std::int32_t>(event.code);
+    slot.detail = static_cast<int32_t>(event.code);
     slot.values = {event.values[0], event.values[1], 0.0};
     slot.count = 0;
     slot.text = event.text;
@@ -130,15 +140,15 @@ bool RealtimeEventLog::post(const ControllerEvent& event) {
   });
 }
 
-std::size_t RealtimeEventLog::drain(const std::function<void(const RealtimeEvent&)>& consumer) {
-  std::size_t drained = 0;
+size_t RealtimeEventLog::drain(const std::function<void(const RealtimeEvent&)>& consumer) {
+  size_t drained = 0;
   while (queue_.tryPopInPlace([&](const RealtimeEvent& event) { consumer(event); })) {
     ++drained;
   }
   return drained;
 }
 
-std::size_t RealtimeEventLog::drainToLog() {
+size_t RealtimeEventLog::drainToLog() {
   return drain([](const RealtimeEvent& event) {
     if (isWarningEvent(event)) {
       LOG(WARNING) << formatRealtimeEvent(event);

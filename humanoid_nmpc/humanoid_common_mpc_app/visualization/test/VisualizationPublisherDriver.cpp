@@ -35,10 +35,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <iostream>
 #include <memory>
 #include <thread>
+#include <utility>
 
-#include <ocs2_mpc/CommandData.h>
-#include <ocs2_oc/oc_data/PrimalSolution.h>
-
+#include "absl/base/nullability.h"
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
 #include "absl/log/check.h"
@@ -47,16 +46,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "ocs2_mpc/CommandData.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 
-#include "VisualizationTestRobot.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc_app/visualization/VisualizationPublisher.h"
+#include "humanoid_nmpc/humanoid_common_mpc_app/visualization/test/VisualizationTestRobot.h"
 #include "robot_ipc/Bus.h"
 #include "robot_ipc/BusOptions.h"
 #include "robot_ipc/NodeEndpoint.h"
 
+namespace {
+
+/** [Hz] The default of --sample_rate. */
+constexpr double kDefaultSampleRate = 100.0;
+
+}  // namespace
+
 ABSL_FLAG(absl::Duration, duration, absl::Seconds(60), "How long to publish; the test usually stops the driver earlier.");
-ABSL_FLAG(double, sample_rate, /*default_value=*/100.0, "[Hz] robot/state samples fed to the publisher.");
+ABSL_FLAG(double, sample_rate, kDefaultSampleRate, "[Hz] robot/state samples fed to the publisher.");
 ABSL_FLAG(absl::Duration, policy_period, absl::Milliseconds(50), "How often a new policy and observation are fed.");
 
 namespace ocs2::humanoid::visualization {
@@ -66,14 +74,16 @@ int run() {
   const std::unique_ptr<test::TestRobot> robot = test::TestRobot::load(test::g1CentroidalFiles(), test::Formulation::kCentroidal);
   robot::ipc::BusOptions options;
   options.nodeName = "visualization";
-  options.network.nodes = {robot::ipc::NodeEndpoint{.name = "visualization", .host = "127.0.0.1", .port = robot::ipc::kEphemeralPort}};
+  options.network.nodes = {
+      robot::ipc::NodeEndpoint{.name = "visualization", .host = "127.0.0.1", .port = robot::ipc::kEphemeralPort, .bindHost = ""}};
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
   CHECK_OK(bus.status());
   absl::StatusOr<std::unique_ptr<VisualizationPublisher>> publisher = VisualizationPublisher::Create(robot->model(), **bus);
   CHECK_OK(publisher.status());
   CHECK_OK((*bus)->start());
   CHECK_OK((*publisher)->start());
-  std::cout << "PORT " << (*bus)->boundPort() << std::endl;
+  // Flushed at once: test_end_to_end.py reads the port before the driver writes anything else.
+  std::cout << "PORT " << (*bus)->boundPort() << '\n' << std::flush;
 
   const absl::Duration samplePeriod = absl::Seconds(1.0 / absl::GetFlag(FLAGS_sample_rate));
   const absl::Time start = absl::Now();
@@ -103,7 +113,7 @@ int run() {
 }  // namespace
 }  // namespace ocs2::humanoid::visualization
 
-int main(int argc, char** argv) {
+int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   absl::ParseCommandLine(argc, argv);
   absl::InitializeLog();
   return ocs2::humanoid::visualization::run();

@@ -1,0 +1,133 @@
+edition = "2023";
+
+package remote_control_test;
+
+import "humanoid_mpc_config/config_options.proto";
+import "humanoid_mpc_config/joint_value.proto";
+import "humanoid_mpc_config/xyz.proto";
+import "humanoid_mpc_config/yaw_pitch_roll.proto";
+import "nproto/options.proto";
+
+// A configuration file schema for test_config_schema.py: a field of every kind the tuning GUI renders, annotated with
+// the (humanoid_mpc_config.tuning) options the way the file schemas are, inherited through blocks and shared messages,
+// and the fields the walk treats apart (keyed and indexed elements, optional and deprecated fields, absent defaults).
+// Next ID: 21
+message TuningTestFile {
+  option (nproto.generate_struct) = "remote_control_test::TuningTestFile";
+
+  reserved 21 to max;
+
+  enum Mode {
+    MODE_UNSPECIFIED = 0;
+    MODE_WALK = 1;
+    MODE_STAND = 2;
+  }
+
+  // A top-level block on a tab of its own, with shared messages whose fields get the options of the field using them.
+  // Next ID: 5
+  message Weights {
+    option (humanoid_mpc_config.group) = {
+      tab: "Weights"
+      order: 2
+    };
+
+    reserved 5 to max;
+
+    double scaling = 1 [default = 1.0, (humanoid_mpc_config.tuning) = { log_scale: true }];
+    humanoid_mpc_config.Xyz position = 2 [(humanoid_mpc_config.tuning) = { unit: "m" slider_min: 0.0 slider_max: 10.0 }];
+    humanoid_mpc_config.YawPitchRoll orientation = 3
+        [(humanoid_mpc_config.tuning) = { unit: "rad" reload: RELOAD_START_UP }];
+    // Keyed by joint, labeled by the joint alone.
+    repeated humanoid_mpc_config.JointValue joints = 4;
+  }
+
+  // Keyed by joint, with several values.
+  // Next ID: 4
+  message Gains {
+    reserved 4 to max;
+
+    string joint = 1 [default = ""];
+    double kp = 2 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "N m/rad" }];
+    double kd = 3 [default = 0.0];
+  }
+
+  // Without a string field: by index.
+  // Next ID: 3
+  message Point {
+    reserved 3 to max;
+
+    double time = 1 [default = 0.0];
+    double height = 2 [default = 0.0];
+  }
+
+  // A feature its absence switches off.
+  // Next ID: 2
+  message Gate {
+    reserved 2 to max;
+
+    double rate = 1 [default = 2.0];
+  }
+
+  // Every option on the fields themselves.
+  double gain = 1 [default = 2.5, (humanoid_mpc_config.tuning) = { unit: "N" reload: RELOAD_HOT consumer: "mpc" }];
+  // No default: absent means unset.
+  double offset = 2;
+  int32 count = 3 [default = 4];
+  bool enabled = 4 [default = false];
+  Mode mode = 5 [default = MODE_WALK];
+  string estimator = 6 [default = "cheater_sim", (humanoid_mpc_config.tuning) = { registry: "contact_estimator" }];
+  // Plain text, which the GUI does not edit.
+  string robot_name = 7 [default = ""];
+  repeated string costs = 8 [(humanoid_mpc_config.tuning) = { registry: "mpc_costs" reload: RELOAD_START_UP }];
+  repeated double times = 9;
+  Weights weights = 10;
+  repeated Gains gains = 11;
+  repeated Point points = 12;
+  Gate gate = 13 [(nproto.optional_message) = true];
+  // Applies in one mode only.
+  double stand_height = 14 [
+    default = 1.0,
+    (humanoid_mpc_config.tuning) = {
+      active_when { field_path: "mode" values: "MODE_STAND" }
+    }
+  ];
+  // The same message excluded where it is used: every field below it gets the reason.
+  Weights initial = 15 [(humanoid_mpc_config.tuning) = { exclude_reason: "the initial pose" }];
+  double old_gain = 16 [deprecated = true, default = 0.0];
+  float ratio = 17 [default = 0.5];
+  // A block that applies only while `enabled` is true: its field inherits the condition and the reload class.
+  Gate conditional = 18 [(humanoid_mpc_config.tuning) = {
+    active_when { field_path: "enabled" values: "true" }
+    reload: RELOAD_HOT
+  }];
+  // Its field inherits the block's unit and condition, overrides its reload class and adds a condition of its own.
+  ConditionalBlock conditional_block = 19 [(humanoid_mpc_config.tuning) = {
+    unit: "kg"
+    reload: RELOAD_START_UP
+    active_when { field_path: "enabled" values: "true" }
+  }];
+
+  // Next ID: 2
+  message ConditionalBlock {
+    reserved 2 to max;
+
+    double weight = 1 [
+      default = 3.0,
+      (humanoid_mpc_config.tuning) = {
+        active_when { field_path: "mode" values: [ "MODE_WALK", "MODE_STAND" ] }
+        reload: RELOAD_HOT
+      }
+    ];
+  }
+
+  // A block one formulation reads: its first field inherits the formulation, its second names its own.
+  FormulationBlock formulation_block = 20 [(humanoid_mpc_config.tuning) = { formulations: "whole_body" reload: RELOAD_HOT }];
+
+  // Next ID: 3
+  message FormulationBlock {
+    reserved 3 to max;
+
+    double weight = 1 [default = 1.0];
+    double centroidal_weight = 2 [default = 1.0, (humanoid_mpc_config.tuning) = { formulations: "centroidal" }];
+  }
+}

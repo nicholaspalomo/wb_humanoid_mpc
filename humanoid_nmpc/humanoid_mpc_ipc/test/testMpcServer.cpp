@@ -31,15 +31,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // serves from which observation, what it stamps on the policies, the status after every attempt, the solution window,
 // the hooks, the pacing, the back-off, and its lifecycle.
 
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <cstdint>
 #include <memory>
-#include <stdexcept>
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/log/check.h"
 #include "absl/status/status.h"
@@ -47,11 +45,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-
-#include <ocs2_core/Types.h>
-#include <ocs2_mpc/CommandData.h>
-#include <ocs2_oc/oc_data/PerformanceIndex.h>
-#include <ocs2_oc/oc_data/PrimalSolution.h>
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_mpc/CommandData.h"
+#include "ocs2_oc/oc_data/PerformanceIndex.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
 
 #include "humanoid_mpc_ipc/MpcMessageConversions.h"
 #include "humanoid_mpc_ipc/MpcServer.h"
@@ -157,7 +156,7 @@ class MpcServerTest : public ::testing::Test {
     mpcBus_ = test_support::createNodeBus("mpc");
     test_support::connectBoth(robot_.bus(), *mpcBus_);
     absl::StatusOr<std::unique_ptr<MpcServer>> server =
-        MpcServer::Create(*mpcBus_, *mpc_, std::move(resetTargets), config, std::move(hooks));
+        MpcServer::Create(*mpcBus_, *mpc_, std::move(resetTargets), std::move(config), std::move(hooks));
     CHECK_OK(server.status());
     server_ = std::move(*server);
     CHECK_OK(robot_.bus().start());
@@ -300,38 +299,62 @@ TEST_F(MpcServerTest, TheSolutionTimeWindowBoundsThePolicy) {
   warmUp();
   const humanoid_mpc_msgs::MpcPolicy policy = solveFrom(/*time=*/1.1);
   ASSERT_GT(policy.time_trajectory_size(), 1);
-  EXPECT_NEAR(policy.time_trajectory(policy.time_trajectory_size() - 1), 1.4, 1e-12);
+  EXPECT_NEAR(policy.time_trajectory(policy.time_trajectory_size() - 1), 1.4, 1.0e-12);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Hooks
 // ---------------------------------------------------------------------------------------------------------------------
 
-TEST_F(MpcServerTest, TheHooksSeeEveryPolicyAndAHookThatThrowsStopsNothing) {
+TEST_F(MpcServerTest, TheHooksSeeEveryPolicyAndAHookThatFailsStopsNothing) {
   std::atomic<uint64_t> observed{0};
-  std::atomic<bool> throwNext{false};
+  std::atomic<bool> failNext{false};
   MpcServer::Hooks hooks;
   hooks.annotationsProvider = [](const CommandData& command, const PrimalSolution& /*solution*/,
-                                 humanoid_mpc_msgs::ViewerAnnotations* annotations) {
+                                 humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations) {
     annotations->set_scaled_velocity_x(command.mpcInitObservation_.time);
+    return absl::OkStatus();
   };
   hooks.postSolveObserver = [&](const CommandData& /*command*/, const PrimalSolution& solution, const PerformanceIndex& /*performance*/) {
-    ASSERT_FALSE(solution.timeTrajectory_.empty());
+    EXPECT_FALSE(solution.timeTrajectory_.empty());
     observed.fetch_add(1);
-    if (throwNext.exchange(false)) throw std::runtime_error("observer failure");
+    return failNext.exchange(false) ? absl::InternalError("observer failure") : absl::OkStatus();
   };
   build(defaultConfig(), std::move(hooks));
   warmUp();
   const humanoid_mpc_msgs::MpcPolicy policy = solveFrom(/*time=*/1.1);
   EXPECT_EQ(policy.annotations().scaled_velocity_x(), 1.1);
 
-  throwNext.store(true);
+  failNext.store(true);
   solveFrom(/*time=*/1.2);
   solveFrom(/*time=*/1.3);
   // Joined before the hooks' state goes out of scope; every hook call has returned by then.
   server_->stop();
   EXPECT_EQ(observed.load(), server_->statistics().policiesPublished);
   EXPECT_TRUE(server_->statistics().healthy);
+}
+
+TEST_F(MpcServerTest, AnAnnotationsProviderThatFailsSendsThePolicyWithoutAnnotations) {
+  std::atomic<bool> failNext{false};
+  MpcServer::Hooks hooks;
+  hooks.annotationsProvider = [&failNext](const CommandData& command, const PrimalSolution& /*solution*/,
+                                          humanoid_mpc_msgs::ViewerAnnotations* absl_nonnull annotations) {
+    annotations->set_scaled_velocity_x(command.mpcInitObservation_.time);
+    return failNext.exchange(false) ? absl::InternalError("annotations failure") : absl::OkStatus();
+  };
+  build(defaultConfig(), std::move(hooks));
+  warmUp();
+
+  failNext.store(true);
+  const humanoid_mpc_msgs::MpcPolicy withoutAnnotations = solveFrom(/*time=*/1.1);
+  EXPECT_EQ(withoutAnnotations.annotations().scaled_velocity_x(), 0.0) << "what the provider wrote before it failed is cleared";
+  EXPECT_FALSE(withoutAnnotations.time_trajectory().empty());
+  const humanoid_mpc_msgs::MpcPolicy annotated = solveFrom(/*time=*/1.2);
+  EXPECT_EQ(annotated.annotations().scaled_velocity_x(), 1.2);
+  // Joined before the hook's state goes out of scope.
+  server_->stop();
+  EXPECT_TRUE(server_->statistics().healthy);
+  EXPECT_EQ(server_->statistics().failedAttempts, 0u);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -360,7 +383,7 @@ TEST_F(MpcServerTest, AFailingSolverReportsInEveryStatusBacksOffAndRecovers) {
   build();
   warmUp();
   const size_t policiesBefore = robot_.numPolicies();
-  mpc_->solver().failEverySolve(true);
+  mpc_->solver().failEverySolve(/*fail=*/true);
   scalar_t time = 1.0;
   ASSERT_TRUE(waitFor([&]() {
     time += 0.001;
@@ -372,10 +395,12 @@ TEST_F(MpcServerTest, AFailingSolverReportsInEveryStatusBacksOffAndRecovers) {
   const humanoid_mpc_msgs::MpcStatus& last = statuses.back();
   EXPECT_FALSE(last.solver_status().healthy());
   EXPECT_GE(last.solver_status().consecutive_failures(), 3u);
-  EXPECT_FALSE(last.solver_status().last_error().empty());
+  // OCS2's exception, as the attempt's status.
+  EXPECT_THAT(last.solver_status().last_error(), ::testing::StartsWith("MPC solver crashed at t = "));
+  EXPECT_THAT(last.solver_status().last_error(), ::testing::HasSubstr("[ScriptedSolver] scripted failure: Failed to solve QP"));
   EXPECT_EQ(robot_.numPolicies(), policiesBefore) << "a failed solve publishes no policy";
 
-  mpc_->solver().failEverySolve(false);
+  mpc_->solver().failEverySolve(/*fail=*/false);
   ASSERT_TRUE(waitFor([&]() {
     time += 0.001;
     robot_.publish(time);
@@ -392,7 +417,7 @@ TEST_F(MpcServerTest, ARequestFromTheRobotEndsTheBackOff) {
   config.resetSupervisor.maxRetryInterval = 5.0;
   build(config);
   warmUp();
-  mpc_->solver().failEverySolve(true);
+  mpc_->solver().failEverySolve(/*fail=*/true);
   ASSERT_TRUE(waitFor([&]() {
     robot_.publish(1.0);
     absl::SleepFor(absl::Milliseconds(1));
@@ -401,7 +426,7 @@ TEST_F(MpcServerTest, ARequestFromTheRobotEndsTheBackOff) {
   // Now waiting out a five-second back-off.
   absl::SleepFor(absl::Milliseconds(50));
   const uint64_t attempts = server_->statistics().solveAttempts;
-  mpc_->solver().failEverySolve(false);
+  mpc_->solver().failEverySolve(/*fail=*/false);
   const absl::Time requested = absl::Now();
   robot_.publish(/*time=*/1.1, /*requested=*/1, /*fullRequested=*/1);
   ASSERT_TRUE(waitFor([&]() { return robot_.hasPolicyFrom(1.1); }, absl::Seconds(3)));
@@ -410,14 +435,15 @@ TEST_F(MpcServerTest, ARequestFromTheRobotEndsTheBackOff) {
   EXPECT_EQ(robot_.lastPolicy().resets_served(), 1u);
 }
 
-TEST_F(MpcServerTest, AResetThatKeepsThrowingWaitsOutTheBackOffInsteadOfSpinning) {
+TEST_F(MpcServerTest, AResetThatKeepsFailingWaitsOutTheBackOffInsteadOfSpinning) {
   MpcServer::Config config = defaultConfig();
   config.resetSupervisor.initialRetryInterval = 0.05;
   config.resetSupervisor.maxRetryInterval = 0.1;
-  std::atomic<bool> resetThrows{false};
-  const MpcServer::ResetTargetTrajectoriesFunction resetTargets = [&resetThrows](const SystemObservation& observation) {
-    if (resetThrows.load()) {
-      throw std::runtime_error("the reset targets cannot be made");
+  std::atomic<bool> resetFails{false};
+  const MpcServer::ResetTargetTrajectoriesFunction resetTargets =
+      [&resetFails](const SystemObservation& observation) -> absl::StatusOr<TargetTrajectories> {
+    if (resetFails.load()) {
+      return absl::InvalidArgumentError("the reset targets cannot be made");
     }
     return resetTargetsFor(observation);
   };
@@ -425,7 +451,7 @@ TEST_F(MpcServerTest, AResetThatKeepsThrowingWaitsOutTheBackOffInsteadOfSpinning
   warmUp();
 
   // A reset the robot asks for and the server cannot make: the request stays unserved, attempt after attempt.
-  resetThrows.store(true);
+  resetFails.store(true);
   robot_.publish(/*time=*/1.1, /*requested=*/1, /*fullRequested=*/1);
   ASSERT_TRUE(waitFor([&]() { return !server_->statistics().healthy; }));
   const MpcServer::Statistics before = server_->statistics();
@@ -437,9 +463,11 @@ TEST_F(MpcServerTest, AResetThatKeepsThrowingWaitsOutTheBackOffInsteadOfSpinning
   EXPECT_LE(after.solveAttempts - before.solveAttempts, 10u) << "it did not back off";
   EXPECT_LE(after.statusesPublished - before.statusesPublished, 10u);
   EXPECT_EQ(robot_.lastPolicy().resets_served(), 0u) << "a policy that serves the request without the reset";
+  // What the reset function returned, as the failed attempt's status.
+  EXPECT_EQ(robot_.statuses().back().solver_status().last_error(), "Resetting the MPC failed: the reset targets cannot be made");
 
   // Once the reset can be made the next attempt makes it, from the observation that asked for it.
-  resetThrows.store(false);
+  resetFails.store(false);
   ASSERT_TRUE(waitFor([&]() { return robot_.hasPolicyFrom(1.1); }));
   EXPECT_EQ(robot_.lastPolicy().resets_served(), 1u);
   EXPECT_EQ(robot_.lastPolicy().full_resets_served(), 1u);

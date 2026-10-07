@@ -86,7 +86,7 @@ class MpcResetSupervisor {
     scalar_t maxRetryInterval = 2.0;
     // LINT.ThenChange(//humanoid_nmpc/docs/mpc_reset/README.md:controller_reset_events)
     /// [s] A time earlier than the previous one by more than this is a rewind of the clock.
-    scalar_t clockRewindTolerance = 1e-6;
+    scalar_t clockRewindTolerance = 1.0e-6;
   };
 
   MpcResetSupervisor() : MpcResetSupervisor(Config()) {}
@@ -94,6 +94,7 @@ class MpcResetSupervisor {
 
   MpcResetSupervisor(const MpcResetSupervisor&) = delete;
   MpcResetSupervisor& operator=(const MpcResetSupervisor&) = delete;
+  ~MpcResetSupervisor() = default;
 
   const Config& getConfig() const { return config_; }
 
@@ -170,7 +171,7 @@ class MpcResetSupervisor {
    * caused the wait (resetRequestedSinceLastFailure(): an operator re-entering WB_MPC should not wait out the back-off)
    * or when `stop()` becomes true: both are polled, so that requestReset() needs no lock to wake it.
    */
-  void waitBeforeRetry(std::chrono::duration<scalar_t> duration, const std::function<bool()>& stop);
+  void waitBeforeRetry(std::chrono::duration<scalar_t> duration, const std::function<bool()>& stop) const;
 
   /**
    * Whether a reset has been requested since the last failed solve (onSolveResult()) requested its own: what ends a

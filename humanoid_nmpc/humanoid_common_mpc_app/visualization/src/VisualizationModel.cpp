@@ -28,14 +28,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 // Pinocchio forward declarations must be included first.
-#include <pinocchio/fwd.hpp>
+#include "pinocchio/fwd.hpp"
 
 #include "humanoid_common_mpc_app/visualization/VisualizationModel.h"
 
-#include <pinocchio/multibody/model.hpp>
-
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "pinocchio/multibody/model.hpp"
 
 namespace ocs2::humanoid::visualization {
 

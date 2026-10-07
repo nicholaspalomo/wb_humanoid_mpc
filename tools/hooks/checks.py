@@ -32,12 +32,12 @@ check's name is its NOLINT category (`// NOLINT(<name>): <reason>`) and its name
 (`run_file()`) runs the checks that read a file, applies the file's NOLINT markers, and reports the markers that are
 themselves wrong (tools/hooks/nolint.py).
 
-A check that still has findings in the tree is PENDING: `make lint`, the pre-commit hook and CI skip it, and
-`python3 -m tools.hooks.lint_code --only <name>` runs it. A check leaves PENDING in the change that fixes its last
-finding (AGENTS.md "Running the style checks"); the mechanism goes once the sweeps are done.
+Every check is enforced: `make lint`, the pre-commit hook and CI run them all, and there is no list of checks that are
+skipped until their findings are fixed (tools/hooks/test_lint_enforcement.py keeps it that way).
 
 To add a check: write its module (`check_source(source, path) -> list[Finding]`, and `fix_source` where a rewrite cannot
-change behavior), list it in the module's CHECKS, add the module to _MODULE_CHECKS below, and give it a test_<module>.py.
+change behavior), list it in the module's CHECKS, add the module to _MODULE_CHECKS below, give it a test_<module>.py,
+and fix every finding it reports in the same change.
 """
 
 import functools
@@ -52,6 +52,7 @@ from tools.hooks import cpp_google_style
 from tools.hooks import cpp_totw
 from tools.hooks import include_style
 from tools.hooks import inclusive_language
+from tools.hooks import license_header
 from tools.hooks import lint_files
 from tools.hooks import no_auto
 from tools.hooks import nolint
@@ -61,7 +62,9 @@ from tools.hooks import proto_next_id
 from tools.hooks import python_docstrings
 from tools.hooks import python_imports
 from tools.hooks import python_language
+from tools.hooks import textproto_headers
 from tools.hooks import todo_format
+from tools.hooks import yaml_usage
 
 Check = check_types.Check
 Finding = check_types.Finding
@@ -121,76 +124,22 @@ _MODULE_CHECKS: list[Check] = (
     + american_spelling.CHECKS
     + proto_file_layout.CHECKS
     + proto_next_id.CHECKS
+    + textproto_headers.CHECKS
+    + yaml_usage.CHECKS
     + pointer_nullability.CHECKS
     + no_auto.CHECKS
     + cpp_google_style.CHECKS
     + cpp_totw.CHECKS
     + todo_format.CHECKS
     + inclusive_language.CHECKS
+    + license_header.CHECKS
     + python_imports.CHECKS
     + python_docstrings.CHECKS
     + python_language.CHECKS
 )
-# LINT.ThenChange(//AGENTS.md:cpp_style, //AGENTS.md:nullability, //AGENTS.md:totw_rules, //AGENTS.md:python_style)
+# LINT.ThenChange(//AGENTS.md:cpp_style, //AGENTS.md:nullability, //AGENTS.md:totw_rules, //AGENTS.md:python_style, //AGENTS.md:protobuf_rules)
 
 REGISTRY: tuple[Check, ...] = tuple(_NOLINT_CHECKS + _MODULE_CHECKS)
-
-# The checks (and lint_code steps) that still have findings in the tree: skipped by default, run with --only (module
-# docstring). Each leaves in the change that fixes its last finding; the sweep work package named after it owns that.
-PENDING: frozenset[str] = frozenset(
-    {
-        # The mechanical rewrites (M-cpp M1, M2; M-py P1-P4).
-        "float-literal",
-        "include-style",
-        "inclusive-language",
-        "isort",
-        "postfix-increment",
-        "py-license-docstring",
-        "py-shebang",
-        "std-integer-type",
-        "totw-brace-literal-init",
-        # Nullability (phase N).
-        "pointer-nullability",
-        "totw-optional-ref-param",
-        "totw-string-constant",
-        # Google C++ style and the Tips of the Week (phase G).
-        "class-comment",
-        "exceptions",
-        "forbidden-construct",
-        "if-else-braces",
-        "macro-naming",
-        "no-auto",
-        "rtti",
-        "static-storage",
-        "todo-format",
-        "totw-at",
-        "totw-enum-switch-default",
-        "totw-header-constant",
-        "totw-namespace-name",
-        "totw-printf",
-        "totw-raw-new",
-        "totw-small-by-const-ref",
-        "totw-smart-ptr-ref-param",
-        "totw-unordered-container",
-        "totw-unscoped-enum",
-        "totw-view-member",
-        # Python (phase PY).
-        "py-assert",
-        "py-complex-comprehension",
-        "py-docstring-sections",
-        "py-docstring-summary",
-        "py-exception-name",
-        "py-import-alias",
-        "py-import-modules",
-        "py-length-test",
-        "py-license-header",
-        "py-long-lambda",
-        "py-long-ternary",
-        "py-main-guard",
-        "py-relative-import",
-        "py-staticmethod",
-    }
-)
 
 # The cpplint categories (cpplint 2.0's _ERROR_CATEGORIES and _LEGACY_ERROR_CATEGORIES), which NOLINT markers may name.
 CPPLINT_CATEGORIES = frozenset(
@@ -275,8 +224,9 @@ CPPLINT_CATEGORIES = frozenset(
     }
 )
 
-# The clang-tidy configurations whose checks NOLINT markers may name: the enforced one, and the checks still being swept.
-CLANG_TIDY_CONFIGS = (".clang-tidy", "tools/clang_tidy/sweep.clang-tidy")
+# The clang-tidy configuration whose checks NOLINT markers may name. A marker for a check it does not enable would
+# suppress nothing, so `nolint-unknown` rejects it.
+CLANG_TIDY_CONFIGS = (".clang-tidy",)
 _CLANG_TIDY_CHECK = re.compile(r"^\s*-\s*[\"']?(-?[a-z0-9.*-]+)[\"']?\s*(?:#.*)?$")
 _CLANG_TIDY_CHECKS_STRING = re.compile(r"^Checks:\s*[\"']([^\"']*)[\"']", re.MULTILINE)
 
@@ -290,13 +240,8 @@ def by_name(name: str) -> Check:
 
 
 def names() -> frozenset[str]:
-    """The names of every registry check, pending ones included."""
+    """The names of every registry check, which `make lint` runs."""
     return frozenset(check.name for check in REGISTRY)
-
-
-def enforced() -> frozenset[str]:
-    """The names of the checks `make lint` runs: every registry check that is not PENDING."""
-    return names() - PENDING
 
 
 def clang_tidy_checks(root: str) -> frozenset[str]:
@@ -443,11 +388,9 @@ def fix_file(source: str, path: str, selected: frozenset[str]) -> str:
 
 
 def format_fixes() -> frozenset[str]:
-    """The checks whose fix `make format` applies: enforced, fixable, and unable to change behavior."""
+    """The checks whose fix `make format` applies: fixable, and unable to change behavior."""
     return frozenset(
         check.name
         for check in REGISTRY
-        if check.fixed_by_format
-        and check.fix_source is not None
-        and check.name not in PENDING
+        if check.fixed_by_format and check.fix_source is not None
     )

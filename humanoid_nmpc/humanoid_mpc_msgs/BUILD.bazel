@@ -4,6 +4,7 @@ load("@protobuf//bazel:proto_library.bzl", "proto_library")
 load("@protobuf//bazel:py_proto_library.bzl", "py_proto_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("@rules_python//python:defs.bzl", "py_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 load("//tools/nproto:nproto.bzl", "nproto_cc_library")
 
 # humanoid_mpc_msgs - the Protocol Buffers messages of the IPC bus that connects the robot, the MPC and the operator
@@ -55,8 +56,10 @@ cc_test(
     name = "messages_cc_test",
     size = "small",
     srcs = ["test/testMessages.cpp"],
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":messages_cc_proto",
+        "@abseil-cpp//absl/base:nullability",
         # cppzmq's target carries only the headers of libzmq; @libzmq is the library itself.
         "@cppzmq",
         "@googletest//:gtest_main",
@@ -88,11 +91,13 @@ cc_test(
     name = "messages_nproto_test",
     size = "small",
     srcs = ["test/testMessagesNproto.cpp"],
+    copts = FIRST_PARTY_COPTS,
     data = glob(["*.proto"]),
     deps = [
         ":messages_cc_proto",
         ":messages_nproto",
         "//tools/nproto/test:proto_test_values",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@eigen",
         "@googletest//:gtest_main",
@@ -105,12 +110,14 @@ cc_test(
     name = "messages_nproto_allocations_test",
     size = "small",
     srcs = ["test/testMessagesNprotoAllocations.cpp"],
+    copts = FIRST_PARTY_COPTS,
     linkstatic = True,
     deps = [
         ":messages_cc_proto",
         ":messages_nproto",
         "//robot_runtime/robot_realtime:allocation_counter",
         "//tools/nproto/test:proto_allocations",
+        "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
     ],
 )

@@ -22,6 +22,9 @@
 //
 // Types nested in a message are generated as nested C++ types of its struct (TargetContactPatch::Kind) and carry no
 // option of their own. The two options have different names because an extension's name is unique in its package.
+//
+// A message field can also ask for presence (optional_message below), and a message can name the fields it no longer
+// has (retired_field_options.proto, which needs the RetiredField message of retired_field.proto and so lives apart).
 syntax = "proto3";
 
 package nproto;
@@ -40,4 +43,13 @@ extend google.protobuf.EnumOptions {
   // enum's name.
   string generate_enum = 52002;
 }
-// LINT.ThenChange(//tools/nproto/nproto_generator.py:option_names, //tools/hooks/proto_file_layout.py)
+
+extend google.protobuf.FieldOptions {
+  // A singular message field whose struct member is std::optional<Struct> instead of the struct by value, so that an
+  // absent submessage is told apart from a default one: `ContactWrenchGateConfig gate = 3 [(nproto.optional_message) =
+  // true];`. ToProto() clears the field when the member is std::nullopt; FromProto() sets the member exactly when the
+  // message has the field. Only for singular message fields outside a oneof (a proto3 `optional` message field is
+  // std::optional already).
+  bool optional_message = 52004;
+}
+// LINT.ThenChange(//tools/nproto/nproto_generator.py:option_names, //tools/hooks/proto_file_layout.py, //tools/nproto/retired_field_options.proto:retired_options)

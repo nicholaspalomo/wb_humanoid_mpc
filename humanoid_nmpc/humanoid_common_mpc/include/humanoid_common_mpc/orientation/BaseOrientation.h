@@ -29,18 +29,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <Eigen/Core>
-
-#include <ocs2_core/manifold/UnitQuaternionMath.h>
+#include "Eigen/Core"
+#include "ocs2_core/manifold/UnitQuaternionMath.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 
 /*
  * The base orientation of the humanoid MPCs as a unit quaternion: the safe normalization every function of the state
  * reads the quaternion through, the lift of tangent Jacobians to the stored coefficients, and the heading-tilt split that
- * keeps the Euler-space tuning of the base orientation (task.yaml Q, Q_final, Q_acom rows yaw, pitch, roll) meaningful on
- * a quaternion state. Sections 2.1, 2.6 and 2.8.1 of humanoid_nmpc/docs/quaternion_base_orientation/README.md derive
- * everything here.
+ * keeps the Euler-space tuning of the base orientation (the yaw, pitch and roll of the task file's state_weights,
+ * final_state_weights and acom_weights) meaningful on a quaternion state. Sections 2.1, 2.6 and 2.8.1 of
+ * humanoid_nmpc/docs/quaternion_base_orientation/README.md derive everything here.
  *
  * Conventions, the same as RobotState::getRootRotationLocalToWorldFrame():
  *   - A quaternion is a vector4_t of coefficients xi = (x, y, z, w), Eigen's coeffs() order and Pinocchio's
@@ -115,13 +114,13 @@ Eigen::Matrix<scalar_t, 3, 4> configurationTangentLift(const vector4_t& xi);
 /******************************************************************************************************/
 
 /** Below this norm n = |s_xy| of the swing's vector part, the tilt is evaluated with its series (design section 2.8.1). */
-inline constexpr scalar_t kTiltSeriesThreshold = 1e-6;
+inline constexpr scalar_t kTiltSeriesThreshold = 1.0e-6;
 /**
  * The twist norm rho = |(xi_z, xi_w)| is at least this in every division (the upside-down guard of design section
  * 2.8.1). The heading is undefined, and its derivatives unbounded, only upside down (rho = 0): there the values stay
  * finite, the heading is read as zero, and the Jacobians are bounded by about 1 / kMinimumTwistNorm.
  */
-inline constexpr scalar_t kMinimumTwistNorm = 1e-9;
+inline constexpr scalar_t kMinimumTwistNorm = 1.0e-9;
 
 /**
  * The heading psi_h(xi) = 2 atan2(xi_z, xi_w): the angle of the twist about the world z axis in the twist-swing split

@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/cost/InputQuadraticCost.h"
 
+#include <utility>
+
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 namespace ocs2::humanoid {
@@ -42,11 +44,7 @@ InputQuadraticCost::InputQuadraticCost(matrix_t R,
       referenceManagerPtr_(&referenceManager),
       mpcRobotModelPtr_(&mpcRobotModel) {}
 
-InputQuadraticCost::InputQuadraticCost(const InputQuadraticCost& rhs)
-    : QuadraticStateInputCost(rhs),
-      stateDim_(rhs.stateDim_),
-      referenceManagerPtr_(rhs.referenceManagerPtr_),
-      mpcRobotModelPtr_(rhs.mpcRobotModelPtr_) {}
+InputQuadraticCost::InputQuadraticCost(const InputQuadraticCost& rhs) = default;
 
 std::pair<vector_t, vector_t> InputQuadraticCost::getStateInputDeviation(scalar_t time,
                                                                          const vector_t& state,

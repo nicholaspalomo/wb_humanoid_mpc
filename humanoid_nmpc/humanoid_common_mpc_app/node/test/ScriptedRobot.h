@@ -39,10 +39,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
-
-#include <ocs2_mpc/SystemObservation.h>
-
 #include "google/protobuf/message.h"
+#include "ocs2_mpc/SystemObservation.h"
+
 #include "humanoid_mpc_msgs/mpc_observation.pb.h"
 #include "humanoid_mpc_msgs/mpc_policy.pb.h"
 #include "robot_ipc/Bus.h"
@@ -59,6 +58,8 @@ class ScriptedRobot {
   ScriptedRobot();
   /** Stops both buses. */
   ~ScriptedRobot();
+  ScriptedRobot(const ScriptedRobot&) = delete;
+  ScriptedRobot& operator=(const ScriptedRobot&) = delete;
 
   /** Connects `mpcBus` to the robot and the operator, and the robot to `mpcBus`. Before any of them starts. */
   void connect(robot::ipc::Bus& mpcBus);

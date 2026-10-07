@@ -27,12 +27,13 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <memory>
 #include <string>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
 #include "absl/flags/usage.h"
@@ -41,8 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-
-#include <ocs2_mpc/SystemObservation.h>
+#include "ocs2_mpc/SystemObservation.h"
 
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc_app/node/DummySimLoop.h"
@@ -65,7 +65,7 @@ ABSL_FLAG(std::string, ipc_node, "robot", "The bus node this process publishes a
  * of the MPC node (humanoid_wb_mpc_node) over the bus, until SIGINT or SIGTERM. See
  * humanoid_nmpc/humanoid_wb_mpc_app/README.md.
  */
-int main(int argc, char** argv) {
+int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   absl::SetProgramUsageMessage(
       "The whole-body MPC's dummy simulator: plays the robot on the bus (robot/mpc_observation) with the MPC model as the "
       "plant.\n  humanoid_wb_mpc_dummy_sim --robot_name=g1 --task_file=... --reference_file=... --urdf_file=... "
@@ -118,7 +118,7 @@ int main(int argc, char** argv) {
   initialObservation.time = 0.0;
   initialObservation.state = (*interface)->getInitialState();
   initialObservation.input = ocs2::vector_t::Zero(model.getInputDim());
-  initialObservation.mode = ocs2::humanoid::ModeNumber::STANCE;
+  initialObservation.mode = ocs2::humanoid::ModeNumber::kStance;
   const absl::Status ran = (*loop)->run(initialObservation, []() { return ocs2::humanoid::node::shutdownRequested(); });
   if (!ran.ok()) {
     LOG(ERROR) << ran;

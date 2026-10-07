@@ -10,6 +10,7 @@ bazel run //tools/ipc:ipc_tool -- echo mpc/status --count 1             # decode
 bazel run //tools/ipc:ipc_tool -- echo mpc/policy --fields solver_status.healthy,state_trajectory.0.data
 bazel run //tools/ipc:ipc_tool -- echo robot/fsm_state --format json
 bazel run //tools/ipc:ipc_tool -- hz robot/mpc_observation              # rate, period jitter, payload size
+bazel run //tools/ipc:ipc_tool -- echo robot/config_save_status         # the robot's answers to the GUI's saves
 ```
 
 Or run the built binary directly: `.bazel/bin/tools/ipc/ipc_tool list`.
@@ -25,9 +26,10 @@ processes accept and reports a malformed one alike, with its line and column. Th
 is implemented on pyzmq directly, so the tool checks the documented framing rather than reusing `robot_ipc.Bus`.
 
 Every message is three frames: the topic, the full protobuf type name and the payload. The tool imports every
-generated module of `humanoid_mpc_msgs`, so the protobuf default descriptor pool knows every message, and decodes a
-payload by the type name of its second frame. A message of a type outside that package is described (`# type: unknown
-message type, N bytes`) rather than decoded.
+generated module of `humanoid_mpc_msgs` and of `humanoid_mpc_config` (the configuration files the tuning GUI publishes
+whole on `operator/mpc_parameters` and `operator/pd_gains`), so the protobuf default descriptor pool knows every
+message, and decodes a payload by the type name of its second frame. A message of a type outside those packages is
+described (`# type: unknown message type, N bytes`) rather than decoded.
 
 ZeroMQ filters subscriptions by prefix; `echo` and `hz` drop messages whose topic only starts with the requested one.
 

@@ -27,8 +27,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <linux/capability.h>
 #include <pthread.h>
 #include <sched.h>
@@ -38,14 +36,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cerrno>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/match.h"
+#include "absl/strings/str_format.h"
+#include "gtest/gtest.h"
 
 #include "robot_realtime/RealtimeThread.h"
 
@@ -82,18 +84,18 @@ std::vector<int> allowedCores() {
   return cores;
 }
 
-long minorPageFaultsOfThisThread() {
+int64_t minorPageFaultsOfThisThread() {
   rusage usage{};
   getrusage(RUSAGE_THREAD, &usage);
   return usage.ru_minflt;
 }
 
-constexpr std::size_t kTestChunkBytes = 16 * 1024;
+constexpr size_t kTestChunkBytes = 16 * 1024;
 
 // Uses `chunks` frames of kTestChunkBytes of stack, as a deep call chain of the realtime loop would.
-[[gnu::noinline]] void useStack(std::size_t chunks) {
+[[gnu::noinline]] void useStack(size_t chunks) {
   volatile unsigned char chunk[kTestChunkBytes];
-  for (std::size_t offset = 0; offset < kTestChunkBytes; offset += 1024) {
+  for (size_t offset = 0; offset < kTestChunkBytes; offset += 1024) {
     chunk[offset] = 1;
   }
   if (chunks > 1) {
@@ -226,12 +228,11 @@ bool dropRealtimeCapabilities() {
 }
 
 // Reports `status` and counts it as a failure unless it has `code` and mentions `hint`.
-int expectFailure(const char* call, const absl::Status& status, absl::StatusCode code, const char* hint) {
+int expectFailure(const char* absl_nonnull call, const absl::Status& status, absl::StatusCode code, const char* absl_nonnull hint) {
   if (status.code() == code && absl::StrContains(status.message(), hint)) {
     return 0;
   }
-  std::fprintf(stderr, "%s returned %s; expected %s mentioning \"%s\"\n", call, status.ToString().c_str(),
-               absl::StatusCodeToString(code).c_str(), hint);
+  absl::FPrintF(stderr, "%s returned %s; expected %s mentioning \"%s\"\n", call, status.ToString(), absl::StatusCodeToString(code), hint);
   return 1;
 }
 
@@ -239,13 +240,13 @@ int expectFailure(const char* call, const absl::Status& status, absl::StatusCode
 // process's resource limits for good. Exits 0 when every call failed cleanly with the expected error.
 [[noreturn]] void runSetupWithoutPrivileges(rlim_t memlockLimit) {
   if (!dropRealtimeCapabilities()) {
-    std::fprintf(stderr, "capset failed: %s\n", std::strerror(errno));
+    absl::FPrintF(stderr, "capset failed: %s\n", std::strerror(errno));
     _exit(2);
   }
   const rlimit noRealtimePriority{.rlim_cur = 0, .rlim_max = 0};
   const rlimit memlock{.rlim_cur = memlockLimit, .rlim_max = memlockLimit};
   if (setrlimit(RLIMIT_RTPRIO, &noRealtimePriority) != 0 || setrlimit(RLIMIT_MEMLOCK, &memlock) != 0) {
-    std::fprintf(stderr, "setrlimit failed: %s\n", std::strerror(errno));
+    absl::FPrintF(stderr, "setrlimit failed: %s\n", std::strerror(errno));
     _exit(3);
   }
 
@@ -253,7 +254,7 @@ int expectFailure(const char* call, const absl::Status& status, absl::StatusCode
   failures += expectFailure("setCurrentThreadRealtime", setCurrentThreadRealtime(/*priority=*/10), absl::StatusCode::kPermissionDenied,
                             "CAP_SYS_NICE");
   if (currentPolicy() != SCHED_OTHER) {
-    std::fprintf(stderr, "the thread's policy changed although the call failed\n");
+    absl::FPrintF(stderr, "the thread's policy changed although the call failed\n");
     ++failures;
   }
   if (memlockLimit == 0) {
@@ -266,7 +267,7 @@ int expectFailure(const char* call, const absl::Status& status, absl::StatusCode
     // The memory lock failing does not keep the thread from being made realtime: that step is tried and reported too.
     failures += expectFailure("configureCurrentThread", locked, absl::StatusCode::kPermissionDenied, "setting the realtime priority");
     if (currentThreadName() != "rt_test") {
-      std::fprintf(stderr, "configureCurrentThread did not name the thread\n");
+      absl::FPrintF(stderr, "configureCurrentThread did not name the thread\n");
       ++failures;
     }
 
@@ -276,7 +277,7 @@ int expectFailure(const char* call, const absl::Status& status, absl::StatusCode
     failures +=
         expectFailure("configureCurrentThread(kNone)", unlocked, absl::StatusCode::kPermissionDenied, "setting the realtime priority");
     if (absl::StrContains(unlocked.message(), "locking memory") || absl::StrContains(unlocked.message(), "prefaulting")) {
-      std::fprintf(stderr, "configureCurrentThread(kNone) touched the memory: %s\n", unlocked.ToString().c_str());
+      absl::FPrintF(stderr, "configureCurrentThread(kNone) touched the memory: %s\n", unlocked.ToString());
       ++failures;
     }
   } else {
@@ -301,11 +302,11 @@ TEST(RealtimeThreadDeathTest, aMemoryLockLimitTooSmallForTheProcessIsReported) {
 
 TEST(RealtimeThreadTest, aPrefaultedStackTakesNoPageFaultsWhenTheLoopReachesIt) {
   absl::Status status;
-  long faults = -1;
+  int64_t faults = -1;
   std::thread thread([&]() {
     status = prefaultStack(/*bytes=*/1024 * 1024);
     useStack(/*chunks=*/1);  // pages in the code of useStack itself
-    const long before = minorPageFaultsOfThisThread();
+    const int64_t before = minorPageFaultsOfThisThread();
     useStack(/*chunks=*/32);  // 512 KiB, all within what was prefaulted
     faults = minorPageFaultsOfThisThread() - before;
   });
@@ -318,7 +319,7 @@ TEST(RealtimeThreadTest, prefaultingMoreStackThanTheThreadHasIsRefused) {
   absl::Status tooMuch;
   absl::Status nothing;
   std::thread thread([&]() {
-    tooMuch = prefaultStack(/*bytes=*/std::size_t{1} << 30);
+    tooMuch = prefaultStack(/*bytes=*/size_t{1} << 30);
     nothing = prefaultStack(/*bytes=*/0);
   });
   thread.join();

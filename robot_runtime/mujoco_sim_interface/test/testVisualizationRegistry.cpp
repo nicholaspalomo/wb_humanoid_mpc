@@ -27,17 +27,25 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-#include <mujoco/mujoco.h>
-
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
+#include "gtest/gtest.h"
+#include "mujoco/mujoco.h"
+
+#include "mujoco_sim_interface/MujocoContactPatch.h"
+#include "mujoco_sim_interface/MujocoUtils.h"
+#include "mujoco_sim_interface/visualization/ContactTimelineVisualization.h"
+#include "mujoco_sim_interface/visualization/MetricsOverlay.h"
 #include "mujoco_sim_interface/visualization/MujocoOptionFlagVisualization.h"
+#include "mujoco_sim_interface/visualization/TargetContactPatchVisualization.h"
 #include "mujoco_sim_interface/visualization/VisualizationRegistry.h"
 
-using namespace robot::mujoco_sim_interface;
+namespace robot::mujoco_sim_interface {
+namespace {
 
 TEST(VisualizationRegistry, NamesAndHotkeysAreUnique) {
   const std::vector<VisualizationInfo> infos = availableVisualizations();
@@ -71,13 +79,15 @@ TEST(VisualizationRegistry, EveryNameCreatesItsVisualization) {
 TEST(VisualizationRegistry, DefaultSetIsTheHistoricalViewer) {
   const std::vector<std::string> defaults = defaultVisualizationNames();
   const std::set<std::string> set(defaults.begin(), defaults.end());
-  for (const char* name : {"metrics", "external_forces", "contact_forces", "base_velocity", "contact_timeline", "target_contact_patches"}) {
+  for (const char* absl_nonnull name :
+       {"metrics", "external_forces", "contact_forces", "base_velocity", "contact_timeline", "target_contact_patches"}) {
     EXPECT_EQ(set.count(name), 1u) << name << " is on by default";
   }
-  for (const char* name : {"mj_contact_points", "mj_contact_forces", "mj_com", "mj_inertia", "mj_convex_hull", "mj_transparent"}) {
+  for (const char* absl_nonnull name :
+       {"mj_contact_points", "mj_contact_forces", "mj_com", "mj_inertia", "mj_convex_hull", "mj_transparent"}) {
     EXPECT_EQ(set.count(name), 0u) << name << " is off by default, like in MuJoCo";
   }
-  for (const char* name : {"center_of_mass", "zmp", "dcm"}) {
+  for (const char* absl_nonnull name : {"center_of_mass", "zmp", "dcm"}) {
     EXPECT_EQ(set.count(name), 0u) << name << " is off unless listed in the task file";
     EXPECT_NE(createVisualization(name), nullptr) << name;
   }
@@ -92,10 +102,11 @@ TEST(VisualizationRegistry, ListedNamesAreCreatedEnabledInRegistryOrder) {
   EXPECT_EQ(visualizations[0]->name(), "metrics") << "drawing order is the registry's, not the list's";
   EXPECT_EQ(visualizations[1]->name(), "target_contact_patches");
   EXPECT_EQ(visualizations[2]->name(), "mj_com");
-  for (const std::unique_ptr<MujocoVisualization>& visualization : visualizations)
+  for (const std::unique_ptr<MujocoVisualization>& visualization : visualizations) {
     EXPECT_TRUE(visualization->enabled()) << visualization->name();
+  }
 
-  EXPECT_TRUE(createVisualizations({}, &errors).empty());
+  EXPECT_TRUE(createVisualizations(/*names=*/{}, &errors).empty());
   EXPECT_TRUE(errors.empty());
 }
 
@@ -150,3 +161,52 @@ TEST(MujocoOptionFlagVisualization, FlagFollowsTheEnabledStateEveryFrame) {
   MujocoOptionFlagVisualization::transparency()->beforeSceneUpdate(empty);
   EXPECT_EQ(MujocoOptionFlagVisualization::transparency()->flag(), MujocoOptionFlagVisualization::kTransparency);
 }
+
+TEST(MetricsOverlay, TextShowsTheRatesAsIntegersAndTheRestToAMillisecond) {
+  Metrics metrics;
+  metrics.fpsSim = 1999.7;
+  metrics.rtfSmoothed = 0.98765;
+  metrics.driftTick = -0.0000234;
+  metrics.driftCumulative = 0.25;
+  EXPECT_EQ(MetricsOverlay::text(metrics, /*renderFps=*/59.9, /*elapsedRealTime=*/12.3456, /*simTime=*/12.0),
+            "Render FPS: 59\n"
+            "Sim FPS: 1999\n"
+            "Real Time[s]: 12.346\n"
+            "Sim  Time[s]: 12.000\n\n"
+            "RTF: 0.988\n"
+            "Drift[ms]: -0.023\n"
+            "Cumulative Drift[ms]: 250.000");
+}
+
+TEST(ContactTimelineVisualization, TickLabelsCountTheSecondsBackFromNow) {
+  EXPECT_EQ(ContactTimelineVisualization::tickLabel(/*secondsAgo=*/0), "now");
+  EXPECT_EQ(ContactTimelineVisualization::tickLabel(/*secondsAgo=*/1), "-1 s");
+  EXPECT_EQ(ContactTimelineVisualization::tickLabel(/*secondsAgo=*/12), "-12 s");
+}
+
+TEST(TargetContactPatchVisualization, AKindOutsideTheEnumeratorsIsDrawnLikeAStance) {
+  TargetContactPatch patch;
+  patch.kind = TargetContactPatch::Kind::kStance;
+  const ContactPatchStyle stance = TargetContactPatchVisualization::styleFor(/*contact=*/1, patch);
+  EXPECT_FALSE(stance.fill);
+  EXPECT_FALSE(stance.arrow);
+  patch.kind = static_cast<TargetContactPatch::Kind>(7);  // what a patch decoded from a newer controller can carry
+  const ContactPatchStyle unknown = TargetContactPatchVisualization::styleFor(/*contact=*/1, patch);
+  EXPECT_EQ(unknown.rgba, stance.rgba);
+  EXPECT_EQ(unknown.fill, stance.fill);
+  EXPECT_EQ(unknown.arrow, stance.arrow);
+  EXPECT_EQ(unknown.emission, stance.emission);
+
+  patch.kind = TargetContactPatch::Kind::kSwingInFlight;
+  const ContactPatchStyle swing = TargetContactPatchVisualization::styleFor(/*contact=*/1, patch);
+  EXPECT_TRUE(swing.fill);
+  EXPECT_TRUE(swing.arrow);
+  EXPECT_GT(swing.rgba[3], stance.rgba[3]) << "the step being executed is drawn brighter than a foot held in place";
+  patch.kind = TargetContactPatch::Kind::kNextSwing;
+  const ContactPatchStyle next = TargetContactPatchVisualization::styleFor(/*contact=*/1, patch);
+  EXPECT_TRUE(next.fill);
+  EXPECT_LT(next.rgba[3], swing.rgba[3]);
+}
+
+}  // namespace
+}  // namespace robot::mujoco_sim_interface

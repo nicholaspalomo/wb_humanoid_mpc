@@ -30,14 +30,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_core/dynamics/SystemDynamicsBaseAD.h>
+#include <string>
 
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
+#include "absl/base/nullability.h"
+#include "ocs2_core/dynamics/SystemDynamicsBaseAD.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 
 namespace ocs2::humanoid {
 
+/**
+ * The floating-base dynamics of the whole-body MPC, taped with CppAD: the joint accelerations are inputs, the base
+ * acceleration follows from the Newton-Euler equations of the base under the contact wrenches. Holds a reference to the
+ * robot model, which must outlive it and its clones. Not thread-safe; the solver clones one per worker thread.
+ */
 class WBAccelDynamicsAD final : public SystemDynamicsBaseAD {
  public:
   using Base = SystemDynamicsBaseAD;
@@ -48,9 +56,15 @@ class WBAccelDynamicsAD final : public SystemDynamicsBaseAD {
 
   ~WBAccelDynamicsAD() override = default;
 
+  WBAccelDynamicsAD& operator=(const WBAccelDynamicsAD&) = delete;
+
+  WBAccelDynamicsAD(WBAccelDynamicsAD&&) = delete;
+
+  WBAccelDynamicsAD& operator=(WBAccelDynamicsAD&&) = delete;
+
   WBAccelDynamicsAD(const WBAccelDynamicsAD& rhs) = default;
 
-  WBAccelDynamicsAD* clone() const override { return new WBAccelDynamicsAD(*this); }
+  WBAccelDynamicsAD* absl_nonnull clone() const override { return new WBAccelDynamicsAD(*this); }
 
   ad_vector_t systemFlowMap(ad_scalar_t time,
                             const ad_vector_t& state,
@@ -58,7 +72,7 @@ class WBAccelDynamicsAD final : public SystemDynamicsBaseAD {
                             const ad_vector_t& parameters) const override;
 
  private:
-  PinocchioInterfaceCppAd pinInterfaceCppAd;
+  PinocchioInterfaceCppAd pinInterfaceCppAd_;
   WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel_;
 };
 

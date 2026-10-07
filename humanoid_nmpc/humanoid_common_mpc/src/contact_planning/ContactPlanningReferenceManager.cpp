@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -23,25 +27,33 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 
 #include <algorithm>
 #include <cmath>
-#include <exception>
 #include <functional>
 #include <limits>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
-#include <pinocchio/algorithm/center-of-mass.hpp>
-#include <pinocchio/algorithm/centroidal.hpp>
-#include <pinocchio/algorithm/frames.hpp>
-#include <pinocchio/algorithm/kinematics.hpp>
+#include "absl/base/nullability.h"
+#include "absl/log/log.h"
+#include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "ocs2_core/misc/LinearInterpolation.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/algorithm/centroidal.hpp"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/kinematics.hpp"
 
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
-
-#include <ocs2_core/misc/LinearInterpolation.h>
-
+#include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h"
 #include "humanoid_common_mpc/contact_planning/execution/PlanCoverage.h"
 #include "humanoid_common_mpc/contact_planning/execution/PlannedComOverride.h"
@@ -50,18 +62,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
-#include "absl/log/log.h"
-#include "absl/status/status.h"
-#include "absl/status/statusor.h"
-#include "absl/strings/str_cat.h"
-#include "humanoid_common_mpc/common/StatusMacros.h"
-
 namespace ocs2::humanoid {
 
 namespace {
-constexpr scalar_t kShiftLogAge = 2.0;               // [s] schedule shifts older than this cannot concern a pending plan any more
-constexpr scalar_t kSameSwingTolerance = 1e-6;       // [s] lift-off times closer than this identify the same swing
-constexpr scalar_t kPredictionTimeTolerance = 1e-6;  // [s] slack when checking that a prediction covers the solver time
+constexpr scalar_t kShiftLogAge = 2.0;                 // [s] schedule shifts older than this cannot concern a pending plan any more
+constexpr scalar_t kSameSwingTolerance = 1.0e-6;       // [s] lift-off times closer than this identify the same swing
+constexpr scalar_t kPredictionTimeTolerance = 1.0e-6;  // [s] slack when checking that a prediction covers the solver time
 }  // namespace
 
 absl::StatusOr<std::shared_ptr<ContactPlanningReferenceManager>> ContactPlanningReferenceManager::Create(
@@ -70,7 +76,8 @@ absl::StatusOr<std::shared_ptr<ContactPlanningReferenceManager>> ContactPlanning
     const PinocchioInterface& pinocchioInterface,
     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
     const ContactPlanningConfig& config) {
-  std::shared_ptr<ContactPlanningReferenceManager> manager(new ContactPlanningReferenceManager(
+  // absl::WrapUnique: the constructor is private.
+  std::shared_ptr<ContactPlanningReferenceManager> manager = absl::WrapUnique(new ContactPlanningReferenceManager(
       std::move(gaitSchedulePtr), std::move(swingTrajectoryPtr), pinocchioInterface, mpcRobotModel, config));
   // The execution rules hold pointers into this object (the robot model, the ACoM slot), so they are built once it
   // exists, by the same call that builds them on every reload.
@@ -128,14 +135,6 @@ bool ContactPlanningReferenceManager::rulesRewriteTarget() const {
   return false;
 }
 
-std::string ContactPlanningReferenceManager::executionSummary() const {
-  std::string out = absl::StrCat("execution (", executionRules_.size(), "):\n");
-  for (size_t i = 0; i < executionRules_.size(); ++i) {
-    absl::StrAppend(&out, "  - ", executionRules_.nameAt(i), ": ", executionRules_.at(i).describe(), "\n");
-  }
-  return out;
-}
-
 namespace {
 
 /**
@@ -144,7 +143,7 @@ namespace {
  * warned about and leaves the base yaw as the heading).
  */
 absl::StatusOr<std::shared_ptr<AngularCenterOfMass>> headingModelEvaluatorFor(const ContactPlanningConfig& config,
-                                                                              const std::shared_ptr<AngularCenterOfMass>& installed,
+                                                                              const AngularCenterOfMass* absl_nullable installed,
                                                                               const ModelSettings& modelSettings) {
   if (!config.usesHeadingModel() || installed != nullptr) return std::shared_ptr<AngularCenterOfMass>();
   absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> acom =
@@ -167,7 +166,7 @@ absl::StatusOr<std::shared_ptr<AngularCenterOfMass>> headingModelEvaluatorFor(co
 absl::Status ContactPlanningReferenceManager::loadHeadingModelEvaluator() {
   loadsHeadingModelEvaluator_ = true;
   const absl::StatusOr<std::shared_ptr<AngularCenterOfMass>> acom =
-      headingModelEvaluatorFor(getConfig(), acom_, mpcRobotModelPtr_->modelSettings);
+      headingModelEvaluatorFor(getConfig(), acom_.get(), mpcRobotModelPtr_->modelSettings);
   if (!acom.ok()) return acom.status();
   if (*acom != nullptr) acom_ = *acom;
   return absl::OkStatus();
@@ -183,7 +182,7 @@ scalar_t ContactPlanningReferenceManager::computeHeading(const vector_t& state) 
 feet_array_t<scalar_t> ContactPlanningReferenceManager::readFootYaws() const {
   feet_array_t<scalar_t> yaws = makeFeetArray(0.0);
   const PinocchioInterface::Data& data = pinocchioInterface_.getData();
-  for (size_t i = 0; i < N_CONTACTS; ++i) {
+  for (size_t i = 0; i < kNumContacts; ++i) {
     const matrix3_t rotation = data.oMf[getContactFrameIndex(pinocchioInterface_, *mpcRobotModelPtr_, i)].rotation();
     yaws[i] = std::atan2(rotation(1, 0), rotation(0, 0));
   }
@@ -242,17 +241,18 @@ std::optional<SwitchedModelReferenceManager::PlannedDcm> ContactPlanningReferenc
   // lies past the end of any plan older than (plan horizon - MPC horizon), and the lookups below would answer there
   // with the last node's DCM, lagging the robot by (time - endTime) * v. Outside the plan the cost keeps its own
   // support-center reference instead.
-  if (!planReferencesUsable() || !planCoversTime(*activePlan_, time)) return std::nullopt;
+  const ContactPlan* absl_nullable plan = usablePlanAt(lastSolveTime_);
+  if (plan == nullptr || !planCoversTime(*plan, time)) return std::nullopt;
   // The plan's center of mass is only half of its DCM; the other half is the pendulum it was made on. A plan that does
   // not say which (one built by hand) is taken to be on the running configuration's.
-  scalar_t omega = activePlan_->omega;
+  scalar_t omega = plan->omega;
   if (!(omega > 0.0)) {
     std::lock_guard<std::mutex> lock(configMutex_);
     omega = config_.omega();
   }
   if (!(omega > 0.0)) return std::nullopt;
-  const std::optional<vector2_t> position = activePlan_->comPositionAtTime(time);
-  const std::optional<vector2_t> velocity = activePlan_->comVelocityAtTime(time);
+  const std::optional<vector2_t> position = plan->comPositionAtTime(time);
+  const std::optional<vector2_t> velocity = plan->comVelocityAtTime(time);
   if (!position.has_value() || !velocity.has_value()) return std::nullopt;
   PlannedDcm planned;
   planned.dcm = *position + *velocity / omega;
@@ -346,7 +346,7 @@ absl::Status ContactPlanningReferenceManager::setConfigStatus(const ContactPlann
   // the interface makes once from setupOptimalControlProblem(), after the planner module exists.
   if (loadsHeadingModelEvaluator_) {
     ASSIGN_OR_RETURN(const std::shared_ptr<AngularCenterOfMass> acom,
-                     headingModelEvaluatorFor(config, acom_, mpcRobotModelPtr_->modelSettings));
+                     headingModelEvaluatorFor(config, acom_.get(), mpcRobotModelPtr_->modelSettings));
     if (acom != nullptr) acom_ = acom;
   }
   logSwingTimeScaleWarning(config);
@@ -365,7 +365,7 @@ feet_array_t<vector3_t> ContactPlanningReferenceManager::computeFootPositions(co
   const vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(state);
   const std::vector<vector3_t> positions = computeContactPositions<scalar_t>(q, pinocchioInterface_, *mpcRobotModelPtr_);
   feet_array_t<vector3_t> feet;
-  for (size_t i = 0; i < N_CONTACTS; ++i) {
+  for (size_t i = 0; i < kNumContacts; ++i) {
     feet[i] = positions[i];
   }
   return feet;
@@ -385,7 +385,7 @@ void ContactPlanningReferenceManager::updateFootBookkeeping(scalar_t initTime, c
   footPositions_ = computeFootPositions(initState);
   footYaws_ = readFootYaws();
   const contact_flag_t contacts = contactFlagsAtTime(appliedSchedule_, initTime);
-  for (size_t i = 0; i < N_CONTACTS; ++i) {
+  for (size_t i = 0; i < kNumContacts; ++i) {
     if (contacts[i] || !footBookkeepingInitialized_) {
       liftOffPositions_[i] = footPositions_[i];
       liftOffYaws_[i] = footYaws_[i];
@@ -416,7 +416,7 @@ void ContactPlanningReferenceManager::activatePendingPlan(scalar_t initTime) {
     // executed schedule already has it in flight at the merge point was built before that swing was activated and would
     // land the foot there and lift it again.
     const scalar_t mergeTime = std::max(initTime, candidate->committedUntil);
-    if (candidate->committedUntil < initTime - 1e-6) {
+    if (candidate->committedUntil < initTime - 1.0e-6) {
       if (++stalePlanCount_ % 50 == 1) {
         LOG(INFO) << "[ContactPlanningReferenceManager] the contact plan is stale by " << (initTime - candidate->committedUntil)
                   << " s (commitTime " << config.planner.commitTime
@@ -477,17 +477,17 @@ void ContactPlanningReferenceManager::handleContactEvents(ExecutionContext& ctx)
   bool replan = false;
   for (const ContactEventReport& report : lastContactEvents_) {
     switch (report.type) {
-      case ContactEventReport::Type::EARLY_TOUCH_DOWN:
+      case ContactEventReport::Type::kEarlyTouchDown:
         replan = true;
         break;
-      case ContactEventReport::Type::LATE_TOUCH_DOWN:
+      case ContactEventReport::Type::kLateTouchDown:
         replan = true;
         totalShift += report.timeShift;
         break;
-      case ContactEventReport::Type::CADENCE_SHIFT:
+      case ContactEventReport::Type::kCadenceShift:
         totalShift += report.timeShift;
         break;
-      case ContactEventReport::Type::NONE:
+      case ContactEventReport::Type::kNone:
         break;
     }
   }
@@ -510,21 +510,20 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
   const scalar_t upperBoundTime = finalTime + timeHorizon;
   const ContactPlanningConfig config = getConfig();
 
-  // The swing trajectory planner's configuration is replaced by the task.yaml reload, which does not pass through this
+  // The swing trajectory planner's configuration is replaced by the task file's reload, which does not pass through this
   // manager, so a swingTimeScale moved from the GUI is checked against the planned swings here, once per change.
   if (checkedSwingTimeScale_ != swingTrajectoryPtr_->getConfig().swingTimeScale) logSwingTimeScaleWarning(config);
 
   activatePendingPlan(initTime);
 
-  ExecutionContext ctx;
+  ExecutionContext ctx(config);
   ctx.time = initTime;
   ctx.measuredContact = modeNumber2StanceLeg(initMode);
-  ctx.config = &config;
   ctx.totalMass = totalMass_;
   // An expired plan is withheld from the execution rules for the same reason the schedule merge refuses it: every
   // ContactPlan lookup clamps, so PlannedComOverride and PlannedHeadingOverride would steer the whole-body MPC
   // towards the last node of a horizon that has already passed.
-  ctx.activePlan = planReferencesUsableAt(initTime) ? &*activePlan_ : nullptr;
+  ctx.activePlan = usablePlanAt(initTime);
   // Only the rules that compare the center of mass with the NMPC's prediction need the kinematics; skip them when none is
   // listed so that the default configuration does exactly the work it did before they existed.
   if (rulesNeedComState()) {
@@ -553,22 +552,24 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
   // for longer than commitTime) the applied schedule keeps running; activatePendingPlan() never lets such a plan in.
   scalar_t commitTime = initTime;
   bool planFresh = false;
-  if (hasActivePlan()) {
-    planFresh = activePlan_->committedUntil >= initTime - 1e-6;
-    commitTime = std::max(initTime, activePlan_->committedUntil);
+  const ContactPlan* absl_nullable validPlan = activePlan_.has_value() && activePlan_->valid ? &*activePlan_ : nullptr;
+  if (validPlan != nullptr) {
+    planFresh = validPlan->committedUntil >= initTime - 1.0e-6;
+    commitTime = std::max(initTime, validPlan->committedUntil);
   }
   const bool planUsable =
-      hasActivePlan() && planFresh && activePlan_->endTime() > commitTime + config.planner.dt && activePlan_->startTime <= commitTime;
+      validPlan != nullptr && planFresh && validPlan->endTime() > commitTime + config.planner.dt && validPlan->startTime <= commitTime;
 
   ModeSchedule schedule;
   if (planUsable) {
-    const ModeSchedule planSchedule = activePlan_->toModeSchedule();
+    const ModeSchedule planSchedule = validPlan->toModeSchedule();
     const ModeSchedule& applied =
         hasAppliedSchedule_ ? appliedSchedule_ : gaitSchedulePtr_->getModeSchedule(lowerBoundTime, upperBoundTime);
     schedule = mergeModeSchedules(applied, planSchedule, commitTime, lowerBoundTime, upperBoundTime);
   } else if (hasAppliedSchedule_ && activePlan_.has_value()) {
     // The plan ran out (planner stalled): keep executing the applied schedule, which ends in STANCE.
-    schedule = mergeModeSchedules(appliedSchedule_, ModeSchedule({}, {ModeNumber::STANCE}), upperBoundTime, lowerBoundTime, upperBoundTime);
+    schedule = mergeModeSchedules(appliedSchedule_, ModeSchedule(/*eventTimesInput=*/{}, {ModeNumber::kStance}), upperBoundTime,
+                                  lowerBoundTime, upperBoundTime);
   } else {
     schedule = gaitSchedulePtr_->getModeSchedule(lowerBoundTime, upperBoundTime);
   }
@@ -595,8 +596,9 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
   // tail was therefore the previous plan's clamped end again. The extension now reads the target as the operator
   // published it (the copy setTargetTrajectories keeps for the command), and falls back to the live one only when
   // nothing was ever published through this manager.
-  if (planReferencesUsableAt(initTime) && !targetTrajectories.empty() && rulesRewriteTarget()) {
-    const ContactPlan& plan = *activePlan_;
+  const ContactPlan* absl_nullable usablePlan = usablePlanAt(initTime);
+  if (usablePlan != nullptr && !targetTrajectories.empty() && rulesRewriteTarget()) {
+    const ContactPlan& plan = *usablePlan;
     const TargetTrajectories& operatorTarget = operatorTarget_.get().empty() ? targetTrajectories : operatorTarget_.get();
     TargetTrajectories denseTarget;
     const size_t numNodes = plan.comPosition.size();
@@ -658,14 +660,15 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
 
 void ContactPlanningReferenceManager::updateTargetContactPoses(scalar_t initTime, scalar_t terrainHeight) {
   feet_array_t<TargetContactPose> poses = makeFeetArray(TargetContactPose{});
-  if (planReferencesUsableAt(initTime) && footBookkeepingInitialized_) {
+  const ContactPlan* absl_nullable usablePlan = usablePlanAt(initTime);
+  if (usablePlan != nullptr && footBookkeepingInitialized_) {
     TargetContactPoseInputs inputs;
     inputs.time = initTime;
     inputs.footPositions = footPositions_;
     inputs.footYaws = footYaws_;
     inputs.dcmStepAdjustment = dcmStepAdjustment_;
     inputs.terrainHeight = terrainHeight;
-    poses = computeTargetContactPoses(*activePlan_, appliedSchedule_, inputs);
+    poses = computeTargetContactPoses(*usablePlan, appliedSchedule_, inputs);
   }
   std::lock_guard<std::mutex> lock(targetPoseMutex_);
   targetContactPoses_ = poses;
@@ -689,12 +692,13 @@ void ContactPlanningReferenceManager::updateSwingTrajectories(const ModeSchedule
   // swing as a straight descent instead of hovering.
   feet_array_t<std::optional<SwingTrajectoryPlanner::GroundSearch>> groundSearches =
       makeFeetArray(std::optional<SwingTrajectoryPlanner::GroundSearch>{});
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     for (const std::unique_ptr<ExecutionRule>& rule : executionRules_) {
       const std::optional<GroundSearchRequest> search = rule->groundSearch(ctx, foot, schedule, swingLatches_[foot]);
       if (search.has_value()) {
-        groundSearches[foot] =
-            SwingTrajectoryPlanner::GroundSearch{search->liftOffTime, search->plannedTouchDownTime, search->searchVelocity};
+        groundSearches[foot] = SwingTrajectoryPlanner::GroundSearch{.liftOffTime = search->liftOffTime,
+                                                                    .plannedTouchDownTime = search->plannedTouchDownTime,
+                                                                    .descentVelocity = search->searchVelocity};
         break;
       }
     }
@@ -706,7 +710,7 @@ void ContactPlanningReferenceManager::updateDcmStepAdjustment(const ExecutionCon
   dcmStepAdjustment_.fill(vector2_t::Zero());
   for (const std::unique_ptr<ExecutionRule>& rule : executionRules_) {
     const feet_array_t<vector2_t> correction = rule->correctFootholds(ctx, appliedSchedule_);
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) dcmStepAdjustment_[foot] += correction[foot];
+    for (size_t foot = 0; foot < kNumContacts; ++foot) dcmStepAdjustment_[foot] += correction[foot];
   }
 }
 
@@ -719,12 +723,13 @@ std::optional<std::pair<scalar_t, scalar_t>> ContactPlanningReferenceManager::sw
 }
 
 std::optional<SwingFootReference> ContactPlanningReferenceManager::getSwingFootReference(size_t contactIndex, scalar_t time) const {
-  if (!planReferencesUsable() || !footBookkeepingInitialized_) return std::nullopt;
+  const ContactPlan* absl_nullable plan = usablePlanAt(lastSolveTime_);
+  if (plan == nullptr || !footBookkeepingInitialized_) return std::nullopt;
   const std::optional<std::pair<scalar_t, scalar_t>> phase = swingPhase(contactIndex, time);
   if (!phase.has_value()) return std::nullopt;
   const scalar_t liftOffTime = phase->first;
   const scalar_t touchDownTime = phase->second;
-  const std::optional<vector2_t> landing = activePlan_->footholdAtTime(contactIndex, touchDownTime);
+  const std::optional<vector2_t> landing = plan->footholdAtTime(contactIndex, touchDownTime);
   if (!landing.has_value()) return std::nullopt;
 
   // The xy motion is timed on the swing without its late touch-down extension: a foot searching for the ground holds its
@@ -735,7 +740,7 @@ std::optional<SwingFootReference> ContactPlanningReferenceManager::getSwingFootR
     xyTouchDownTime = touchDownTime - latch.lateExtension;
   }
   const scalar_t duration = xyTouchDownTime - liftOffTime;
-  if (duration <= 1e-6) return std::nullopt;
+  if (duration <= 1.0e-6) return std::nullopt;
 
   // The xy interpolation starts where the foot stands at lift-off. For the swing that ends the foot's current contact
   // phase (in flight now, or the next to lift) that is the latched measured position. For a later swing of the same foot
@@ -750,7 +755,7 @@ std::optional<SwingFootReference> ContactPlanningReferenceManager::getSwingFootR
   const std::optional<scalar_t> currentLiftOff = currentOrNextLiftOffTime(appliedSchedule_, contactIndex, lastSolveTime_);
   const bool endsCurrentContactPhase = currentLiftOff.has_value() && std::abs(*currentLiftOff - liftOffTime) <= kSameSwingTolerance;
   if (!endsCurrentContactPhase) {
-    const std::optional<vector2_t> plannedStance = activePlan_->footholdBeforeTime(contactIndex, liftOffTime);
+    const std::optional<vector2_t> plannedStance = plan->footholdBeforeTime(contactIndex, liftOffTime);
     if (plannedStance.has_value()) start = *plannedStance;
   }
   const scalar_t tau = std::clamp((time - liftOffTime) / duration, 0.0, 1.0);
@@ -775,12 +780,12 @@ std::optional<SwingFootReference> ContactPlanningReferenceManager::getSwingFootR
   reference.linearVelocity.head<2>() = blendRate * delta;
   reference.linearVelocity(2) = swingTrajectoryPtr_->getZvelocityConstraint(contactIndex, time);
   // Heading model: the foot yaw turns from its lift-off yaw to the planned landing yaw with the same profile.
-  if (activePlan_->hasHeading()) {
-    const std::optional<scalar_t> landingYaw = activePlan_->footYawAtTime(contactIndex, touchDownTime);
+  if (plan->hasHeading()) {
+    const std::optional<scalar_t> landingYaw = plan->footYawAtTime(contactIndex, touchDownTime);
     if (landingYaw.has_value()) {
       scalar_t startYaw = liftOffYaws_[contactIndex];
       if (!endsCurrentContactPhase) {
-        const std::optional<scalar_t> plannedYaw = activePlan_->footYawBeforeTime(contactIndex, liftOffTime);
+        const std::optional<scalar_t> plannedYaw = plan->footYawBeforeTime(contactIndex, liftOffTime);
         if (plannedYaw.has_value()) startYaw = *plannedYaw;
       }
       reference.yaw = startYaw + blend * (moduloAngleWithReference(*landingYaw, startYaw) - startYaw);
@@ -800,7 +805,7 @@ ContactPlannerInput ContactPlanningReferenceManager::makePlannerInput(scalar_t i
   input.yaw = mpcRobotModelPtr_->getBaseOrientationEulerZYX(initState)(0);
 
   const feet_array_t<vector3_t> feet = computeFootPositions(initState);
-  for (size_t i = 0; i < N_CONTACTS; ++i) {
+  for (size_t i = 0; i < kNumContacts; ++i) {
     input.footPositions[i] = feet[i].head<2>();
   }
 
@@ -821,7 +826,7 @@ ContactPlannerInput ContactPlanningReferenceManager::makePlannerInput(scalar_t i
     input.yawInertia = computeYawInertia(initState);
     const scalar_t angularMomentumZ = totalMass_ * mpcRobotModelPtr_->getBaseComVelocity(initState)(5);
     input.headingRate = input.yawInertia > 0.0 ? angularMomentumZ / input.yawInertia : 0.0;
-    for (size_t i = 0; i < N_CONTACTS; ++i) {
+    for (size_t i = 0; i < kNumContacts; ++i) {
       input.footYaws[i] = moduloAngleWithReference(yaws[i], input.heading);
     }
   }

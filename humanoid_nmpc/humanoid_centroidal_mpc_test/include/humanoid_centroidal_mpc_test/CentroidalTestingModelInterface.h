@@ -33,24 +33,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <string>
 
-#include <ocs2_centroidal_model/AccessHelperFunctions.h>
-#include <ocs2_centroidal_model/CentroidalModelInfo.h>
-#include <ocs2_centroidal_model/CentroidalModelPinocchioMapping.h>
-#include <ocs2_centroidal_model/FactoryFunctions.h>
-#include <ocs2_centroidal_model/ModelHelperFunctions.h>
+#include "ocs2_centroidal_model/AccessHelperFunctions.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
+#include "ocs2_centroidal_model/ModelHelperFunctions.h"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
-#include "robot_core/ResourcePaths.h"
+#include "support/TypedConfigFiles.h"
 
 namespace ocs2::humanoid {
 
 /**
- * The centroidal MPC model of a shipped robot - task file, URDF, reference file, Pinocchio interface and MPC robot
- * models - for the tests of this package. The Unitree G1 unless another robot is asked for.
+ * The centroidal MPC model of a shipped robot - task file, URDF, reference file, their typed configuration, Pinocchio
+ * interface and MPC robot models - for the tests of this package. The Unitree G1 unless another robot is asked for.
  *
  * The files are read from the test's runfiles (BUILD `_TEST_DATA`), which are symlinks into the checkout and therefore
- * current. A file missing from them throws, naming the file and the `data` dependency to add.
+ * current. A file missing from them fails the calling test, and a configuration that does not convert aborts it with
+ * the conversion's error.
  */
 struct CentroidalTestingModelInterface {
  public:
@@ -59,6 +60,8 @@ struct CentroidalTestingModelInterface {
   std::string taskFile;
   std::string urdfFile;
   std::string referenceFile;
+  // The typed task and reference files (loadCentroidalMpcConfig()).
+  CentroidalMpcConfig config;
 
   std::unique_ptr<PinocchioInterface> pinocchioInterfacePtr;
   std::unique_ptr<ModelSettings> modelSettingsPtr;
@@ -67,20 +70,18 @@ struct CentroidalTestingModelInterface {
 
   explicit CentroidalTestingModelInterface(Robot robot = Robot::kUnitreeG1) {
     // LINT.IfChange(testing_model_files)
-    if (robot == Robot::kDrcAtlas) {
-      taskFile = ::robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml").value();
-      urdfFile = ::robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf").value();
-      referenceFile = ::robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml").value();
-    } else {
-      taskFile = ::robot::resolveResourcePath("robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml").value();
-      urdfFile = ::robot::resolveResourcePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf").value();
-      referenceFile = ::robot::resolveResourcePath("robot_models/unitree_g1/g1_centroidal_mpc/config/command/reference.yaml").value();
-    }
+    const CentroidalRobotFiles files = robot == Robot::kDrcAtlas ? atlasFiles() : g1Files();
     // LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc_test/BUILD.bazel:test_data)
+    taskFile = files.taskFile;
+    urdfFile = files.urdfFile;
+    referenceFile = files.referenceFile;
+    config = loadConfigOf(files).value();
 
-    modelSettingsPtr = std::make_unique<ModelSettings>(taskFile, urdfFile, "centroidal_testing_interfce", /*verbose=*/false);
+    modelSettingsPtr = std::make_unique<ModelSettings>(
+        ModelSettings::Create(config.task, urdfFile, "centroidal_testing_interfce", /*verbose=*/false).value());
 
-    pinocchioInterfacePtr = std::make_unique<PinocchioInterface>(createCustomPinocchioInterface(taskFile, urdfFile, *modelSettingsPtr));
+    pinocchioInterfacePtr = std::make_unique<PinocchioInterface>(
+        loadCustomPinocchioInterface(config.task, urdfFile, *modelSettingsPtr, /*scaleTotalMass=*/false).value());
     mpcRobotModelPtr_ =
         std::make_unique<CentroidalMpcRobotModel<scalar_t>>(*modelSettingsPtr, *pinocchioInterfacePtr, getCentroidalModelInfo());
     mpcRobotModelADPtr_ = std::make_unique<CentroidalMpcRobotModel<ad_scalar_t>>(*modelSettingsPtr, (*pinocchioInterfacePtr).toCppAd(),
@@ -89,16 +90,14 @@ struct CentroidalTestingModelInterface {
 
   PinocchioInterface& getPinocchioInterface() const { return *pinocchioInterfacePtr; }
 
-  CentroidalMpcRobotModel<scalar_t>& getMpcRobotModel() { return *mpcRobotModelPtr_; }
-  CentroidalMpcRobotModel<ad_scalar_t>& getMpcRobotModelAD() { return *mpcRobotModelADPtr_; }
+  CentroidalMpcRobotModel<scalar_t>& getMpcRobotModel() const { return *mpcRobotModelPtr_; }
+  CentroidalMpcRobotModel<ad_scalar_t>& getMpcRobotModelAD() const { return *mpcRobotModelADPtr_; }
 
   const ModelSettings& getModelSettings() const { return *modelSettingsPtr; }
 
+  /** The centroidal model info of the configuration, as CentroidalMpcInterface builds it (centroidalModelInfoOf()). */
   CentroidalModelInfo getCentroidalModelInfo() const {
-    return centroidal_model::createCentroidalModelInfo(
-        *pinocchioInterfacePtr, centroidal_model::loadCentroidalType(taskFile),
-        centroidal_model::loadDefaultJointState(pinocchioInterfacePtr->getModel().nq - 6, referenceFile),
-        modelSettingsPtr->contactNames3DoF, modelSettingsPtr->contactNames6DoF);
+    return centroidalModelInfoOf(config, *pinocchioInterfacePtr, *modelSettingsPtr).value();
   }
 };
 

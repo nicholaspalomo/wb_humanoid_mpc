@@ -33,13 +33,29 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <limits>
 #include <map>
+#include <memory>
+#include <optional>
+#include <string>
 #include <utility>
 
 #include "absl/log/log.h"
+#include "absl/memory/memory.h"
 #include "absl/strings/str_cat.h"
 
-#include "humanoid_common_mpc_app/robot/DodgeballThrowParser.h"
+#include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/config/OperatorPayloadChecks.h"
+#include "humanoid_common_mpc/config/robot/ControllerSideSettingsFromConfig.h"
+#include "humanoid_common_mpc_app/robot/config/robot/DodgeballThrowFromMessage.h"
+#include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
+#include "humanoid_mpc_config/joint_pd_gains_file.nproto.pb.h"
+#include "humanoid_mpc_config/joint_pd_gains_file.pb.h"
+#include "humanoid_mpc_config/mpc_parameter_update.nproto.h"
+#include "humanoid_mpc_config/mpc_parameter_update.nproto.pb.h"
+#include "humanoid_mpc_config/mpc_parameter_update.pb.h"
 #include "humanoid_mpc_ipc/Topics.h"
+#include "humanoid_mpc_msgs/dodgeball_throw.nproto.h"
+#include "humanoid_mpc_msgs/dodgeball_throw.nproto.pb.h"
+#include "humanoid_mpc_msgs/dodgeball_throw.pb.h"
 #include "robot_ipc/Delivery.h"
 
 namespace ocs2::humanoid {
@@ -71,7 +87,7 @@ absl::StatusOr<std::unique_ptr<OperatorCommandMailbox>> OperatorCommandMailbox::
   if (config.commandQueueCapacity == 0 || config.dodgeballQueueCapacity == 0) {
     return absl::InvalidArgumentError("OperatorCommandMailbox: the queue capacities must be positive");
   }
-  return std::unique_ptr<OperatorCommandMailbox>(new OperatorCommandMailbox(std::move(config), contactEstimators, std::move(hooks)));
+  return absl::WrapUnique(new OperatorCommandMailbox(std::move(config), contactEstimators, std::move(hooks)));
 }
 
 OperatorCommandMailbox::OperatorCommandMailbox(Config config, const robot::model::ContactEstimatorRegistry& contactEstimators, Hooks hooks)
@@ -84,7 +100,7 @@ OperatorCommandMailbox::OperatorCommandMailbox(Config config, const robot::model
       nominalPosture_(config_.initialNominalPositions),
       desiredGantryHeight_(std::numeric_limits<double>::quiet_NaN()),
       ioNominalPositions_(config_.initialNominalPositions) {
-  for (std::size_t joint = 0; joint < config_.jointNames.size(); ++joint) {
+  for (size_t joint = 0; joint < config_.jointNames.size(); ++joint) {
     jointIndexByName_.emplace(config_.jointNames[joint], joint);
   }
 }
@@ -99,9 +115,9 @@ absl::Status OperatorCommandMailbox::registerOnBus(robot::ipc::Bus& bus) {
                                                        [this](const humanoid_mpc_msgs::JointTargets& message) { onJointTargets(message); });
   }
   if (status.ok()) {
-    status = bus.subscribe<humanoid_mpc_msgs::YamlDocument>(
+    status = bus.subscribe<humanoid_mpc_msgs::DodgeballThrow>(
         ipc::topics::kOperatorDodgeballThrow, robot::ipc::Delivery::kAll,
-        [this](const humanoid_mpc_msgs::YamlDocument& message) { onDodgeballThrow(message); });
+        [this](const humanoid_mpc_msgs::DodgeballThrow& message) { onDodgeballThrow(message); });
   }
   if (status.ok()) {
     status = bus.subscribe<humanoid_mpc_msgs::WalkingVelocityCommand>(
@@ -109,13 +125,14 @@ absl::Status OperatorCommandMailbox::registerOnBus(robot::ipc::Bus& bus) {
         [this](const humanoid_mpc_msgs::WalkingVelocityCommand& message) { onWalkingVelocityCommand(message); });
   }
   if (status.ok()) {
-    status = bus.subscribe<humanoid_mpc_msgs::YamlDocument>(
+    status = bus.subscribe<humanoid_mpc_config::MpcParameterUpdate>(
         ipc::topics::kOperatorMpcParameters, robot::ipc::Delivery::kLatest,
-        [this](const humanoid_mpc_msgs::YamlDocument& message) { onMpcParameters(message); });
+        [this](const humanoid_mpc_config::MpcParameterUpdate& message) { onMpcParameters(message); });
   }
   if (status.ok()) {
-    status = bus.subscribe<humanoid_mpc_msgs::YamlDocument>(ipc::topics::kOperatorPdGains, robot::ipc::Delivery::kLatest,
-                                                            [this](const humanoid_mpc_msgs::YamlDocument& message) { onPdGains(message); });
+    status = bus.subscribe<humanoid_mpc_config::JointPdGainsFile>(
+        ipc::topics::kOperatorPdGains, robot::ipc::Delivery::kLatest,
+        [this](const humanoid_mpc_config::JointPdGainsFile& message) { onPdGains(message); });
   }
   return status;
 }
@@ -187,7 +204,7 @@ void OperatorCommandMailbox::onFsmCommand(const humanoid_mpc_msgs::FsmCommand& m
 void OperatorCommandMailbox::onJointTargets(const humanoid_mpc_msgs::JointTargets& message) {
   bool changed = false;
   for (const google::protobuf::Map<std::string, double>::value_type& entry : message.positions()) {
-    const absl::flat_hash_map<std::string, std::size_t>::const_iterator joint = jointIndexByName_.find(entry.first);
+    const absl::flat_hash_map<std::string, size_t>::const_iterator joint = jointIndexByName_.find(entry.first);
     if (joint == jointIndexByName_.end()) {
       continue;  // a joint of another robot, as the ROS subscriber skipped it
     }
@@ -208,13 +225,22 @@ void OperatorCommandMailbox::onJointTargets(const humanoid_mpc_msgs::JointTarget
   jointTargetsApplied_.fetch_add(1);
 }
 
-void OperatorCommandMailbox::onDodgeballThrow(const humanoid_mpc_msgs::YamlDocument& message) {
-  // All of the reading and the validation is in parseDodgeballThrow, which is unit-tested; see it for what is read and
-  // what is rejected.
-  const absl::StatusOr<DodgeballThrow> command = parseDodgeballThrow(message.yaml());
+void OperatorCommandMailbox::onDodgeballThrow(const humanoid_mpc_msgs::DodgeballThrow& message) {
+  if (const absl::Status schema = checkPayloadSchema(message); !schema.ok()) {
+    dodgeballsRejected_.fetch_add(1);
+    LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
+        << "[OperatorCommandMailbox] Ignoring operator/dodgeball_throw: " << schema.message() << "; nothing was applied.";
+    return;
+  }
+  // All of the validation is in dodgeballThrowFromMessage, which is unit-tested; see it for what is read and what is
+  // rejected.
+  msgs::DodgeballThrow typed;
+  const absl::Status converted = msgs::FromProto(message, &typed);
+  const absl::StatusOr<DodgeballThrow> command =
+      converted.ok() ? dodgeballThrowFromMessage(typed) : absl::StatusOr<DodgeballThrow>(converted);
   if (!command.ok()) {
     dodgeballsRejected_.fetch_add(1);
-    LOG(WARNING) << command.status().message();
+    LOG(WARNING) << "[OperatorCommandMailbox] " << command.status().message();
     return;
   }
   if (dodgeballs_.tryPush(*command)) {
@@ -226,62 +252,72 @@ void OperatorCommandMailbox::onWalkingVelocityCommand(const humanoid_mpc_msgs::W
   if (std::isfinite(message.desired_pelvis_height())) {
     desiredGantryHeight_.store(std::clamp(message.desired_pelvis_height(), kMinGantryHeight, kMaxGantryHeight), std::memory_order_release);
   }
-  if (hooks_.walkingVelocityCommand) {
-    hooks_.walkingVelocityCommand(message);
-  }
 }
 
-void OperatorCommandMailbox::onMpcParameters(const humanoid_mpc_msgs::YamlDocument& message) {
-  const absl::StatusOr<ControllerSideSettings> settings = parseControllerSideSettings(message.yaml());
-  if (!settings.ok()) {
+void OperatorCommandMailbox::onMpcParameters(const humanoid_mpc_config::MpcParameterUpdate& message) {
+  if (const absl::Status refused = checkMpcParameterUpdate(message, config_.robotName, config_.taskFileIdentity); !refused.ok()) {
     controllerSettingsRejected_.fetch_add(1);
-    LOG(WARNING) << "[OperatorCommandMailbox] Ignoring the controller-side keys of operator/mpc_parameters: "
-                 << settings.status().message();
-  } else {
-    postControllerSettings(*settings, "operator/mpc_parameters");
-  }
-  if (hooks_.mpcParameters) {
-    hooks_.mpcParameters(message);
-  }
-}
-
-void OperatorCommandMailbox::onPdGains(const humanoid_mpc_msgs::YamlDocument& message) {
-  pdGainsDocuments_.fetch_add(1);
-  if (hooks_.pdGainsYaml) {
-    // The controller logs a document it refuses and keeps its gains.
-    hooks_.pdGainsYaml(message.yaml()).IgnoreError();
-  }
-}
-
-void OperatorCommandMailbox::postControllerSettings(const ControllerSideSettings& settings, absl::string_view source) {
-  for (const std::string& problem : settings.problems) {
-    LOG(WARNING) << "[OperatorCommandMailbox] " << source << ": " << problem;
-  }
-  if (settings.empty()) {
+    LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
+        << "[OperatorCommandMailbox] Ignoring operator/mpc_parameters: " << refused.message() << "; nothing was applied.";
     return;
   }
-  std::shared_ptr<robot::model::ContactEstimator> estimator;
-  std::string estimatorName;
-  if (settings.contactEstimator.has_value()) {
-    estimatorName = robot::model::ContactEstimatorRegistry::canonicalName(*settings.contactEstimator);
-    absl::StatusOr<std::shared_ptr<robot::model::ContactEstimator>> resolved = contactEstimator(estimatorName);
-    if (resolved.ok()) {
-      estimator = *std::move(resolved);
-    } else {
-      controllerSettingsRejected_.fetch_add(1);
-      LOG(ERROR) << "[OperatorCommandMailbox] Unknown contactEstimator '" << *settings.contactEstimator << "' in " << source
-                 << "; keeping the estimator in use. " << resolved.status().message();
-    }
+  mpc_config::MpcParameterUpdate update;
+  const absl::Status converted = mpc_config::FromProto(message, &update);
+  if (!converted.ok()) {
+    controllerSettingsRejected_.fetch_add(1);
+    LOG(WARNING) << "[OperatorCommandMailbox] Ignoring operator/mpc_parameters, which does not convert: " << converted.message();
+    return;
   }
-  if (estimator == nullptr && !settings.contactWrenchGate.has_value()) {
+  postControllerSettings(controllerSideSettingsFromConfig(update.task), "operator/mpc_parameters");
+}
+
+void OperatorCommandMailbox::onPdGains(const humanoid_mpc_config::JointPdGainsFile& message) {
+  pdGainsDocuments_.fetch_add(1);
+  if (const absl::Status schema = checkPayloadSchema(message); !schema.ok()) {
+    pdGainsRejected_.fetch_add(1);
+    LOG_EVERY_N_SEC(WARNING, kLogPeriodSeconds)
+        << "[OperatorCommandMailbox] Ignoring operator/pd_gains: " << schema.message() << "; the gains in use are kept.";
+    return;
+  }
+  mpc_config::JointPdGainsFile gains;
+  const absl::Status converted = mpc_config::FromProto(message, &gains);
+  if (!converted.ok()) {
+    pdGainsRejected_.fetch_add(1);
+    LOG(WARNING) << "[OperatorCommandMailbox] Ignoring operator/pd_gains, which does not convert: " << converted.message();
+    return;
+  }
+  // The controller logs gains it refuses and keeps its own.
+  if (hooks_.pdGains && !hooks_.pdGains(gains).ok()) {
+    pdGainsRejected_.fetch_add(1);
+  }
+}
+
+void OperatorCommandMailbox::postControllerSettings(const ControllerSideConfig& settings, absl::string_view source) {
+  for (const std::string& problem : settings.problems) {
+    LOG(WARNING) << "[OperatorCommandMailbox] " << source << ": " << problem << "; the contact wrench gate in use is kept";
+  }
+  std::shared_ptr<robot::model::ContactEstimator> estimator;
+  const std::string estimatorName = robot::model::ContactEstimatorRegistry::canonicalName(settings.contactEstimator);
+  absl::StatusOr<std::shared_ptr<robot::model::ContactEstimator>> resolved = contactEstimator(estimatorName);
+  if (resolved.ok()) {
+    estimator = *std::move(resolved);
+  } else {
+    controllerSettingsRejected_.fetch_add(1);
+    LOG(ERROR) << "[OperatorCommandMailbox] Refusing the contact_estimator '" << settings.contactEstimator << "' of " << source
+               << "; keeping the estimator in use. " << resolved.status().message();
+  }
+  // The settings are those of a whole file: no contact_wrench_gate block is the instantaneous gate, as at start-up,
+  // and only a block that was refused (a problem) keeps the gate in use.
+  const std::optional<ContactWrenchGate::Config> gate = wholeFileContactWrenchGate(settings);
+  if (estimator == nullptr && !gate.has_value()) {
     return;
   }
   const bool pushed = controllerSettings_.tryPushInPlace([&](ControllerSettingsUpdate& slot) {
     slot.hasContactEstimator = estimator != nullptr;
     slot.contactEstimatorName = estimatorName;
     slot.contactEstimator = estimator;
-    slot.hasContactWrenchGate = settings.contactWrenchGate.has_value();
-    if (settings.contactWrenchGate.has_value()) slot.contactWrenchGate = *settings.contactWrenchGate;
+    slot.hasContactWrenchGate = gate.has_value();
+    if (gate.has_value()) slot.contactWrenchGate = *gate;
   });
   if (pushed) {
     controllerSettingsQueued_.fetch_add(1);
@@ -304,6 +340,10 @@ absl::StatusOr<std::shared_ptr<robot::model::ContactEstimator>> OperatorCommandM
         absl::StrCat("There is no contact estimator '", name, "'. Available: ", contactEstimatorRegistry_.availableNames(), "."));
   }
   std::shared_ptr<robot::model::ContactEstimator> estimator = contactEstimatorRegistry_.create(canonical);
+  // Checked before anything can install it: the realtime thread never sees an estimator the controller would refuse.
+  if (hooks_.checkContactEstimator) {
+    RETURN_IF_ERROR(hooks_.checkContactEstimator(*estimator, canonical));
+  }
   estimators_.emplace(canonical, estimator);
   return estimator;
 }
@@ -320,6 +360,7 @@ OperatorCommandMailbox::Statistics OperatorCommandMailbox::statistics() const {
   statistics.controllerSettingsQueued = controllerSettingsQueued_.load();
   statistics.controllerSettingsRejected = controllerSettingsRejected_.load();
   statistics.pdGainsDocuments = pdGainsDocuments_.load();
+  statistics.pdGainsRejected = pdGainsRejected_.load();
   statistics.queueDrops = fsmCommands_.droppedCount() + dodgeballs_.droppedCount() + controllerSettings_.droppedCount();
   return statistics;
 }

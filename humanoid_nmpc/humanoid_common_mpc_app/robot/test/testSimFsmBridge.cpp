@@ -27,27 +27,27 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
-#include <fstream>
 #include <memory>
 #include <optional>
-#include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include <robot_model/ContactEstimatorRegistry.h>
+#include "absl/status/statusor.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc_app/robot/FsmStateMailbox.h"
 #include "humanoid_common_mpc_app/robot/JointNamesByIndex.h"
 #include "humanoid_common_mpc_app/robot/OperatorCommandMailbox.h"
 #include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
 #include "humanoid_common_mpc_app/robot/SimFsmBridge.h"
+#include "humanoid_mpc_msgs/dodgeball_throw.pb.h"
 #include "humanoid_mpc_msgs/fsm_command.pb.h"
 #include "humanoid_mpc_msgs/joint_targets.pb.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
-#include "humanoid_mpc_msgs/yaml_document.pb.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/RobotTestSupport.h"
+#include "nproto/Textproto.h"
+#include "robot_model/ContactEstimatorRegistry.h"
 
 /*
  * The FSM of the simulated robot against the headless simulator: the commands it takes from the operator's mailbox,
@@ -100,12 +100,11 @@ class SimFsmBridgeTest : public ::testing::Test {
 };
 
 TEST_F(SimFsmBridgeTest, StartsInZeroTorqueOnTheGantry) {
-  const std::optional<msgs::FsmState> state = published();
-  ASSERT_TRUE(state.has_value());
-  EXPECT_EQ(state->mode, "ZERO_TORQUE");
-  EXPECT_TRUE(state->gantry_locked);
-  EXPECT_EQ(state->controller_resets, 0u);
-  EXPECT_TRUE(state->mpc_healthy);
+  const msgs::FsmState state = robot_test::valueOrFail(published());
+  EXPECT_EQ(state.mode, "ZERO_TORQUE");
+  EXPECT_TRUE(state.gantry_locked);
+  EXPECT_EQ(state.controller_resets, 0u);
+  EXPECT_TRUE(state.mpc_healthy);
   EXPECT_TRUE(sim_->isZeroTorqueMode());
 }
 
@@ -116,7 +115,7 @@ TEST_F(SimFsmBridgeTest, ModeCommandsSwitchTheTorquesAndPublishTheMode) {
   EXPECT_TRUE(bridge_->processCommands(mode, *sim_));
   EXPECT_EQ(mode, "JOINT_PD");
   EXPECT_FALSE(sim_->isZeroTorqueMode());
-  EXPECT_EQ(published()->mode, "JOINT_PD");
+  EXPECT_EQ(robot_test::valueOrFail(published()).mode, "JOINT_PD");
 
   send("MPC_ACTIVE");
   EXPECT_TRUE(bridge_->processCommands(mode, *sim_));
@@ -159,14 +158,13 @@ TEST_F(SimFsmBridgeTest, TheGantryMovesOnlyWhenItWouldChange) {
   send("UNLOCK_GANTRY");
   EXPECT_TRUE(bridge_->processCommands(mode, *sim_));
   EXPECT_FALSE(sim_->isGantryLocked());
-  const std::optional<msgs::FsmState> unlocked = published();
-  ASSERT_TRUE(unlocked.has_value());
-  EXPECT_FALSE(unlocked->gantry_locked);
-  EXPECT_EQ(unlocked->mode, "JOINT_PD");
+  const msgs::FsmState unlocked = robot_test::valueOrFail(published());
+  EXPECT_FALSE(unlocked.gantry_locked);
+  EXPECT_EQ(unlocked.mode, "JOINT_PD");
   send("LOCK_GANTRY");
   EXPECT_TRUE(bridge_->processCommands(mode, *sim_));
   EXPECT_TRUE(sim_->isGantryLocked());
-  EXPECT_TRUE(published()->gantry_locked);
+  EXPECT_TRUE(robot_test::valueOrFail(published()).gantry_locked);
 }
 
 TEST_F(SimFsmBridgeTest, TheGantryFollowsTheSliderWhileLockedAndOnlyOnceItHasMoved) {
@@ -199,20 +197,18 @@ TEST_F(SimFsmBridgeTest, EveryControllerResetIsCountedAndTheHealthIsPublishedOnC
   published();
   bridge_->publishControllerReset("JOINT_PD", /*gantryLocked=*/true);
   bridge_->publishControllerReset("JOINT_PD", /*gantryLocked=*/true);
-  const std::optional<msgs::FsmState> reset = published();
-  ASSERT_TRUE(reset.has_value());
-  EXPECT_EQ(reset->controller_resets, 2u) << "the newest state carries every reset so far";
+  const msgs::FsmState reset = robot_test::valueOrFail(published());
+  EXPECT_EQ(reset.controller_resets, 2u) << "the newest state carries every reset so far";
   EXPECT_EQ(bridge_->controllerResets(), 2u);
 
   bridge_->setMpcHealthy(/*mpcHealthy=*/true, "WB_MPC", /*gantryLocked=*/false);
   EXPECT_FALSE(published().has_value()) << "healthy already: nothing to publish";
   bridge_->setMpcHealthy(/*mpcHealthy=*/false, "WB_MPC", /*gantryLocked=*/false);
-  const std::optional<msgs::FsmState> unhealthy = published();
-  ASSERT_TRUE(unhealthy.has_value());
-  EXPECT_FALSE(unhealthy->mpc_healthy);
-  EXPECT_EQ(unhealthy->controller_resets, 2u);
+  const msgs::FsmState unhealthy = robot_test::valueOrFail(published());
+  EXPECT_FALSE(unhealthy.mpc_healthy);
+  EXPECT_EQ(unhealthy.controller_resets, 2u);
   bridge_->publishFsmState("WB_MPC", /*gantryLocked=*/false);
-  EXPECT_FALSE(published()->mpc_healthy) << "every state carries the health";
+  EXPECT_FALSE(robot_test::valueOrFail(published()).mpc_healthy) << "every state carries the health";
 }
 
 TEST_F(SimFsmBridgeTest, JointTargetsMoveTheNominalPosture) {
@@ -228,12 +224,10 @@ TEST_F(SimFsmBridgeTest, JointTargetsMoveTheNominalPosture) {
 }
 
 TEST_F(SimFsmBridgeTest, ADodgeballIsHandedToTheSimulatorBeforeTheCommands) {
-  std::ifstream file("humanoid_nmpc/humanoid_common_mpc_app/robot/test/data/dodgeball_payload.yaml");
-  std::stringstream payload;
-  payload << file.rdbuf();
-  humanoid_mpc_msgs::YamlDocument document;
-  document.set_yaml(payload.str());
-  mailbox_->onDodgeballThrow(document);
+  const absl::StatusOr<humanoid_mpc_msgs::DodgeballThrow> golden = nproto::ParseTextprotoFile<humanoid_mpc_msgs::DodgeballThrow>(
+      "humanoid_nmpc/humanoid_common_mpc_app/robot/test/data/dodgeball_throw.textproto");
+  ASSERT_TRUE(golden.ok()) << golden.status();
+  mailbox_->onDodgeballThrow(*golden);
   std::string mode = "JOINT_PD";
   EXPECT_FALSE(bridge_->processCommands(mode, *sim_)) << "a throw is not an FSM command";
   robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow left;

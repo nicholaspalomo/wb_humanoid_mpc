@@ -128,6 +128,14 @@ py_test(
     deps = [":test_support"],
 )
 
+# The periods (BusBridge's options, --flush_period) reject zero, negative and NaN values.
+py_test(
+    name = "test_period_flags",
+    size = "small",
+    srcs = ["test/test_period_flags.py"],
+    deps = [":test_support"],
+)
+
 # A process of its own, so that a hang of rerun-sdk's serve_grpc() (rerun_sinks.py) shows as this test's timeout.
 py_test(
     name = "test_serve_web_sink",

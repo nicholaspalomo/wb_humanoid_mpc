@@ -104,7 +104,6 @@ class CpplintTest(FixtureDirectoryTest):
         self.assertIn("set noparent", config)
 
     def test_the_configuration_applies(self):
-        swept = "-runtime/int" in check_test_support.read_repository_file("CPPLINT.cfg")
         name = self.write(
             "a.cpp",
             "// Copyright (c) 2026, Nicholas Palomo. All rights reserved.\nlong x;\nvoid f() {\n  if (x) {\n  }\n"
@@ -115,9 +114,7 @@ class CpplintTest(FixtureDirectoryTest):
         # The empty-body checks are the only whitespace checks left on (the filter order of CPPLINT.cfg).
         self.assertIn("[whitespace/empty_if_body]", output)
         self.assertIn("[whitespace/empty_loop_body]", output)
-        self.assertEqual(
-            "[runtime/int]" in output, not swept, "the SWEEP filter of runtime/int"
-        )
+        self.assertIn("[runtime/int]", output)
         self.assertNotIn("[whitespace/line_length]", output)
 
     def test_markers_for_the_repositorys_checks_are_filtered(self):
@@ -219,26 +216,17 @@ class MypyTest(FixtureDirectoryTest):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_module_sections_only_relax(self):
+    def test_the_global_options_hold_every_module(self):
         parser = configparser.ConfigParser()
         parser.read(check_test_support.repository_file("mypy.ini"), encoding="utf-8")
         self.assertEqual(parser.get("mypy", "python_version"), "3.11")
         self.assertTrue(parser.getboolean("mypy", "disallow_untyped_defs"))
-        for section in parser.sections():
-            if section.startswith("mypy-"):
-                for key, value in parser.items(section):
-                    with self.subTest(section=section, key=key):
-                        self.assertIn(
-                            key,
-                            (
-                                "ignore_errors",
-                                "disallow_untyped_defs",
-                                "disallow_incomplete_defs",
-                            ),
-                        )
-                        self.assertEqual(
-                            value.lower(), "true" if key == "ignore_errors" else "false"
-                        )
+        self.assertTrue(parser.getboolean("mypy", "disallow_incomplete_defs"))
+        self.assertEqual(
+            [section for section in parser.sections() if section.startswith("mypy-")],
+            [],
+            "a per-module section relaxes mypy for one module (lint_code.mypy_config_problems)",
+        )
 
 
 class IsortAndBlackTest(FixtureDirectoryTest):
@@ -246,7 +234,8 @@ class IsortAndBlackTest(FixtureDirectoryTest):
         source = (
             '"""A module."""\n\nimport sys\nfrom tools.hooks import lint_files\nimport os\n'
             "from collections.abc import Callable, Iterator, Sequence, Mapping, MutableMapping, Iterable, Generator\n"
-            "import numpy as np\n\nprint(os, sys, np, lint_files, Callable, Iterator, Sequence, Mapping, MutableMapping, Iterable, Generator)\n"
+            "import numpy as np\n\n"
+            "print(os, sys, np, lint_files, Callable, Iterator, Sequence, Mapping, MutableMapping, Iterable, Generator)\n"
         )
         name = self.write("imports.py", source)
         isort = ["isort", "--settings-path", ".isort.cfg", "-p", "tools"]

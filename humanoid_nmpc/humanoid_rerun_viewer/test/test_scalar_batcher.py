@@ -1,20 +1,48 @@
-"""The scalar batchers: ScalarBatcher sends each entity's rows in one send_columns call; FrameBatcher sends frames of
-many entities as one record batch, which Rerun stores exactly as send_columns' chunks. Both on both timelines, in
-order."""
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""Tests for the scalar batchers of scalar_batcher.py.
+
+ScalarBatcher sends each entity's rows in one send_columns call; FrameBatcher sends frames of many entities as one
+record batch, which Rerun stores exactly as send_columns' chunks. Both on both timelines, in order.
+"""
 
 import os
 import shutil
 import tempfile
 import unittest
-from typing import List
 
 import numpy as np
 import rerun as rr
 
-import rrd_contents
 from humanoid_rerun_viewer import bridge
 from humanoid_rerun_viewer import scalar_batcher
 from humanoid_rerun_viewer import scene_contract
+import rrd_contents
 
 ROBOT_TIMELINE = scene_contract.ROBOT_TIMELINE
 WALL_TIMELINE = scene_contract.WALL_TIMELINE
@@ -26,7 +54,7 @@ class RecordingSpy:
     """A RecordingStream stand-in that records the send_columns calls."""
 
     def __init__(self) -> None:
-        self.calls: List[str] = []
+        self.calls: list[str] = []
 
     def send_columns(self, path: str, indexes, columns) -> None:
         del indexes, columns
@@ -70,7 +98,7 @@ class ScalarBatcherTest(unittest.TestCase):
 
     def test_one_call_per_entity_and_flush(self) -> None:
         spy = RecordingSpy()
-        batcher = scalar_batcher.ScalarBatcher(spy)  # type: ignore[arg-type]
+        batcher = scalar_batcher.ScalarBatcher(spy)
         for step in range(10):
             batcher.append("a", float(step), WALL, [1.0, 2.0])
             batcher.append("b", float(step), WALL, [1.0])
@@ -80,7 +108,7 @@ class ScalarBatcherTest(unittest.TestCase):
 
     def test_a_change_of_width_sends_the_rows_before_it(self) -> None:
         spy = RecordingSpy()
-        batcher = scalar_batcher.ScalarBatcher(spy)  # type: ignore[arg-type]
+        batcher = scalar_batcher.ScalarBatcher(spy)
         batcher.append("a", 0.0, WALL, [1.0, 2.0])
         batcher.append("a", 0.1, WALL, [1.0, 2.0, 3.0])
         self.assertEqual(spy.calls, ["a"])
@@ -88,9 +116,7 @@ class ScalarBatcherTest(unittest.TestCase):
 
     def test_a_full_entity_is_sent_without_waiting(self) -> None:
         spy = RecordingSpy()
-        batcher = scalar_batcher.ScalarBatcher(
-            spy, max_pending_rows=3
-        )  # type: ignore[arg-type]
+        batcher = scalar_batcher.ScalarBatcher(spy, max_pending_rows=3)
         for step in range(7):
             batcher.append("a", float(step), WALL, [1.0])
         self.assertEqual(spy.calls, ["a", "a"])
@@ -109,11 +135,11 @@ class ScalarBatcherTest(unittest.TestCase):
 
     def test_empty_rows_are_ignored_and_options_checked(self) -> None:
         spy = RecordingSpy()
-        batcher = scalar_batcher.ScalarBatcher(spy)  # type: ignore[arg-type]
+        batcher = scalar_batcher.ScalarBatcher(spy)
         batcher.append("a", 0.0, WALL, [])
         self.assertEqual(batcher.flush(), 0)
         with self.assertRaises(ValueError):
-            scalar_batcher.ScalarBatcher(spy, max_pending_rows=0)  # type: ignore[arg-type]
+            scalar_batcher.ScalarBatcher(spy, max_pending_rows=0)
 
 
 class FrameBatcherTest(unittest.TestCase):
@@ -228,7 +254,7 @@ class FrameBatcherTest(unittest.TestCase):
         )
 
     def test_a_full_batcher_sends_without_waiting(self) -> None:
-        recording, path = self.recording("full")
+        recording, _ = self.recording("full")
         batcher = scalar_batcher.FrameBatcher(recording, max_pending_frames=3)
         for step in range(7):
             batcher.append(float(step), WALL, [("telemetry/a", [1.0])])

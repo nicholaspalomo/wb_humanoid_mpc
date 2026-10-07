@@ -128,10 +128,10 @@ class RepositoryFilesTest(unittest.TestCase):
             "src/untracked.h",
             "src/ignored.cpp",
             "bazel-out/k8-opt/bin/generated.cpp",
-            "build/generated.h",
+            ".bazel/bin/generated.h",
         ]:
             self.repository.write(path, "int x;\n")
-        self.repository.write(".gitignore", "src/ignored.cpp\nbazel-out/\nbuild/\n")
+        self.repository.write(".gitignore", "src/ignored.cpp\nbazel-out/\n.bazel/\n")
 
     def tearDown(self):
         self.repository.cleanup()
@@ -153,7 +153,7 @@ class RepositoryFilesTest(unittest.TestCase):
             lint_files.subprocess, "run", side_effect=OSError("no git")
         ):
             files = lint_files.repository_files(self.root)
-        self.assertNotIn("build/generated.h", files)
+        self.assertNotIn(".bazel/bin/generated.h", files)
         self.assertNotIn("bazel-out/k8-opt/bin/generated.cpp", files)
         self.assertIn("src/ignored.cpp", files)
 

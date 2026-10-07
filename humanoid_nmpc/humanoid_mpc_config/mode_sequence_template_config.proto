@@ -1,0 +1,39 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "nproto/options.proto";
+
+// A gait pattern: the modes it cycles through and the times it switches between them. A gait of the gait file (its
+// `gaits`, each named) and the reference file's default_mode_sequence_template (unnamed). GaitFromConfig
+// (humanoid_common_mpc/config/reference/GaitFromConfig.h) turns it into a ModeSequenceTemplate:
+//
+//   gaits {
+//     name: "trot"
+//     mode_sequence: "LF"
+//     mode_sequence: "RF"
+//     switching_times: 0.0
+//     switching_times: 0.5
+//     switching_times: 1.0
+//   }
+//
+// The left foot alone is in contact from 0 s to 0.5 s, the right one alone until the cycle ends at 1.0 s.
+// Next ID: 4
+message ModeSequenceTemplateConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::ModeSequenceTemplateConfig";
+
+  reserved 4 to max;
+
+  // The gait's name, by which the gait file's gait_list names it and the motion manager selects it. The reference
+  // file's default template has none.
+  string name = 1 [default = ""];
+  // LINT.IfChange(mode_names)
+  // The modes in order, at least one: the names of MotionPhaseDefinition.h's modeNumber2String(), "STANCE" (both feet
+  // in contact), "LF" (the left foot only), "RF" (the right foot only) or "FLY".
+  repeated string mode_sequence = 2;
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/gait/MotionPhaseDefinition.h:mode_names)
+  // [s] When each mode starts, and after them the end of the cycle: one more time than there are modes, finite and
+  // strictly increasing, so that every mode lasts a positive time.
+  repeated double switching_times = 3 [(humanoid_mpc_config.tuning) = { unit: "s" }];
+}

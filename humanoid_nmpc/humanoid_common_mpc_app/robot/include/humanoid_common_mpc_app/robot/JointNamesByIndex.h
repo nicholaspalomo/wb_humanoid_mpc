@@ -32,15 +32,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <robot_model/RobotDescription.h>
+#include "robot_model/RobotDescription.h"
 
 namespace ocs2::humanoid {
 
 /**
  * The robot's joint names in the order of their joint indices: names[i] is the joint of RobotState and RobotJointAction
- * index i. RobotDescription::getJointNames() is in no particular order (it is parallel to getJointIndices(), both read
- * out of a hash map), so whatever is indexed by joint index - the JOINT_PD posture, the arrays of robot/state - is named
- * with this.
+ * index i, as RobotDescription::getJointNames() is too. Whatever is indexed by joint index - the JOINT_PD posture, the
+ * arrays of robot/state - is named with this.
  */
 std::vector<std::string> jointNamesByIndex(const robot::model::RobotDescription& robotDescription);
 

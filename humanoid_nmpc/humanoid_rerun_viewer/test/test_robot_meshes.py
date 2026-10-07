@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """The static robot model of every instance: one Asset3D per mesh, the URDF primitives, tints and opacities."""
 
 import os
@@ -8,13 +35,13 @@ import unittest
 import pyarrow as pa
 import pyarrow.compute as pc
 
-import rrd_contents
-import synthetic_messages
 from humanoid_rerun_viewer import bridge
 from humanoid_rerun_viewer import palette
 from humanoid_rerun_viewer import robot_meshes
 from humanoid_rerun_viewer import scene_contract
 from humanoid_rerun_viewer import urdf_model
+import rrd_contents
+import synthetic_messages
 
 PACKAGE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO_ROOT = os.path.normpath(os.path.join(PACKAGE_DIR, "..", ".."))
@@ -122,7 +149,7 @@ class SampleModelTest(RecordingTestCase):
         for style in scene_contract.ROBOT_INSTANCES:
             self.meshes.log_instance(self.recording, style)
         self.assertEqual(
-            sorted(self.meshes._mesh_contents),  # pylint: disable=protected-access
+            sorted(self.meshes._mesh_contents),
             sorted(self.model.mesh_paths()),
         )
 
@@ -177,15 +204,17 @@ class ShippedRobotTest(RecordingTestCase):
             SA01_URDF, urdf_model.default_search_roots(SA01_URDF)
         )
         meshes = robot_meshes.RobotMeshes(model)
-        mesh_visuals = [
-            visual
-            for visual in model.visuals
-            if isinstance(visual.geometry, urdf_model.Mesh)
-        ]
-        self.assertTrue(mesh_visuals)
+        # The mesh file of each mesh visual, by the end of its entity path.
+        mesh_files: dict[str, str] = {}
+        for visual in model.visuals:
+            if isinstance(visual.geometry, urdf_model.Mesh):
+                mesh_files[f"/{visual.link}/visual_{visual.index}"] = (
+                    visual.geometry.path
+                )
+        self.assertTrue(mesh_files)
         for style in scene_contract.ROBOT_INSTANCES:
             result = meshes.log_instance(self.recording, style)
-            self.assertEqual(result.meshes, len(mesh_visuals))
+            self.assertEqual(result.meshes, len(mesh_files))
         contents = self.contents()
         assets = [
             path
@@ -193,15 +222,15 @@ class ShippedRobotTest(RecordingTestCase):
             if "Asset3D:blob" in entity.static_components
         ]
         self.assertEqual(
-            len(assets), len(mesh_visuals) * len(scene_contract.ROBOT_INSTANCES)
+            len(assets), len(mesh_files) * len(scene_contract.ROBOT_INSTANCES)
         )
         for path in assets:
             self.assertTrue(path.startswith(scene_contract.ROBOTS_ROOT + "/"), path)
             with open(
                 next(
-                    visual.geometry.path
-                    for visual in mesh_visuals
-                    if path.endswith(f"/{visual.link}/visual_{visual.index}")
+                    mesh_file_path
+                    for suffix, mesh_file_path in mesh_files.items()
+                    if path.endswith(suffix)
                 ),
                 "rb",
             ) as mesh_file:

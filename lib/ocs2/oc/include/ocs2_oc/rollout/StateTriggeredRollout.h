@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 #include <ocs2_core/dynamics/ControlledSystemBase.h>
 #include <ocs2_core/integration/Integrator.h>
@@ -56,16 +58,22 @@ class StateTriggeredRollout : public RolloutBase {
   ~StateTriggeredRollout() override = default;
   StateTriggeredRollout(const StateTriggeredRollout&) = delete;
   StateTriggeredRollout& operator=(const StateTriggeredRollout&) = delete;
-  StateTriggeredRollout* clone() const override { return new StateTriggeredRollout(*systemDynamicsPtr_, this->settings()); }
+  StateTriggeredRollout* absl_nonnull clone() const override { return new StateTriggeredRollout(*systemDynamicsPtr_, this->settings()); }
 
   /** Returns the underlying dynamics. */
-  ControlledSystemBase* systemDynamicsPtr() { return systemDynamicsPtr_.get(); }
+  ControlledSystemBase* absl_nonnull systemDynamicsPtr() { return systemDynamicsPtr_.get(); }
 
   void abortRollout() override { systemEventHandlersPtr_->killIntegration_ = true; }
   void reactivateRollout() override { systemEventHandlersPtr_->killIntegration_ = false; }
 
-  vector_t run(scalar_t initTime, const vector_t& initState, scalar_t finalTime, ControllerBase* controller, ModeSchedule& modeSchedule,
-               scalar_array_t& timeTrajectory, size_array_t& postEventIndices, vector_array_t& stateTrajectory,
+  vector_t run(scalar_t initTime,
+               const vector_t& initState,
+               scalar_t finalTime,
+               ControllerBase* absl_nullable controller,
+               ModeSchedule& modeSchedule,
+               scalar_array_t& timeTrajectory,
+               size_array_t& postEventIndices,
+               vector_array_t& stateTrajectory,
                vector_array_t& inputTrajectory) override;
 
  private:

@@ -1,0 +1,28 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "nproto/options.proto";
+import "nproto/retired_field_options.proto";
+
+// The center-of-mass weight of com_and_acom_tracking_cost (formerly the 3x3 matrix Q_com by "(i,i)" index), diagonal:
+// `scaling` times x, y and z, the weights of the center of mass's position in the world frame.
+//
+// A component the block leaves out weighs 0, but a block that names none of x, y and z is refused where the cost is
+// listed: the cost would weigh nothing. The weights have no default for that reason (a std::optional of the struct).
+// Next ID: 5
+message ComWeights {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::ComWeights";
+  option (nproto.retired_field) = {
+    name: "default"
+    replacement: "name every weight: x, y and z"
+  };
+
+  reserved 5 to max;
+
+  // The factor of x, y and z.
+  double scaling = 1 [default = 1.0];
+  double x = 2;
+  double y = 3;
+  double z = 4;
+}

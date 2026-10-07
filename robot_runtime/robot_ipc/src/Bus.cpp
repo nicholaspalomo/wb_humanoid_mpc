@@ -41,20 +41,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdint>
 #include <cstring>
 #include <exception>
+#include <functional>
+#include <memory>
+#include <string>
 #include <system_error>
 #include <thread>
 #include <utility>
+#include <vector>
 
-#include <zmq.h>
-#include <zmq.hpp>
-
+#include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/log/log.h"
+#include "absl/memory/memory.h"
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/synchronization/mutex.h"
+#include "zmq.h"    // NOLINT(build/include_subdir): libzmq installs its header in no directory
+#include "zmq.hpp"  // NOLINT(build/include_subdir): cppzmq installs its header in no directory
 
 #include "robot_ipc/NodeEndpoint.h"
 #include "robot_runtime/robot_ipc/src/StatusMacros.h"
@@ -124,7 +129,7 @@ struct OutgoingMessage {
   zmq::message_t topic;
   zmq::message_t typeName;
   zmq::message_t payload;
-  TopicCounters* counters = nullptr;
+  TopicCounters* absl_nullable counters = nullptr;
 };
 
 struct Subscription {
@@ -136,7 +141,7 @@ struct Subscription {
   std::unique_ptr<google::protobuf::Message> message;
   Bus::MessageHandler messageHandler;
   Bus::RawHandler rawHandler;
-  TopicCounters* counters = nullptr;
+  TopicCounters* absl_nullable counters = nullptr;
   // Delivery::kLatest: the newest message of the current drain, not yet parsed.
   bool hasLatest = false;
   zmq::message_t latestTypeName;
@@ -144,7 +149,7 @@ struct Subscription {
 };
 
 struct PeriodicCallback {
-  Clock::duration period;
+  Clock::duration period = Clock::duration::zero();
   Clock::time_point nextDeadline;
   std::function<void()> callback;
 };
@@ -281,7 +286,7 @@ class Bus::Impl {
   // Changed only while no IO thread runs (under lifecycleMutex_), and used by the IO thread only while it runs; the
   // thread's start and join order the two.
   absl::flat_hash_map<std::string, std::unique_ptr<Subscription>> subscriptions_;
-  std::vector<Subscription*> latestSubscriptions_;
+  std::vector<Subscription* absl_nonnull> latestSubscriptions_;
   std::vector<PeriodicCallback> periodicCallbacks_;
 
   // publish() -> IO thread. The IO thread holds the mutex only to swap the vector with sending_.
@@ -315,16 +320,16 @@ absl::Status Bus::Impl::initialize() {
   queue_.reserve(options_.publishQueueCapacity);
   sending_.reserve(options_.publishQueueCapacity);
 
-  const NodeEndpoint* node = options_.nodeName.empty() ? nullptr : options_.network.find(options_.nodeName);
-  try {
+  const NodeEndpoint* absl_nullable node = options_.nodeName.empty() ? nullptr : options_.network.find(options_.nodeName);
+  try {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
     if (node != nullptr) {
       publisher_ = zmq::socket_t(context_, zmq::socket_type::pub);
       configureSocket(publisher_);
       publisher_.set(zmq::sockopt::sndhwm, options_.sendHighWaterMark);
       const std::string endpoint = node->bindEndpoint();
-      try {
+      try {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
         publisher_.bind(endpoint);
-      } catch (const zmq::error_t& error) {
+      } catch (const zmq::error_t& error) {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
         return absl::UnavailableError(absl::StrCat("robot_ipc: cannot bind node '", node->name, "' at ", endpoint, ": ", error.what()));
       }
       boundEndpoint_ = publisher_.get(zmq::sockopt::last_endpoint);
@@ -348,15 +353,15 @@ absl::Status Bus::Impl::initialize() {
       } else {
         endpoint = peer.connectEndpoint();
       }
-      try {
+      try {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
         subscriber_.connect(endpoint);
-      } catch (const zmq::error_t& error) {
+      } catch (const zmq::error_t& error) {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
         return absl::InvalidArgumentError(
             absl::StrCat("robot_ipc: cannot connect to node '", peer.name, "' at ", endpoint, ": ", error.what()));
       }
       subscriberEndpoints_.push_back(endpoint);
     }
-  } catch (const zmq::error_t& error) {
+  } catch (const zmq::error_t& error) {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
     return absl::InternalError(absl::StrCat("robot_ipc: cannot set up the ZeroMQ sockets: ", error.what()));
   }
   return absl::OkStatus();
@@ -375,9 +380,9 @@ absl::Status Bus::Impl::addSubscription(std::unique_ptr<Subscription> subscripti
   if (subscriptions_.contains(subscription->topic)) {
     return absl::AlreadyExistsError(absl::StrCat("robot_ipc: the topic '", subscription->topic, "' already has a subscription"));
   }
-  try {
+  try {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
     subscriber_.set(zmq::sockopt::subscribe, subscription->topic);
-  } catch (const zmq::error_t& error) {
+  } catch (const zmq::error_t& error) {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
     return absl::InternalError(absl::StrCat("robot_ipc: cannot subscribe to '", subscription->topic, "': ", error.what()));
   }
   subscription->counters = &countersFor(subscription->topic);
@@ -420,9 +425,9 @@ absl::Status Bus::Impl::connect(absl::string_view endpoint) {
     return absl::FailedPreconditionError("robot_ipc: cannot connect while the bus runs; connect before start() or after stop()");
   }
   const std::string address(endpoint);
-  try {
+  try {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
     subscriber_.connect(address);
-  } catch (const zmq::error_t& error) {
+  } catch (const zmq::error_t& error) {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
     return absl::InvalidArgumentError(absl::StrCat("robot_ipc: cannot connect to '", address, "': ", error.what()));
   }
   subscriberEndpoints_.push_back(address);
@@ -447,9 +452,9 @@ absl::Status Bus::Impl::start() {
     periodic.nextDeadline = now + periodic.period;
   }
   running_.store(true);
-  try {
+  try {  // NOLINT(exceptions): std::thread throws std::system_error; converted to a Status at once
     ioThread_ = std::thread([this] { runIoLoop(); });
-  } catch (const std::system_error& error) {
+  } catch (const std::system_error& error) {  // NOLINT(exceptions): std::thread throws std::system_error; converted to a Status at once
     running_.store(false);
     return absl::InternalError(absl::StrCat("robot_ipc: cannot start the IO thread: ", error.what()));
   }
@@ -580,7 +585,7 @@ void Bus::Impl::runIoLoop() {
       zmq_pollitem_t{nullptr, wakeFd_, ZMQ_POLLIN, 0},
   };
   while (!stopRequested_.load(std::memory_order_acquire)) {
-    try {
+    try {  // NOLINT(exceptions): the IO thread's outermost loop: what escapes cppzmq or a handler is logged
       items[0].revents = 0;
       items[1].revents = 0;
       const int ready = zmq_poll(items.data(), static_cast<int>(items.size()), pollTimeoutMs(Clock::now()));
@@ -603,15 +608,16 @@ void Bus::Impl::runIoLoop() {
         drainSubscriber();
       }
       runDueCallbacks(Clock::now());
+      // NOLINTNEXTLINE(exceptions): the IO thread's outermost loop: what escapes cppzmq or a handler is logged
     } catch (const std::exception& exception) {
       LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds) << "robot_ipc: the IO thread caught an exception: " << exception.what();
-    } catch (...) {
+    } catch (...) {  // NOLINT(exceptions): the IO thread's outermost loop: what escapes cppzmq or a handler is logged
       LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds) << "robot_ipc: the IO thread caught an exception of unknown type";
     }
   }
-  try {
+  try {  // NOLINT(exceptions): cppzmq throws zmq::error_t; the last sends at stop() are logged
     sendQueued();
-  } catch (const std::exception& exception) {
+  } catch (const std::exception& exception) {  // NOLINT(exceptions): cppzmq throws zmq::error_t; the last sends at stop() are logged
     LOG(ERROR) << "robot_ipc: sending the queued messages at stop() failed: " << exception.what();
   }
   ioThreadId_.store(std::thread::id());
@@ -645,13 +651,13 @@ void Bus::Impl::sendQueued() {
 }
 
 void Bus::Impl::send(OutgoingMessage& message) {
-  try {
+  try {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
     // A PUB socket never blocks: at a subscriber's high-water mark ZeroMQ drops the message for that subscriber.
     const bool sent = publisher_.send(message.topic, zmq::send_flags::sndmore | zmq::send_flags::dontwait).has_value() &&
                       publisher_.send(message.typeName, zmq::send_flags::sndmore | zmq::send_flags::dontwait).has_value() &&
                       publisher_.send(message.payload, zmq::send_flags::dontwait).has_value();
     increment(sent ? message.counters->sent : message.counters->sendDropped);
-  } catch (const zmq::error_t& error) {
+  } catch (const zmq::error_t& error) {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
     increment(message.counters->sendDropped);
     LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds) << "robot_ipc: sending on '" << frameView(message.topic) << "' failed: " << error.what();
   }
@@ -710,7 +716,7 @@ void Bus::Impl::drainSubscriber() {
     subscription.hasLatest = true;
   }
 
-  for (Subscription* subscription : latestSubscriptions_) {
+  for (Subscription* absl_nonnull subscription : latestSubscriptions_) {
     if (subscription->hasLatest) {
       subscription->hasLatest = false;
       dispatch(*subscription, subscription->latestTypeName, subscription->latestPayload);
@@ -734,16 +740,16 @@ void Bus::Impl::dispatch(Subscription& subscription, const zmq::message_t& typeN
     return;
   }
   increment(counters.delivered);
-  try {
+  try {  // NOLINT(exceptions): a handler's exception is counted and logged, not let end the IO thread
     if (subscription.message != nullptr) {
       subscription.messageHandler(*subscription.message);
     } else {
       subscription.rawHandler(type, frameView(payload));
     }
-  } catch (const std::exception& exception) {
+  } catch (const std::exception& exception) {  // NOLINT(exceptions): a handler's exception is counted and logged, not let end the IO thread
     increment(counters.handlerErrors);
     LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds) << "robot_ipc: the handler of '" << subscription.topic << "' threw: " << exception.what();
-  } catch (...) {
+  } catch (...) {  // NOLINT(exceptions): a handler's exception is counted and logged, not let end the IO thread
     increment(counters.handlerErrors);
     LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds) << "robot_ipc: the handler of '" << subscription.topic
                                               << "' threw an exception of unknown type";
@@ -755,12 +761,13 @@ void Bus::Impl::runDueCallbacks(Clock::time_point now) {
     if (now < periodic.nextDeadline) {
       continue;
     }
-    try {
+    try {  // NOLINT(exceptions): a periodic callback's exception is counted and logged, not let end the IO thread
       periodic.callback();
+      // NOLINTNEXTLINE(exceptions): a periodic callback's exception is counted and logged, not let end the IO thread
     } catch (const std::exception& exception) {
       periodicCallbackErrors_.fetch_add(kOneEvent);
       LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds) << "robot_ipc: a periodic callback threw: " << exception.what();
-    } catch (...) {
+    } catch (...) {  // NOLINT(exceptions): a periodic callback's exception is counted and logged, not let end the IO thread
       periodicCallbackErrors_.fetch_add(kOneEvent);
       LOG_EVERY_N_SEC(ERROR, kLogPeriodSeconds) << "robot_ipc: a periodic callback threw an exception of unknown type";
     }
@@ -779,13 +786,13 @@ void Bus::Impl::runDueCallbacks(Clock::time_point now) {
 absl::StatusOr<std::unique_ptr<Bus>> Bus::Create(BusOptions options) {
   ROBOT_IPC_RETURN_IF_ERROR(validateOptions(options));
   std::unique_ptr<Impl> impl;
-  try {
+  try {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
     impl = std::make_unique<Impl>(std::move(options));
-  } catch (const zmq::error_t& error) {
+  } catch (const zmq::error_t& error) {  // NOLINT(exceptions): cppzmq throws zmq::error_t; converted at once
     return absl::InternalError(absl::StrCat("robot_ipc: cannot create a ZeroMQ context: ", error.what()));
   }
   ROBOT_IPC_RETURN_IF_ERROR(impl->initialize());
-  return std::unique_ptr<Bus>(new Bus(std::move(impl)));
+  return absl::WrapUnique(new Bus(std::move(impl)));
 }
 
 Bus::Bus(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}

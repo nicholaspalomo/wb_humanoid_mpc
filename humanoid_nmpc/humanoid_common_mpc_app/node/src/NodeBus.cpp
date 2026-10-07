@@ -29,11 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/node/NodeBus.h"
 
+#include <string>
 #include <utility>
 
-#include "robot_ipc/BusOptions.h"
-
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "robot_ipc/BusOptions.h"
 
 namespace ocs2::humanoid::node {
 

@@ -27,21 +27,19 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <random>
 #include <string>
 #include <vector>
 
-#include <Eigen/Geometry>
-
-#include <robot_model/RobotDescription.h>
-#include <robot_model/RobotState.h>
-
+#include "Eigen/Geometry"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_mpc_validation/closed_loop/RecordedRobotStates.h"
 #include "humanoid_mpc_validation/io/GoldenIo.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotState.h"
 
 /*
  * A recording of robot states is the input of the solve benchmark, recorded once (B0) and replayed again after the
@@ -52,8 +50,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 namespace {
 
-constexpr const char* kG1Urdf = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf";
-constexpr const char* kAtlasUrdf = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
+constexpr char kG1Urdf[] = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf";
+constexpr char kAtlasUrdf[] = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
 
 robot::model::RobotState randomState(const robot::model::RobotDescription& description, std::mt19937& generator) {
   std::uniform_real_distribution<double> uniform(-1.0, 1.0);
@@ -73,7 +71,9 @@ robot::model::RobotState randomState(const robot::model::RobotDescription& descr
 }
 
 TEST(RecordedRobotStates, ARecordingReadsBackAsTheStatesThatWereRecorded) {
-  const robot::model::RobotDescription description(kG1Urdf);
+  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus = robot::model::RobotDescription::Create(kG1Urdf);
+  ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
+  const robot::model::RobotDescription& description = *descriptionOrStatus;
   std::mt19937 generator(7);
   RecordedRobotStates recording;
   recording.jointNames = description.getJointNames();
@@ -115,11 +115,13 @@ TEST(RecordedRobotStates, ARecordingReadsBackAsTheStatesThatWereRecorded) {
 TEST(RecordedRobotStates, JointsAreMatchedByNameWhateverTheirOrder) {
   // The order of a RobotDescription's joints is not the same in every process: a recording made in one process is read
   // in another, so its joints are matched by name.
-  const robot::model::RobotDescription description(kG1Urdf);
+  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus = robot::model::RobotDescription::Create(kG1Urdf);
+  ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
+  const robot::model::RobotDescription& description = *descriptionOrStatus;
   std::mt19937 generator(11);
   const robot::model::RobotState state = randomState(description, generator);
   const RobotStateRecord record = recordRobotState(state, description, Eigen::Vector4d::Zero());
-  const std::vector<std::string> names = description.getJointNames();
+  const std::vector<std::string>& names = description.getJointNames();
   std::vector<size_t> order(names.size());
   for (size_t i = 0; i < order.size(); ++i) order[i] = order.size() - 1 - i;  // reversed
   RobotStateRecord reordered = record;
@@ -142,16 +144,20 @@ TEST(RecordedRobotStates, JointsAreMatchedByNameWhateverTheirOrder) {
 }
 
 TEST(RecordedRobotStates, ARecordingRefusesAnotherRobot) {
-  const robot::model::RobotDescription g1(kG1Urdf);
-  const robot::model::RobotDescription atlas(kAtlasUrdf);
+  absl::StatusOr<robot::model::RobotDescription> g1OrStatus = robot::model::RobotDescription::Create(kG1Urdf);
+  ASSERT_TRUE(g1OrStatus.ok()) << g1OrStatus.status();
+  const robot::model::RobotDescription& g1 = *g1OrStatus;
+  absl::StatusOr<robot::model::RobotDescription> atlasOrStatus = robot::model::RobotDescription::Create(kAtlasUrdf);
+  ASSERT_TRUE(atlasOrStatus.ok()) << atlasOrStatus.status();
+  const robot::model::RobotDescription& atlas = *atlasOrStatus;
   std::mt19937 generator(3);
   const RobotStateRecord record = recordRobotState(randomState(g1, generator), g1, Eigen::Vector4d::Zero());
   EXPECT_EQ(toRobotState(record, g1.getJointNames(), atlas).status().code(), absl::StatusCode::kInvalidArgument);
 
-  GoldenFile withoutNames = toGoldenFile(RecordedRobotStates{g1.getJointNames(), {record}}, GoldenProvenance());
+  GoldenFile withoutNames = toGoldenFile(RecordedRobotStates{.jointNames = g1.getJointNames(), .records = {record}}, GoldenProvenance());
   withoutNames.provenance.notes.clear();
   EXPECT_EQ(fromGoldenFile(withoutNames).status().code(), absl::StatusCode::kInvalidArgument);
-  GoldenFile truncated = toGoldenFile(RecordedRobotStates{g1.getJointNames(), {record}}, GoldenProvenance());
+  GoldenFile truncated = toGoldenFile(RecordedRobotStates{.jointNames = g1.getJointNames(), .records = {record}}, GoldenProvenance());
   truncated.entries.pop_back();
   EXPECT_EQ(fromGoldenFile(truncated).status().code(), absl::StatusCode::kInvalidArgument);
 }

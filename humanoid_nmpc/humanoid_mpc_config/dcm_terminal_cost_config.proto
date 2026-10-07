@@ -1,0 +1,28 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "nproto/options.proto";
+
+// The DCM terminal cost of the centroidal MPC (the task file's dcm_terminal_cost block; the cost dcm_terminal_cost):
+// the pendulum of its reference, the weights on the DCM error and how the support blends (DcmTerminalCost::Config).
+// Read while costs lists dcm_terminal_cost.
+// Next ID: 7
+message DcmTerminalCostConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::DcmTerminalCostConfig";
+
+  reserved 7 to max;
+
+  // [m] The pendulum height of omega, positive; absent: the model's center of mass above its feet at the initial state.
+  double com_height = 1 [(humanoid_mpc_config.tuning) = { unit: "m" slider_min: 0.1 }];
+  // [m/s^2]
+  double gravity = 2 [default = 9.81, (humanoid_mpc_config.tuning) = { unit: "m/s^2" slider_min: 1.0 }];
+  // The weights on the longitudinal and the lateral DCM error.
+  double weight_x = 3 [default = 100.0];
+  double weight_y = 4 [default = 100.0];
+  // Scales the v_cmd / omega offset of the DCM reference.
+  double velocity_offset_factor = 5 [default = 1.0];
+  // [s] How long a foot's support weight ramps after touch-down and before lift-off.
+  double support_blend_time = 6 [default = 0.1, (humanoid_mpc_config.tuning) = { unit: "s" }];
+}

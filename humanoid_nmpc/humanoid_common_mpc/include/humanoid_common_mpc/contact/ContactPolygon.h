@@ -30,15 +30,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <string>
+#include <vector>
+
 #include "humanoid_common_mpc/contact/ContactCenterPoint.h"
 
 namespace ocs2::humanoid {
 
 /// \brief the maximum extension of the polygon with respect to the specified frame
-
 struct PolygonBounds {
-  PolygonBounds(
-      const scalar_t& x_min, const scalar_t& x_max, const scalar_t& y_min, const scalar_t& y_max, const scalar_t& scaleFactor = 1.0)
+  PolygonBounds(scalar_t x_min, scalar_t x_max, scalar_t y_min, scalar_t y_max, scalar_t scaleFactor = 1.0)
       : x_min(x_min * scaleFactor), x_max(x_max * scaleFactor), y_min(y_min * scaleFactor), y_max(y_max * scaleFactor) {}
 
   scalar_t x_min;
@@ -55,20 +56,18 @@ struct PolygonBounds {
 /// \param[in] frameName name of pinocchio frame the polygon is specified in
 /// \param[in] scaleFactor A factor to shrink or extent the polygon
 ///
-
+/// An immutable value once constructed, so concurrent reads are safe.
 class ContactPolygon {
  public:
-  ContactPolygon(const std::vector<vector3_t>& polygonPoints,
-                 const ContactCenterPoint& contactCenterPoint,
-                 const scalar_t& scaleFactor = 1.0);
+  ContactPolygon(const std::vector<vector3_t>& polygonPoints, const ContactCenterPoint& contactCenterPoint, scalar_t scaleFactor = 1.0);
 
-  size_t getNumberOfContactPoints() const { return polygonPoints_.size(); };
-  vector3_t getContactPointTranslation(int index) const { return vector3_t(polygonPoints_[index][0], polygonPoints_[index][1], 0.0); };
+  size_t getNumberOfContactPoints() const { return polygonPoints_.size(); }
+  vector3_t getContactPointTranslation(int index) const { return vector3_t(polygonPoints_[index][0], polygonPoints_[index][1], 0.0); }
   matrix3_t getContactPointTranslationCrossProductMatrix(int index) const;
-  const std::string& getParentJointName() const { return contactCenterPoint_.parentJointName; };
-  const std::string& getPolygonPointFrameName(int i) const { return polygonPointFrameNames_[i]; };
-  const ContactCenterPoint& getContactCenterPoint() const { return contactCenterPoint_; };
-  const PolygonBounds& getBounds() const { return polygonLimits_; };
+  const std::string& getParentJointName() const { return contactCenterPoint_.parentJointName; }
+  const std::string& getPolygonPointFrameName(int i) const { return polygonPointFrameNames_[i]; }
+  const ContactCenterPoint& getContactCenterPoint() const { return contactCenterPoint_; }
+  const PolygonBounds& getBounds() const { return polygonLimits_; }
 
  protected:
   // constructor can be used by child class. Child class has to ensure that the polygonLimits are correct

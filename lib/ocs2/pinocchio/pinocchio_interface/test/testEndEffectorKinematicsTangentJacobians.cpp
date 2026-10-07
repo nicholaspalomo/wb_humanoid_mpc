@@ -37,6 +37,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
+
 #include <pinocchio/algorithm/frames.hpp>
 #include <pinocchio/algorithm/jacobian.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
@@ -86,7 +88,7 @@ class WheelArmMapping final : public PinocchioStateInputMapping<scalar_t> {
  public:
   WheelArmMapping() = default;
   ~WheelArmMapping() override = default;
-  WheelArmMapping* clone() const override { return new WheelArmMapping(*this); }
+  WheelArmMapping* absl_nonnull clone() const override { return new WheelArmMapping(*this); }
 
   vector_t getPinocchioJointPosition(const vector_t& state) const override {
     vector_t q(3);

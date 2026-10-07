@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """The viewer's layout: the 3D scene next to the plot tabs.
 
     +-------------------------------+----------------------------------------------+
@@ -13,8 +40,8 @@ robot, the equivalent corner forces, the collision spheres: scene_contract.hidde
 measured robot's root link. Every plot shows the last PLOT_WINDOW_S seconds of the robot's clock up to the time cursor.
 """
 
+from collections.abc import Sequence
 import math
-from typing import List, Optional, Sequence
 
 import rerun as rr
 import rerun.blueprint as rrb
@@ -36,7 +63,7 @@ _CAMERA_PITCH = 0.36879807710647583
 _CAMERA_YAW = 6.122678756713867
 
 
-def initial_eye_position() -> List[float]:
+def initial_eye_position() -> list[float]:
     """Where the orbit camera starts: `distance` from the focal point at its pitch and yaw."""
     return [
         _CAMERA_FOCAL_POINT[0]
@@ -51,7 +78,7 @@ def _absolute(path: str) -> str:
     return path if path.startswith("/") else f"/{path}"
 
 
-def scene_view(tracked_link: Optional[str] = None) -> rrb.Spatial3DView:
+def scene_view(tracked_link: str | None = None) -> rrb.Spatial3DView:
     """The 3D view of the world; `tracked_link`, when given, is the measured robot's link the eye follows."""
     tracking_entity = (
         _absolute(scene_contract.link_path(scene_contract.MEASURED, tracked_link))
@@ -90,7 +117,7 @@ def _time_axis() -> rrb.TimeAxis:
     )
 
 
-def view_contents(root: str, paths: Sequence[str]) -> List[str]:
+def view_contents(root: str, paths: Sequence[str]) -> list[str]:
     """The query expressions of a view that plots `paths` (relative to `root`; "x/**" is the subtree of x)."""
     return [f"+ {_absolute(root)}/{path}" for path in paths]
 
@@ -148,7 +175,7 @@ def events_view() -> rrb.TextLogView:
     )
 
 
-def build_blueprint(tracked_link: Optional[str] = None) -> rrb.Blueprint:
+def build_blueprint(tracked_link: str | None = None) -> rrb.Blueprint:
     """The whole layout; `tracked_link` is the measured robot's link the 3D view follows (None: a fixed eye)."""
     tabs = [plot_tab(tab) for tab in telemetry_contract.TABS] + [status_tab()]
     return rrb.Blueprint(

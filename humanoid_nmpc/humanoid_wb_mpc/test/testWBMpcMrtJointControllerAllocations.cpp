@@ -27,29 +27,30 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <atomic>
 #include <cstddef>
 #include <cstdlib>
 #include <filesystem>
 #include <iterator>
+#include <memory>
 #include <string>
 #include <vector>
 
-#include <pinocchio/algorithm/rnea.hpp>
-
-#include <robot_model/RobotDescription.h>
-#include <robot_model/RobotJointAction.h>
-#include <robot_model/RobotState.h>
+#include "absl/base/nullability.h"
+#include "absl/status/statusor.h"
+#include "gtest/gtest.h"
+#include "pinocchio/algorithm/rnea.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/mrt/ControllerEventSink.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_nmpc/humanoid_common_mpc/test/NullMpcLink.h"
 #include "humanoid_wb_mpc/mrt/WBMpcMrtJointController.h"
+#include "robot_model/RobotDescription.h"
+#include "robot_model/RobotJointAction.h"
+#include "robot_model/RobotState.h"
 #include "robot_runtime/robot_realtime/test/AllocationCounter.h"
 
 /*
@@ -64,7 +65,7 @@ namespace ocs2::humanoid {
 namespace {
 
 std::string runfilePath(const std::string& relativePath) {
-  const char* srcDir = std::getenv("TEST_SRCDIR");
+  const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR");
   const std::filesystem::path candidate =
       srcDir != nullptr ? std::filesystem::path(srcDir) / "_main" / relativePath : std::filesystem::path(relativePath);
   return candidate.string();
@@ -79,7 +80,7 @@ class CountingSink final : public ControllerEventSink {
   std::atomic<int> posted{0};
 };
 
-constexpr const char* kModes[] = {"ZERO_TORQUE", "JOINT_PD", "GRAVITY_COMP", "SAFETY", "JOINT_PD", "WB_MPC", "ZERO_TORQUE"};
+constexpr const char* absl_nonnull kModes[] = {"ZERO_TORQUE", "JOINT_PD", "GRAVITY_COMP", "SAFETY", "JOINT_PD", "WB_MPC", "ZERO_TORQUE"};
 /** Whether a mode's action needs the gravity compensation (the WB_MPC hold is JOINT_PD's). */
 constexpr bool kComputesGravity[] = {false, true, true, false, true, true, false};
 constexpr int kCyclesPerMode = 20;
@@ -89,9 +90,9 @@ void runModes(WBMpcMrtJointController& controller,
               robot::model::RobotState& state,
               robot::model::RobotJointAction& action,
               scalar_t& time,
-              std::vector<std::size_t>* allocationsPerMode = nullptr) {
-  for (const char* mode : kModes) {
-    const std::size_t before = robot::realtime::heapAllocationCountOnThisThread();
+              std::vector<size_t>* absl_nullable allocationsPerMode = nullptr) {
+  for (const char* absl_nonnull mode : kModes) {
+    const size_t before = robot::realtime::heapAllocationCountOnThisThread();
     for (int cycle = 0; cycle < kCyclesPerMode; ++cycle) {
       // The whole-body controller takes the posture before the mode, as its sim did (CycleInputOrder).
       controller.setNominalJointPositions(nominal);
@@ -105,15 +106,20 @@ void runModes(WBMpcMrtJointController& controller,
 }
 
 TEST(WBMpcMrtJointControllerAllocations, TheObservationThePassiveModesAndTheHoldAddNoAllocationOfTheirOwn) {
-  const std::string taskFile = runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml");
+  const std::string taskFile = runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto");
   const std::string urdfFile = runfilePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf");
-  const ModelSettings modelSettings(taskFile, urdfFile, "wb_mpc_", /*verbose=*/false);
-  const PinocchioInterface pinocchioInterface = createCustomPinocchioInterface(taskFile, urdfFile, modelSettings);
-  const robot::model::RobotDescription description(urdfFile);
+  const ModelSettings modelSettings = ModelSettings::Create(taskFile, urdfFile, "wb_mpc_", /*verbose=*/false).value();
+  const PinocchioInterface pinocchioInterface = loadCustomPinocchioInterface(taskFile, urdfFile, modelSettings).value();
+  absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus = robot::model::RobotDescription::Create(urdfFile);
+  ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
+  const robot::model::RobotDescription& description = *descriptionOrStatus;
   robot::model::RobotState state(description);
   state.setRootPositionInWorldFrame(vector3_t(0.0, 0.0, 0.75));
   robot::model::RobotJointAction action(description);
-  WBMpcMrtJointController controller(description, modelSettings, test_support::NullMpcLink::factory(), pinocchioInterface);
+  absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> created =
+      WBMpcMrtJointController::Create(description, modelSettings, test_support::NullMpcLink::factory(), pinocchioInterface);
+  ASSERT_TRUE(created.ok()) << created.status();
+  WBMpcMrtJointController& controller = **created;
   CountingSink sink;
   controller.setEventSink(&sink);
   const std::vector<scalar_t> nominal(description.getNumJoints(), 0.1);
@@ -124,19 +130,19 @@ TEST(WBMpcMrtJointControllerAllocations, TheObservationThePassiveModesAndTheHold
   const vector_t q = vector_t::Zero(probe.getModel().nq);
   const vector_t v = vector_t::Zero(probe.getModel().nv);
   pinocchio::nonLinearEffects(probe.getModel(), probe.getData(), q, v);
-  const std::size_t before = robot::realtime::heapAllocationCountOnThisThread();
+  const size_t before = robot::realtime::heapAllocationCountOnThisThread();
   pinocchio::nonLinearEffects(probe.getModel(), probe.getData(), q, v);
-  const std::size_t perNonlinearEffects = robot::realtime::heapAllocationCountOnThisThread() - before;
+  const size_t perNonlinearEffects = robot::realtime::heapAllocationCountOnThisThread() - before;
 
   runModes(controller, nominal, state, action, time);  // the first time through, sizing what sizes itself on first use
   const int eventsBefore = sink.posted.load();
 
-  std::vector<std::size_t> allocationsPerMode;
+  std::vector<size_t> allocationsPerMode;
   allocationsPerMode.reserve(std::size(kModes));
   runModes(controller, nominal, state, action, time, &allocationsPerMode);
   ASSERT_EQ(allocationsPerMode.size(), std::size(kModes));
   for (size_t index = 0; index < allocationsPerMode.size(); ++index) {
-    const std::size_t pinocchio = kComputesGravity[index] ? kCyclesPerMode * perNonlinearEffects : 0;
+    const size_t pinocchio = kComputesGravity[index] ? kCyclesPerMode * perNonlinearEffects : 0;
     EXPECT_EQ(allocationsPerMode[index], pinocchio)
         << kCyclesPerMode << " cycles of " << kModes[index] << " (entry included) allocated beyond Pinocchio's " << perNonlinearEffects
         << " per nonlinear effects";

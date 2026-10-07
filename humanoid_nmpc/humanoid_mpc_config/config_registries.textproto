@@ -1,0 +1,235 @@
+# proto-file: humanoid_nmpc/humanoid_mpc_config/config_registries.proto
+# proto-message: humanoid_mpc_config.ConfigRegistries
+#
+# The names each registry of the stack accepts: the choices the tuning GUI offers for a string field whose
+# (humanoid_mpc_config.tuning) option names a registry. Written from the registries by
+# `bazel run //tools/config_registries:print_config_registries`; do not edit it by hand:
+# //tools/config_registries:config_registries_test fails when it and the registries differ.
+
+registries {
+  name: "basis_generator_set"
+  names: "conservative_inner_approximation"
+  names: "exact_wrench_cone"
+}
+
+registries {
+  name: "basis_regularization"
+  names: "full_diagonal"
+  names: "null_space"
+}
+
+registries {
+  name: "centroidal_model"
+  names: "full_centroidal_dynamics"
+  names: "single_rigid_body_dynamics"
+}
+
+registries {
+  name: "contact_estimator"
+  names: "robot_state"
+  names: "always_in_contact"
+  names: "cheater_sim"
+}
+
+registries {
+  name: "contact_input_parameterization"
+  names: "wrench"
+  names: "basis_vectors"
+}
+
+registries {
+  name: "contact_planner"
+  names: "hlip"
+  names: "lip_miqp"
+}
+
+registries {
+  name: "contact_planner_threading"
+  names: "background_thread"
+  names: "pre_solve_hook"
+}
+
+registries {
+  name: "contact_planning_term"
+  names: "lip_com"
+  names: "foothold_integrator"
+  names: "heading_double_integrator"
+  names: "regularization"
+  names: "previous_foothold_consistency"
+  names: "velocity_tracking"
+  names: "step_width"
+  names: "heading_rate_tracking"
+  names: "heading_tracking"
+  names: "foot_yaw_tracking"
+  names: "yaw_torque_regularization"
+  names: "foot_yaw_regularization"
+  names: "zmp_regularization"
+  names: "foothold_regularization"
+  names: "step_length"
+  names: "terminal_dcm"
+  names: "zmp_support_region"
+  names: "reachability"
+  names: "foot_separation"
+  names: "hip_yaw_range"
+  names: "no_flight"
+  names: "foot_motion_in_swing_only"
+  names: "yaw_torque_budget"
+  names: "foot_yaw_pinned_in_contact"
+  names: "phase_durations"
+  names: "minimum_double_support"
+  names: "alternating_feet"
+  names: "contact_switch"
+  names: "plan_consistency"
+  names: "double_support_penalty"
+  names: "warm_start_previous_plan"
+  names: "diving"
+  names: "event_shift_local_search"
+  names: "heading_relinearization"
+  names: "cadence_stretch"
+  names: "phase_resetting"
+  names: "energy_cadence_modulation"
+  names: "dcm_step_adjustment"
+  names: "planned_heading_override"
+  names: "planned_com_override"
+}
+
+registries {
+  name: "contact_schedule_source"
+  names: "gait_schedule"
+  names: "contact_planner"
+}
+
+registries {
+  name: "foot_cost_phases"
+  names: "swing"
+  names: "swing_and_stance"
+}
+
+registries {
+  name: "gantry_hold"
+  names: "weld_constraint"
+  names: "kinematic_teleport"
+}
+
+registries {
+  name: "hard_constraint"
+  names: "zero_wrench"
+  names: "zero_velocity"
+  names: "normal_velocity"
+  names: "knee_joint_mimic"
+}
+
+registries {
+  name: "locomotion_heuristic"
+  names: "orientation_compensation"
+  names: "periodic_orientation"
+  names: "height_compensation"
+  names: "hip_centered_stepping"
+  names: "capture_point"
+  names: "translational_stepping"
+  names: "in_place_turning"
+  names: "high_speed_turning"
+  names: "impulse_scaling"
+  names: "centripetal_acceleration"
+}
+
+registries {
+  name: "mpc_cost"
+  names: "state_input_quadratic_cost"
+  names: "state_quadratic_cost"
+  names: "input_quadratic_cost"
+  names: "terminal_cost"
+  names: "icp_cost"
+  names: "task_space_foot_cost"
+  names: "task_space_torso_cost"
+  names: "external_torque_cost"
+  names: "joint_torque_cost"
+  names: "dcm_terminal_cost"
+  names: "com_and_acom_tracking_cost"
+}
+
+registries {
+  name: "projectile"
+  names: "dodgeball"
+}
+
+registries {
+  name: "rollout_integrator"
+  names: "EULER"
+  names: "ODE45"
+  names: "ODE45_OCS2"
+  names: "MODIFIED_MIDPOINT"
+  names: "RK4"
+}
+
+registries {
+  name: "root_finder"
+  names: "ANDERSON_BJORCK"
+  names: "PEGASUS"
+  names: "ILLINOIS"
+  names: "REGULA_FALSI"
+}
+
+registries {
+  name: "sensitivity_integrator"
+  names: "EULER"
+  names: "RK2"
+  names: "RK4"
+}
+
+registries {
+  name: "soft_constraint"
+  names: "joint_limits"
+  names: "foot_collision"
+  names: "friction_force_cone"
+  names: "contact_moment_xy"
+  names: "contact_wrench_cone"
+  names: "zero_velocity"
+  names: "normal_velocity"
+  names: "contact_complementarity"
+  names: "force_weighted_slip"
+  names: "ground_penetration"
+}
+
+registries {
+  name: "stance_constraint"
+  names: "position"
+  names: "position_and_tilt"
+  names: "position_and_orientation"
+}
+
+registries {
+  name: "telemetry_sink"
+  names: "bus"
+}
+
+registries {
+  name: "terminal_dcm_target"
+  names: "rest"
+  names: "commanded_velocity"
+}
+
+registries {
+  name: "visualization"
+  names: "metrics"
+  names: "external_forces"
+  names: "contact_forces"
+  names: "base_velocity"
+  names: "contact_timeline"
+  names: "target_contact_patches"
+  names: "center_of_mass"
+  names: "zmp"
+  names: "dcm"
+  names: "mj_contact_points"
+  names: "mj_contact_forces"
+  names: "mj_com"
+  names: "mj_inertia"
+  names: "mj_convex_hull"
+  names: "mj_transparent"
+}
+
+registries {
+  name: "wb_mpc_feedforward"
+  names: "inverse_dynamics"
+  names: "gravity_compensation"
+}

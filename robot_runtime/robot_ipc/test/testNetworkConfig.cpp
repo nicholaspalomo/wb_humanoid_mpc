@@ -34,14 +34,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <gtest/gtest.h>
-
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
+#include "gtest/gtest.h"
 
 #include "robot_ipc/Delivery.h"
 #include "robot_ipc/NetworkConfig.h"
@@ -73,13 +73,13 @@ nodes {
   ASSERT_EQ(config->nodes.size(), 2u);
   EXPECT_EQ(config->nodeNames(), (std::vector<std::string>{"robot", "mpc"}));
 
-  const NodeEndpoint* robot = config->find("robot");
+  const NodeEndpoint* absl_nullable robot = config->find("robot");
   ASSERT_NE(robot, nullptr);
   EXPECT_EQ(*robot, (NodeEndpoint{.name = "robot", .host = "127.0.0.1", .port = 5600}));
   EXPECT_EQ(robot->bindEndpoint(), "tcp://127.0.0.1:5600");
   EXPECT_EQ(robot->connectEndpoint(), "tcp://127.0.0.1:5600");
 
-  const NodeEndpoint* mpc = config->find("mpc");
+  const NodeEndpoint* absl_nullable mpc = config->find("mpc");
   ASSERT_NE(mpc, nullptr);
   // bind_host decides where the node binds; host stays where the others connect.
   EXPECT_EQ(mpc->bindEndpoint(), "tcp://*:5610");
@@ -93,6 +93,10 @@ TEST(NetworkConfigTest, ShippedFileIsTheLocalhostNetwork) {
   ASSERT_TRUE(shipped.ok()) << shipped.status();
   EXPECT_EQ(*shipped, localhostNetworkConfig());
   EXPECT_TRUE(validateNetworkConfig(localhostNetworkConfig()).ok());
+  // push_robot_config publishes as a node of its own, so that it runs next to the GUI, which binds "operator".
+  const NodeEndpoint* absl_nullable configPush = shipped->find("config_push");
+  ASSERT_NE(configPush, nullptr);
+  EXPECT_EQ(configPush->connectEndpoint(), "tcp://127.0.0.1:5622");
 }
 
 TEST(NetworkConfigTest, WildcardHostBindsEveryInterfaceAndIsReachedOverLoopback) {

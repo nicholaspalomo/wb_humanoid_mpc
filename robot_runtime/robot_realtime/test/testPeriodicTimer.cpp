@@ -27,12 +27,12 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <thread>
+
+#include "gtest/gtest.h"
 
 #include "robot_realtime/PeriodicTimer.h"
 
@@ -82,7 +82,7 @@ TEST(AdvanceDeadlineTest, catchingUpServesTheNextDeadlineEvenWhenItHasPassed) {
 TEST(AdvanceDeadlineTest, skippingAlwaysLandsOnTheFirstGridDeadlineAfterTheWakeup) {
   const nanoseconds served(1000);
   const nanoseconds period(7);
-  for (std::int64_t offset = 0; offset < 1000; ++offset) {
+  for (int64_t offset = 0; offset < 1000; ++offset) {
     const nanoseconds wakeup = served + nanoseconds(offset);
     const DeadlineAdvance advance = advanceDeadline(served, wakeup, period, OverrunPolicy::kSkipMissedPeriods);
     EXPECT_EQ((advance.nextDeadline - served) % period, nanoseconds(0)) << "offset " << offset;

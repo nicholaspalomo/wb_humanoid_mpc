@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ostream>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 
 #include <ocs2_core/Types.h>
@@ -79,11 +80,11 @@ class ManifoldLinearController final : public ControllerBase {
   ManifoldLinearController& operator=(ManifoldLinearController&& other) = default;
   ~ManifoldLinearController() override = default;
 
-  ManifoldLinearController* clone() const override { return new ManifoldLinearController(*this); }
+  ManifoldLinearController* absl_nonnull clone() const override { return new ManifoldLinearController(*this); }
 
   vector_t computeInput(scalar_t t, const vector_t& x) override;
 
-  void concatenate(const ControllerBase* nextController, int index, int length) override;
+  void concatenate(const ControllerBase* absl_nonnull nextController, int index, int length) override;
 
   int size() const override { return static_cast<int>(timeStamp_.size()); }
 
@@ -119,7 +120,7 @@ class ManifoldLinearController final : public ControllerBase {
    *  - on a curved manifold it equals computeInput() at x = xbar(t), and elsewhere differs by a term bilinear in the
    *    distance between the two anchors and the deviation x (-) xbar(t).
    */
-  void flatten(const scalar_array_t& timeArray, const std::vector<std::vector<double>*>& flatArray2) const override;
+  void flatten(const scalar_array_t& timeArray, const std::vector<std::vector<double>* absl_nonnull>& flatArray2) const override;
 
   /**
    * Reads a controller written by flatten(). Fails when an array has the wrong length or the dimensions disagree with
@@ -129,7 +130,7 @@ class ManifoldLinearController final : public ControllerBase {
                                                             const size_array_t& inputDim,
                                                             const size_array_t& tangentDim,
                                                             const scalar_array_t& timeArray,
-                                                            const std::vector<std::vector<double> const*>& flatArray2,
+                                                            const std::vector<const std::vector<double>* absl_nullable>& flatArray2,
                                                             std::shared_ptr<const StateManifold> stateManifold);
 
   const scalar_array_t& getTimeStamps() const { return timeStamp_; }

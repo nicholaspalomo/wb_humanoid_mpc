@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -23,10 +27,17 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
-#include <Eigen/Dense>
+#include <algorithm>
 #include <cmath>
+#include <functional>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "Eigen/Dense"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/contact_planning/OcpQpHpipm.h"
 
@@ -36,6 +47,13 @@ namespace {
 
 constexpr int kNumStages = 10;
 constexpr scalar_t kDt = 0.1;
+
+/** Solves `problem`, failing the test when the solver rejects it: every problem below is consistent. */
+OcpQpSolution solveOrFail(OcpQpHpipmSolver& solver, const OcpQpProblem& problem) {
+  absl::StatusOr<OcpQpSolution> solution = solver.solve(problem);
+  EXPECT_TRUE(solution.ok()) << solution.status();
+  return solution.ok() ? *std::move(solution) : OcpQpSolution();
+}
 
 /** Double integrator x = [p, v], u = a, with quadratic tracking of the origin. */
 OcpQpProblem makeDoubleIntegratorProblem(scalar_t p0, scalar_t v0) {
@@ -69,8 +87,8 @@ scalar_t solveUnconstrainedDense(const OcpQpProblem& problem, std::vector<vector
   vector_t g = vector_t::Zero(numVars);
   matrix_t Aeq = matrix_t::Zero(numEq, numVars);
   vector_t beq = vector_t::Zero(numEq);
-  const auto xi = [&](int k) { return k * nx; };
-  const auto ui = [&](int k) { return (N + 1) * nx + k * nu; };
+  const std::function<int(int)> xi = [&](int k) { return k * nx; };
+  const std::function<int(int)> ui = [&](int k) { return (N + 1) * nx + k * nu; };
   for (int k = 0; k <= N; ++k) {
     const OcpQpStage& s = problem.stages[k];
     H.block(xi(k), xi(k), nx, nx) = s.Q;
@@ -154,16 +172,17 @@ OcpQpProblem makeSoftRowSelectionProblem(int softRow) {
 TEST(OcpQpHpipmTest, UnconstrainedMatchesDenseKkt) {
   OcpQpProblem problem = makeDoubleIntegratorProblem(1.0, -0.5);
   OcpQpHpipmSolver solver;
-  const OcpQpSolution solution = solver.solve(problem);
+  const OcpQpSolution solution = solveOrFail(solver, problem);
   ASSERT_TRUE(solution.success());
 
-  std::vector<vector_t> xRef, uRef;
+  std::vector<vector_t> xRef;
+  std::vector<vector_t> uRef;
   const scalar_t objRef = solveUnconstrainedDense(problem, xRef, uRef);
-  EXPECT_NEAR(solution.objective, objRef, 1e-6);
+  EXPECT_NEAR(solution.objective, objRef, 1.0e-6);
   for (int k = 0; k <= kNumStages; ++k) {
-    EXPECT_LT((solution.x[k] - xRef[k]).norm(), 1e-5) << "state mismatch at k=" << k;
+    EXPECT_LT((solution.x[k] - xRef[k]).norm(), 1.0e-5) << "state mismatch at k=" << k;
   }
-  EXPECT_LT(evaluateOcpQpMaxHardViolation(problem, solution.x, solution.u), 1e-6);
+  EXPECT_LT(evaluateOcpQpMaxHardViolation(problem, solution.x, solution.u), 1.0e-6);
 }
 
 /**
@@ -178,25 +197,26 @@ TEST(OcpQpHpipmTest, StateInputCrossTermMatchesDenseKkt) {
     problem.stages[k].S = (matrix_t(1, 2) << 0.1, -0.05).finished();
   }
   OcpQpHpipmSolver solver;
-  const OcpQpSolution solution = solver.solve(problem);
+  const OcpQpSolution solution = solveOrFail(solver, problem);
   ASSERT_TRUE(solution.success());
 
-  std::vector<vector_t> xRef, uRef;
+  std::vector<vector_t> xRef;
+  std::vector<vector_t> uRef;
   const scalar_t objRef = solveUnconstrainedDense(problem, xRef, uRef);
-  EXPECT_NEAR(solution.objective, objRef, 1e-6);
-  EXPECT_NEAR(evaluateOcpQpObjective(problem, solution.x, solution.u), objRef, 1e-6);
+  EXPECT_NEAR(solution.objective, objRef, 1.0e-6);
+  EXPECT_NEAR(evaluateOcpQpObjective(problem, solution.x, solution.u), objRef, 1.0e-6);
   for (int k = 0; k <= kNumStages; ++k) {
-    EXPECT_LT((solution.x[k] - xRef[k]).norm(), 1e-5) << "state mismatch at k=" << k;
+    EXPECT_LT((solution.x[k] - xRef[k]).norm(), 1.0e-5) << "state mismatch at k=" << k;
   }
   for (int k = 0; k < kNumStages; ++k) {
-    EXPECT_LT((solution.u[k] - uRef[k]).norm(), 1e-5) << "input mismatch at k=" << k;
+    EXPECT_LT((solution.u[k] - uRef[k]).norm(), 1.0e-5) << "input mismatch at k=" << k;
   }
   // The cross term actually changes the solution, so an S that was silently ignored could not pass this test.
-  const OcpQpSolution without = solver.solve(noCrossTerm);
+  const OcpQpSolution without = solveOrFail(solver, noCrossTerm);
   ASSERT_TRUE(without.success());
   scalar_t difference = 0.0;
   for (int k = 0; k < kNumStages; ++k) difference = std::max(difference, (solution.u[k] - without.u[k]).norm());
-  EXPECT_GT(difference, 1e-3);
+  EXPECT_GT(difference, 1.0e-3);
 }
 
 TEST(OcpQpHpipmTest, InputBoxConstraintIsRespected) {
@@ -208,16 +228,16 @@ TEST(OcpQpHpipmTest, InputBoxConstraintIsRespected) {
     s.ubu = vector_t::Constant(1, 2.0);
   }
   OcpQpHpipmSolver solver;
-  const OcpQpSolution solution = solver.solve(problem);
+  const OcpQpSolution solution = solveOrFail(solver, problem);
   ASSERT_TRUE(solution.success());
   for (int k = 0; k < kNumStages; ++k) {
-    EXPECT_LE(std::abs(solution.u[k](0)), 2.0 + 1e-6);
+    EXPECT_LE(std::abs(solution.u[k](0)), 2.0 + 1.0e-6);
   }
   // The unconstrained solution uses larger accelerations, so the bound must be active somewhere.
   scalar_t maxAbsInput = 0.0;
   for (int k = 0; k < kNumStages; ++k) maxAbsInput = std::max(maxAbsInput, std::abs(solution.u[k](0)));
-  EXPECT_NEAR(maxAbsInput, 2.0, 1e-4);
-  EXPECT_LT(evaluateOcpQpMaxHardViolation(problem, solution.x, solution.u), 1e-6);
+  EXPECT_NEAR(maxAbsInput, 2.0, 1.0e-4);
+  EXPECT_LT(evaluateOcpQpMaxHardViolation(problem, solution.x, solution.u), 1.0e-6);
 }
 
 TEST(OcpQpHpipmTest, GeneralStateInputConstraintIsRespected) {
@@ -228,13 +248,13 @@ TEST(OcpQpHpipmTest, GeneralStateInputConstraintIsRespected) {
     OcpQpStage& s = problem.stages[k];
     s.C = (matrix_t(1, 2) << 0.0, 1.0).finished();
     s.D = matrix_t::Constant(1, 1, 0.5);
-    s.lg = vector_t::Constant(1, -1e3);
+    s.lg = vector_t::Constant(1, -1.0e3);
     s.ug = vector_t::Constant(1, 0.3);
   }
   OcpQpHpipmSolver solver;
-  const OcpQpSolution solution = solver.solve(problem);
+  const OcpQpSolution solution = solveOrFail(solver, problem);
   ASSERT_TRUE(solution.success());
-  EXPECT_LT(evaluateOcpQpMaxHardViolation(problem, solution.x, solution.u), 1e-6);
+  EXPECT_LT(evaluateOcpQpMaxHardViolation(problem, solution.x, solution.u), 1.0e-6);
   EXPECT_GT(solution.x[kNumStages](0), 0.05);  // it did move towards the target
 }
 
@@ -248,11 +268,11 @@ TEST(OcpQpHpipmTest, SoftConstraintKeepsProblemFeasible) {
     s.ubu = vector_t::Constant(1, 2.0);
     s.C = (matrix_t(1, 2) << 0.0, 1.0).finished();
     s.D = matrix_t::Zero(1, 1);
-    s.lg = vector_t::Constant(1, -1e3);
+    s.lg = vector_t::Constant(1, -1.0e3);
     s.ug = vector_t::Constant(1, 0.01);
   }
   OcpQpHpipmSolver solver;
-  const OcpQpSolution hardSolution = solver.solve(hard);
+  const OcpQpSolution hardSolution = solveOrFail(solver, hard);
   EXPECT_FALSE(hardSolution.success());
 
   OcpQpProblem soft = hard;
@@ -264,12 +284,12 @@ TEST(OcpQpHpipmTest, SoftConstraintKeepsProblemFeasible) {
     s.zl = vector_t::Constant(1, 1.0);
     s.zu = vector_t::Constant(1, 1.0);
   }
-  const OcpQpSolution softSolution = solver.solve(soft);
+  const OcpQpSolution softSolution = solveOrFail(solver, soft);
   ASSERT_TRUE(softSolution.success());
-  EXPECT_LT(evaluateOcpQpMaxHardViolation(soft, softSolution.x, softSolution.u), 1e-6);
+  EXPECT_LT(evaluateOcpQpMaxHardViolation(soft, softSolution.x, softSolution.u), 1.0e-6);
   // The velocity constraint is violated (that is the point of the slack), and the objective accounts for it.
   EXPECT_GT(softSolution.x[kNumStages](1), 0.01);
-  EXPECT_NEAR(softSolution.objective, evaluateOcpQpObjective(soft, softSolution.x, softSolution.u), 1e-9);
+  EXPECT_NEAR(softSolution.objective, evaluateOcpQpObjective(soft, softSolution.x, softSolution.u), 1.0e-9);
 }
 
 TEST(OcpQpHpipmTest, RepeatedSolvesWithChangedBoundsReuseMemory) {
@@ -281,16 +301,16 @@ TEST(OcpQpHpipmTest, RepeatedSolvesWithChangedBoundsReuseMemory) {
     s.ubu = vector_t::Constant(1, 10.0);
   }
   OcpQpHpipmSolver solver;
-  const scalar_t looseObjective = solver.solve(problem).objective;
+  const scalar_t looseObjective = solveOrFail(solver, problem).objective;
   for (int k = 0; k < kNumStages; ++k) {
     problem.stages[k].lbu(0) = -0.5;
     problem.stages[k].ubu(0) = 0.5;
   }
-  const OcpQpSolution tight = solver.solve(problem);
+  const OcpQpSolution tight = solveOrFail(solver, problem);
   ASSERT_TRUE(tight.success());
   EXPECT_GT(tight.objective, looseObjective);
   for (int k = 0; k < kNumStages; ++k) {
-    EXPECT_LE(std::abs(tight.u[k](0)), 0.5 + 1e-6);
+    EXPECT_LE(std::abs(tight.u[k](0)), 0.5 + 1.0e-6);
   }
 }
 
@@ -315,33 +335,33 @@ TEST(OcpQpHpipmTest, SoftRowSelectionIsNotInheritedFromThePreviousSolve) {
 
   // References from solvers that have never seen the other variant, i.e. with a freshly created (all hard) mapping.
   OcpQpHpipmSolver referenceSolverA;
-  const OcpQpSolution referenceFirstRowSoft = referenceSolverA.solve(firstRowSoft);
+  const OcpQpSolution referenceFirstRowSoft = solveOrFail(referenceSolverA, firstRowSoft);
   ASSERT_TRUE(referenceFirstRowSoft.success());
   OcpQpHpipmSolver referenceSolverB;
-  const OcpQpSolution referenceSecondRowSoft = referenceSolverB.solve(secondRowSoft);
+  const OcpQpSolution referenceSecondRowSoft = solveOrFail(referenceSolverB, secondRowSoft);
   ASSERT_TRUE(referenceSecondRowSoft.success());
 
   // The two variants really do have different answers, otherwise the test below could not tell them apart.
-  EXPECT_NEAR(referenceFirstRowSoft.u[kSoftSelectionStage](0), 2.0, 1e-4);
-  EXPECT_NEAR(referenceSecondRowSoft.u[kSoftSelectionStage](0), 1.0, 1e-4);
+  EXPECT_NEAR(referenceFirstRowSoft.u[kSoftSelectionStage](0), 2.0, 1.0e-4);
+  EXPECT_NEAR(referenceSecondRowSoft.u[kSoftSelectionStage](0), 1.0, 1.0e-4);
 
   // Row 0 soft, then row 1 soft, on one solver instance: the stale entry would leave row 0 soft as well.
   OcpQpHpipmSolver forwardSolver;
-  ASSERT_TRUE(forwardSolver.solve(firstRowSoft).success());
-  const OcpQpSolution reusedSecondRowSoft = forwardSolver.solve(secondRowSoft);
+  ASSERT_TRUE(solveOrFail(forwardSolver, firstRowSoft).success());
+  const OcpQpSolution reusedSecondRowSoft = solveOrFail(forwardSolver, secondRowSoft);
   EXPECT_TRUE(reusedSecondRowSoft.success());
-  EXPECT_LT(evaluateOcpQpMaxHardViolation(secondRowSoft, reusedSecondRowSoft.x, reusedSecondRowSoft.u), 1e-6);
-  EXPECT_NEAR(reusedSecondRowSoft.u[kSoftSelectionStage](0), referenceSecondRowSoft.u[kSoftSelectionStage](0), 1e-6);
-  EXPECT_NEAR(reusedSecondRowSoft.objective, referenceSecondRowSoft.objective, 1e-6);
+  EXPECT_LT(evaluateOcpQpMaxHardViolation(secondRowSoft, reusedSecondRowSoft.x, reusedSecondRowSoft.u), 1.0e-6);
+  EXPECT_NEAR(reusedSecondRowSoft.u[kSoftSelectionStage](0), referenceSecondRowSoft.u[kSoftSelectionStage](0), 1.0e-6);
+  EXPECT_NEAR(reusedSecondRowSoft.objective, referenceSecondRowSoft.objective, 1.0e-6);
 
   // Row 1 soft, then row 0 soft, on one solver instance: the stale entry would leave row 1 soft as well.
   OcpQpHpipmSolver reverseSolver;
-  ASSERT_TRUE(reverseSolver.solve(secondRowSoft).success());
-  const OcpQpSolution reusedFirstRowSoft = reverseSolver.solve(firstRowSoft);
+  ASSERT_TRUE(solveOrFail(reverseSolver, secondRowSoft).success());
+  const OcpQpSolution reusedFirstRowSoft = solveOrFail(reverseSolver, firstRowSoft);
   EXPECT_TRUE(reusedFirstRowSoft.success());
-  EXPECT_LT(evaluateOcpQpMaxHardViolation(firstRowSoft, reusedFirstRowSoft.x, reusedFirstRowSoft.u), 1e-6);
-  EXPECT_NEAR(reusedFirstRowSoft.u[kSoftSelectionStage](0), referenceFirstRowSoft.u[kSoftSelectionStage](0), 1e-6);
-  EXPECT_NEAR(reusedFirstRowSoft.objective, referenceFirstRowSoft.objective, 1e-6);
+  EXPECT_LT(evaluateOcpQpMaxHardViolation(firstRowSoft, reusedFirstRowSoft.x, reusedFirstRowSoft.u), 1.0e-6);
+  EXPECT_NEAR(reusedFirstRowSoft.u[kSoftSelectionStage](0), referenceFirstRowSoft.u[kSoftSelectionStage](0), 1.0e-6);
+  EXPECT_NEAR(reusedFirstRowSoft.objective, referenceFirstRowSoft.objective, 1.0e-6);
 }
 
 /**
@@ -356,28 +376,75 @@ TEST(OcpQpHpipmTest, ConsecutiveSolvesWithDifferentDimensionsReallocate) {
   const OcpQpProblem large = makeDoubleIntegratorProblem(1.0, -0.5);
 
   OcpQpHpipmSolver referenceSmallSolver;
-  const OcpQpSolution smallReference = referenceSmallSolver.solve(small);
+  const OcpQpSolution smallReference = solveOrFail(referenceSmallSolver, small);
   ASSERT_TRUE(smallReference.success());
   OcpQpHpipmSolver referenceLargeSolver;
-  const OcpQpSolution largeReference = referenceLargeSolver.solve(large);
+  const OcpQpSolution largeReference = solveOrFail(referenceLargeSolver, large);
   ASSERT_TRUE(largeReference.success());
 
   OcpQpHpipmSolver solver;
-  ASSERT_TRUE(solver.solve(small).success());
-  const OcpQpSolution largeAfterSmall = solver.solve(large);
+  ASSERT_TRUE(solveOrFail(solver, small).success());
+  const OcpQpSolution largeAfterSmall = solveOrFail(solver, large);
   ASSERT_TRUE(largeAfterSmall.success());
-  const OcpQpSolution smallAfterLarge = solver.solve(small);
+  const OcpQpSolution smallAfterLarge = solveOrFail(solver, small);
   ASSERT_TRUE(smallAfterLarge.success());
 
-  EXPECT_NEAR(largeAfterSmall.objective, largeReference.objective, 1e-6);
+  EXPECT_NEAR(largeAfterSmall.objective, largeReference.objective, 1.0e-6);
   for (int k = 0; k <= kNumStages; ++k) {
-    EXPECT_LT((largeAfterSmall.x[k] - largeReference.x[k]).norm(), 1e-6) << "state mismatch at k=" << k;
+    EXPECT_LT((largeAfterSmall.x[k] - largeReference.x[k]).norm(), 1.0e-6) << "state mismatch at k=" << k;
   }
-  EXPECT_LT(evaluateOcpQpMaxHardViolation(large, largeAfterSmall.x, largeAfterSmall.u), 1e-6);
+  EXPECT_LT(evaluateOcpQpMaxHardViolation(large, largeAfterSmall.x, largeAfterSmall.u), 1.0e-6);
 
-  EXPECT_NEAR(smallAfterLarge.objective, smallReference.objective, 1e-6);
-  EXPECT_NEAR(smallAfterLarge.u[kSoftSelectionStage](0), smallReference.u[kSoftSelectionStage](0), 1e-6);
-  EXPECT_LT(evaluateOcpQpMaxHardViolation(small, smallAfterLarge.x, smallAfterLarge.u), 1e-6);
+  EXPECT_NEAR(smallAfterLarge.objective, smallReference.objective, 1.0e-6);
+  EXPECT_NEAR(smallAfterLarge.u[kSoftSelectionStage](0), smallReference.u[kSoftSelectionStage](0), 1.0e-6);
+  EXPECT_LT(evaluateOcpQpMaxHardViolation(small, smallAfterLarge.x, smallAfterLarge.u), 1.0e-6);
+}
+
+/** Inconsistent problem data is reported as an InvalidArgument that names what is wrong, not thrown. */
+TEST(OcpQpHpipmTest, AnInconsistentProblemIsAnInvalidArgumentNamingTheProblem) {
+  OcpQpHpipmSolver solver;
+  const std::function<void(const OcpQpProblem&, const std::string&)> expectRejected = [&solver](const OcpQpProblem& problem,
+                                                                                                const std::string& expected) {
+    const absl::StatusOr<OcpQpSolution> solution = solver.solve(problem);
+    ASSERT_FALSE(solution.ok()) << expected;
+    EXPECT_EQ(solution.status().code(), absl::StatusCode::kInvalidArgument);
+    EXPECT_NE(solution.status().message().find(expected), std::string::npos) << solution.status();
+  };
+
+  OcpQpProblem noStages;
+  noStages.x0 = vector_t::Zero(2);
+  noStages.stages.resize(1);
+  noStages.stages[0] = OcpQpStage::Zero(/*nx=*/2, /*nu=*/0, /*hasDynamics=*/false);
+  expectRejected(noStages, "at least one stage");
+
+  OcpQpProblem wrongQ = makeDoubleIntegratorProblem(1.0, -0.5);
+  wrongQ.stages[3].Q = matrix_t::Zero(2, 3);
+  expectRejected(wrongQ, "stage 3: Q must be nx x nx");
+
+  OcpQpProblem terminalInput = makeDoubleIntegratorProblem(1.0, -0.5);
+  terminalInput.stages[kNumStages].R = matrix_t::Zero(1, 1);
+  expectRejected(terminalInput, "terminal node must not have inputs");
+
+  OcpQpProblem unsortedSoft = makeSoftRowSelectionProblem(1);
+  OcpQpStage& soft = unsortedSoft.stages[kSoftSelectionStage];
+  soft.softGeneralIndices = {1, 0};
+  soft.Zl = vector_t::Constant(2, 1.0);
+  soft.Zu = vector_t::Constant(2, 1.0);
+  soft.zl = vector_t::Constant(2, 1.0);
+  soft.zu = vector_t::Constant(2, 1.0);
+  expectRejected(unsortedSoft, "soft constraint indices must be sorted");
+
+  OcpQpProblem wrongX0 = makeDoubleIntegratorProblem(1.0, -0.5);
+  wrongX0.x0 = vector_t::Zero(3);
+  expectRejected(wrongX0, "x0 does not match");
+
+  // A rejected problem leaves the solver usable: the next consistent problem solves as on a fresh instance.
+  const OcpQpProblem consistent = makeDoubleIntegratorProblem(1.0, -0.5);
+  OcpQpHpipmSolver fresh;
+  const OcpQpSolution reference = solveOrFail(fresh, consistent);
+  const OcpQpSolution afterRejections = solveOrFail(solver, consistent);
+  ASSERT_TRUE(afterRejections.success());
+  EXPECT_NEAR(afterRejections.objective, reference.objective, 1.0e-9);
 }
 
 }  // namespace ocs2::humanoid

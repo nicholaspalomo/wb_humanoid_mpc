@@ -32,6 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <utility>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 
 namespace ocs2 {
@@ -49,7 +51,7 @@ class EndEffectorKinematics {
 
   EndEffectorKinematics() = default;
   virtual ~EndEffectorKinematics() = default;
-  virtual EndEffectorKinematics* clone() const = 0;
+  virtual EndEffectorKinematics* absl_nonnull clone() const = 0;
   EndEffectorKinematics& operator=(const EndEffectorKinematics&) = delete;
 
   /** Get end-effector IDs (names) */

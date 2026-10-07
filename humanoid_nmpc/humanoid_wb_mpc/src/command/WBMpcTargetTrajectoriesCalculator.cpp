@@ -30,18 +30,51 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_wb_mpc/command/WBMpcTargetTrajectoriesCalculator.h"
 
-#include <ocs2_core/misc/LoadData.h>
-
 #include <cmath>
+#include <memory>
+#include <string>
+
+#include "absl/log/log.h"
+#include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+
+#include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
+#include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "humanoid_mpc_config/reference_file.nproto.h"
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 
 namespace ocs2::humanoid {
 
-WBMpcTargetTrajectoriesCalculator::WBMpcTargetTrajectoriesCalculator(const std::string& referenceFile,
+absl::StatusOr<std::unique_ptr<WBMpcTargetTrajectoriesCalculator>> WBMpcTargetTrajectoriesCalculator::Create(
+    const mpc_config::ReferenceFile& referenceFile, const MpcRobotModelBase<scalar_t>& mpcRobotModel, scalar_t mpcHorizon) {
+  ASSIGN_OR_RETURN(const ReferenceSettings referenceSettings, referenceSettingsFromConfig(referenceFile));
+  ASSIGN_OR_RETURN(const vector_t defaultJointState,
+                   defaultJointStateFromConfig(referenceFile, mpcRobotModel.modelSettings.mpcModelJointNames,
+                                               mpcRobotModel.modelSettings.fixedJointNames));
+  // The constructor is private, so std::make_unique cannot reach it.
+  return absl::WrapUnique(new WBMpcTargetTrajectoriesCalculator(referenceSettings, defaultJointState, mpcRobotModel, mpcHorizon));
+}
+
+absl::StatusOr<std::unique_ptr<WBMpcTargetTrajectoriesCalculator>> WBMpcTargetTrajectoriesCalculator::Create(
+    const std::string& referenceFile, const MpcRobotModelBase<scalar_t>& mpcRobotModel, scalar_t mpcHorizon) {
+  LOG(INFO) << "[WBMpcTargetTrajectoriesCalculator] reference file: " << referenceFile;
+  ASSIGN_OR_RETURN(const mpc_config::ReferenceFile reference, loadReferenceFile(referenceFile));
+  absl::StatusOr<std::unique_ptr<WBMpcTargetTrajectoriesCalculator>> calculator = Create(reference, mpcRobotModel, mpcHorizon);
+  if (!calculator.ok()) {
+    return withConfigFile(calculator.status(), referenceFile);
+  }
+  return calculator;
+}
+
+WBMpcTargetTrajectoriesCalculator::WBMpcTargetTrajectoriesCalculator(const ReferenceSettings& referenceSettings,
+                                                                     const vector_t& defaultJointState,
                                                                      const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                                                      scalar_t mpcHorizon)
-    : TargetTrajectoriesCalculatorBase(referenceFile, mpcRobotModel, mpcHorizon) {}
+    : TargetTrajectoriesCalculatorBase(referenceSettings, defaultJointState, mpcRobotModel, mpcHorizon) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -103,7 +136,7 @@ TargetTrajectories WBMpcTargetTrajectoriesCalculator::commandedVelocityToTargetT
   averageVel(1) = (baseVel[1] + commVelTargetGlobal[1]) / 2;
   averageVel(2) = (baseVel[5] + commVelTargetGlobal[3]) / 2;
 
-  // The commanded pelvis height (or defaultBaseHeight) above the ground the reference manager stands the robot on.
+  // The commanded pelvis height (or default_base_height) above the ground the reference manager stands the robot on.
   const scalar_t targetHeight = commandedBaseHeight(commVelTargetGlobal[2]);
   currentPoseTarget[2] = targetHeight;
   vector6_t intermediateTargetPose = integrateTargetBasePose(currentPoseTarget, averageVel, targetHeight, intermediateTargetTime);

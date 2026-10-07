@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Every package of operator_requirements.txt loads from the @operator_deps hub with the hermetic Python.
 
 The operator tools (the remote_control GUI, teleoperation, the Rerun bridge, tools/ipc) depend on these packages and
@@ -8,8 +35,8 @@ import importlib
 import importlib.metadata
 import os
 import re
+from typing import NamedTuple
 import unittest
-from typing import Dict, List, NamedTuple, Optional
 
 # pygame greets on import unless told not to.
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
@@ -20,7 +47,7 @@ REQUIREMENTS_FILE = os.path.join(
 
 # The module a distribution is imported as, where the two names differ. A requirement added to the file without an
 # entry here is imported under its own name.
-IMPORT_NAMES: Dict[str, str] = {
+IMPORT_NAMES: dict[str, str] = {
     "protobuf": "google.protobuf",
     "pyyaml": "yaml",
     "pyzmq": "zmq",
@@ -32,10 +59,10 @@ _REQUIREMENT = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:==\s*([^\s;]+))?"
 
 class Requirement(NamedTuple):
     name: str
-    pinned_version: Optional[str]
+    pinned_version: str | None
 
 
-def read_requirements(path: str) -> List[Requirement]:
+def read_requirements(path: str) -> list[Requirement]:
     """The requirements of a pip requirements file: name and, for `name==version`, the version."""
     requirements = []
     with open(path, encoding="utf-8") as requirements_file:
@@ -90,9 +117,9 @@ class OperatorDepsTest(unittest.TestCase):
                 importlib.import_module(module_name)
 
     def test_tkinter_is_bundled_with_the_interpreter(self) -> None:
-        # Importing loads the Tcl/Tk libraries; no display is needed until a Tk root is created.
-        import tkinter
-
+        # Importing loads the Tcl/Tk libraries; no display is needed until a Tk root is created. Imported here, so that
+        # a missing Tk fails this test alone.
+        tkinter = importlib.import_module("tkinter")
         self.assertTrue(tkinter.TkVersion)
 
 

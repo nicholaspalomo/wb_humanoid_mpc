@@ -31,9 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-
 #include "absl/status/statusor.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -45,7 +44,7 @@ namespace ocs2::humanoid {
  *
  * Derived once from the model at start-up and never task-file keys, for the reason
  * ContactPlanningModelParameters states for the contact planner and this repository applies everywhere: a number that
- * has to agree with the URDF must not be maintained by hand in a YAML file next to it. It is also what lets every
+ * has to agree with the URDF must not be maintained by hand in a configuration file next to it. It is also what lets every
  * heuristic be a pure function with no access to Pinocchio - see LocomotionHeuristic.
  */
 struct LocomotionHeuristicModelParameters {
@@ -72,7 +71,7 @@ struct LocomotionHeuristicModelParameters {
 /**
  * Derives the model parameters from the robot model at the nominal standing state.
  *
- * `nominalState` is the same default posture the rest of the interface uses (the `defaultJointState` of reference.yaml
+ * `nominalState` is the same default posture the rest of the interface uses (the `default_joint_state` of reference.textproto
  * on a level base), because these are the constants of the gait's neighbourhood rather than of any one instant.
  */
 absl::StatusOr<LocomotionHeuristicModelParameters> deriveLocomotionHeuristicModelParameters(

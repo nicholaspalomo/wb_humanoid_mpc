@@ -40,16 +40,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/thread_annotations.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
-
-#include <ocs2_core/Types.h>
-#include <ocs2_core/reference/TargetTrajectories.h>
-#include <ocs2_mpc/MPC_Settings.h>
-#include <ocs2_mpc/SystemObservation.h>
-#include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/MPC_Settings.h"
+#include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_mpc_test/ScriptedMpc.h"
+#include "ocs2_oc/synchronized_module/SolverSynchronizedModule.h"
 
 #include "humanoid_mpc_ipc/MpcMessageConversions.h"
 #include "humanoid_mpc_msgs/mpc_policy.pb.h"
-#include "ocs2_mpc_test/ScriptedMpc.h"
 #include "robot_ipc/Bus.h"
 
 /**

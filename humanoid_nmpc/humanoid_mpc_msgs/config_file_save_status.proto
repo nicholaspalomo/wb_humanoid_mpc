@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "humanoid_mpc_msgs/config_file_kind.proto";
+import "nproto/options.proto";
+
+// Topic robot/config_save_status: the robot process's answer to one ConfigFileSave of operator/config_save, matched to
+// it by sequence and kind.
+// Next ID: 7
+message ConfigFileSaveStatus {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::ConfigFileSaveStatus";
+
+  reserved 7 to max;
+
+  enum Result {
+    RESULT_UNSPECIFIED = 0;
+    // Written into the robot's persistent copy (stored_path), the copy it replaced kept as <file>.bak.
+    RESULT_SAVED = 1;
+    // The text equals the robot's copy: nothing was written.
+    RESULT_UNCHANGED = 2;
+    // The robot process has no persistent store (started without --config_store_dir): it reads the laptop's files in
+    // place, which the GUI has saved already.
+    RESULT_NOT_STORED = 3;
+    // Refused before anything was written: another robot, configuration or schema version, a file that does not parse
+    // or that the robot would not start with, an oversize file, or a full queue (message says which).
+    RESULT_REFUSED = 4;
+    // Writing failed (message says why); the robot's copy is the one it had.
+    RESULT_FAILED = 5;
+  }
+  // The ConfigFileSave's sequence and kind.
+  uint64 sequence = 1;
+  ConfigFileKind kind = 2;
+  // The ConfigFileSave's config_path.
+  string config_path = 3;
+  Result result = 4;
+  // The refusal or the failure, or where the file was stored.
+  string message = 5;
+  // The robot's persistent copy of the file; empty when the robot has none.
+  string stored_path = 6;
+}

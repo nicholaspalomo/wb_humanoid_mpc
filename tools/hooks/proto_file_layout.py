@@ -1,4 +1,30 @@
-#!/usr/bin/env python3
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Checks the layout of the .proto files: google3's "1-1-1" rule and the nproto struct option.
 
 Every .proto file defines exactly ONE top-level message, enum or service, and the file is named after it in
@@ -29,6 +55,11 @@ Every top-level message or enum also names the C++ type nproto generates for it,
 The value is a fully qualified C++ name whose last component is the definition's name. Nested types are generated as
 nested C++ types of their parent's struct and carry no option; neither does the file.
 
+No message reserves a field NAME, in either spelling (`reserved "old_name";`, edition 2023's `reserved old_name;`):
+protobuf's C++ text parser skips a reserved name without a word, so a configuration file that still carries a retired
+key would silently stop meaning anything. List the name in `(nproto.retired_field)` instead, which turns it into an
+error that says what replaced it (tools/nproto/README.md, "Retired fields"). Reserving field numbers is fine.
+
     python3 -m tools.hooks.proto_file_layout <files>       # check
     python3 -m tools.hooks.proto_file_layout --git-staged  # check the staged .proto files
 
@@ -36,10 +67,12 @@ nested C++ types of their parent's struct and carry no option; neither does the 
 """
 
 import argparse
+from collections.abc import Iterable
+import dataclasses
 import os
 import re
 import sys
-from typing import Iterable, List, NamedTuple, Optional, Tuple
+from typing import NamedTuple
 
 from tools.hooks import check_types
 from tools.hooks import lint_files
@@ -56,6 +89,7 @@ NPROTO_OPTIONS = (NPROTO_STRUCT_OPTION, NPROTO_ENUM_OPTION)
 _CPP_QUALIFIED_NAME = re.compile(
     r"(::)?[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*"
 )
+_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 class Definition(NamedTuple):
@@ -80,9 +114,9 @@ def snake_case(name: str) -> str:
     return words.lower()
 
 
-def top_level_definitions(source: str) -> List[Definition]:
+def top_level_definitions(source: str) -> list[Definition]:
     """The messages, enums, services and extend blocks declared at file scope (nested types are not listed)."""
-    definitions: List[Definition] = []
+    definitions: list[Definition] = []
     tokens = proto_next_id.tokenize(source)
     depth = 0
     for index, token in enumerate(tokens):
@@ -111,41 +145,46 @@ class NprotoOption(NamedTuple):
     line: int
     # The chain of definitions the option is declared in, outermost first: () at file scope, (("message", "Foo"),) in
     # the body of a top-level message, and so on.
-    scope: Tuple[Tuple[str, str], ...]
+    scope: tuple[tuple[str, str], ...]
     first_in_body: bool  # it is the first statement of the body that declares it
 
 
-def nproto_options(source: str) -> List[NprotoOption]:
+@dataclasses.dataclass
+class _Block:
+    """An open `{` block of a .proto file, while nproto_options() walks it."""
+
+    # The (keyword, name) of the definition the block belongs to; None for an option value or an rpc body.
+    owner: tuple[str, str] | None
+    # Whether a statement has been seen in the block yet.
+    has_statement: bool = False
+
+
+def nproto_options(source: str) -> list[NprotoOption]:
     """Every `option (nproto.generate_*) = "...";` in `source`, with where it is declared."""
     tokens = proto_next_id.tokenize(source)
-    found: List[NprotoOption] = []
-    # One entry per open block: the definition it belongs to (None for an option value or rpc body) and whether a
-    # statement has been seen in it yet.
-    stack: List[List[object]] = []
+    found: list[NprotoOption] = []
+    stack: list[_Block] = []
     statement_start = True
     for index, token in enumerate(tokens):
         text = token.text
         if text == "{":
             previous = [t.text for t in tokens[max(0, index - 2) : index]]
-            owner = (
-                (previous[0], previous[1])
-                if len(previous) == 2
-                and previous[0] in DEFINITION_KEYWORDS + ("oneof",)
-                else None
-            )
-            stack.append([owner, False])
+            owner = None
+            if len(previous) == 2 and previous[0] in DEFINITION_KEYWORDS + ("oneof",):
+                owner = (previous[0], previous[1])
+            stack.append(_Block(owner))
             statement_start = True
             continue
         if text == "}":
             if stack:
                 stack.pop()
             if stack:
-                stack[-1][1] = True
+                stack[-1].has_statement = True
             statement_start = True
             continue
         if text == ";":
             if stack:
-                stack[-1][1] = True
+                stack[-1].has_statement = True
             statement_start = True
             continue
         if statement_start and text == "option" and index + 6 < len(tokens):
@@ -159,17 +198,87 @@ def nproto_options(source: str) -> List[NprotoOption]:
                 value = window[4]
                 if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
                     value = value[1:-1]
-                scope = tuple(entry[0] for entry in stack if entry[0] is not None)
-                first = bool(stack) and not stack[-1][1]
+                scope = tuple(block.owner for block in stack if block.owner is not None)
+                first = bool(stack) and not stack[-1].has_statement
                 found.append(NprotoOption(window[1], value, token.line, scope, first))
         statement_start = False
     return found
 
 
-def imports(source: str) -> List[str]:
+def reserved_names(source: str) -> list[tuple[int, str]]:
+    """(1-based line, name) of every field name a message's `reserved` statement lists, quoted or not.
+
+    `reserved 4, 9 to 11, 20 to max;` reserves numbers only; `reserved "old";` (proto2, proto3) and `reserved old;`
+    (edition 2023) reserve a name. Enums are not looked at: their reserved names are value names, not keys of a file.
+
+    Args:
+      source: A .proto file.
+
+    Returns:
+      The reserved names, in file order.
+    """
+    tokens = proto_next_id.tokenize(source)
+    found: list[tuple[int, str]] = []
+    owners: list[str | None] = (
+        []
+    )  # the keyword of each open block's definition (None: not a definition)
+    statement_start = True
+    index = 0
+    while index < len(tokens):
+        text = tokens[index].text
+        if text == "{":
+            previous = [t.text for t in tokens[max(0, index - 2) : index]]
+            owners.append(
+                previous[0]
+                if len(previous) == 2 and previous[0] in DEFINITION_KEYWORDS
+                else None
+            )
+            statement_start = True
+        elif text == "}":
+            if owners:
+                owners.pop()
+            statement_start = True
+        elif text == ";":
+            statement_start = True
+        elif (
+            statement_start
+            and text == "reserved"
+            and owners
+            and owners[-1] == "message"
+        ):
+            index += 1
+            while index < len(tokens) and tokens[index].text != ";":
+                item = tokens[index].text
+                if item[:1] in "\"'" or (
+                    _IDENTIFIER.fullmatch(item) and item not in ("to", "max")
+                ):
+                    found.append((tokens[index].line, item.strip("\"'")))
+                index += 1
+            statement_start = True
+        else:
+            statement_start = False
+        index += 1
+    return found
+
+
+def check_reserved_names(source: str, path: str) -> list[Violation]:
+    """A violation for every field name a message reserves (reserved_names())."""
+    return [
+        Violation(
+            path,
+            line,
+            f"reserves the field name '{name}': protobuf's C++ text parser silently skips a reserved name, so a file "
+            "that still sets it would parse and mean nothing. Reserve the number only, and list the name in "
+            '(nproto.retired_field) (tools/nproto/README.md, "Retired fields").',
+        )
+        for line, name in reserved_names(source)
+    ]
+
+
+def imports(source: str) -> list[str]:
     """The paths of the file's import statements."""
     tokens = proto_next_id.tokenize(source)
-    paths: List[str] = []
+    paths: list[str] = []
     for index, token in enumerate(tokens[:-1]):
         if token.text == "import":
             following = tokens[index + 1].text
@@ -181,14 +290,14 @@ def imports(source: str) -> List[str]:
 
 def check_struct_option(
     source: str, path: str, definition: Definition
-) -> List[Violation]:
+) -> list[Violation]:
     """The nproto option of a file whose one definition is `definition` (a message or an enum)."""
     expected = (
         NPROTO_STRUCT_OPTION if definition.keyword == "message" else NPROTO_ENUM_OPTION
     )
     example = f'option ({expected}) = "<namespace>::{definition.name}";'
-    violations: List[Violation] = []
-    own: Optional[NprotoOption] = None
+    violations: list[Violation] = []
+    own: NprotoOption | None = None
     for option in nproto_options(source):
         if not option.scope:
             violations.append(
@@ -270,7 +379,7 @@ def check_struct_option(
     return violations
 
 
-def check_source(source: str, path: str) -> List[Violation]:
+def check_source(source: str, path: str) -> list[Violation]:
     """Violations of the one-definition-per-file rule in `source`, which is the file at `path`."""
     definitions = top_level_definitions(source)
     stem = os.path.basename(path)
@@ -287,7 +396,7 @@ def check_source(source: str, path: str) -> List[Violation]:
     if all(d.keyword == "extend" for d in definitions):
         # An options file (tools/nproto/options.proto): it declares extensions, not a type to name the file after.
         return []
-    violations: List[Violation] = []
+    violations: list[Violation] = check_reserved_names(source, path)
     if len(definitions) > 1:
         names = ", ".join(f"{d.keyword} {d.name}" for d in definitions)
         for definition in definitions[1:]:
@@ -314,24 +423,24 @@ def check_source(source: str, path: str) -> List[Violation]:
     return violations
 
 
-def check_files(paths: Iterable[str], root: str) -> List[Violation]:
-    violations: List[Violation] = []
+def check_files(paths: Iterable[str], root: str) -> list[Violation]:
+    violations: list[Violation] = []
     for path in paths:
         with open(path, encoding="utf-8") as f:
             violations += check_source(f.read(), os.path.relpath(path, root))
     return violations
 
 
-def check_staged(repository: str) -> List[Violation]:
+def check_staged(repository: str) -> list[Violation]:
     """Checks the STAGED version of every .proto file staged for commit, as the pre-commit hook needs."""
-    violations: List[Violation] = []
+    violations: list[Violation] = []
     for path in lint_files.staged_files(repository):
         if path.endswith(PROTO_EXTENSION):
             violations += check_source(lint_files.staged_source(repository, path), path)
     return violations
 
 
-def _findings(source: str, path: str) -> List[check_types.Finding]:
+def _findings(source: str, path: str) -> list[check_types.Finding]:
     return [
         check_types.Finding(path, v.line, 1, NAME, v.text)
         for v in check_source(source, path)
@@ -345,14 +454,15 @@ CHECKS = [
         scope=lint_files.Scope.FIRST_PARTY,
         check_source=_findings,
         description="one top-level definition per .proto file, named after it, with its nproto option (google3's "
-        "1-1-1 rule).",
+        "1-1-1 rule); no message reserves a field name.",
         hint="Give each .proto file one definition named after the file (message MpcPolicy -> mpc_policy.proto) whose "
-        "body opens with 'option (nproto.generate_struct) = \"<namespace>::MpcPolicy\";'.",
+        "body opens with 'option (nproto.generate_struct) = \"<namespace>::MpcPolicy\";'. Retire a field with "
+        '(nproto.retired_field), not with `reserved "name"`.',
     )
 ]
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("paths", nargs="*", help=".proto files")
     parser.add_argument(

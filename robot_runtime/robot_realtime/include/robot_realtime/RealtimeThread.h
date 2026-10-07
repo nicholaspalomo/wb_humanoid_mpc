@@ -50,10 +50,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::realtime {
 
 /// The longest thread name Linux keeps: TASK_COMM_LEN is 16 bytes, including the terminating NUL.
-inline constexpr std::size_t kMaxThreadNameLength = 15;
+inline constexpr size_t kMaxThreadNameLength = 15;
 
 /// How much stack configureCurrentThread() prefaults for a realtime thread by default.
-inline constexpr std::size_t kDefaultStackPrefaultBytes = 256 * 1024;
+inline constexpr size_t kDefaultStackPrefaultBytes = 256 * 1024;
 
 /**
  * Runs the calling thread under SCHED_FIFO at `priority`.
@@ -84,7 +84,7 @@ absl::Status lockProcessMemory();
  * @return OutOfRange when the thread's stack has less than `bytes` (plus a safety margin) left below the caller;
  *         nothing is touched then.
  */
-absl::Status prefaultStack(std::size_t bytes);
+absl::Status prefaultStack(size_t bytes);
 
 /**
  * Pins the calling thread to `cores` (0-based CPU numbers).
@@ -122,7 +122,7 @@ struct RealtimeThreadConfig {
   /// CPU cores to pin the thread to; empty leaves its affinity alone.
   std::vector<int> cores;
   /// Stack to prefault when `priority` > 0 and `memoryLock` is kLockProcess.
-  std::size_t stackPrefaultBytes = kDefaultStackPrefaultBytes;
+  size_t stackPrefaultBytes = kDefaultStackPrefaultBytes;
   /// What happens to the memory of the process when `priority` > 0.
   MemoryLock memoryLock = MemoryLock::kLockProcess;
 };

@@ -11,9 +11,9 @@ controller, as the robot binary builds it, in one thread and without the bus.
                                                                                                   |
  MujocoSimInterface (headless,                   RobotController (MrtRobotController)            v next solve
  MujocoRobotBackend::makeConfig())               over the MRT joint controller         InProcessMpcLink
-   step x (1 / mrtDesiredFrequency) / dt  <--  prepareCycle(), computeJointControlAction()  (Execution::kCaller)
+   step x (1 / mrt_desired_frequency) / dt <-- prepareCycle(), computeJointControlAction()  (Execution::kCaller)
    getRobotState() ------------------------->        |  observations, policies  <------>  runSolverIteration()
-         |                                                                               every 1 / mpcDesiredFrequency
+         |                                                                               every 1 / mpc_desired_frequency
          +--------------------> ClosedLoopMetrics <--- solve times, the SQP's delta_x0
                                       |
                                 <robot>_<scenario>.json (ClosedLoopMetricsSchema)
@@ -35,28 +35,43 @@ controller, as the robot binary builds it, in one thread and without the bus.
 
 A run is reproducible and independent of the machine's speed:
 
-1. Every control cycle (`1 / mrtDesiredFrequency` of the task file, a whole number of 0.5 ms simulation steps) runs in
+1. Every control cycle (`1 / mpc.mrt_desired_frequency` of the task file, a whole number of 0.5 ms simulation steps) runs in
    the order of `RobotProcess::cycle()` (`humanoid_common_mpc_app/robot`): the runner reads the simulator's state,
    hands the controller the mode and the JOINT_PD posture (`RobotController::prepareCycle()`, in the order of the
-   formulation's binary), computes the action, applies the controller-side keys of the task file, serves the operator's
+   formulation's binary), computes the action, applies the controller-side settings of the task file, serves the operator's
    commands of this cycle, which take effect in the controller from the next cycle on, and applies the action last.
-2. A solve is due every `1 / mpcDesiredFrequency` of simulation time. It runs in the control cycle it falls in, after the
+2. A solve is due every `1 / mpc.mpc_desired_frequency` of simulation time. It runs in the control cycle it falls in, after the
    action, on that cycle's observation, and its policy is in use from the next cycle on. A solve takes no simulation
    time: the run measures the controller and the formulation, not the computer or the bus. On the robot the MPC node
    solves meanwhile on another thread or machine and adds the solve's and the link's latency.
 3. The operator's sequence: JOINT_PD with the torques on, on the locked gantry, for 1 s; WB_MPC (the controller resets
-   the MPC and holds, then ramps over `mpcEntryBlendTime`); 0.5 s after the entry is over the gantry is released as the
+   the MPC and holds, then ramps over `mpc_entry_blend_time`); 0.5 s after the entry is over the gantry is released as the
    robot process releases it (`unlockGantry()`, and the reset of the MPC the fall recovery requests when it sees the
    gantry unlocked); the robot stands for the scenario's `standingTime` (2 s); then the commands, over which the metrics
    are evaluated.
-4. A tilt beyond `simMaxBaseTiltAngle` (1 rad), a base below half its initial height, or a reset by the simulator is a
+4. A tilt beyond `sim_max_base_tilt_angle` (1 rad), a base below half its initial height, or a reset by the simulator is a
    fall and ends the run; the document says when and why.
 
-With one solver thread runs agree to 1e-9 (`test_lockstep_determinism`): two in one process, and a third in a process of
-its own, since a comparison across a code change always compares separate processes (a per-process source of
-nondeterminism, such as Abseil's hash seed ordering `RobotDescription`'s joint list, shows only there). With more threads
-the order in which the SQP adds its per-thread cost sums varies, so runs with the configured threads differ slightly;
-comparisons across a code change use the bands below.
+Runs are reproducible, with the configured solver threads too: two runs of one configuration give the same documents
+bit for bit, the whole-body ones included. `test_lockstep_determinism` holds runs of the smoke scenario with one solver
+thread to 1e-9: two in one process, and a third in a process of its own, since a comparison across a code change always
+compares separate processes (a per-process source of nondeterminism, such as Abseil's hash seed ordering
+`RobotDescription`'s joint list, shows only there).
+
+The whole-body runs used to differ in their last bits from one run to the next. The cause was CppAD's code generation,
+not the solver threads. CppAD's recorder files every constant of a tape under a hash code, and shares a parameter only
+with the constant last filed under the same code (`lib/ocs2/thirdparty/include/cppad/local/recorder.hpp`,
+`put_con_par()`). CppADCodeGen defined no hash code for its `CG` type, so CppAD's default hashed the bytes of the object
+(`cppad/local/hash_code.hpp`), and a `CG` holds the heap address of its value (`cppad/cg/cg.hpp`). Whether equal
+constants shared a parameter therefore followed the heap's layout, and so did the subexpressions `optimize()` merges by
+parameter index and the constant terms of its sums. Two generations of the whole-body G1's libraries gave different C
+sources for six of its 28 models: one subexpression merged in one generation only, sums in another order, `0 - v`
+against `-0 - v`. A sandboxed test generates the libraries afresh in every run, and runs that loaded the same libraries
+agreed bit for bit with any number of threads. The vendored CppADCodeGen now hashes a constant by its value, and the
+generator stamp regenerates every library made before (`lib/ocs2/README.md`, "Local changes to the vendored CppAD /
+CppADCodeGen"). The SQP's per-thread performance sums do follow the thread schedule, but they only decide the line
+search's comparisons, and no recorded run has changed from them. Comparisons across a code change use the bands below,
+since a code change moves the results.
 
 What the robot process does and the runner does not: the bus and the remote MPC link (the runner's link solves in the
 loop, without latency or transport), the start in ZERO_TORQUE (the runner starts in JOINT_PD with the torques on, and
@@ -65,8 +80,10 @@ recovery's catch-and-settle (a fall ends the run), the viewer, telemetry, and th
 Dodgeball messages. The MPC side is the MPC node's MPC, served by `InProcessMpcLink` (`MPC_MRT_Interface`) rather than
 the node's `MpcServer`: both reset the MPC to the same reset target from the observation the reset is served at, and
 solve the same problem. Files on disk are still watched: the parameter updater reloads the task file into the MPC, as on
-the centroidal MPC node, and the controller-side keys (`contactEstimator`, `contact_wrench_gate`) are re-read when the
-file changes, checked once a second of simulation time as the robot process checks them once a second of wall time.
+the MPC node of either formulation, and the controller-side settings (`contact_estimator`, `contact_wrench_gate`) are re-read,
+typed, when the task file's textproto changes, checked once a second of simulation time as the robot process checks them
+once a second of wall time. The file is the whole file, as for the robot process: a task file without a
+`contact_wrench_gate` block sets the instantaneous gate, one whose block is refused keeps the gate in use.
 The task files are read through the runfiles, which link into the checkout, so an edit of a task file during a run
 reaches the run: do not edit the configuration while a baseline is recorded.
 
@@ -98,14 +115,13 @@ On the main line it mirrors the robot process and the MPC node instead, and thes
 - **The whole-body controller gets its posture before its mode** (`CycleInputOrder::kPostureThenMode`, as the
   whole-body binary and the ROS sim did); the runner used to hand both formulations the mode first. The posture is the
   same in every cycle, so this changes nothing measured.
-- **The controller-side keys come from the robot process's path** (`TaskFileWatcher`, `loadControllerSideSettings()`,
-  applied as `RobotProcess::applyControllerSettings()`) for both formulations, instead of the centroidal parameter
-  updater's `takeContactWrenchGateUpdate()` and `takeContactEstimatorUpdate()`. Without an edit during a run this changes
-  nothing.
-- **The task file's robot keys are read with `loadRobotProcessSettings()`**, which refuses the retired
-  `useGravityCompFeedforward` (now `wbMpcFeedforward`), and the simulator is configured by
-  `MujocoRobotBackend::makeConfig()` (its viewer-only keys, `simContactTimelineWindow` and `simVisualizations`, change
-  nothing headless).
+- **The controller-side settings come from the robot process's path** (`TaskFileWatcher`,
+  `controllerSideSettingsFromConfig()`, applied as `RobotProcess::applyControllerSettings()`) for both formulations;
+  the parameter updater applies the MPC's fields only. Without an edit during a run this changes nothing.
+- **The task file's robot fields are read with `loadRobotProcessSettings()`**, which refuses the retired
+  `use_gravity_comp_feedforward` (now `wb_mpc_feedforward`), and the simulator is configured by
+  `MujocoRobotBackend::makeConfig()` (its viewer-only fields, `sim_contact_timeline_window` and `sim_visualizations`,
+  change nothing headless).
 - **The solve benchmark's later passes** start from a full reset requested at the start of the pass and served by its
   first solve, because the link starts once; before, each pass restarted the controller's MPC directly. The first
   `warmupSolves` of every pass are not timed either way.
@@ -117,9 +133,15 @@ timeline: EngineAI SA01's `walk_0p3` walks 13 mm higher but slips three times as
 the Unitree R1's `walk_0p3` tilt up to 25 % further, and the whole-body G1's maximum tilt in the 720-degree turn rises
 from 0.103 to 0.147 rad at the Euler yaw's first wrap. With the runner's operator sequence moved back to the start of
 the cycle, the main line reproduces M0 to a relative 2e-5 or better, and one re-recorded run bit for bit. The
-whole-body walk reproduces it only to its own rounding-level spread. Its README has the numbers. Compare a main-line
-Euler run with M0_main where it has the run. Re-record the other baselines on the main line (under new labels, before
-Step 3) when a comparison has to be exact up to the bands' noise rather than up to these differences.
+whole-body walk reproduced it only to 0.5 %: that was the spread its CppAD libraries then had from one generation to the
+next (above). Its README has the numbers. Its three whole-body documents and the turn's time series were recorded again
+on the deterministic libraries (2026-10-06), so a whole-body run of the same code repeats them bit for bit; the walk now
+slips 8.9 mm at most, against 5.2 mm before, and the turn's tilt maximum stays 0.147 rad. Its eight centroidal documents
+come from libraries generated before the code generation was made deterministic, and the same runs on the
+deterministic libraries differ from them at the rounding level: the walks by a relative 1.2e-9 or less, the standing
+runs by 4e-8 or less (1.2e-5 in a base-height deviation of 1e-10 m). Compare a main-line Euler run with M0_main where
+it has the run, within the bands. Re-record the other baselines on the main line (under new labels, before Step 3)
+when a comparison has to be exact up to the bands' noise rather than up to these differences.
 
 ## Scenarios
 
@@ -136,9 +158,9 @@ Step 3) when a comparison has to be exact up to the bands' noise rather than up 
 | `smoke` | 0.3 m/s and 0.2 rad/s for 1.5 s after 0.5 s of standing: the determinism test |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/ClosedLoopScenario.h:scenario_names) -->
 
-A command is sent as the base-controller GUI sends it: the sticks at `command / limit` (`maxDisplacementVelocityX`,
-`maxDisplacementVelocityY`, `maxRotationVelocity` of `reference.yaml`), clamped to [-1, 1], and the pelvis height at
-`defaultBaseHeight`. A command beyond a robot's limit is cut there and the document says `command_saturated: true`.
+A command is sent as the base-controller GUI sends it: the sticks at `command / limit` (`max_displacement_velocity_x`,
+`max_displacement_velocity_y`, `max_rotation_velocity` of the reference file, `guiCommandScalingFromConfig()`), clamped
+to [-1, 1], and the pelvis height at `default_base_height`. A command beyond a robot's limit is cut there and the document says `command_saturated: true`.
 
 ## Metrics
 
@@ -208,6 +230,14 @@ untracked file listed, and the contents of every untracked file, so that an edit
 The documents recorded before this (M0, B0) hashed only the diff and the collapsed status, which leaves the untracked
 files' contents out.
 
+The configuration files a run depends on (`RobotConfiguration::configurationFiles()`) are the robot's typed textprotos
+of [`humanoid_mpc_config`](../humanoid_mpc_config/README.md) - `config/mpc/task.textproto`,
+`config/command/reference.textproto`, `config/controller/joint_pd_gains.textproto`, the contact planner's
+`config/mpc/contact_planning.textproto` where the robot has one, and the gait file `gait.textproto` - plus its URDF and
+MuJoCo scene, and the provenance records the SHA-256 of each. The documents recorded before the textproto migration
+(M0, M0_main's centroidal documents and the other labels under `data/`) name and hash the YAML files they ran on, which
+held the same values; M0_main's whole-body documents, recorded again since, hash the textprotos.
+
 `ROBOT` is `drc_atlas`, `engineai_sa01`, `unitree_g1`, `unitree_r1` or `unitree_g1_wb`. The targets run the manual tests
 `closed_loop_<robot>` and `benchmark_mpc_solve_<robot>` under `bazel test`, so that the machine lock of `tools/bazel`
 keeps them from running next to another build, and copy the documents into `data/`.
@@ -237,6 +267,8 @@ state, so states recorded from the Euler formulation drive the quaternion one th
 | `test_lockstep_solve_schedule` | the runner's solve schedule: the pacing, a failed solve's pause and its end by a reset requested after the failure |
 | `test_recorded_robot_states` | a recording reads back as the recorded states; another robot is refused |
 | `test_lockstep_determinism` | smoke runs on the Unitree G1 with one solver thread agree to 1e-9, two in one process and one in a process of its own (exclusive: it compiles CppAD libraries) |
+| `test_driver_settings_from_config` | the GUI's command scaling from its own fields of the reference file, a limit that is absent or not positive refused by name, every configuration's reference file; the contact wrench gate of a whole task file: no block is the instantaneous gate, a refused block keeps the gate in use, every configuration's task file sets its own |
+| `test_robot_scene_gantry_hold` | the gantry hold each configuration's task file names (pinned: a change is a change of its runs), its MuJoCo scene supporting it, the robot process's mujoco backend running on it without falling back to `kinematic_teleport`; each scene that declares the weld failing the check with it taken out |
 | `test_solve_benchmark_gate` | the real-time gate: every recorded baseline passes against itself, each criterion fails alone, libraries match across the layout-tagged folder; every robot's default recorded states exist |
 | `test_worktree_state` | the provenance's worktree state in throwaway git repositories: untracked contents change it, ignored files do not |
 | `closed_loop_<robot>`, `benchmark_mpc_solve_<robot>` | manual, exclusive: the full scenarios and the benchmark |
@@ -259,7 +291,10 @@ The runner mirrors code it cannot share, each pair tied with `LINT.IfChange` / `
 | `CentroidalClosedLoopDriver.cpp:centroidal_mpc_node_wiring`, `WholeBodyClosedLoopDriver.cpp:whole_body_mpc_node_wiring`, `ClosedLoopDriver.cpp:command_path` | `CentroidalMpcNode.cpp:mpc_wiring`, `WBMpcNode.cpp:mpc_wiring` |
 
 What it shares instead of copying: `loadRobotProcessSettings()`, `createInitialSimState()`,
-`MujocoRobotBackend::makeConfig()`, `MrtRobotController`, `TaskFileWatcher`, `loadControllerSideSettings()`, the MPC
+`MujocoRobotBackend::makeConfig()`, `MrtRobotController`, `TaskFileWatcher`, `loadTaskFile()` and
+`controllerSideSettingsFromConfig()` (the controller-side settings of a changed task file, applied as a whole file as the
+robot process applies them, `wholeFileContactWrenchGate()`), `loadReferenceFile()` and `referenceSettingsFromConfig()`
+(the GUI's command scaling, `guiCommandScalingFromConfig()`), the MPC
 node's `node::applyWalkingVelocityCommand()` (the GUI's message into the motion manager, as the node's subscription
 applies it) and `node::clampWalkingVelocityCommand()` (the clamp the saturation flag and the commanded height are
 computed with), and `MpcResetSupervisor::resetRequestedSinceLastFailure()` (what ends a back-off). The robot

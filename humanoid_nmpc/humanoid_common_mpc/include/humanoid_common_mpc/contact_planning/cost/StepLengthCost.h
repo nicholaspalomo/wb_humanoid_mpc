@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <string>
+
 #include "humanoid_common_mpc/contact_planning/cost/LipWeightedCost.h"
 
 namespace ocs2::humanoid {
@@ -50,7 +52,7 @@ class StepLengthCost final : public LipWeightedCost {
  public:
   std::string describe() const override;
   void configure(const ContactPlanningConfig& config) override;
-  NodeSet nodeSet() const override { return NodeSet::RUNNING; }
+  NodeSet nodeSet() const override { return NodeSet::kRunning; }
   void addToStage(const ContactPlanningContext& ctx, int node, StageAccumulator& stage) const override;
 
   /** d_nom of a foot in swing: the per-node displacement along each axis for `velocityCommand` at the nominal cadence. */

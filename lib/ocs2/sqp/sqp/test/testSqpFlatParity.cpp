@@ -76,6 +76,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/constraint/LinearStateConstraint.h>
 #include <ocs2_core/constraint/LinearStateInputConstraint.h>
 #include <ocs2_core/cost/QuadraticStateCost.h>
@@ -146,7 +148,7 @@ class NonlinearToyDynamics final : public SystemDynamicsBase {
  public:
   NonlinearToyDynamics() = default;
   ~NonlinearToyDynamics() override = default;
-  NonlinearToyDynamics* clone() const override { return new NonlinearToyDynamics(*this); }
+  NonlinearToyDynamics* absl_nonnull clone() const override { return new NonlinearToyDynamics(*this); }
 
   vector_t computeFlowMap(scalar_t /*t*/, const vector_t& x, const vector_t& u, const PreComputation& /*preComp*/) override {
     vector_t dxdt(kStateDim);
@@ -451,7 +453,7 @@ std::vector<std::string> splitTokens(const std::string& line) {
 
 /** `token` as a double when it is one in full; nothing otherwise. */
 std::optional<double> parseNumber(const std::string& token) {
-  char* end = nullptr;
+  char* absl_nullable end = nullptr;
   const double value = std::strtod(token.c_str(), &end);
   if (end == token.c_str() || *end != '\0') return std::nullopt;
   return value;
@@ -476,10 +478,10 @@ bool agreesWithinHpipmBuildTolerance(const std::string& a, const std::string& b)
 TEST(SqpFlatParity, SolveWithoutManifoldIsBitwiseIdenticalToTheRecordedSolve) {
   const std::string printout = solveAllConfigurations();
 
-  const char* provenance = std::getenv("OCS2_RECORD_SQP_FLAT_PARITY");
+  const char* absl_nullable provenance = std::getenv("OCS2_RECORD_SQP_FLAT_PARITY");
   if (provenance != nullptr) {
     ASSERT_GT(std::string(provenance).size(), 1u) << "Set OCS2_RECORD_SQP_FLAT_PARITY to the solver state being recorded.";
-    const char* workspace = std::getenv("BUILD_WORKSPACE_DIRECTORY");
+    const char* absl_nullable workspace = std::getenv("BUILD_WORKSPACE_DIRECTORY");
     ASSERT_NE(workspace, nullptr) << "Record with `bazel run`, which sets BUILD_WORKSPACE_DIRECTORY.";
     const std::string path = std::string(workspace) + "/" + kGoldenRelativePath;
     const std::string hash = hexHash(hashLines(splitLines(printout)));

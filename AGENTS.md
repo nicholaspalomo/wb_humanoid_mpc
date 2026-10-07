@@ -46,9 +46,9 @@ memory.
 
 Write American spelling everywhere in the repository: identifiers, comments, strings, log messages, YAML, Python and
 documentation - color, behavior, center, meter, initialize, normalize, analyze, modeling, labeled, canceled, defense,
-gray, program. `make lint` checks it (`tools/hooks/american_spelling.py`; `python3 -m tools.hooks.american_spelling
---fix <files>` fixes them); a line that must keep a British spelling, such as the title of a cited paper, is marked
-`NOLINT(american-spelling): <reason>`. Vendored code under `lib/` and robot model files are left as they come.
+gray, program. `make lint` checks it (`american-spelling`, tools/hooks/american_spelling.py; `python3 -m
+tools.hooks.american_spelling --fix <files>` fixes them); a line that must keep a British spelling, such as the title of
+a cited paper or the name of the license file, is marked `NOLINT(american-spelling): <reason>`. Vendored code under `lib/` and robot model files are left as they come.
 
 #### Style guides: Google C++, Google Python and the Abseil Tips of the Week
 
@@ -64,16 +64,21 @@ The rules cover first-party code. Vendored code under `lib/` is left as it comes
 sources in `lib/ocs2` (not the CppAD and iit copies in `lib/ocs2/thirdparty`): they stay Boost-free, and their raw
 pointers carry nullability annotations. Generated code is held to the rules through its generator
 (`tools/nproto/nproto_generator.py`) rather than by linting `bazel-bin`; the generated ACOM weight headers are listed in
-`tools/hooks/lint_files.py` and skipped. Every C++ and Python file starts with the BSD-3 license comment block
-(cpplint `legal/copyright`, `py-license-header`). A new file's holder line is
-`Copyright (c) <year>, Nicholas Palomo. All rights reserved.`; an existing holder line is kept.
+`tools/hooks/lint_files.py` and skipped. Every C++ and Python file starts with the BSD-3 license comment block of
+the repository's license file: the holder line, the three conditions and the disclaimer (`license-header`, `py-license-header`; cpplint
+`legal/copyright` only looks for the word). A new file's holder line is
+`Copyright (c) <year>, Nicholas Palomo. All rights reserved.`; an existing holder line is kept, and a holder line
+without its holder gets the one `git log` names.
 
 A rule that a tool checks is a hard failure: there is no baseline file and no grandfathered finding. Fix the finding.
 Where a rule is genuinely wrong for one line, say why on that line: `// NOLINT(<check>): <reason>` (`#` in Python,
-shell and Starlark; or `NOLINTNEXTLINE`, or a `NOLINTBEGIN` / `NOLINTEND` pair around a block), and for pylint's own
-messages `# pylint: disable=<message>  # <reason>`. A marker without a check name or without a reason fails the lint,
-and so does a marker that names no known check, or one for the repository's own checks that suppresses nothing. The
-agent rules below are the ones no tool can check. They apply to new code and to the code a change touches; they are not
+shell and Starlark; or `NOLINTNEXTLINE`, or a `NOLINTBEGIN` / `NOLINTEND` pair around a block), for pylint's own
+messages `# pylint: disable=<message>  # <reason>` (a block pragma alone on its line may say why on the comment line
+above it), and for mypy `# type: ignore[<code>]  # <reason>`. A marker without a check name or without a reason fails
+the lint (`nolint-category`, `nolint-reason`, `py-pragma-reason`), and so does a marker that names no known check
+(`nolint-unknown`), one for the repository's own checks that suppresses nothing (`nolint-unused`), an unclosed
+`NOLINTBEGIN` (`nolint-unbalanced`), a bare `# type: ignore` (`py-type-comment`) and `# pylint: skip-file`
+(`py-pragma-reason`). The agent rules below are the ones no tool can check. They apply to new code and to the code a change touches; they are not
 a reason to restyle unrelated code in the same change.
 
 #### C++: where this repository departs from the Google C++ Style Guide
@@ -105,7 +110,7 @@ a reason to restyle unrelated code in the same change.
   Implementation details may live in a nested `internal` namespace, as `nproto::internal` does.
 - **Exceptions.** First-party code does not throw; it returns `absl::Status` / `absl::StatusOr`. Two boundaries keep
   exceptions, each with a `NOLINT(exceptions): <reason>`: an override of an OCS2 virtual function that has no status
-  channel may throw, and a call into a library that throws (yaml-cpp, cppzmq, OCS2's loaders and solvers) is wrapped in
+  channel may throw, and a call into a library that throws (Pinocchio, cppzmq, OCS2's solvers) is wrapped in
   one `try` / `catch` that converts the exception to an `absl::Status` at once. Nothing on the realtime thread throws.
 - **`<filesystem>`** is used, although the guide bans it: no Abseil equivalent exists. Use the `std::error_code`
   overloads, which do not throw, and convert failures to `absl::Status`.
@@ -123,29 +128,54 @@ a reason to restyle unrelated code in the same change.
   `strip_include_prefix` / `include_prefix`, so that the tools see each header at its source path.
 - **Switch fallthrough** is written `[[fallthrough]];` (`-Werror=implicit-fallthrough`).
 - **Warnings.** Every first-party C++ target compiles with `FIRST_PARTY_COPTS` from `bazel/copts.bzl` instead of a
-  package-local flag list. A `-Wno-...` needs a reason on its line; a flag that a third-party header trips is dropped
-  from the constant, never silenced per file.
+  package-local flag list. A target may add `-Werror`, and a `-Wno-...` with a reason on its line, and no other warning
+  flag; never `-w`, `-fpermissive`, `-Wno-error` or a `-Wno-...` of a flag the constant makes an error. Third-party
+  headers are system headers (.bazelrc's `external_include_paths`, lib/ocs2's `system_include_paths`), so the warnings
+  are about first-party code; a flag that a third-party header still trips is dropped from the constant, never silenced
+  per file.
 <!-- LINT.ThenChange(//tools/hooks/checks.py:registry, //.clang-tidy:checks, //bazel/copts.bzl:first_party_copts) -->
 
 Enforced by:
 - clang-format (layout, include order);
 - cpplint (`CPPLINT.cfg`);
-- clang-tidy (`.clang-tidy`, run by `make lint-tidy`);
+- clang-tidy (`.clang-tidy`, run by `make lint-tidy`), which also checks that move constructors are `noexcept`
+  (`performance-noexcept-move-constructor`) and that default arguments go only on non-virtual functions
+  (`google-default-arguments`);
 - the checks in `tools/hooks`, which cover:
-  - floating-point literals with a radix point;
-  - prefix `++`;
-  - no `auto` and no class template argument deduction;
-  - exceptions and RTTI only at their boundaries;
-  - header macros;
-  - static storage;
-  - quoted non-system includes;
-  - class comments;
-  - braces around `if ... else`;
-  - the `TODO` format;
-  - inclusive language;
-  - the forbidden constructs (`long double`, user-defined literals, inline namespaces, `decltype(auto)`, coroutines,
-    modules, `<ratio>`, `<cfenv>`, `alloca`, GNU extensions);
+  - floating-point literals with a radix point (`float-literal`);
+  - prefix `++` (`postfix-increment`), and `int64_t` / `size_t` without `std::` (`std-integer-type`);
+  - no `auto` and no class template argument deduction (`no-auto`, `ctad`);
+  - argument comments on literal arguments, `{}`, `""` and `std::nullopt` included (`argument-comment`);
+  - exceptions and RTTI, `std::dynamic_pointer_cast` and `std::any_cast` included, only at their boundaries
+    (`exceptions`, `rtti`);
+  - no `assert`, `ABSL_DCHECK` or `DCHECK` outside tests, which every `-c opt` build compiles out (`debug-only-check`);
+  - header macros, and `#pragma once` instead of include guards (`macro-naming`);
+  - static storage, Eigen, OCS2 and `absl::Status` types included (`static-storage`);
+  - quoted non-system includes (`include-style`);
+  - class comments (`class-comment`);
+  - braces around `if ... else` (`if-else-braces`);
+  - the `TODO` format (`todo-format`);
+  - inclusive language (`inclusive-language`);
+  - the license block (`license-header`);
+  - the forbidden constructs (`long double` and its `1.0L` literals, user-defined literals, inline namespaces,
+    `decltype(auto)`, coroutines, modules, `<ratio>`, `<cfenv>`, `alloca`, GNU extensions such as `x ?: y`)
+    (`forbidden-construct`);
 - the GCC warnings of `bazel/copts.bzl`.
+
+Protocol Buffers and dependencies are enforced by the checks in `tools/hooks` too (humanoid_mpc_msgs/README.md):
+<!-- LINT.IfChange(protobuf_rules) -->
+- the project is Boost-free: only the `@pinocchio` target depends on Boost (`boost`);
+- the project is YAML-free: no `#include` of a `yaml-cpp/` header and no `@yaml_cpp` label (`yaml-cpp`), and no `.yaml`
+  or `.yml` file under `robot_models/` or `humanoid_nmpc/`, whose configuration files are typed textprotos
+  (`config-yaml`, humanoid_nmpc/humanoid_mpc_config/README.md);
+- one top-level message or enum per `.proto` file, named after it, with its nproto option, and no message reserves a
+  field name - `reserved "old";` or `reserved old;` - which protobuf's C++ text parser would silently skip: a retired
+  field is listed in `(nproto.retired_field)` instead (`proto-file-layout`, tools/nproto/README.md);
+- every message names its next free field number (`// Next ID: N`) and opens with `reserved N to max;`
+  (`proto-next-id`);
+- every `.textproto` names its schema in its leading comment block, `# proto-file: <path>` and
+  `# proto-message: <package>.<Message>`, and the schema exists (`textproto-header`).
+<!-- LINT.ThenChange(//tools/hooks/checks.py:registry) -->
 
 Agent rules (no tool checks these):
 - Write short functions; past about 40 lines, look for a split. That is a prompt, not a limit.
@@ -163,8 +193,8 @@ Agent rules (no tool checks these):
   `T* absl_nullable`. An optional input is a `std::optional<T>` or a `const T* absl_nullable`. Inputs come before
   outputs. Two kinds of code may keep output parameters: preallocated buffers on the allocation-free realtime path, and
   OCS2 virtual signatures.
-- Overload only when every overload has the same meaning, and document the set with one comment. Default arguments go
-  only on non-virtual functions, with constant values.
+- Overload only when every overload has the same meaning, and document the set with one comment. Default arguments
+  have constant values.
 - A lambda that can outlive its scope (a thread, a stored callback) lists its captures. `[&]` only when the lambda
   obviously dies first; `[=]` never captures `this`.
 - Avoid template metaprogramming. Constrain templates with `requires` and the standard concepts; add no new public
@@ -183,8 +213,7 @@ Agent rules (no tool checks these):
 - Use `int64_t` for anything that may reach 2^31. Do not use unsigned types to say "non-negative".
 - Do not format with streams: use `absl::StrCat` / `StrFormat` / `StreamFormat` and Abseil logging. Overload `<<` only
   for value types; prefer `AbslStringify` (ToTW #215).
-- Move constructors are `noexcept`. The `const` methods of a class are safe to call concurrently, or the class says it
-  is not thread-safe.
+- The `const` methods of a class are safe to call concurrently, or the class says it is not thread-safe.
 - Do not use gendered pronouns for unspecified people. Software is "it".
 
 #### Raw pointers carry nullability (`absl_nonnull` / `absl_nullable`)
@@ -206,10 +235,13 @@ arguments stay unannotated: an annotated cast is an assertion that silences the 
 whose contract genuinely cannot be decided (an undocumented C API), with `// NOLINT(pointer-nullability): <why>`.
 String constants are not pointers: `inline constexpr char kName[] = "...";` (ToTW #140).
 
-GCC expands the macros to nothing, so the build checks nothing. `tools/hooks/pointer_nullability.py` checks that every
-pointer is annotated, and clang-tidy (`make lint-tidy`, clang 21) sees the annotations: clang reports a misplaced one,
-`nullptr` passed to or returned from an `absl_nonnull` pointer (`clang-diagnostic-nonnull`), and a redeclaration that
-contradicts the first (`clang-diagnostic-nullability`). Neither can tell whether the choice is right, and a wrong one is
+GCC expands the macros to nothing, so the build checks nothing. `tools/hooks/pointer_nullability.py`
+(`pointer-nullability`) checks that every pointer is annotated, one declarator per declaration, no annotation in a cast,
+and no null literal given to an `absl_nonnull` pointer (as its initializer or default, `{}`, a branch of `?:`, in a
+member initializer list, by an assignment, or returned). clang-tidy (`make lint-tidy`, clang 21) sees the annotations:
+clang reports a misplaced one, `nullptr` passed to or returned from an `absl_nonnull` pointer
+(`clang-diagnostic-nonnull`), and a redeclaration that contradicts the first (`clang-diagnostic-nullability`); the
+self-test's `nullability` fixture fails when they stop firing. Neither can tell whether the choice is right, and a wrong one is
 silent. Choose from the implementation and every caller, not from the type:
 - `absl_nonnull` when:
   - the pointee is dereferenced without a check;
@@ -226,8 +258,9 @@ silent. Choose from the implementation and every caller, not from the type:
 
 A nullable value becomes a nonnull one only after a check. Where it becomes an invariant (a constructor storing an
 injected pointer, a lookup or `dynamic_cast` that must succeed), check it once with `ABSL_CHECK(p != nullptr)` or
-`ABSL_DIE_IF_NULL(p)`. Never use `ABSL_DCHECK`: every build is `-c opt`. Never check per tick in the realtime loop;
-establish the invariant at construction. A C-API constructor that can fail reports an `absl::Status`. Escape:
+`ABSL_DIE_IF_NULL(p)`. Never use `ABSL_DCHECK` or `assert`: every build is `-c opt` (`debug-only-check`). Never check per tick in the realtime
+loop; establish the invariant at construction, and give the realtime path unchecked accessors with a documented
+precondition (`IDMapBase::operator[]`, `RobotState::getJointPosition()`). A C-API constructor that can fail reports an `absl::Status`. Escape:
 `// NOLINT(pointer-nullability): <reason>`.
 <!-- LINT.ThenChange(//tools/hooks/pointer_nullability.py:rules, //.clang-format:attribute_macros) -->
 
@@ -354,25 +387,27 @@ Not applied:
 <!-- LINT.ThenChange(//.pylintrc:repository_changes, //tools/hooks/checks.py:registry) -->
 
 Enforced by:
-- black and isort (`make format`);
+- black and isort (`make format`), each at the version the lint pins (a missing or other version fails with CI=true);
 - pylint (`.pylintrc`; Google's pylintrc plus the docstring and typing extensions);
 - mypy;
 - the checks in `tools/hooks`, which cover:
   - module-only, absolute and unaliased imports (aliases only from the standard list: `np`, `tk`, `rr`, ...) and no
-    `sys.path` changes;
-  - the license header;
-  - the docstring summary line, its `Args:` / `Returns:` / `Yields:` sections, and property docstrings;
-  - no `@staticmethod`;
-  - comprehensions with one `for` and one condition at most;
-  - one-line lambdas and conditional expressions;
-  - no `len(x) == 0`;
-  - no `assert` outside tests;
-  - exception class names ending in `Error`;
-  - no `__del__`, metaclasses, `exec` or `eval` outside tests;
-  - no backslash continuations or `# type:` comments;
-  - a shebang exactly on executable files;
-  - a `main()` called from the `__main__` guard;
-  - the `TODO` format.
+    `sys.path` changes (`py-import-modules`, `py-relative-import`, `py-import-alias`, `py-sys-path`);
+  - the license header, a comment and not the docstring (`py-license-header`, `py-license-docstring`);
+  - the docstring summary line, its `Args:` / `Returns:` / `Yields:` sections, and property docstrings
+    (`py-docstring-summary`, `py-docstring-sections`, `py-property-docstring`);
+  - no `@staticmethod` (`py-staticmethod`);
+  - comprehensions with one `for` and one condition at most (`py-complex-comprehension`);
+  - one-line lambdas and conditional expressions (`py-long-lambda`, `py-long-ternary`);
+  - no `len(x) == 0` (`py-length-test`);
+  - no `assert` outside tests (`py-assert`);
+  - exception class names ending in `Error` (`py-exception-name`);
+  - no `__del__`, metaclasses, `exec` or `eval` outside tests (`py-power-feature`);
+  - no backslash continuations or `# type:` comments (`py-backslash`, `py-type-comment`);
+  - a reason on every pylint pragma and `# type: ignore[<code>]` (`py-pragma-reason`);
+  - a shebang exactly on executable files (`py-shebang`);
+  - a `main()` called from the `__main__` guard (`py-main-guard`);
+  - the `TODO` format (`todo-format`).
 
 Agent rules:
 - Keep `try` blocks small, and clean up in `finally`. Raise built-in exceptions for API misuse; a custom exception's
@@ -420,14 +455,13 @@ Agent rules:
     `clang-tidy`, `clang-check`, `run-clang-tidy` or a `compile_commands.json` loop by hand, and never while another
     build runs.
   - `make lint-tidy-fix PKG=... CHECKS=<glob>` applies clang-tidy's fix-its; build afterwards.
-- While the repository is being swept, a check that still has findings is pending: its name is in
-  `tools/hooks/checks.py:PENDING`, its cpplint category or pylint message in the `SWEEP` block of `CPPLINT.cfg` or
-  `.pylintrc`, its relaxed module in the `SWEEP` block of `mypy.ini`, or its clang-tidy check only in
-  `tools/clang_tidy/sweep.clang-tidy`; and targets not yet switched keep their package's old copts. `make lint` and
-  `make lint-tidy` skip pending checks, but the rules above apply to new code all the same: run
-  `python3 -m tools.hooks.lint_code --only <check> --paths <dir>` and `make lint-tidy-sweep PKG=... PATHS=<dir>` on what
-  you touch. A check leaves the pending set in the change that fixes its last finding, and the mechanism goes when none
-  is left.
+  - Each run reads its reports from a build event file of its own, so two runs at once never read each other's
+    reports; pass `CLANG_TIDY_BEP=<path>` to keep the file of a run.
+- Every check is enforced: no check waits in a list until its findings are fixed, `mypy.ini` has no per-module
+  section, `.clang-tidy` is the only clang-tidy configuration, and every first-party C++ target compiles with
+  `FIRST_PARTY_COPTS` (`tools/hooks/test_lint_enforcement.py`, `test_first_party_build_files.py`). A new check lands
+  with its last finding fixed; while you fix them, narrow the runs with
+  `python3 -m tools.hooks.lint_code --only <check> --paths <dir>` and `make lint-tidy PKG=...`.
 <!-- LINT.ThenChange(//tools/hooks/lint_code.py:lint_lock, //Makefile:lint_tidy) -->
 - To add a rule:
   - add a check to the registry in `tools/hooks/checks.py`, with its own module and `test_<module>.py`

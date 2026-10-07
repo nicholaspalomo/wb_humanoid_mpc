@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsAD.h"
 
+#include <string>
+
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
@@ -49,7 +51,10 @@ CentroidalDynamicsAD::CentroidalDynamicsAD(const PinocchioInterface& pinocchioIn
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-vector_t CentroidalDynamicsAD::computeFlowMap(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) {
+vector_t CentroidalDynamicsAD::computeFlowMap(scalar_t time,
+                                              const vector_t& state,
+                                              const vector_t& input,
+                                              const PreComputation& /*preComp*/) {
   return pinocchioCentroidalDynamicsAd_.getValue(time, state, input);
 }
 
@@ -59,7 +64,7 @@ vector_t CentroidalDynamicsAD::computeFlowMap(scalar_t time, const vector_t& sta
 VectorFunctionLinearApproximation CentroidalDynamicsAD::linearApproximation(scalar_t time,
                                                                             const vector_t& state,
                                                                             const vector_t& input,
-                                                                            const PreComputation& preComp) {
+                                                                            const PreComputation& /*preComp*/) {
   return pinocchioCentroidalDynamicsAd_.getLinearApproximation(time, state, input);
 }
 

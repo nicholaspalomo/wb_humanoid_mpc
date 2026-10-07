@@ -125,6 +125,7 @@ nodes { name: "robot"     host: "127.0.0.1"  port: 5600 }  # the robot process
 nodes { name: "mpc"       host: "127.0.0.1"  port: 5610 }  # the MPC node
 nodes { name: "operator"  host: "127.0.0.1"  port: 5620 }  # the remote_control GUI
 nodes { name: "teleop"    host: "127.0.0.1"  port: 5621 }  # keyboard / Xbox teleoperation
+nodes { name: "config_push"  host: "127.0.0.1"  port: 5622 }  # push_robot_config: a configuration file to the robot
 ```
 
 | Field | Required | Meaning |

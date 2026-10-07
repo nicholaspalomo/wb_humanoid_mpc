@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -34,10 +38,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <thread>
 
-#include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
-
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "ocs2_oc/synchronized_module/SolverSynchronizedModule.h"
 
 #include "humanoid_common_mpc/contact_planning/ContactPlannerInterface.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
@@ -112,7 +115,7 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
   /**
    * Builds the module and the planner `config.planner.type` names, and hands the configuration to the reference
    * manager. `modelParameters` - the planner parameters derived from the robot model (torque limits, foot yaw bounds,
-   * and comHeight / ZMP box where the file leaves them at 0) - are applied to `config` first and to every configuration
+   * comHeight where the file leaves it out, the ZMP box where it leaves it at 0) - are applied to `config` first and to every configuration
    * set later, including the hot reloads, which do not carry them. A null reference manager, an unknown planner or a
    * configuration that does not validate is an InvalidArgument naming the key to change.
    */

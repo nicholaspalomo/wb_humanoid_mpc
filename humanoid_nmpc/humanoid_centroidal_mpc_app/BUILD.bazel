@@ -1,18 +1,12 @@
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 
 # humanoid_centroidal_mpc_app - the processes of the distributed runtime (humanoid_nmpc/docs/distributed_runtime/README.md)
 # that run the centroidal MPC. See README.md.
 
 package(default_visibility = ["//visibility:public"])
-
-_COPTS = [
-    "-std=c++20",
-    "-Wall",
-    "-Wextra",
-    "-Werror=return-type",
-]
 
 # ==============================================================================
 # The MPC node and the dummy simulator (laptop side)
@@ -23,7 +17,7 @@ cc_library(
     name = "centroidal_mpc_node",
     srcs = ["src/CentroidalMpcNode.cpp"],
     hdrs = ["include/humanoid_centroidal_mpc_app/CentroidalMpcNode.h"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     includes = ["include"],
     deps = [
         "//humanoid_nmpc/humanoid_centroidal_mpc",
@@ -38,6 +32,7 @@ cc_library(
         "//lib/ocs2:ocs2_sqp",
         "//robot_runtime/robot_ipc",
         "//robot_runtime/robot_realtime",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
@@ -50,7 +45,7 @@ cc_library(
 cc_binary(
     name = "humanoid_centroidal_mpc_node",
     srcs = ["src/CentroidalMpcNodeMain.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":centroidal_mpc_node",
         "//humanoid_nmpc/humanoid_common_mpc",
@@ -58,6 +53,7 @@ cc_binary(
         "//humanoid_nmpc/humanoid_common_mpc_app/node:mpc_node",
         "//humanoid_nmpc/humanoid_common_mpc_app/node:node_process",
         "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/flags:flag",
         "@abseil-cpp//absl/flags:parse",
         "@abseil-cpp//absl/flags:usage",
@@ -73,7 +69,7 @@ cc_binary(
 cc_binary(
     name = "humanoid_centroidal_mpc_dummy_sim",
     srcs = ["src/CentroidalMpcDummySimMain.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = [
         "//humanoid_nmpc/humanoid_centroidal_mpc",
         "//humanoid_nmpc/humanoid_common_mpc",
@@ -82,6 +78,7 @@ cc_binary(
         "//humanoid_nmpc/humanoid_common_mpc_app/node:node_process",
         "//lib/ocs2:ocs2_mpc",
         "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/flags:flag",
         "@abseil-cpp//absl/flags:parse",
         "@abseil-cpp//absl/flags:usage",
@@ -108,7 +105,7 @@ cc_test(
     size = "large",
     timeout = "eternal",
     srcs = ["test/testCentroidalMpcNode.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     data = [
         ":humanoid_centroidal_mpc_node",
         ":humanoid_centroidal_mpc_robot",
@@ -131,9 +128,11 @@ cc_test(
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_mpc_test_support",
+        "//lib/ocs2:ocs2_sqp",
         "//robot_runtime/robot_core:resource_paths",
         "//robot_runtime/robot_ipc",
         "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
@@ -153,7 +152,7 @@ cc_test(
 cc_binary(
     name = "humanoid_centroidal_mpc_robot",
     srcs = ["src/CentroidalMpcRobotMain.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     deps = [
         "//humanoid_nmpc/humanoid_centroidal_mpc",
         "//humanoid_nmpc/humanoid_common_mpc",
@@ -166,6 +165,7 @@ cc_binary(
         "//humanoid_nmpc/humanoid_mpc_ipc:remote_mpc_link",
         "//robot_runtime/robot_ipc",
         "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/flags:parse",
         "@abseil-cpp//absl/flags:usage",
         "@abseil-cpp//absl/log",
@@ -179,6 +179,40 @@ cc_binary(
 )
 # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc_app/README.md:robot_binaries, //humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:robot_binaries)
 
+# The GUI's two-copy Save end to end, on the robot's side: the robot binary as a process with a configuration store,
+# saves from the bus node config_push stored or refused, a restart running the saved task file, and stored files the
+# robot refuses (or a boot it did not confirm) falling back to the bundled files.
+cc_test(
+    name = "test_config_save_end_to_end",
+    size = "medium",
+    srcs = ["test/testConfigSaveEndToEnd.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        ":humanoid_centroidal_mpc_robot",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc_app/robot:end_to_end_test_support",
+        "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_process",
+        "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_ipc",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto",
+        "//robot_runtime/robot_ipc",
+        "//tools/nproto:nproto_runtime",
+        "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        "@googletest//:gtest_main",
+    ],
+)
+
 # The robot binary end to end, as the hardware topology runs it: the process (MuJoCo headless, on the DRC Atlas files)
 # against an MpcServer in the test over a loopback bus, with an operator. It reaches WB_MPC, takes a policy into use,
 # holds its period, and holds JOINT_PD when the MPC side goes away (link loss).
@@ -186,7 +220,7 @@ cc_test(
     name = "test_centroidal_mpc_robot_end_to_end",
     size = "medium",
     srcs = ["test/testCentroidalMpcRobotEndToEnd.cpp"],
-    copts = _COPTS,
+    copts = FIRST_PARTY_COPTS,
     data = [
         ":humanoid_centroidal_mpc_robot",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
@@ -205,6 +239,7 @@ cc_test(
         "//lib/ocs2:ocs2_oc",
         "//robot_runtime/robot_ipc",
         "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",

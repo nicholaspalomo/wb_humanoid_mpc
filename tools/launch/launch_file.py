@@ -1,5 +1,33 @@
-"""Reads and validates a launch file: the processes of one deployment, the machine each runs on, and the variables
-their commands are written with.
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""Reads and validates a launch file: the processes of a deployment, their machines and the variables they use.
+
+The variables are those the commands and environments of the processes are written with.
 
 A launch file is a textproto of launch_proto.LaunchFile (proto/launch_file.proto, which documents every field):
 
@@ -8,7 +36,7 @@ A launch file is a textproto of launch_proto.LaunchFile (proto/launch_file.proto
     processes {
       name: "mpc"
       machine: MACHINE_LAPTOP                  # MACHINE_ROBOT | MACHINE_LAPTOP
-      command: [".bazel/bin/humanoid_nmpc/...", "--task_file={config_dir}/mpc/task.yaml"]
+      command: [".bazel/bin/humanoid_nmpc/...", "--task_file={config_dir}/mpc/task.textproto"]
       env { name: "DISPLAY" value: ":99" }
       required: true                           # when it exits, everything stops
       terminal: false                          # run inside a terminal emulator (keyboard teleoperation)
@@ -25,25 +53,24 @@ paths are relative to it, because the launcher runs every process there. `--set 
 file declares.
 """
 
+from collections.abc import Iterable, Mapping, Sequence
 import dataclasses
 import re
 import string
-from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from google.protobuf import text_format
-
 from launch_proto import launch_file_pb2
 
 _MACHINE_ENUM = launch_file_pb2.LaunchFile.Machine
 _MACHINE_VALUE_PREFIX = "MACHINE_"
 # The machine of every value of LaunchFile.Machine but MACHINE_UNSPECIFIED, by number: MACHINE_ROBOT is "robot".
-_MACHINE_BY_NUMBER: Dict[int, str] = {
+_MACHINE_BY_NUMBER: dict[int, str] = {
     value.number: value.name[len(_MACHINE_VALUE_PREFIX) :].lower()
     for value in _MACHINE_ENUM.DESCRIPTOR.values
     if value.number != launch_file_pb2.LaunchFile.MACHINE_UNSPECIFIED
 }
 # The names --machine takes, in the order of the schema.
-MACHINES: Tuple[str, ...] = tuple(_MACHINE_BY_NUMBER.values())
+MACHINES: tuple[str, ...] = tuple(_MACHINE_BY_NUMBER.values())
 
 # Variables every launch file has; a file or the command line may not redefine them.
 BUILTIN_VARIABLES = ("repo_root",)
@@ -66,8 +93,8 @@ class ProcessSpec:
 
     name: str
     machine: str
-    command: Tuple[str, ...]
-    env: Tuple[Tuple[str, str], ...] = ()
+    command: tuple[str, ...]
+    env: tuple[tuple[str, str], ...] = ()
     required: bool = False
     terminal: bool = False
     delay: float = 0.0
@@ -75,8 +102,10 @@ class ProcessSpec:
 
 @dataclasses.dataclass(frozen=True)
 class ShutdownPolicy:
-    """How long each teardown stage waits before the next, stronger signal. Its fields are those of
-    LaunchFile.Shutdown."""
+    """How long each teardown stage waits before the next, stronger signal.
+
+    Its fields are those of LaunchFile.Shutdown.
+    """
 
     sigint_grace_period: float = DEFAULT_SIGINT_GRACE_PERIOD_S
     sigterm_grace_period: float = DEFAULT_SIGTERM_GRACE_PERIOD_S
@@ -87,14 +116,14 @@ class LaunchFile:
     """A launch file after validation and substitution."""
 
     source: str
-    processes: Tuple[ProcessSpec, ...]
+    processes: tuple[ProcessSpec, ...]
     variables: Mapping[str, str]
     shutdown: ShutdownPolicy
 
 
-def parse_overrides(assignments: Iterable[str]) -> Dict[str, str]:
+def parse_overrides(assignments: Iterable[str]) -> dict[str, str]:
     """`--set name=value` arguments as a mapping; the value may be empty and may contain `=`."""
-    overrides: Dict[str, str] = {}
+    overrides: dict[str, str] = {}
     for assignment in assignments:
         name, separator, value = assignment.partition("=")
         if not separator or not name.isidentifier():
@@ -105,7 +134,7 @@ def parse_overrides(assignments: Iterable[str]) -> Dict[str, str]:
     return overrides
 
 
-def _template_fields(template: str, context: str) -> List[str]:
+def _template_fields(template: str, context: str) -> list[str]:
     """The variable names a template refers to, in order; rejects what str.format would do beyond substitution."""
     try:
         parsed = list(string.Formatter().parse(template))
@@ -143,7 +172,7 @@ def resolve_variables(
     overrides: Mapping[str, str],
     builtins: Mapping[str, str],
     source: str,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """The value of every variable, after the overrides, with references to other variables substituted."""
     for name in builtins:
         if name in declared or name in overrides:
@@ -157,9 +186,9 @@ def resolve_variables(
             f"{source}: --set of undeclared variable(s) {', '.join(unknown)}; the launch file declares: {known}"
         )
     raw = {**declared, **overrides}
-    resolved: Dict[str, str] = dict(builtins)
+    resolved: dict[str, str] = dict(builtins)
 
-    def resolve(name: str, chain: Tuple[str, ...]) -> str:
+    def resolve(name: str, chain: tuple[str, ...]) -> str:
         if name in resolved:
             return resolved[name]
         if name in chain:
@@ -196,8 +225,21 @@ def _seconds(value: float, context: str) -> float:
 
 
 def _machine(entry: launch_file_pb2.LaunchFile.Process, context: str) -> str:
-    """The machine of a process. The text format rejects an unknown value name, but takes any number for this open
-    enum, and an unset field reads as MACHINE_UNSPECIFIED."""
+    """The machine of a process, as --machine names it.
+
+    The text format rejects an unknown value name, but takes any number for this open enum, and an unset field reads
+    as MACHINE_UNSPECIFIED: both are errors here.
+
+    Args:
+        entry: The process.
+        context: Names the process in the error message.
+
+    Returns:
+        A name of MACHINES.
+
+    Raises:
+        LaunchFileError: The machine is unset or not a value of LaunchFile.Machine.
+    """
     machine = _MACHINE_BY_NUMBER.get(entry.machine)
     if machine is None:
         expected = ", ".join(
@@ -220,6 +262,7 @@ def _parse_process(
     variables: Mapping[str, str],
     source: str,
 ) -> ProcessSpec:
+    """The process `entry`, the `index`th of the file, validated and with `variables` substituted."""
     context = f"{source}: processes[{index}]"
     if not _NAME_PATTERN.match(entry.name):
         raise LaunchFileError(
@@ -246,7 +289,7 @@ def _parse_process(
     if not arguments[0]:
         raise LaunchFileError(f"{context}: the program, command[0], is empty")
 
-    env: List[Tuple[str, str]] = []
+    env: list[tuple[str, str]] = []
     for variable in entry.env:
         if not _ENV_NAME_PATTERN.match(variable.name):
             raise LaunchFileError(
@@ -273,10 +316,22 @@ def _parse_process(
 def _parse_shutdown(
     entry: launch_file_pb2.LaunchFile.Shutdown, source: str
 ) -> ShutdownPolicy:
-    """The grace periods the file sets, the defaults for those it leaves unset. An explicit 0 is kept: the fields
-    track presence."""
+    """The grace periods the file sets, and the defaults for those it leaves unset.
+
+    An explicit 0 is kept: the fields track presence.
+
+    Args:
+        entry: The shutdown entry of the file (unset: every default).
+        source: Names the file in the error messages.
+
+    Returns:
+        The policy.
+
+    Raises:
+        LaunchFileError: A grace period is negative or NaN.
+    """
     defaults = ShutdownPolicy()
-    periods: Dict[str, float] = {}
+    periods: dict[str, float] = {}
     for policy_field in dataclasses.fields(ShutdownPolicy):
         name = policy_field.name
         periods[name] = (
@@ -290,15 +345,15 @@ def _parse_shutdown(
 def parse_launch_file(
     document: launch_file_pb2.LaunchFile,
     source: str,
-    overrides: Optional[Mapping[str, str]] = None,
-    builtins: Optional[Mapping[str, str]] = None,
+    overrides: Mapping[str, str] | None = None,
+    builtins: Mapping[str, str] | None = None,
 ) -> LaunchFile:
     """A parsed launch file, validated and with every variable substituted."""
     builtins = dict(builtins or {})
     for name in BUILTIN_VARIABLES:
         builtins.setdefault(name, "")
 
-    declared: Dict[str, str] = {}
+    declared: dict[str, str] = {}
     for index, variable in enumerate(document.variables):
         if not variable.name.isidentifier():
             raise LaunchFileError(
@@ -366,8 +421,8 @@ def read_launch_text(text: str, source: str) -> launch_file_pb2.LaunchFile:
 def parse_launch_text(
     text: str,
     source: str,
-    overrides: Optional[Mapping[str, str]] = None,
-    builtins: Optional[Mapping[str, str]] = None,
+    overrides: Mapping[str, str] | None = None,
+    builtins: Mapping[str, str] | None = None,
 ) -> LaunchFile:
     """A launch file's text, parsed, validated and with every variable substituted. `source` names it in errors."""
     return parse_launch_file(
@@ -377,8 +432,8 @@ def parse_launch_text(
 
 def load_launch_file(
     path: str,
-    overrides: Optional[Mapping[str, str]] = None,
-    builtins: Optional[Mapping[str, str]] = None,
+    overrides: Mapping[str, str] | None = None,
+    builtins: Mapping[str, str] | None = None,
 ) -> LaunchFile:
     """The launch file at `path`, validated and with every variable substituted."""
     try:
@@ -394,8 +449,8 @@ def load_launch_file(
 
 
 def select_machine(
-    processes: Sequence[ProcessSpec], machine: Optional[str]
-) -> Tuple[ProcessSpec, ...]:
+    processes: Sequence[ProcessSpec], machine: str | None
+) -> tuple[ProcessSpec, ...]:
     """The processes of one machine, in file order; all of them when `machine` is None."""
     if machine is not None and machine not in MACHINES:
         raise LaunchFileError(

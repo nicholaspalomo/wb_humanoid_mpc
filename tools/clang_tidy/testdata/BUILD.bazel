@@ -92,6 +92,18 @@ cc_library(
     tags = ["manual"],
 )
 
+# Abseil's nullability annotations reach clang: a null argument of an absl_nonnull parameter is clang-diagnostic-nonnull,
+# and a redeclaration whose annotation contradicts the first is clang-diagnostic-nullability. The self-test fails when
+# they stop firing (a clang-tidy without nullability_on_classes, or a flag dropped from clang_tidy.bzl), which would make
+# the macros expand to nothing.
+cc_library(
+    name = "nullability",
+    srcs = ["Nullability.cpp"],
+    hdrs = ["Nullability.h"],
+    tags = ["manual"],
+    deps = ["@abseil-cpp//absl/base:nullability"],
+)
+
 # A generated source, which the aspect never lints.
 genrule(
     name = "generated_source",

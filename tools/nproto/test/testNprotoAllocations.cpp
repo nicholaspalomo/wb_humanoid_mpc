@@ -31,11 +31,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // and the message side keeps that capacity when a repeated field shrinks. A binary of its own, because the allocation
 // counter replaces malloc for the whole process.
 
-#include <gtest/gtest.h>
-
 #include <cstddef>
 #include <string>
 #include <vector>
+
+#include "gtest/gtest.h"
 
 #include "robot_runtime/robot_realtime/test/AllocationCounter.h"
 #include "tools/nproto/test/ProtoAllocations.h"
@@ -81,7 +81,7 @@ TEST(AllocationCounterTest, SeesTheFirstConversion) {
   value.strings.assign(3, std::string(40, 'x'));
   value.doubles.setZero(16);
   nproto_test::RepeatedFields proto;
-  const std::size_t before = heapAllocationCount();
+  const size_t before = heapAllocationCount();
   ToProto(value, &proto);
   EXPECT_GT(heapAllocationCount() - before, 0u) << "the first conversion sizes the message";
 }
@@ -102,7 +102,7 @@ TEST(RepeatedCapacityTest, AMessageKeepsTheElementsAShorterValueRemoves) {
   ToProto(longer, &proto);
   ToProto(shorter, &proto);
   ASSERT_EQ(proto.inners_size(), 1);
-  const std::size_t before = heapAllocationCount();
+  const size_t before = heapAllocationCount();
   ToProto(longer, &proto);
   EXPECT_EQ(heapAllocationCount() - before, 0u);
   EXPECT_EQ(proto.strings_size(), 4);

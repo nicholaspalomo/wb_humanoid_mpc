@@ -5,12 +5,13 @@ package nproto_test;
 import "nproto/options.proto";
 import "tools/nproto/test/scalars.proto";
 
-// Edition 2023: fields have explicit presence unless they say otherwise.
-// Next ID: 7
+// Edition 2023: fields have explicit presence unless they say otherwise. A message field keeps no presence unless it
+// asks for it with (nproto.optional_message).
+// Next ID: 8
 message Editions {
   option (nproto.generate_struct) = "nproto::test::Editions";
 
-  reserved 7 to max;
+  reserved 8 to max;
 
   // EXPLICIT presence without a default: std::optional.
   int32 explicit_count = 1;
@@ -19,4 +20,6 @@ message Editions {
   string name = 4;
   Scalars scalars = 5;
   repeated double values = 6;
+  // std::optional<Scalars>: absent and default are told apart.
+  Scalars maybe_scalars = 7 [(nproto.optional_message) = true];
 }

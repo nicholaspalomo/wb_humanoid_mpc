@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -23,28 +27,12 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
-
-#include <ocs2_centroidal_model/CentroidalModelInfo.h>
-#include <ocs2_centroidal_model/CentroidalModelPinocchioMapping.h>
-#include <ocs2_core/PreComputation.h>
-#include <ocs2_core/reference/TargetTrajectories.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-#include <pinocchio/algorithm/center-of-mass.hpp>
-#include <pinocchio/multibody/data.hpp>
-#include <pinocchio/multibody/model.hpp>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <memory>
-#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -52,11 +40,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "gtest/gtest.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/multibody/data.hpp"
+#include "pinocchio/multibody/model.hpp"
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "robot_core/ResourcePaths.h"
 
 namespace ocs2::humanoid {
@@ -75,23 +74,14 @@ constexpr Eigen::Index kBaseOrientationOffset = 3;
 constexpr Eigen::Index kGeneralizedBaseDim = 6;
 
 /// Central-difference step, and the agreement it buys on a smooth cost of order one.
-constexpr scalar_t kFiniteDifferenceStep = 1e-6;
-constexpr scalar_t kFiniteDifferenceTolerance = 1e-5;
-
-/** A scratch directory for the configurations this test builds, inside Bazel's test sandbox when there is one. */
-std::filesystem::path scratchDirectory() {
-  const char* testTmpDir = std::getenv("TEST_TMPDIR");
-  const std::filesystem::path root = testTmpDir != nullptr ? std::filesystem::path(testTmpDir) : std::filesystem::temp_directory_path();
-  const std::filesystem::path directory = root / "testComAndAcomTrackingCost";
-  std::filesystem::create_directories(directory);
-  return directory;
-}
+constexpr scalar_t kFiniteDifferenceStep = 1.0e-6;
+constexpr scalar_t kFiniteDifferenceTolerance = 1.0e-5;
 
 }  // namespace
 
 /**
  * Tests ComAndAcomTrackingCost itself: it is constructed on the same REDUCED Atlas model the MPC builds (via
- * ModelSettings and createCustomPinocchioInterface) and evaluated through getValue and getQuadraticApproximation.
+ * ModelSettings and loadCustomPinocchioInterface) and evaluated through getValue and getQuadraticApproximation.
  *
  * The central check is that getQuadraticApproximation is the Gauss-Newton model of getValue: its value equals
  * getValue, its gradient equals central differences of getValue at a tilted base with bent joints, and its Hessian is
@@ -103,11 +93,14 @@ std::filesystem::path scratchDirectory() {
 class ComAndAcomTrackingCostTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    taskFile_ = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml").value();
+    task_ = loadTaskFile(robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto").value())
+                .value();
     urdfFile_ = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf").value();
 
-    modelSettingsPtr_ = std::make_unique<ModelSettings>(taskFile_, urdfFile_, "testComAndAcomTrackingCost", /*verbose=*/false);
-    pinocchioInterfacePtr_ = std::make_unique<PinocchioInterface>(createCustomPinocchioInterface(taskFile_, urdfFile_, *modelSettingsPtr_));
+    modelSettingsPtr_ =
+        std::make_unique<ModelSettings>(ModelSettings::Create(task_, urdfFile_, "testComAndAcomTrackingCost", /*verbose=*/false).value());
+    pinocchioInterfacePtr_ =
+        std::make_unique<PinocchioInterface>(loadCustomPinocchioInterface(task_, urdfFile_, *modelSettingsPtr_).value());
 
     const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
     nJoints_ = model.nq - kGeneralizedBaseDim;
@@ -122,9 +115,9 @@ class ComAndAcomTrackingCostTest : public ::testing::Test {
 
   static CentroidalModelInfo makeInfo(const pinocchio::Model& model) {
     CentroidalModelInfo info;
-    info.generalizedCoordinatesNum = static_cast<std::size_t>(model.nq);
-    info.actuatedDofNum = static_cast<std::size_t>(model.nq - kGeneralizedBaseDim);
-    info.stateDim = static_cast<std::size_t>(kGeneralizedCoordinatesStartIndex + model.nq);
+    info.generalizedCoordinatesNum = static_cast<size_t>(model.nq);
+    info.actuatedDofNum = static_cast<size_t>(model.nq - kGeneralizedBaseDim);
+    info.stateDim = static_cast<size_t>(kGeneralizedCoordinatesStartIndex + model.nq);
     info.inputDim = info.actuatedDofNum;
     info.robotMass = pinocchio::computeTotalMass(model);
     return info;
@@ -187,7 +180,7 @@ class ComAndAcomTrackingCostTest : public ::testing::Test {
     return jacobian;
   }
 
-  std::string taskFile_;
+  mpc_config::TaskFile task_;
   std::string urdfFile_;
   std::unique_ptr<ModelSettings> modelSettingsPtr_;
   std::unique_ptr<PinocchioInterface> pinocchioInterfacePtr_;
@@ -202,8 +195,8 @@ class ComAndAcomTrackingCostTest : public ::testing::Test {
  * shipped model without complaint.
  */
 TEST_F(ComAndAcomTrackingCostTest, CreateAcceptsTheShippedModel) {
-  EXPECT_EQ(acomPtr_->getInputDim(), static_cast<std::size_t>(nJoints_));
-  EXPECT_EQ(modelSettingsPtr_->mpcModelJointNames.size(), static_cast<std::size_t>(nJoints_));
+  EXPECT_EQ(acomPtr_->getInputDim(), static_cast<size_t>(nJoints_));
+  EXPECT_EQ(modelSettingsPtr_->mpcModelJointNames.size(), static_cast<size_t>(nJoints_));
   EXPECT_NE(makeCost(weights(1.0, 2.0, 3.0), weights(4.0, 5.0, 6.0)), nullptr);
 }
 
@@ -217,7 +210,7 @@ TEST_F(ComAndAcomTrackingCostTest, QuadraticApproximationValueIsGetValue) {
   const scalar_t value = cost->getValue(/*time=*/0.0, state, target, preComputation_);
   const ScalarFunctionQuadraticApproximation approximation = cost->getQuadraticApproximation(/*time=*/0.0, state, target, preComputation_);
   EXPECT_GT(value, 0.0) << "the state and the reference differ, so the cost cannot be zero";
-  EXPECT_NEAR(approximation.f, value, 1e-12 * std::max(1.0, std::abs(value)));
+  EXPECT_NEAR(approximation.f, value, 1.0e-12 * std::max(1.0, std::abs(value)));
 }
 
 /**
@@ -244,7 +237,7 @@ TEST_F(ComAndAcomTrackingCostTest, GradientMatchesFiniteDifferencesOfGetValue) {
         (cost->getValue(/*time=*/0.0, plus, target, preComputation_) - cost->getValue(/*time=*/0.0, minus, target, preComputation_)) /
         (2.0 * kFiniteDifferenceStep);
   }
-  ASSERT_GT(finiteDifference.norm(), 1e-3) << "a vanishing gradient would make this comparison vacuous";
+  ASSERT_GT(finiteDifference.norm(), 1.0e-3) << "a vanishing gradient would make this comparison vacuous";
   EXPECT_TRUE(gradient.head(kGeneralizedCoordinatesStartIndex).isZero(0.0)) << "the momentum does not enter this cost";
   for (Eigen::Index i = 0; i < state.size(); ++i) {
     EXPECT_NEAR(gradient(i), finiteDifference(i), kFiniteDifferenceTolerance * std::max(1.0, finiteDifference.cwiseAbs().maxCoeff()))
@@ -286,8 +279,8 @@ TEST_F(ComAndAcomTrackingCostTest, YawErrorIsWrappedAcrossPi) {
       cost->getValue(/*time=*/0.0, state, reference(makeState(vector3_t(-3.1, 0.0, 0.0), /*jointOffset=*/0.2)), preComputation_);
   const scalar_t direct =
       cost->getValue(/*time=*/0.0, state, reference(makeState(vector3_t(3.1 + shortWay, 0.0, 0.0), /*jointOffset=*/0.2)), preComputation_);
-  EXPECT_NEAR(across, 0.5 * shortWay * shortWay, 1e-9);
-  EXPECT_NEAR(across, direct, 1e-9);
+  EXPECT_NEAR(across, 0.5 * shortWay * shortWay, 1.0e-9);
+  EXPECT_NEAR(across, direct, 1.0e-9);
 }
 
 /**
@@ -300,20 +293,20 @@ TEST_F(ComAndAcomTrackingCostTest, EachQacomRowWeightsItsOwnEulerAngle) {
   const vector_t stateRef = makeState(vector3_t(0.2, 0.1, -0.1), /*jointOffset=*/-0.15);
   const vector3_t offsetChangeXyz =
       acomPtr_->computeJointOrientationOffset(state.tail(nJoints_)) - acomPtr_->computeJointOrientationOffset(stateRef.tail(nJoints_));
-  ASSERT_GT(std::abs(offsetChangeXyz.z() - offsetChangeXyz.x()), 1e-4) << "roll and yaw must differ for this to tell them apart";
+  ASSERT_GT(std::abs(offsetChangeXyz.z() - offsetChangeXyz.x()), 1.0e-4) << "roll and yaw must differ for this to tell them apart";
 
   const std::unique_ptr<ComAndAcomTrackingCost> yawOnly = makeCost(matrix_t::Zero(3, 3), weights(1.0, 0.0, 0.0));
   const std::unique_ptr<ComAndAcomTrackingCost> rollOnly = makeCost(matrix_t::Zero(3, 3), weights(0.0, 0.0, 1.0));
   ASSERT_NE(yawOnly, nullptr);
   ASSERT_NE(rollOnly, nullptr);
   EXPECT_NEAR(yawOnly->getValue(/*time=*/0.0, state, reference(stateRef), preComputation_), 0.5 * offsetChangeXyz.z() * offsetChangeXyz.z(),
-              1e-12);
+              1.0e-12);
   EXPECT_NEAR(rollOnly->getValue(/*time=*/0.0, state, reference(stateRef), preComputation_),
-              0.5 * offsetChangeXyz.x() * offsetChangeXyz.x(), 1e-12);
+              0.5 * offsetChangeXyz.x() * offsetChangeXyz.x(), 1.0e-12);
 
   // And a base roll the yaw row must ignore.
   const vector_t rolled = makeState(vector3_t(0.2, 0.1, 0.4), /*jointOffset=*/-0.15);
-  EXPECT_NEAR(yawOnly->getValue(/*time=*/0.0, rolled, reference(stateRef), preComputation_), 0.0, 1e-15);
+  EXPECT_NEAR(yawOnly->getValue(/*time=*/0.0, rolled, reference(stateRef), preComputation_), 0.0, 1.0e-15);
 }
 
 /** clone() is an independent copy that evaluates identically. */
@@ -330,7 +323,7 @@ TEST_F(ComAndAcomTrackingCostTest, CloneEvaluatesIdenticallyAndIndependently) {
   EXPECT_TRUE(cloned.dfdx.isApprox(original.dfdx, 0.0));
   EXPECT_TRUE(cloned.dfdxx.isApprox(original.dfdxx, 0.0));
 
-  clone->setWeights(weights(1.0, 1.0, 1.0), weights(1.0, 1.0, 1.0));
+  ASSERT_TRUE(clone->setWeights(weights(1.0, 1.0, 1.0), weights(1.0, 1.0, 1.0)).ok());
   EXPECT_EQ(cost->getValue(/*time=*/0.0, state, target, preComputation_), original.f) << "re-weighting the clone changed the original";
   EXPECT_NE(clone->getValue(/*time=*/0.0, state, target, preComputation_), original.f);
 }
@@ -344,7 +337,12 @@ TEST_F(ComAndAcomTrackingCostTest, WeightsMustBe3x3) {
 
   const std::unique_ptr<ComAndAcomTrackingCost> valid = makeCost(matrix_t::Identity(3, 3), matrix_t::Identity(3, 3));
   ASSERT_NE(valid, nullptr);
-  EXPECT_THROW(valid->setWeights(matrix_t::Identity(3, 3), matrix_t::Identity(4, 4)), std::invalid_argument);
+  const scalar_t weightBefore = valid->getQAcom()(0, 0);
+  const absl::Status refused = valid->setWeights(matrix_t::Identity(3, 3), 2.0 * matrix_t::Identity(4, 4));
+  EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(refused.message(), "Q_acom")) << refused;
+  EXPECT_EQ(valid->getQAcom().rows(), 3) << "a refused update changed the weights";
+  EXPECT_EQ(valid->getQAcom()(0, 0), weightBefore);
   EXPECT_TRUE(ComAndAcomTrackingCost::validateWeights(matrix_t::Identity(3, 3), matrix_t::Identity(3, 3)).ok());
 }
 
@@ -356,9 +354,6 @@ TEST_F(ComAndAcomTrackingCostTest, CreateRejectsAnInfoThatDoesNotDescribeTheMode
   ASSERT_FALSE(cost.ok());
   EXPECT_EQ(cost.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_TRUE(absl::StrContains(cost.status().message(), "actuatedDofNum")) << cost.status();
-  EXPECT_THROW(ComAndAcomTrackingCost(matrix_t::Identity(3, 3), matrix_t::Identity(3, 3), *pinocchioInterfacePtr_, wrong,
-                                      modelSettingsPtr_->robotName),
-               std::runtime_error);
 }
 
 TEST_F(ComAndAcomTrackingCostTest, CreateRejectsARobotWithoutANetwork) {
@@ -376,19 +371,15 @@ TEST_F(ComAndAcomTrackingCostTest, CreateRejectsARobotWithoutANetwork) {
  * fed is a different one; Create has to refuse, and name the first joint that differs.
  */
 TEST_F(ComAndAcomTrackingCostTest, CreateRejectsAModelWithADifferentFixedJointSet) {
-  std::ifstream shipped(taskFile_);
-  std::string task((std::istreambuf_iterator<char>(shipped)), std::istreambuf_iterator<char>());
-  const std::string shippedEntry = "    - r_arm_wrx\n";
-  const std::size_t position = task.find(shippedEntry);
-  ASSERT_NE(position, std::string::npos) << "the shipped task file no longer fixes r_arm_wrx; update this test";
-  ASSERT_EQ(task.find(shippedEntry, position + 1), std::string::npos) << "the replacement below must be unambiguous";
-  task.replace(position, shippedEntry.size(), "    - neck_ry\n");
-  const std::filesystem::path driftedTaskFile = scratchDirectory() / "task_with_neck_fixed.yaml";
-  std::ofstream(driftedTaskFile) << task;
+  mpc_config::TaskFile drifted = task_;
+  std::vector<std::string>& fixedJoints = drifted.model_settings.fixed_joint_names;
+  ASSERT_EQ(std::count(fixedJoints.begin(), fixedJoints.end(), "r_arm_wrx"), 1)
+      << "the shipped task file no longer fixes r_arm_wrx once; update this test";
+  *std::find(fixedJoints.begin(), fixedJoints.end(), "r_arm_wrx") = "neck_ry";
 
-  const ModelSettings driftedSettings(driftedTaskFile.string(), urdfFile_, "testComAndAcomTrackingCost", /*verbose=*/false);
-  ASSERT_EQ(driftedSettings.mpcModelJointNames.size(), static_cast<std::size_t>(nJoints_)) << "the joint COUNT must not change";
-  const PinocchioInterface driftedModel = createCustomPinocchioInterface(driftedTaskFile.string(), urdfFile_, driftedSettings);
+  const ModelSettings driftedSettings = ModelSettings::Create(drifted, urdfFile_, "testComAndAcomTrackingCost", /*verbose=*/false).value();
+  ASSERT_EQ(driftedSettings.mpcModelJointNames.size(), static_cast<size_t>(nJoints_)) << "the joint COUNT must not change";
+  const PinocchioInterface driftedModel = loadCustomPinocchioInterface(drifted, urdfFile_, driftedSettings).value();
   const CentroidalModelInfo driftedInfo = makeInfo(driftedModel.getModel());
 
   const absl::StatusOr<std::unique_ptr<ComAndAcomTrackingCost>> cost =
@@ -396,14 +387,10 @@ TEST_F(ComAndAcomTrackingCostTest, CreateRejectsAModelWithADifferentFixedJointSe
   ASSERT_FALSE(cost.ok()) << "a model with the head fixed and a wrist active was accepted";
   EXPECT_EQ(cost.status().code(), absl::StatusCode::kFailedPrecondition);
   const std::string message(cost.status().message());
-  EXPECT_TRUE(absl::StrContains(message, "model_settings.robotName 'atlas'")) << message;
+  EXPECT_TRUE(absl::StrContains(message, "model_settings.robot_name 'atlas'")) << message;
   EXPECT_TRUE(absl::StrContains(message, "joint 7 is 'neck_ry'")) << message;
   EXPECT_TRUE(absl::StrContains(message, "'r_arm_shz' in the MPC model")) << message;
-  EXPECT_TRUE(absl::StrContains(message, "model_settings.fixedJointNames")) << message;
-
-  // The deprecated constructor runs the same check.
-  EXPECT_THROW(ComAndAcomTrackingCost(matrix_t::Identity(3, 3), matrix_t::Identity(3, 3), driftedModel, driftedInfo, "atlas"),
-               std::runtime_error);
+  EXPECT_TRUE(absl::StrContains(message, "model_settings.fixed_joint_names")) << message;
 }
 
 /**
@@ -451,8 +438,8 @@ TEST_F(ComAndAcomTrackingCostTest, AcomJacobianRowsAreInZyxOrder) {
   // computeAcomJacobian must apply the same reordering to its joint block.
   const matrix_t J_acom = acomPtr_->computeAcomJacobian(q);
   ASSERT_EQ(J_acom.cols(), q.size());
-  EXPECT_TRUE(J_acom.leftCols<3>().isZero(1e-15));
-  EXPECT_TRUE((J_acom.block<3, 3>(0, kBaseOrientationOffset).isApprox(matrix_t::Identity(3, 3), 1e-15)));
+  EXPECT_TRUE(J_acom.leftCols<3>().isZero(1.0e-15));
+  EXPECT_TRUE((J_acom.block<3, 3>(0, kBaseOrientationOffset).isApprox(matrix_t::Identity(3, 3), 1.0e-15)));
   EXPECT_TRUE(J_acom.rightCols(nJoints_).isApprox(J_zyx));
 }
 
@@ -463,7 +450,7 @@ TEST_F(ComAndAcomTrackingCostTest, AcomJacobianRowsAreInZyxOrder) {
 TEST_F(ComAndAcomTrackingCostTest, AcomOrientationIsBaseEulerPlusReorderedOffset) {
   const vector_t q = generalizedCoordinates(makeState(vector3_t(0.30, 0.20, -0.15), /*jointOffset=*/0.2));
   const vector3_t expected = q.segment<3>(kBaseOrientationOffset) + acomXyzToZyx(acomPtr_->computeJointOrientationOffset(q.tail(nJoints_)));
-  EXPECT_TRUE(acomPtr_->computeAcomOrientation(q).isApprox(expected, 1e-12));
+  EXPECT_TRUE(acomPtr_->computeAcomOrientation(q).isApprox(expected, 1.0e-12));
 }
 
 /**
@@ -476,7 +463,7 @@ TEST_F(ComAndAcomTrackingCostTest, CenterOfMassIsPhysicallyPlausible) {
 
   CentroidalModelPinocchioMapping mapping(info_);
   const vector_t q = mapping.getPinocchioJointPosition(state);
-  ASSERT_EQ(static_cast<std::size_t>(q.size()), info_.generalizedCoordinatesNum);
+  ASSERT_EQ(static_cast<size_t>(q.size()), info_.generalizedCoordinatesNum);
 
   const vector3_t com = centerOfMass(state);
   EXPECT_NEAR(com[0], 0.0, 0.5);

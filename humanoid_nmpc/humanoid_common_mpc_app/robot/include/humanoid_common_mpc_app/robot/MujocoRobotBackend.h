@@ -33,14 +33,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 
-#include <mujoco_sim_interface/MujocoSimInterface.h>
-
 #include "humanoid_common_mpc_app/robot/RobotBackend.h"
 #include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
+#include "mujoco_sim_interface/MujocoSimInterface.h"
 
 namespace ocs2::humanoid {
 
@@ -60,14 +60,21 @@ class MujocoRobotBackend final : public RobotBackend {
   absl::Status initialize() override;
   absl::Status start(const std::vector<int>& cores) override;
   bool acceptsJointAction() const override { return !simulator_->isZeroTorqueMode(); }
-  void readMeasuredContactForces(std::array<vector3_t, N_CONTACTS>& forces) override;
+  void readMeasuredContactForces(std::array<vector3_t, kNumContacts>& forces) override;
   /** Zero torque (disableTorques()): the start-up state of the simulator. */
   void enterSafeState() override { simulator_->disableTorques(); }
   void registerContactEstimators(robot::model::ContactEstimatorRegistry& registry) const override;
-  robot::mujoco_sim_interface::MujocoSimInterface* simulator() override { return simulator_.get(); }
+  robot::mujoco_sim_interface::MujocoSimInterface* absl_nullable simulator() override { return simulator_.get(); }
 
   /** The MujocoSimConfig the options make (for tests). */
   static absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> makeConfig(const RobotBackendOptions& options);
+
+  /**
+   * What Create() would refuse in `options` without loading the scene: makeConfig()'s refusals (no scene, no initial
+   * state, an unknown gantry_hold) and an unknown sim_projectile. The viewer's sim_visualizations are not refused: the
+   * viewer skips an unknown name with a message, at start-up as later.
+   */
+  static absl::Status checkOptions(const RobotBackendOptions& options);
 
  private:
   explicit MujocoRobotBackend(std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface> simulator);

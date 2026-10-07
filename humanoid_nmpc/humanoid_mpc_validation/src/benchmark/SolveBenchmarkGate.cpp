@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
@@ -46,7 +47,7 @@ namespace ocs2::humanoid::validation {
 namespace {
 
 std::optional<double> numberAt(const JsonValue& document, const std::string& path) {
-  const JsonValue* value = document.findPath(path);
+  const JsonValue* absl_nullable value = document.findPath(path);
   if (value == nullptr || !value->isNumber()) return std::nullopt;
   return value->asNumber();
 }
@@ -54,7 +55,7 @@ std::optional<double> numberAt(const JsonValue& document, const std::string& pat
 /** The normalized library keys of a document's tape_operation_counts, with their counts. */
 absl::flat_hash_map<std::string, double> tapeOperationCounts(const JsonValue& document) {
   absl::flat_hash_map<std::string, double> counts;
-  const JsonValue* libraries = document.findPath("tape_operation_counts");
+  const JsonValue* absl_nullable libraries = document.findPath("tape_operation_counts");
   if (libraries == nullptr || !libraries->isObject()) return counts;
   for (size_t index = 0; index < libraries->size(); ++index) {
     const JsonValue& count = libraries->valueAt(index);
@@ -62,6 +63,13 @@ absl::flat_hash_map<std::string, double> tapeOperationCounts(const JsonValue& do
   }
   return counts;
 }
+
+/** A CppAD library whose tape operations both documents count. */
+struct SharedLibrary {
+  std::string key;  ///< normalizedLibraryKey()
+  double candidateCount = 0.0;
+  double baselineCount = 0.0;
+};
 
 /** A breach when `candidate` exceeds `baseline` by more than `increase`, relative. */
 void checkIncrease(const std::string& what,
@@ -106,13 +114,17 @@ std::vector<std::string> compareSolveBenchmarks(const JsonValue& candidate, cons
 
   const absl::flat_hash_map<std::string, double> candidateCounts = tapeOperationCounts(candidate);
   const absl::flat_hash_map<std::string, double> baselineCounts = tapeOperationCounts(baseline);
-  std::vector<std::string> libraries;
+  std::vector<SharedLibrary> libraries;
   for (const std::pair<const std::string, double>& library : candidateCounts) {
-    if (baselineCounts.contains(library.first)) libraries.push_back(library.first);
+    const absl::flat_hash_map<std::string, double>::const_iterator baselineCount = baselineCounts.find(library.first);
+    if (baselineCount != baselineCounts.end()) {
+      libraries.push_back({.key = library.first, .candidateCount = library.second, .baselineCount = baselineCount->second});
+    }
   }
-  std::sort(libraries.begin(), libraries.end());  // the hash map's order is not reproducible
-  for (const std::string& library : libraries) {
-    checkIncrease(absl::StrCat("tape_operation_counts.", library), candidateCounts.at(library), baselineCounts.at(library),
+  // The hash maps' order is not reproducible.
+  std::sort(libraries.begin(), libraries.end(), [](const SharedLibrary& a, const SharedLibrary& b) { return a.key < b.key; });
+  for (const SharedLibrary& library : libraries) {
+    checkIncrease(absl::StrCat("tape_operation_counts.", library.key), library.candidateCount, library.baselineCount,
                   gate.tapeOperationIncrease, violations);
   }
   checkIncrease("total_tape_operations", numberAt(candidate, "total_tape_operations"), numberAt(baseline, "total_tape_operations"),

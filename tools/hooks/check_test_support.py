@@ -29,7 +29,7 @@
 
 A check's own test covers what it detects; `assert_check_behaves()` covers the rest, the same way for every check:
 
-- it is in the registry (tools/hooks/checks.py), enforced or PENDING as expected, and lint_code runs it;
+- it is in the registry (tools/hooks/checks.py), and lint_code runs it by default;
 - `NOLINT(<check>): <reason>` and `NOLINTNEXTLINE(<check>): <reason>` suppress a finding, and a marker without a
   reason suppresses nothing (and is itself reported as `nolint-reason`);
 - `lint_code --git-staged` judges the staged version of a file, not the working tree;
@@ -148,22 +148,14 @@ class StagedRepository:
         self._directory.cleanup()
 
 
-def assert_registered(
-    test: unittest.TestCase, name: str, *, pending: bool = False
-) -> checks.Check:
-    """Asserts that check `name` is in the registry, PENDING or not as given, and that lint_code runs the registry."""
+def assert_registered(test: unittest.TestCase, name: str) -> checks.Check:
+    """Asserts that check `name` is in the registry and that lint_code runs it by default."""
     check = checks.by_name(name)
-    test.assertEqual(
-        name in checks.PENDING,
-        pending,
-        f"{name} is {'' if name in checks.PENDING else 'not '}in checks.PENDING",
-    )
     test.assertTrue(check.description, f"{name} has no description")
     test.assertIn("token-checks", lint_code.STEP_NAMES)
-    if not pending:
-        selected, steps = lint_code._parse_only(None)
-        test.assertIn(name, selected)
-        test.assertIn("token-checks", steps)
+    selected, steps = lint_code._parse_only(None)
+    test.assertIn(name, selected)
+    test.assertIn("token-checks", steps)
     return check
 
 
@@ -184,7 +176,6 @@ def assert_check_behaves(
     path: str,
     *,
     clean: str | None = None,
-    pending: bool = False,
 ) -> None:
     """Asserts the behavior every registry check shares (the module docstring).
 
@@ -194,9 +185,8 @@ def assert_check_behaves(
       flagged: A source with exactly one finding of the check, on a line that can carry a trailing comment.
       path: The first-party path the source is checked as.
       clean: A source the check accepts, if not just the fixed `flagged`.
-      pending: Whether the check is still PENDING.
     """
-    check = assert_registered(test, name, pending=pending)
+    check = assert_registered(test, name)
     test.assertTrue(check.applies_to(path), f"{name} does not read {path}")
     found = findings(name, flagged, path)
     test.assertEqual(len(found), 1, f"{name} on {path}: {found}")

@@ -34,11 +34,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include "google/protobuf/io/tokenizer.h"
-#include "google/protobuf/text_format.h"
-
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "google/protobuf/io/tokenizer.h"
+#include "google/protobuf/text_format.h"
 
 namespace robot::ipc {
 namespace {

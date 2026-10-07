@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -34,7 +38,11 @@ namespace ocs2::humanoid {
 /** Collects the variables the model blocks declare, in order, and resolves the well-known indices. */
 class LayoutBuilder {
  public:
-  /** Declares a state / input; throws std::invalid_argument on a name declared twice. Returns its index. */
+  /**
+   * Declares a state / input and returns its index. Each block declares its own names once and the formulation lists a
+   * block at most once (ContactPlanningFormulation::validateStatus()), so a name declared twice is a programming error
+   * and CHECK-fails with the name.
+   */
   int addState(const std::string& name);
   int addInput(const std::string& name);
   Layout build() const;

@@ -11,7 +11,7 @@ message WalkingVelocityCommand {
 
   reserved 5 to max;
 
-  // Normalized to [-1, 1]; the MPC scales them by the limits in reference.yaml.
+  // Normalized to [-1, 1]; the MPC scales them by the limits in reference.textproto.
   double linear_velocity_x = 1;
   double linear_velocity_y = 2;
   // Absolute height of the pelvis above the ground [m].

@@ -32,8 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <Eigen/Core>
-
+#include "Eigen/Core"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 
@@ -92,7 +91,7 @@ Eigen::Vector3d commandAt(const ClosedLoopScenario& scenario, double timeSinceSt
 /** What the base-controller GUI publishes for a physical command (humanoid_mpc_msgs/WalkingVelocityCommand). */
 struct GuiVelocityCommand {
   /// (linear_velocity_x, linear_velocity_y, desired_pelvis_height, angular_velocity_z) as the message carries them:
-  /// the stick positions in [-1, 1], which ProceduralMpcMotionManager scales by the command limits of reference.yaml,
+  /// the stick positions in [-1, 1], which ProceduralMpcMotionManager scales by the command limits of the reference file,
   /// and the pelvis height above the ground the GUI's slider sends.
   Eigen::Vector4d message;
   /// The physical command needed a stick beyond [-1, 1] and was cut there: the robot cannot be asked for it.
@@ -101,8 +100,9 @@ struct GuiVelocityCommand {
 
 /**
  * The GUI message that commands `command` (forward, lateral, yaw rate) on a robot with `commandLimits`
- * (maxDisplacementVelocityX, maxDisplacementVelocityY, maxRotationVelocity of reference.yaml), at `pelvisHeight` (the
- * GUI sends reference.yaml's defaultBaseHeight). The sticks are clamped as the controller clamps a received message.
+ * (max_displacement_velocity_x, max_displacement_velocity_y, max_rotation_velocity of the reference file,
+ * GuiCommandScaling), at `pelvisHeight` (the GUI sends the reference file's default_base_height). The sticks are clamped
+ * as the controller clamps a received message.
  */
 GuiVelocityCommand toGuiVelocityCommand(const Eigen::Vector3d& command, const Eigen::Vector3d& commandLimits, double pelvisHeight);
 

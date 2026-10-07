@@ -14,7 +14,8 @@ end of the entry on the whole-body G1 by one MPC period), the gantry release's M
 the commands keep their `standingTime` after the release (`../../../README.md`, "On the main line, against the
 baselines recorded before it"). A main-line run is compared with M0 within the bands only. `../M0_main/` re-records
 eleven of these runs on the main line and shows that the ordering is the only difference: with the old order the main
-line reproduces these documents, the whole-body walk within its rounding-level spread. Four of its eleven runs leave
+line reproduces these documents, the whole-body walk within the spread its CppAD libraries then had from one generation
+to the next (`../M0_main/README.md`). Four of its eleven runs leave
 these bands: their gait takes another pattern under that shift of the timeline.
 
 ## How it was made
@@ -43,7 +44,9 @@ these bands: their gait takes another pattern under that shift of the timeline.
 - **Configuration:** the shipped task, reference, gait, PD-gain, URDF and MuJoCo files of each robot, unmodified; their
   SHA-256 are in `provenance.configuration_sha256`.
 - **Solver threads:** the configured ones (DRC Atlas 8, the others 4). Runs with more than one thread are not bit
-  reproducible, so compare them within the bands, not exactly. A rerun of the Unitree G1 reproduced its first run to
+  reproducible, so compare them within the bands, not exactly. (Since found to be CppAD's code generation, not the
+  threads: `../../../README.md`, "Runs are reproducible"; with the deterministic generator, runs with the configured
+  threads repeat bit for bit.) A rerun of the Unitree G1 reproduced its first run to
   three decimals in every metric that does not time the machine.
 - **Machine:** Intel Core Ultra 7 265K, 20 logical cores, 30.2 GiB, in the dev container `devcontainer-app-1`. Other
   agents' builds took turns with these runs through the machine lock and never ran beside them; the solve times are

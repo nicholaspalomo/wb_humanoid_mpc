@@ -27,7 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
 
@@ -35,13 +35,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <optional>
 #include <string>
-
-#include <pinocchio/algorithm/center-of-mass.hpp>
-#include <pinocchio/algorithm/joint-configuration.hpp>
-#include <pinocchio/algorithm/kinematics.hpp>
-#include <pinocchio/multibody/joint/joint-generic.hpp>
+#include <vector>
 
 #include "absl/strings/str_cat.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/algorithm/joint-configuration.hpp"
+#include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/multibody/joint/joint-generic.hpp"
+
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 namespace ocs2::humanoid {
@@ -125,7 +126,7 @@ void ContactPlanningModelParameters::applyTo(ContactPlanningConfig& config) cons
   config.yawTorqueBudget.doubleSupportYawCouple = doubleSupportYawCouple;
   config.hipYawRange.lower = footYawOffsetLower;
   config.hipYawRange.upper = footYawOffsetUpper;
-  if (config.shared.comHeight <= 0.0 && comHeight > 0.0) config.shared.comHeight = comHeight;
+  if (!config.shared.comHeight.has_value() && comHeight > 0.0) config.shared.comHeight = comHeight;
   if (config.zmpSupportRegion.halfWidthX <= 0.0 && zmpHalfWidthX > 0.0) config.zmpSupportRegion.halfWidthX = zmpHalfWidthX;
   if (config.zmpSupportRegion.halfWidthY <= 0.0 && zmpHalfWidthY > 0.0) config.zmpSupportRegion.halfWidthY = zmpHalfWidthY;
 }
@@ -134,7 +135,7 @@ std::string ContactPlanningModelParameters::summary() const {
   std::string out = absl::StrCat("mass ", totalMass, " kg, comHeight ", comHeight, " m, footprint half extents ", zmpHalfWidthX, " x ",
                                  zmpHalfWidthY, " m, torsionalFrictionTorque ", torsionalFrictionTorque, " N m, doubleSupportYawCouple ",
                                  doubleSupportYawCouple, " N m, foot yaw bounds");
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     absl::StrAppend(&out, " [", footYawOffsetLower[foot], ", ", footYawOffsetUpper[foot], "]");
     if (foot < hipYawJoints.size()) {
       absl::StrAppend(&out, " (", hipYawJoints[foot].empty() ? "no hip yaw joint found, fallback" : hipYawJoints[foot], ")");
@@ -162,8 +163,8 @@ ContactPlanningModelParameters deriveContactPlanningModelParameters(PinocchioInt
   derived.torsionalFrictionTorque = ground.torsionalFrictionCoefficient * weight;
   derived.doubleSupportYawCouple = ground.frictionCoefficient * 0.5 * weight * nominalStepWidth;
 
-  derived.hipYawJoints.assign(N_CONTACTS, "");
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+  derived.hipYawJoints.assign(kNumContacts, "");
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     const HipYawRange range =
         foot < contactParentJointNames.size() ? deriveHipYawRange(model, contactParentJointNames[foot]) : HipYawRange();
     derived.footYawOffsetLower[foot] = range.lower;

@@ -30,15 +30,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <memory>
 #include <mutex>
+#include <string>
 
-#include <ocs2_core/reference/ModeSchedule.h>
+#include "absl/status/statusor.h"
+#include "ocs2_core/reference/ModeSchedule.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
+#include "humanoid_mpc_config/reference_file.nproto.h"
 
 namespace ocs2::humanoid {
 
+/**
+ * The mode schedule of the MPC: an initial schedule, extended over the horizon by tiling the current mode sequence
+ * template (the gait), into which a new gait is inserted from a given time on.
+ *
+ * Not thread-safe: SwitchedModelReferenceManager and ProceduralMpcMotionManager share it, and both use it on the solver
+ * thread.
+ */
 class GaitSchedule {
  public:
   GaitSchedule(ModeSchedule initModeSchedule, ModeSequenceTemplate initModeSequenceTemplate, scalar_t phaseTransitionStanceTime);
@@ -49,7 +60,7 @@ class GaitSchedule {
    */
   ModeSchedule getModeSchedule(scalar_t lowerBoundTime, scalar_t upperBoundTime);
 
-  ModeSchedule getCurrentModeSchedule() const { return modeSchedule_; };
+  ModeSchedule getCurrentModeSchedule() const { return modeSchedule_; }
 
   /**
    * Used to insert a new user defined logic in the given time period.
@@ -59,15 +70,30 @@ class GaitSchedule {
    */
   void insertModeSequenceTemplate(const ModeSequenceTemplate& modeSequenceTemplate, scalar_t startTime, scalar_t finalTime);
 
-  static std::shared_ptr<GaitSchedule> loadGaitSchedule(const std::string& referenceFile,
-                                                        const ModelSettings& modelSettings,
-                                                        bool verbose = false);
+  /**
+   * The schedule of a typed reference file: its initial_mode_schedule (initialModeScheduleFromConfig()), extended with
+   * its default_mode_sequence_template (defaultModeSequenceTemplateFromConfig()), and fails like those.
+   */
+  static absl::StatusOr<std::shared_ptr<GaitSchedule>> Create(const mpc_config::ReferenceFile& referenceFile,
+                                                              const ModelSettings& modelSettings,
+                                                              bool verbose = false);
+
+  /**
+   * The schedule above of the reference file at `referenceFile` (loadReferenceFile()): the path form of a root of the
+   * MPC's configuration.
+   *
+   * @return loadReferenceFile()'s error for a file that cannot be read or does not parse, and the typed Create()'s
+   *         errors, prefixed with the file.
+   */
+  static absl::StatusOr<std::shared_ptr<GaitSchedule>> Create(const std::string& referenceFile,
+                                                              const ModelSettings& modelSettings,
+                                                              bool verbose = false);
 
   void updateModeSchedule(const ModeSchedule& modeSchedule);
 
   /**
    * Puts the schedule and the template back to the ones this schedule was constructed with, i.e. the reference file's
-   * initialModeSchedule and defaultModeSequenceTemplate, both STANCE on every shipped robot. Every gait inserted since
+   * initial_mode_schedule and default_mode_sequence_template, both STANCE on every shipped robot. Every gait inserted since
    * is forgotten, including its events in the future: after a reset of the controller, or a clock that ran backwards,
    * those would hold the robot in whatever the old schedule said until the clock caught up with them. The next
    * getModeSchedule() then answers exactly as it would on a freshly constructed schedule.
@@ -83,7 +109,6 @@ class GaitSchedule {
    */
   void tileModeSequenceTemplate(scalar_t startTime, scalar_t finalTime);
 
- private:
   // What the schedule was constructed with, for reset().
   const ModeSchedule initModeSchedule_;
   const ModeSequenceTemplate initModeSequenceTemplate_;

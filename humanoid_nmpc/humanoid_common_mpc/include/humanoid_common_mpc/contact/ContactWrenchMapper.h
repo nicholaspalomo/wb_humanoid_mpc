@@ -30,32 +30,32 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/log/absl_check.h"
+
 #include "humanoid_common_mpc/contact/ContactPolygon.h"
 
 namespace ocs2::humanoid {
 
 ///
-/// \brief Mapps between a set of forces, applied in each corner of the contact polygon, and an equivalent contact
-/// wrench. In case of mapping from wrench to contact corner forces the set of orces will be computed s.t. it is equal
-/// to the contact wrench and has the smallest sum of l2 norms.
+/// \brief Maps a contact wrench to a set of forces, applied in each corner of the contact polygon, that is equivalent to
+/// it and has the smallest sum of l2 norms: what the viewer draws of a foot's planned wrench.
 ///
 /// \param[in] contactPolygon A contact polygon specifying all the corners of the polygon in the local foot frame.
 ///
-
+/// Immutable after construction, so concurrent reads are safe.
 template <int N_POLYGON_POINTS>
 class ContactWrenchMapper {
  public:
-  ContactWrenchMapper(const ContactPolygon& contactPolygon) : contactPolygon_(contactPolygon) {
-    assert(N_POLYGON_POINTS == contactPolygon.getNumberOfContactPoints() &&
-           "Number of contact points in contact polygon does not match with value specified to template");
+  explicit ContactWrenchMapper(const ContactPolygon& contactPolygon) {
+    ABSL_CHECK_EQ(static_cast<size_t>(N_POLYGON_POINTS), static_cast<size_t>(contactPolygon.getNumberOfContactPoints()))
+        << "ContactWrenchMapper: the contact polygon has another number of points than the template";
 
+    // The wrench of the corner forces: A f.
     Eigen::Matrix<scalar_t, 6, 3 * N_POLYGON_POINTS> A = Eigen::Matrix<scalar_t, 6, 3 * N_POLYGON_POINTS>::Zero();
-    for (int i = 0; i < N_POLYGON_POINTS; i++) {
+    for (int i = 0; i < N_POLYGON_POINTS; ++i) {
       A.block(0, 3 * i, 3, 3) = matrix3_t::Identity();
       A.block(3, 3 * i, 3, 3) = contactPolygon.getContactPointTranslationCrossProductMatrix(i);
     }
-
-    mapForcesToContactWrench_ = A;
     mapWrenchToVisualiazationForces_ = A.transpose() * (A * A.transpose()).inverse();
   }
 
@@ -68,16 +68,13 @@ class ContactWrenchMapper {
   std::array<vector3_t, N_POLYGON_POINTS> computeVisualizationForceArray(const vector6_t& contactWrench) const {
     std::array<vector3_t, N_POLYGON_POINTS> contactPointForceVec;
     Eigen::Matrix<scalar_t, 3 * N_POLYGON_POINTS, 1> visualizationForces = mapWrenchToVisualiazationForces_ * contactWrench;
-    for (int i = 0; i < N_POLYGON_POINTS; i++) {
+    for (int i = 0; i < N_POLYGON_POINTS; ++i) {
       contactPointForceVec[i] << (visualizationForces.segment(3 * i, 3));
     }
     return contactPointForceVec;
   }
 
-  const ContactPolygon contactPolygon_;
-
  private:
-  Eigen::Matrix<scalar_t, 6, 3 * N_POLYGON_POINTS> mapForcesToContactWrench_;
   Eigen::Matrix<scalar_t, 3 * N_POLYGON_POINTS, 6> mapWrenchToVisualiazationForces_;
 };
 

@@ -32,7 +32,9 @@ import unittest
 from tools.hooks import check_test_support
 from tools.hooks import python_docstrings as docstrings
 
-LICENSE = "# Copyright (c) 2026, Nicholas Palomo. All rights reserved.\n#\n# Redistribution and use ...\n"
+# This file's own license block: the complete one, as every Python file carries it.
+with open(__file__, encoding="utf-8") as _self:
+    LICENSE = "".join(line for line in _self.readlines()[:26] if line.startswith("#"))
 
 
 def _count(check, source: str) -> int:
@@ -70,6 +72,28 @@ class LicenseTest(unittest.TestCase):
             _count(docstrings.check_license_header, ""),
             0,
             "an empty __init__.py needs none",
+        )
+
+    def test_the_whole_block_is_read(self):
+        holder_only = (
+            "# Copyright (c) 2026, Nicholas Palomo. All rights reserved.\n\n"
+            + '"""Doc."""\n'
+        )
+        findings = docstrings.check_license_header(holder_only, "src/a.py")
+        self.assertEqual(len(findings), 1, findings)
+        self.assertIn("lacks the preamble", findings[0].message)
+        holderless = LICENSE.replace(", Nicholas Palomo.", ".", 1) + '"""Doc."""\n'
+        findings = docstrings.check_license_header(holderless, "src/a.py")
+        self.assertEqual(len(findings), 1, findings)
+        self.assertIn("name the holder", findings[0].message)
+        self.assertEqual(findings[0].line, 1)
+        two_clause = (
+            LICENSE.replace("# * Neither the name of the copyright holder", "# * Nor")
+            + '"""Doc."""\n'
+        )
+        self.assertIn(
+            "the endorsement condition",
+            docstrings.check_license_header(two_clause, "src/a.py")[0].message,
         )
 
 
@@ -163,10 +187,9 @@ class RegistryTest(unittest.TestCase):
             "py-license-docstring",
             '"""Copyright (c) 2026, x."""\n',
             "src/a.py",
-            pending=True,
         )
         # The header finding is always on line 1, so a NOLINTNEXTLINE cannot reach it: NOLINT is checked by hand.
-        check_test_support.assert_registered(self, "py-license-header", pending=True)
+        check_test_support.assert_registered(self, "py-license-header")
         self.assertEqual(
             len(
                 check_test_support.findings("py-license-header", "x = 1\n", "src/a.py")
@@ -186,14 +209,12 @@ class RegistryTest(unittest.TestCase):
             "py-docstring-summary",
             LICENSE + '"""No period"""\n',
             "src/a.py",
-            pending=True,
         )
         check_test_support.assert_check_behaves(
             self,
             "py-docstring-sections",
             _function("Does it.\n\n    Details.\n    ", "    pass\n"),
             "src/a.py",
-            pending=True,
         )
         check_test_support.assert_check_behaves(
             self,

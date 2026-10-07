@@ -28,23 +28,25 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
+#include "humanoid_wb_mpc/cost/JointTorqueCostCppAd.h"
+
+#include <string>
+
+#include "absl/log/absl_check.h"
+#include "absl/log/log.h"
+#include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/multibody/data.hpp"
+#include "pinocchio/multibody/model.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
-#include "humanoid_wb_mpc/cost/JointTorqueCostCppAd.h"
 #include "humanoid_wb_mpc/dynamics/DynamicsHelperFunctions.h"
-
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
-
-#include <pinocchio/algorithm/frames.hpp>
-#include <pinocchio/algorithm/kinematics.hpp>
-#include <pinocchio/multibody/data.hpp>
-#include <pinocchio/multibody/model.hpp>
-
-#include "absl/log/log.h"
-#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
@@ -55,13 +57,13 @@ namespace ocs2::humanoid {
 JointTorqueCostCppAd::JointTorqueCostCppAd(const vector_t& weights,
                                            const PinocchioInterface& pinocchioInterface,
                                            const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
-                                           std::string costName,
+                                           const std::string& costName,
                                            const ModelSettings& modelSettings)
     : StateInputCostGaussNewtonAd(),
       sqrtWeights_(weights.cwiseSqrt()),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelPtr_(mpcRobotModel.clone()) {
-  assert(weights.size() == mpcRobotModel.getJointDim());
+  ABSL_CHECK_EQ(static_cast<size_t>(weights.size()), mpcRobotModel.getJointDim()) << "JointTorqueCostCppAd: one weight per joint";
   initialize(mpcRobotModel.getStateDim(), mpcRobotModel.getInputDim(), mpcRobotModel.getJointDim(), libraryName(costName),
              modelSettings.modelFolderCppAd, modelSettings.recompileLibrariesCppAd);
   LOG(INFO) << "Initialized JointTorqueCostCppAd with weights: " << weights.transpose();
@@ -79,6 +81,19 @@ std::string JointTorqueCostCppAd::libraryName(absl::string_view costName) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
+absl::Status JointTorqueCostCppAd::setWeights(const vector_t& weights) {
+  if (weights.size() != sqrtWeights_.size()) {
+    return absl::InvalidArgumentError(absl::StrCat("[JointTorqueCostCppAd] ", weights.size(), " weights for a cost of ",
+                                                   sqrtWeights_.size(), " joints: one weight per joint; the running weights are kept."));
+  }
+  sqrtWeights_ = weights.cwiseSqrt();
+  return absl::OkStatus();
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
 JointTorqueCostCppAd::JointTorqueCostCppAd(const JointTorqueCostCppAd& other)
     : StateInputCostGaussNewtonAd(other),
       sqrtWeights_(other.sqrtWeights_),
@@ -89,7 +104,7 @@ JointTorqueCostCppAd::JointTorqueCostCppAd(const JointTorqueCostCppAd& other)
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-ad_vector_t JointTorqueCostCppAd::costVectorFunction(ad_scalar_t time,
+ad_vector_t JointTorqueCostCppAd::costVectorFunction(ad_scalar_t /*time*/,
                                                      const ad_vector_t& state,
                                                      const ad_vector_t& input,
                                                      const ad_vector_t& parameters) {

@@ -1,5 +1,7 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+
 # humanoid_wb_mpc - Whole-Body MPC library
 
 package(default_visibility = ["//visibility:public"])
@@ -22,38 +24,57 @@ cc_library(
         "src/cost/JointTorqueCostCppAd.cpp",
         "src/command/WBMpcTargetTrajectoriesCalculator.cpp",
         "src/mrt/WBMpcMrtJointController.cpp",
+        "src/mrt/WBMpcParameterUpdater.cpp",
         "src/mrt/WBMpcResetTarget.cpp",
-    ],
-    hdrs = glob(["include/**"], allow_empty = True),
+        # The conversions of the typed configuration (humanoid_nmpc/humanoid_mpc_config) that are the whole-body MPC's.
+        "src/config/costs/EndEffectorDynamicsWeightsFromConfig.cpp",
+    ] + glob(["src/parameter_update/*.cpp"]),
+    hdrs = glob(["include/**"]),
     includes = ["include"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     deps = [
         "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:mrt_control_thread",
         "//humanoid_nmpc/humanoid_mpc_ipc:realtime_policy_evaluator",
         "//robot_runtime/robot_model",
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_centroidal_model",
-        "//lib/ocs2:ocs2_ddp",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_sqp",
         "//lib/ocs2:ocs2_pinocchio_interface",
         "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/functional:function_ref",
+        "@abseil-cpp//absl/log:absl_check",
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/log:log",
+        "@abseil-cpp//absl/memory",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
         "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/types:span",
         "@eigen",
         "@pinocchio",
+        # The typed configuration schemas and their strict parser (humanoid_nmpc/humanoid_mpc_config).
+        "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//tools/nproto:nproto_runtime",
+    ],
+)
+
+# End-effector dynamics whose kinematics are fixed affine maps of the state and the input (test/AffineEndEffectorDynamics.h),
+# for the tests of the terms built on end-effector dynamics without a robot model or CppAD.
+cc_library(
+    name = "affine_end_effector_dynamics",
+    testonly = True,
+    hdrs = ["test/AffineEndEffectorDynamics.h"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_wb_mpc",
+        "@abseil-cpp//absl/base:nullability",
     ],
 )
 
@@ -61,19 +82,15 @@ cc_test(
     name = "testWBMpcFormulation",
     size = "small",
     srcs = ["test/testWBMpcFormulation.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     data = [
         "//robot_models/unitree_g1/g1_description",
         "//robot_models/unitree_g1/g1_wb_mpc",
     ],
     deps = [
         ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
@@ -87,19 +104,15 @@ cc_test(
     name = "testWBMpcFormulationNames",
     size = "small",
     srcs = ["test/testWBMpcFormulationNames.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     data = [
         "//robot_models/unitree_g1/g1_description",
         "//robot_models/unitree_g1/g1_wb_mpc",
     ],
     deps = [
         ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:scoped_mock_log",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
@@ -115,21 +128,17 @@ cc_test(
     name = "testWBMpcConstruction",
     size = "large",
     srcs = ["test/testWBMpcConstruction.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     data = [
         "//robot_models/unitree_g1/g1_description",
         "//robot_models/unitree_g1/g1_wb_mpc",
     ],
     deps = [
         ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
@@ -137,19 +146,14 @@ cc_test(
 )
 
 # The base-height reference against the ground, end to end: the reference manager, the target calculator and the
-# procedural motion manager on a raised and on a hot-reloaded ground, and the contact planner's reference manager on a
-# hot-reloaded one. Builds no CppAD model.
+# procedural motion manager on a raised and on a hot-reloaded ground, the ground of a live update through the parameter
+# updater (one solve late, the target moved once), and the contact planner's reference manager on a hot-reloaded one.
+# Builds no CppAD model.
 cc_test(
     name = "testBaseHeightFollowsTerrain",
     size = "small",
     srcs = ["test/testBaseHeightFollowsTerrain.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     data = [
         "//humanoid_nmpc/humanoid_common_mpc:gait_config",
         "//robot_models/unitree_g1/g1_description",
@@ -157,32 +161,34 @@ cc_test(
     ],
     deps = [
         ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_sqp",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
     ],
 )
 
-# WBMpcInterface::Create() on a missing task, URDF or reference file: NotFound naming the path, before anything reads
-# the files. Builds no CppAD model.
+# The path forms of WBMpcInterface::Create() and CreateControllerModels() on a missing task, URDF or reference file:
+# NotFound naming the path, before anything reads the files; on a file that does not parse or convert: InvalidArgument
+# naming the file. Builds no CppAD model.
 cc_test(
     name = "testWBMpcInterfaceInputFiles",
     size = "small",
     srcs = ["test/testWBMpcInterfaceInputFiles.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     data = [
         "//robot_models/unitree_g1/g1_description",
         "//robot_models/unitree_g1/g1_wb_mpc",
     ],
     deps = [
         ":humanoid_wb_mpc",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
@@ -190,25 +196,22 @@ cc_test(
     ],
 )
 
-# HumanoidCostConstraintFactory::getContactWrenchConeConstraint() on the G1 whole-body model: a barrier mu or delta that
-# is not a finite positive number is refused naming its key. Builds no CppAD model.
+# HumanoidCostConstraintFactory::makeContactWrenchConeConstraint() on the G1 whole-body model: a barrier mu or delta that
+# is not a finite positive number is refused naming its field, and a word in its place by the parser. Builds no CppAD
+# model.
 cc_test(
     name = "testContactWrenchConeBarrierRange",
     size = "small",
     srcs = ["test/testContactWrenchConeBarrierRange.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     data = [
         "//robot_models/unitree_g1/g1_description",
         "//robot_models/unitree_g1/g1_wb_mpc",
     ],
     deps = [
         ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
@@ -217,24 +220,20 @@ cc_test(
 )
 
 # ContactWrenchConeConstraint::Create() on the G1 whole-body model: a Config out of range is refused naming its
-# task-file key. Builds no CppAD model.
+# task-file field. Builds no CppAD model.
 cc_test(
     name = "testWBContactWrenchConeCreate",
     size = "small",
     srcs = ["test/testWBContactWrenchConeCreate.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     data = [
         "//robot_models/unitree_g1/g1_description",
         "//robot_models/unitree_g1/g1_wb_mpc",
     ],
     deps = [
         ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
@@ -250,13 +249,7 @@ cc_test(
     name = "testWBMpcMrtJointControllerAllocations",
     size = "small",
     srcs = ["test/testWBMpcMrtJointControllerAllocations.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     data = [
         "//robot_models/unitree_g1/g1_description",
         "//robot_models/unitree_g1/g1_wb_mpc",
@@ -267,6 +260,8 @@ cc_test(
         "//humanoid_nmpc/humanoid_common_mpc:null_mpc_link",
         "//robot_runtime/robot_model",
         "//robot_runtime/robot_realtime:allocation_counter",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
         "@pinocchio",
     ],
@@ -276,23 +271,21 @@ cc_test(
     name = "testWBMpcMrtJointController",
     size = "medium",
     srcs = ["test/testWBMpcMrtJointController.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     data = [
         "//robot_models/unitree_g1/g1_description",
         "//robot_models/unitree_g1/g1_wb_mpc",
     ],
     deps = [
         ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//lib/ocs2:ocs2_mpc_test_support",
         "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:log",
+        "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
         "@pinocchio",
@@ -305,13 +298,7 @@ cc_test(
     name = "testWBMpcMrtJointControllerPdGains",
     size = "small",
     srcs = ["test/testWBMpcMrtJointControllerPdGains.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     data = [
         "//robot_models/unitree_g1/g1_description",
         "//robot_models/unitree_g1/g1_wb_mpc",
@@ -319,11 +306,15 @@ cc_test(
     linkstatic = True,
     deps = [
         ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//humanoid_state_estimation/humanoid_state_estimator:allocation_counter",
         "//lib/ocs2:ocs2_mpc_test_support",
         "//robot_runtime/robot_core:resource_paths",
         "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
@@ -338,53 +329,50 @@ cc_test(
     name = "testWBMpcResetTarget",
     size = "small",
     srcs = ["test/testWBMpcResetTarget.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     data = [
         "//robot_models/unitree_g1/g1_description",
         "//robot_models/unitree_g1/g1_wb_mpc",
     ],
     deps = [
         ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_mpc_test_support",
         "//lib/ocs2:ocs2_robotic_tools",
         "//robot_runtime/robot_core:resource_paths",
         "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
         "@pinocchio",
     ],
 )
 
-# EndEffectorDynamicsWeights::getWeights: each task-file key in its own field (the acceleration keys used to overwrite the
-# velocity weights), the block the fix rewrote applies exactly the weights the legacy loader applied (frozen copies), and
-# the shipped G1 block names every weight. Builds no CppAD model.
+# The foot cost weights of the task file (task_space_foot_cost.weights) through the strict parser: each field in its own
+# weight (an earlier loader wrote the acceleration weights over the velocity weights), the block the fix rewrote
+# applies exactly the weights the legacy loader applied (frozen copies), and the shipped G1 block gives every weight.
+# Builds no CppAD model.
 cc_test(
     name = "testFootWeightsLoader",
     size = "small",
     srcs = ["test/testFootWeightsLoader.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     # LINT.IfChange(foot_weights_loader_test_data)
     data = ["//robot_models/unitree_g1/g1_wb_mpc"],
     # LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/testFootWeightsLoader.cpp:robot_files)
     deps = [
         ":humanoid_wb_mpc",
-        "//lib/ocs2:ocs2_core",
+        "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//tools/nproto:nproto_runtime",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
+        "@protobuf",
     ],
 )
 
@@ -395,34 +383,99 @@ cc_test(
     name = "testEndEffectorDynamicsAccelerationsConstraint",
     size = "small",
     srcs = ["test/testEndEffectorDynamicsAccelerationsConstraint.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     deps = [
+        ":affine_end_effector_dynamics",
         ":humanoid_wb_mpc",
         "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
     ],
 )
 
+# ZeroAccelerationConstraintCppAd::Create() and SwingLegVerticalConstraintCppAd::Create() on the G1 reference manager:
+# end-effector dynamics of other than one end effector are refused, one end effector makes the constraint. Builds no
+# CppAD model.
+cc_test(
+    name = "testFootConstraintsCreate",
+    size = "small",
+    srcs = ["test/testFootConstraintsCreate.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    deps = [
+        ":affine_end_effector_dynamics",
+        ":humanoid_wb_mpc",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# JointTorqueCostCppAd and EndEffectorDynamicsFootCost own the robot model they clone, and every copy of them its own:
+# a robot model that counts its instances. Large: it tapes and compiles the CppAD library of each cost on the G1
+# whole-body model.
+cc_test(
+    name = "testCostRobotModelOwnership",
+    size = "large",
+    srcs = ["test/testCostRobotModelOwnership.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    deps = [
+        ":affine_end_effector_dynamics",
+        ":humanoid_wb_mpc",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The CppAD code generation of a production tape is deterministic: two generations of the G1's whole-body flow map, the
+# second on another thread after the heap moved, give the same C sources. Saves the sources; compiles nothing.
+cc_test(
+    name = "testCodegenDeterminism",
+    size = "small",
+    srcs = ["test/testCodegenDeterminism.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    deps = [
+        ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
 # The speed setters of the target calculator base, through the G1 whole-body calculator: a pose command reaches its
-# target in the time the distance takes at the speed set, and a reload of reference.yaml restores the file's speeds.
-# Builds no Pinocchio or CppAD model.
+# target in the time the distance takes at the speed set, and a reload of the reference file restores the file's speeds;
+# and the calculator's Create() on the typed file, its path and a reference file that does not parse or convert. Builds
+# no Pinocchio or CppAD model.
 cc_test(
     name = "testTargetTrajectoriesCalculatorSetters",
     size = "small",
     srcs = ["test/testTargetTrajectoriesCalculatorSetters.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     # LINT.IfChange(calculator_setters_test_data)
     data = [
         "//robot_models/unitree_g1/g1_description",
@@ -431,28 +484,82 @@ cc_test(
     # LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/testTargetTrajectoriesCalculatorSetters.cpp:robot_files)
     deps = [
         ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
         "@pinocchio",
     ],
 )
 
-# The CppAD library name of JointTorqueCostCppAd carries the version of the inverse dynamics it tapes, so that no library
-# taped from the former computeJointTorques is loaded from the cache. Builds no CppAD model.
+# ExternalTorqueQuadraticCostAD::Create() resolves its joints by name and refuses unknown joints and a weight count that
+# is not one per joint, before anything is taped. Builds no CppAD model.
+cc_test(
+    name = "testExternalTorqueQuadraticCostCreate",
+    size = "small",
+    srcs = ["test/testExternalTorqueQuadraticCostCreate.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    # LINT.IfChange(external_torque_test_data)
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/testExternalTorqueQuadraticCostCreate.cpp:robot_files)
+    deps = [
+        ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# JointMimicDynamicsConstraint::Create() resolves its joints by name and refuses unknown joints and unstable gains.
+# Builds no Pinocchio or CppAD model.
+cc_test(
+    name = "testJointMimicDynamicsConstraint",
+    size = "small",
+    srcs = ["test/testJointMimicDynamicsConstraint.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    # LINT.IfChange(joint_mimic_test_data)
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/testJointMimicDynamicsConstraint.cpp:robot_files)
+    deps = [
+        ":humanoid_wb_mpc",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The names of the CppAD-taped costs: the term names the parameter updater finds them by and the library names, pinned
+# apart so that a renamed term fails here instead of regenerating a library; and the CppAD library name of
+# JointTorqueCostCppAd carries the version of the inverse dynamics it tapes, so that no library taped from the former
+# computeJointTorques is loaded from the cache. Builds no CppAD model.
 cc_test(
     name = "testJointTorqueCostLibraryName",
     size = "small",
     srcs = ["test/testJointTorqueCostLibraryName.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_wb_mpc",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
     ],
@@ -465,13 +572,7 @@ cc_test(
     name = "testJointTorqueStateInputOverloads",
     size = "small",
     srcs = ["test/testJointTorqueStateInputOverloads.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     # LINT.IfChange(joint_torque_overload_test_data)
     data = [
         "//robot_models/unitree_g1/g1_description",
@@ -480,6 +581,7 @@ cc_test(
     # LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/testJointTorqueStateInputOverloads.cpp:robot_files)
     deps = [
         ":humanoid_wb_mpc",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
@@ -487,27 +589,90 @@ cc_test(
     ],
 )
 
-# WBMpcInterface::CreateControllerModels(), the models of a remote MPC's robot process: no optimal control problem.
-# Builds no CppAD model.
+# WBMpcInterface::CreateControllerModels(), the models of a remote MPC's robot process: no optimal control problem; the
+# typed files build what their paths build, and the initial state is the file's by name. Builds no CppAD model.
 cc_test(
     name = "testWBMpcInterfaceControllerModels",
     size = "small",
     srcs = ["test/testWBMpcInterfaceControllerModels.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     data = [
         "//robot_models/unitree_g1/g1_description",
         "//robot_models/unitree_g1/g1_wb_mpc",
     ],
     deps = [
         ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
         "@pinocchio",
+    ],
+)
+
+# Live tuning of the whole-body MPC (humanoid_nmpc/humanoid_mpc_config/README.md, "Live updates"): the setters the
+# parameter updater writes the running problem with leave each term as a term built with the new values; a live update
+# of each hot block solves as a fresh start on the edited file, every applied field changes what it writes, an updater
+# fed nothing changes nothing, and a reload of the file the MPC started from reproduces it. The one binary of the
+# package that generates CppAD libraries for live tuning: every case shares one generation per library, the terms
+# loading them by the MPC's own model names. Large, with the longest timeout Bazel has, as test_wb_mpc_node: it tapes
+# and compiles the G1 whole-body MPC and the variant that carries the joint torque cost.
+cc_test(
+    name = "test_wb_live_tuning",
+    size = "large",
+    timeout = "eternal",
+    srcs = glob(["test/live_tuning/*.cpp"]) + glob(["test/live_tuning/*.h"]),
+    copts = FIRST_PARTY_COPTS,
+    # LINT.IfChange(live_tuning_test_data)
+    data = [
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/live_tuning/WholeBodyLiveTuningFixture.cpp:robot_files)
+    deps = [
+        ":affine_end_effector_dynamics",
+        ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_sqp",
+        "@abseil-cpp//absl/base:log_severity",
+        "@abseil-cpp//absl/base:no_destructor",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:scoped_mock_log",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+        "@protobuf",
+    ],
+)
+
+# ==============================================================================
+# The typed configuration files (humanoid_nmpc/humanoid_mpc_config)
+# ==============================================================================
+
+# The whole-body MPC's conversions of the typed task file (src/config/costs/): every weight of the foot cost in its own
+# entry, an absent weight 0, and what the whole-body foot cost cannot use refused by its path.
+cc_test(
+    name = "config_costs_test",
+    size = "small",
+    srcs = glob(["test/config/costs/*.cpp"]),
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
     ],
 )

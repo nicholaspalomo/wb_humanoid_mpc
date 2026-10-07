@@ -34,8 +34,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // the same answers from the predicates it decides on. Transport timing is taken out by waiting, in each cycle, for the
 // policy solved from that cycle's observation.
 
-#include <gtest/gtest.h>
-
 #include <chrono>
 #include <cstddef>
 #include <memory>
@@ -43,15 +41,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-
-#include <ocs2_core/Types.h>
-#include <ocs2_mpc/MPC_MRT_Interface.h>
-#include <ocs2_mpc/MRT_BASE.h>
+#include "gtest/gtest.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_mpc/MPC_MRT_Interface.h"
+#include "ocs2_mpc/MRT_BASE.h"
 
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
 #include "humanoid_mpc_ipc/MpcServer.h"
@@ -72,7 +71,7 @@ struct Step {
   scalar_t time = 0.0;
   scalar_t value = 0.0;
   /** Requested from the controller's supervisor before the cycle's observation is written, in this order. */
-  std::vector<ResetKind> resets;
+  std::vector<ResetKind> resets = {};
   /** The next solve throws, as a solver that fails its QP does; the solve loop retries at once. */
   bool failNextSolve = false;
 };
@@ -164,7 +163,7 @@ void expectSame(const Seen& inProcess, const Seen& remote, size_t step) {
 }
 
 /** The controller with the solver in process: MPC_MRT_Interface, served as solverWorker() serves it. */
-std::vector<Seen> runInProcess(const std::vector<Step>& steps, size_t* solverResets) {
+std::vector<Seen> runInProcess(const std::vector<Step>& steps, size_t* absl_nonnull solverResets) {
   std::unique_ptr<mpc_test::ScriptedMpc> mpc = test_support::makeScriptedMpc();
   MPC_MRT_Interface mrt(*mpc);
   MpcResetSupervisor supervisor;
@@ -205,7 +204,7 @@ std::vector<Seen> runInProcess(const std::vector<Step>& steps, size_t* solverRes
 }
 
 /** The controller with the solver behind the network link. */
-std::vector<Seen> runRemote(const std::vector<Step>& steps, size_t* solverResets) {
+std::vector<Seen> runRemote(const std::vector<Step>& steps, size_t* absl_nonnull solverResets) {
   std::unique_ptr<mpc_test::ScriptedMpc> mpc = test_support::makeScriptedMpc();
   std::unique_ptr<robot::ipc::Bus> robotBus = test_support::createNodeBus("robot");
   std::unique_ptr<robot::ipc::Bus> mpcBus = test_support::createNodeBus("mpc");

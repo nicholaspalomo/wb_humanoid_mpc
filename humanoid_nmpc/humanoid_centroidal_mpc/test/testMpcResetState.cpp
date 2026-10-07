@@ -27,18 +27,16 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <cstdint>
 #include <functional>
 #include <optional>
 #include <string>
 
-#include <ocs2_centroidal_model/AccessHelperFunctions.h>
-
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
+#include "ocs2_centroidal_model/AccessHelperFunctions.h"
 
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
@@ -77,8 +75,8 @@ vector_t walkingState(const AtlasReferenceStack& stack, const vector_t& state, s
 /** Runs the stack's MPC - the reference manager and the modules before a scripted solve - over [time, time + duration). */
 void walk(AtlasReferenceStack& stack, scalar_t& time, vector_t& state, scalar_t speed, scalar_t duration) {
   const scalar_t end = time + duration;
-  while (time < end - 1e-9) {
-    stack.mpc().run(time, state, ModeNumber::STANCE);
+  while (time < end - 1.0e-9) {
+    stack.mpc().run(time, state, ModeNumber::kStance);
     state = walkingState(stack, state, speed, kSolvePeriod);
     time += kSolvePeriod;
   }
@@ -87,7 +85,7 @@ void walk(AtlasReferenceStack& stack, scalar_t& time, vector_t& state, scalar_t 
 /** Whether the reference manager's mode schedule has a swing anywhere in [from, to]. */
 bool scheduleSwingsIn(const AtlasReferenceStack& stack, const SwitchedModelReferenceManager& referenceManager, scalar_t from, scalar_t to) {
   (void)stack;
-  for (scalar_t time = from; time <= to + 1e-9; time += 0.005) {
+  for (scalar_t time = from; time <= to + 1.0e-9; time += 0.005) {
     if (!referenceManager.isInStancePhase(time)) return true;
   }
   return false;
@@ -95,7 +93,7 @@ bool scheduleSwingsIn(const AtlasReferenceStack& stack, const SwitchedModelRefer
 
 /** [m/s] The Atlas command limit along x: the raw command that asks for `speed`. */
 scalar_t rawCommandFor(scalar_t speed) {
-  return speed / 1.2;  // reference.yaml maxDisplacementVelocityX
+  return speed / 1.2;  // the reference file's max_displacement_velocity_x
 }
 
 /** Everything the solver would read from the two stacks, compared. */
@@ -109,19 +107,19 @@ void expectSameReferences(AtlasReferenceStack& used, AtlasReferenceStack& fresh,
   const TargetTrajectories& targetB = b.getTargetTrajectories();
   ASSERT_EQ(targetA.timeTrajectory, targetB.timeTrajectory) << when;
   for (size_t k = 0; k < targetA.stateTrajectory.size(); ++k) {
-    EXPECT_LT((targetA.stateTrajectory[k] - targetB.stateTrajectory[k]).cwiseAbs().maxCoeff(), 1e-9) << when << ", knot " << k;
+    EXPECT_LT((targetA.stateTrajectory[k] - targetB.stateTrajectory[k]).cwiseAbs().maxCoeff(), 1.0e-9) << when << ", knot " << k;
   }
 
   for (int step = 0; step <= 40; ++step) {
     const scalar_t query = time + 0.05 * step;
     EXPECT_EQ(a.getContactFlags(query), b.getContactFlags(query)) << when << ", t = " << query;
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    for (size_t foot = 0; foot < kNumContacts; ++foot) {
       const std::optional<SwingFootReference> referenceA = a.getSwingFootReference(foot, query);
       const std::optional<SwingFootReference> referenceB = b.getSwingFootReference(foot, query);
       ASSERT_EQ(referenceA.has_value(), referenceB.has_value()) << when << ", foot " << foot << ", t = " << query;
-      if (!referenceA.has_value()) continue;
-      EXPECT_LT((referenceA->position - referenceB->position).norm(), 1e-9) << when << ", foot " << foot << ", t = " << query;
-      EXPECT_LT((referenceA->linearVelocity - referenceB->linearVelocity).norm(), 1e-9) << when << ", foot " << foot << ", t = " << query;
+      if (!referenceA.has_value() || !referenceB.has_value()) continue;
+      EXPECT_LT((referenceA->position - referenceB->position).norm(), 1.0e-9) << when << ", foot " << foot << ", t = " << query;
+      EXPECT_LT((referenceA->linearVelocity - referenceB->linearVelocity).norm(), 1.0e-9) << when << ", foot " << foot << ", t = " << query;
     }
   }
   EXPECT_EQ(used.motionManager().getCurrentGaitCommand(), fresh.motionManager().getCurrentGaitCommand()) << when;
@@ -129,10 +127,10 @@ void expectSameReferences(AtlasReferenceStack& used, AtlasReferenceStack& fresh,
     EXPECT_EQ(used.planningReferenceManager()->hasActivePlan(), fresh.planningReferenceManager()->hasActivePlan()) << when;
     const feet_array_t<TargetContactPose> posesA = used.planningReferenceManager()->getTargetContactPoses();
     const feet_array_t<TargetContactPose> posesB = fresh.planningReferenceManager()->getTargetContactPoses();
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    for (size_t foot = 0; foot < kNumContacts; ++foot) {
       EXPECT_EQ(posesA[foot].valid, posesB[foot].valid) << when << ", foot " << foot;
       if (posesA[foot].valid && posesB[foot].valid) {
-        EXPECT_LT((posesA[foot].position - posesB[foot].position).norm(), 1e-9) << when << ", foot " << foot;
+        EXPECT_LT((posesA[foot].position - posesB[foot].position).norm(), 1.0e-9) << when << ", foot " << foot;
       }
     }
   }
@@ -176,8 +174,8 @@ void resetStackBehavesAsAFreshOne(ScheduleSource source,
   fresh.command(rawCommandFor(commandAfterReset));
 
   for (int solve = 0; solve < 50; ++solve) {
-    used.mpc().run(time, held, ModeNumber::STANCE);
-    fresh.mpc().run(time, held, ModeNumber::STANCE);
+    used.mpc().run(time, held, ModeNumber::kStance);
+    fresh.mpc().run(time, held, ModeNumber::kStance);
     expectSameReferences(used, fresh, time, absl::StrCat("solve ", solve, " after the reset"));
     if (testing::Test::HasFatalFailure()) return;
     time += kSolvePeriod;
@@ -239,7 +237,7 @@ TEST(MpcResetState, AfterAResetARewoundClockDoesNotHoldTheRobotStandingUntilItCa
   stack.referenceManager().setTargetTrajectories(stack.resetTarget(time, state));
   bool swungWithinASecond = false;
   for (const scalar_t end = time + 1.0; time < end; time += kSolvePeriod) {
-    stack.mpc().run(time, state, ModeNumber::STANCE);
+    stack.mpc().run(time, state, ModeNumber::kStance);
     state = walkingState(stack, state, /*speed=*/1.0, kSolvePeriod);
     swungWithinASecond = swungWithinASecond || scheduleSwingsIn(stack, stack.referenceManager(), time, time + stack.horizon());
   }
@@ -254,7 +252,7 @@ TEST(MpcResetState, AfterAResetARewoundClockDoesNotHoldTheRobotStandingUntilItCa
   fresh.command(rawCommandFor(1.0));
   bool freshSwungWithinASecond = false;
   for (const scalar_t end = time + 1.0; time < end; time += kSolvePeriod) {
-    fresh.mpc().run(time, state, ModeNumber::STANCE);
+    fresh.mpc().run(time, state, ModeNumber::kStance);
     state = walkingState(fresh, state, /*speed=*/1.0, kSolvePeriod);
     freshSwungWithinASecond = freshSwungWithinASecond || scheduleSwingsIn(fresh, fresh.referenceManager(), time, time + fresh.horizon());
   }
@@ -278,7 +276,7 @@ TEST(MpcResetState, AfterAResetTheSwingFootStartsWhereTheFootIsNotWhereItWas) {
   stack.mpc().reset();
   stack.referenceManager().setTargetTrajectories(stack.resetTarget(time, state));
   stack.command(0.0);
-  stack.mpc().run(time, state, ModeNumber::STANCE);
+  stack.mpc().run(time, state, ModeNumber::kStance);
   time += kSolvePeriod;
   EXPECT_FALSE(scheduleSwingsIn(stack, stack.referenceManager(), time, time + stack.horizon())) << "the reset restarts the gait in stance";
 
@@ -287,8 +285,8 @@ TEST(MpcResetState, AfterAResetTheSwingFootStartsWhereTheFootIsNotWhereItWas) {
   scalar_t maxSwingSpeed = 0.0;
   size_t swingReferences = 0;
   for (const scalar_t end = time + 4.0; time < end; time += kSolvePeriod) {
-    stack.mpc().run(time, state, ModeNumber::STANCE);
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    stack.mpc().run(time, state, ModeNumber::kStance);
+    for (size_t foot = 0; foot < kNumContacts; ++foot) {
       const std::optional<SwingFootReference> reference = stack.referenceManager().getSwingFootReference(foot, time + 0.05);
       if (!reference.has_value()) continue;
       ++swingReferences;
@@ -324,7 +322,7 @@ TEST(MpcResetState, EachMotionManagerSwitchesGaitsOnItsOwnThresholds) {
   standing.mpc().reset();
   standing.command(0.0);
   vector_t still = standing.initialState();
-  for (int solve = 0; solve < 100; ++solve, standingTime += kSolvePeriod) standing.mpc().run(standingTime, still, ModeNumber::STANCE);
+  for (int solve = 0; solve < 100; ++solve, standingTime += kSolvePeriod) standing.mpc().run(standingTime, still, ModeNumber::kStance);
   EXPECT_EQ(standing.motionManager().getCurrentGaitCommand(), "stance");
 }
 
@@ -376,7 +374,7 @@ TEST(MpcResetState, TheTargetCalculatorForgetsItsFilters) {
       fresh.targetCalculator().commandedVelocityToTargetTrajectories(vector4_t::Zero(), /*initTime=*/5.0, state);
   ASSERT_EQ(afterReset.timeTrajectory, afterConstruction.timeTrajectory);
   for (size_t k = 0; k < afterReset.stateTrajectory.size(); ++k) {
-    EXPECT_LT((afterReset.stateTrajectory[k] - afterConstruction.stateTrajectory[k]).cwiseAbs().maxCoeff(), 1e-12) << "knot " << k;
+    EXPECT_LT((afterReset.stateTrajectory[k] - afterConstruction.stateTrajectory[k]).cwiseAbs().maxCoeff(), 1.0e-12) << "knot " << k;
   }
 }
 
@@ -395,7 +393,7 @@ TEST(MpcResetState, TheJointTargetStartsFromTheCurrentJointsHoweverLateTheResetC
   const vector_t nominalJoints = afterConstruction.stateTrajectory.back().tail(numJoints);
   ASSERT_GT((nominalJoints - state.tail(numJoints)).cwiseAbs().maxCoeff(), 0.05)
       << "positive control: the current joints must differ from the nominal ones for the test to tell them apart";
-  EXPECT_LT((afterConstruction.stateTrajectory.front().tail(numJoints) - state.tail(numJoints)).cwiseAbs().maxCoeff(), 1e-12);
+  EXPECT_LT((afterConstruction.stateTrajectory.front().tail(numJoints) - state.tail(numJoints)).cwiseAbs().maxCoeff(), 1.0e-12);
 
   for (int step = 0; step < 20; ++step) {
     used.targetCalculator().commandedVelocityToTargetTrajectories(vector4_t(1.0, 0.0, 0.0, 0.0), 0.01 * step, used.initialState());
@@ -403,13 +401,13 @@ TEST(MpcResetState, TheJointTargetStartsFromTheCurrentJointsHoweverLateTheResetC
   used.targetCalculator().reset();
   const TargetTrajectories afterLateReset =
       used.targetCalculator().commandedVelocityToTargetTrajectories(vector4_t::Zero(), /*initTime=*/21.0, state);
-  EXPECT_LT((afterLateReset.stateTrajectory.front().tail(numJoints) - state.tail(numJoints)).cwiseAbs().maxCoeff(), 1e-12)
+  EXPECT_LT((afterLateReset.stateTrajectory.front().tail(numJoints) - state.tail(numJoints)).cwiseAbs().maxCoeff(), 1.0e-12)
       << "after a reset at t = 21 s the joint target jumped towards the nominal joints";
 
   // A gap in the calls (a solver backing off) restarts the filter the same way.
   const TargetTrajectories afterGap =
       used.targetCalculator().commandedVelocityToTargetTrajectories(vector4_t::Zero(), /*initTime=*/23.0, state);
-  EXPECT_LT((afterGap.stateTrajectory.front().tail(numJoints) - state.tail(numJoints)).cwiseAbs().maxCoeff(), 1e-12);
+  EXPECT_LT((afterGap.stateTrajectory.front().tail(numJoints) - state.tail(numJoints)).cwiseAbs().maxCoeff(), 1.0e-12);
 }
 
 }  // namespace

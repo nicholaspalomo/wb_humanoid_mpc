@@ -10,8 +10,8 @@ stays at the edge: the bus serializes the protobuf message, and the code around 
         |  protoc + protoc-gen-nproto (nproto_cc_library)
         v
   mpc_policy.nproto.h      struct ocs2::humanoid::msgs::MpcPolicy: Eigen and std types, no protobuf include
-  mpc_policy.nproto.pb.h   ToProto(const MpcPolicy&, humanoid_mpc_msgs::MpcPolicy*)
-  mpc_policy.nproto.pb.cc  FromProto(const humanoid_mpc_msgs::MpcPolicy&, MpcPolicy*) -> absl::Status
+  mpc_policy.nproto.pb.h   ToProto(const MpcPolicy&, humanoid_mpc_msgs::MpcPolicy* absl_nonnull)
+  mpc_policy.nproto.pb.cc  FromProto(const humanoid_mpc_msgs::MpcPolicy&, MpcPolicy* absl_nonnull) -> absl::Status
 ```
 
 The generated conversions are realtime-safe: converting into a struct or a message that already has the value's
@@ -46,7 +46,9 @@ enum ControllerType {
 ```
 
 - `nproto.generate_struct` is a `MessageOptions` extension (number 52001), `nproto.generate_enum` an `EnumOptions`
-  extension (52002); a file-level option does not exist.
+  extension (52002); a file-level option does not exist. The other options of nproto are `nproto.optional_message`
+  (`FieldOptions`, 52004; [the type mapping](#the-type-mapping)) and the retired-field options `nproto.retired_field`
+  (52003) and `nproto.retired_layout_hint` (52005) of `retired_field_options.proto` ([Retired fields](#retired-fields)).
 - The value is a fully qualified C++ name. Everything before the last `::` is the namespace of the generated code; the
   last component must be the definition's own name.
 - The struct needs a namespace of its own: a name equal to protobuf's own C++ class (`humanoid_mpc_msgs::Vector3` for
@@ -97,23 +99,26 @@ The protos of protobuf itself (descriptor.proto, the well-known types) and `opti
 `denylisted_protos` of `:nproto_toolchain`), so a message cannot hold a `google.protobuf.Timestamp`; the plugin says
 so.
 
-The generated code is clang-format clean, uses no `auto`, and compiles warning-free under `-Wall -Wextra -Werror`;
-the struct headers also under `-Wpedantic` (`//tools/nproto/test:test_struct_headers`, `:test_generated_code`).
+The generated code is clang-format clean, follows the repository's C++ lint rules (no `auto`, nullability on every
+raw pointer, integer types without `std::`), and compiles with `FIRST_PARTY_COPTS` (`bazel/copts.bzl`) and `-Werror`.
+The conversions drop `-Wpedantic`, under which the Abseil headers they include warn; the struct headers compile with
+it and `-Werror` (`//tools/nproto/test:test_struct_headers`, `:test_generated_code`).
 
 ## The type mapping
 
 | Proto field | Struct member | Default member initializer |
 |---|---|---|
 | `double`, `float` | `double`, `float` | `0.0`, `0.0f` (or the explicit default) |
-| `int32`, `sint32`, `sfixed32` | `std::int32_t` | `0` |
-| `int64`, `sint64`, `sfixed64` | `std::int64_t` | `0` |
-| `uint32`, `fixed32` | `std::uint32_t` | `0` |
-| `uint64`, `fixed64` | `std::uint64_t` | `0` |
+| `int32`, `sint32`, `sfixed32` | `int32_t` | `0` |
+| `int64`, `sint64`, `sfixed64` | `int64_t` | `0` |
+| `uint32`, `fixed32` | `uint32_t` | `0` |
+| `uint64`, `fixed64` | `uint64_t` | `0` |
 | `bool` | `bool` | `false` |
 | `string`, `bytes` | `std::string` | empty |
 | an enum | its `enum class` (nested enums: a nested `enum class`) | the enum's first value |
 | a message | its struct, **by value** | the default struct |
 | `optional` scalar, string, enum or message (explicit presence) | `std::optional<T>` | `std::nullopt` |
+| a message field with `[(nproto.optional_message) = true]` | `std::optional<Struct>` | `std::nullopt` |
 | `repeated double` / `repeated float` | `Eigen::VectorXd` / `Eigen::VectorXf` | size 0 |
 | any other `repeated` scalar, enum or string | `std::vector<T>` (`repeated bool`: `std::vector<bool>`) | empty |
 | `repeated` message | `std::vector<Struct>` | empty |
@@ -124,19 +129,24 @@ Choices behind the table:
 
 - **Member names are the proto field names**, snake_case as in the `.proto` file: Google style names struct data
   members in snake_case without a trailing underscore, and `policy.time_trajectory` reads like
-  `policy.time_trajectory()`. A field named like a C++ keyword is refused.
+  `policy.time_trajectory()`. A field named like a C++ keyword is refused, and so is a field, oneof, type or
+  namespace named like one of the integer types the generated code writes without `std::` (`int32_t`, `int64_t`,
+  `uint32_t`, `uint64_t`, `size_t`, as the Google C++ Style Guide spells them), which it would hide.
 - **Enumerators** are Google-style constants without the enum's prefix: `CONTROLLER_TYPE_LINEAR` is
   `ControllerType::kLinear`, `KIND_SWING_IN_FLIGHT` is `TargetContactPatch::Kind::kSwingInFlight`. The prefix is the
-  enum's name in upper snake case and is dropped only when every value has it. The underlying type is `std::int32_t`,
+  enum's name in upper snake case and is dropped only when every value has it. The underlying type is `int32_t`,
   as for protobuf enums. An alias (`allow_alias`) is a second enumerator of the same number.
 - **Presence.** A field with explicit presence and no explicit default becomes `std::optional`: proto3 `optional`,
   proto2 `optional` without `[default = ...]`, and edition 2023 fields that are not `IMPLICIT`. A message field without
   `optional` is held by value and keeps no presence: `FromProto()` of an absent submessage gives the default struct,
-  and `ToProto()` always sets the submessage. Write `optional Foo foo = 1;` where "absent" must be told apart from
-  "default". A proto2 `required` field is a plain member.
+  and `ToProto()` always sets the submessage. Write `optional Foo foo = 1;` (proto3), or `Foo foo = 1
+  [(nproto.optional_message) = true];` (any syntax, edition 2023 included, where `optional` does not exist), where
+  "absent" must be told apart from "default": the member is a `std::optional<Foo>`, `ToProto()` clears the field for
+  `std::nullopt` and `FromProto()` sets the member exactly when the message has the field. The option is refused on a
+  field that is not a singular message, and on a oneof alternative. A proto2 `required` field is a plain member.
 - **Oneofs** are a `std::variant` named after the oneof, whose index 0 (`std::monostate`) means that no alternative is
   set. Alternatives are told apart by index, because two of them may share a type (`double radius`, `double side`):
-  the struct declares `static constexpr std::size_t k<Field>Index` for each, so `value.shape.index() ==
+  the struct declares `static constexpr size_t k<Field>Index` for each, so `value.shape.index() ==
   Oneofs::kSideIndex` and `std::get<Oneofs::kSideIndex>(value.shape)`.
 - **Recursive messages are refused.** Fields are held by value, so a message that contains itself, directly or through
   other messages (a repeated field included), has no struct. Break the cycle, for instance with an index into a
@@ -151,12 +161,14 @@ Choices behind the table:
 For the top-level type and every nested type, `<file>.nproto.pb.h` declares, in the struct's namespace:
 
 ```cpp
-void ToProto(const Struct& value, ProtoMessage* proto);
-absl::Status FromProto(const ProtoMessage& proto, Struct* value);
-void ToProto(Enum value, ProtoEnum* proto);
-absl::Status FromProto(ProtoEnum proto, Enum* value);
+void ToProto(const Struct& value, ProtoMessage* absl_nonnull proto);
+absl::Status FromProto(const ProtoMessage& proto, Struct* absl_nonnull value);
+void ToProto(Enum value, ProtoEnum* absl_nonnull proto);
+absl::Status FromProto(ProtoEnum proto, Enum* absl_nonnull value);
 ```
 
+- The output parameter is never null: it carries `absl_nonnull` (AGENTS.md, "Raw pointers carry nullability"), and
+  `<file>.nproto.pb.h` includes `absl/base/nullability.h`, which reaches the generated code through `:nproto_runtime`.
 - `ToProto()` writes every field of the message: unset optional members clear their field, `std::monostate` clears
   the oneof, and repeated fields and maps end up exactly the value's.
 - `FromProto()` overwrites every member of the struct. It fails only where the struct cannot hold the value: an enum
@@ -209,8 +221,9 @@ protobuf's and are not covered here.
 
 ## Textproto configuration files
 
-Every configuration file the repository reads is a `.textproto` of a message with a schema, one message per file. The
-file names its schema in its first lines:
+Every configuration file the repository reads is a `.textproto` of a message with a schema, one message per file (the
+MPC's hyperparameter files are the schemas of humanoid_nmpc/humanoid_mpc_config, whose README says how to add and retire
+a field). The file names its schema in its first lines:
 
 ```textproto
 # proto-file: humanoid_nmpc/humanoid_mpc_msgs/vector3.proto
@@ -223,7 +236,7 @@ y: -0.25
 `:nproto_runtime` (`#include "nproto/Textproto.h"`, namespace `nproto`) parses them strictly:
 
 ```cpp
-absl::Status ParseTextprotoInto(absl::string_view text, absl::string_view sourceName, google::protobuf::Message* message);
+absl::Status ParseTextprotoInto(absl::string_view text, absl::string_view sourceName, google::protobuf::Message* absl_nonnull message);
 template <typename Message>
 absl::StatusOr<Message> ParseTextproto(absl::string_view text, absl::string_view sourceName);
 template <typename Message>
@@ -234,6 +247,10 @@ absl::StatusOr<std::string> ReadTextFile(absl::string_view path);
 std::string WriteTextproto(const google::protobuf::Message& message);  // for tools that write configuration files
 ```
 
+- A file whose leading comment block names another message (`# proto-message: pkg.Other`) is refused before it is
+  parsed: `config/reference.textproto:2:1: config/reference.textproto is a humanoid_mpc_config.ReferenceFile (its '#
+  proto-message:' header), not a humanoid_mpc_config.TaskFile`. A file without the header parses as the message asked
+  for; `make lint` requires the header of every tracked `.textproto` (`textproto-header`, tools/hooks/textproto_headers.py).
 - Parsing uses `google::protobuf::TextFormat::Parser` with an error collector. A syntax error, an unknown field or
   extension, an unknown enum value name, a value of the wrong type or out of range, a non-repeated field given twice,
   two alternatives of one oneof, a field number instead of a name, a deprecated field and a missing proto2 required
@@ -256,6 +273,72 @@ if (!config.ok()) return config.status();  // "config/my_config.textproto:3:5: M
 
 Parsing allocates and reads files: it is for start-up and tools, never for a realtime thread.
 
+### Retired fields
+
+A configuration key that is renamed or removed must not be ignored by a stale file, nor fail with a bare "no field
+named". The message names it with the option `(nproto.retired_field)` (`retired_field_options.proto`, which imports
+the `RetiredField` message of `retired_field.proto`), once per field:
+
+```proto
+import "nproto/retired_field_options.proto";
+
+// Next ID: 40
+message TaskFile {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::TaskFile";
+  option (nproto.retired_field) = { name: "use_dcm_terminal_cost" replacement: "list dcm_terminal_cost under costs" };
+
+  reserved 40 to max;
+  ...
+}
+```
+
+- The parser answers a file that sets it with `task.textproto:12:1: 'useDcmTerminalCost' is retired: list
+  dcm_terminal_cost under costs`. The name matches an unknown field name when the two are equal after both are
+  snake-cased and lower-cased, so one entry covers an old camelCase key and its snake_case spelling.
+- Any other unknown field name gets `Did you mean "step_width"?` when its snake-cased form is a field of the message, and
+  ends with the message's `(nproto.retired_layout_hint)` when it has one: a whole layout that moved, such as the flat keys
+  of an old configuration, is one hint instead of one entry per key.
+- The generator refuses a retired name that is a live field of the message (the file would parse, so the retirement
+  could never be reported), a name listed twice and an entry without a name or a replacement.
+- `reserved "name"` (and edition 2023's `reserved name;`) is refused by `make lint` (`proto-file-layout`): protobuf's
+  C++ text parser skips a reserved name without a word, while Python's raises, so the two languages would disagree about
+  a stale file. Reserving field numbers stays as it is.
+
+The options live in `:options_proto` with `options.proto`, which nproto generates no structs for: `RetiredField` is
+only read as an option.
+
+### Python
+
+`:nproto_textproto` (`import nproto_textproto`) is the same parser for Python, on
+`google.protobuf.text_format`:
+
+```python
+from humanoid_mpc_config import task_file_pb2
+import nproto_textproto
+
+task = nproto_textproto.load_textproto("config/mpc/task.textproto", task_file_pb2.TaskFile)
+nproto_textproto.parse_textproto(text, message, source="the GUI's document")  # raises TextprotoError
+```
+
+It refuses what the C++ parser refuses, at the same position and, for retired fields and the header, in the same
+words (`//tools/nproto/test:test_nproto_textproto` runs the inputs of `:test_textproto`): text_format's own wording differs for the other
+problems, and it reports the first problem only. A deprecated field, which text_format accepts, is found by the module
+itself; a field given twice is reported at its name, as in C++.
+
+## Version skew
+
+A message that crosses a process boundary may come from a build of another version of its schema. protobuf takes it
+without a word: a field the receiver does not know is kept as an unknown field, which no conversion reads, and a field
+the sender does not know reaches the receiver at its default. `nproto/Schema.h` lets a receiver tell:
+
+- `nproto::UnknownFieldPaths(message)` lists every unknown field of a received message and of the messages below it,
+  as `<path>: field <number>`; a receiver refuses a message with any.
+- `nproto::SchemaFingerprint(descriptor)` is a 64-bit FNV-1a hash of the wire layout of a message and of every message
+  and enum its fields reach - names, numbers, types, labels, presence, nothing else (`SchemaFingerprintText()` is the
+  text it hashes). A sender stamps it into the message and the receiver compares it with its own, which also catches
+  a sender that lacks fields: `nproto_schema.schema_fingerprint(descriptor)` (`:nproto_schema`) computes the same in
+  Python, and `//tools/nproto/test:test_schema` and `:test_nproto_schema` pin the same text and hash of a test message.
+
 ## What the plugin refuses
 
 The plugin (`:protoc-gen-nproto`, `protoc_gen_nproto.py` on `nproto_generator.py`) stops the build with an error that
@@ -268,7 +351,10 @@ names the file and the definition when:
 - a message contains itself;
 - a field refers to a type that has no struct (its definition sets no option, or it is one of protobuf's own types);
 - a name cannot be a C++ name: a field, oneof or message named like a C++ keyword, a nested type and a member of one
-  name, two enum values that give one enumerator, two oneof fields that give one index constant.
+  name, two enum values that give one enumerator, two oneof fields that give one index constant;
+- `(nproto.optional_message)` is set on a field that is not a singular message, or on a oneof alternative;
+- a `(nproto.retired_field)` names a live field of its message, names one field twice, or lacks a name or a
+  replacement.
 
 protoc passes custom options to a plugin as extension fields of `MessageOptions` / `EnumOptions`; the plugin imports
 `options_pb2` (`:options_py_proto`) before it parses the request, so that they are readable as extensions.
@@ -277,11 +363,14 @@ protoc passes custom options to a plugin as extension fields of `MessageOptions`
 
 | Path | What |
 |---|---|
-| `options.proto` | the two options (`:options_proto`, `:options_py_proto`) |
+| `options.proto` | the struct options and `optional_message` (`:options_proto`, `:options_py_proto`, `:options_cc_proto`) |
+| `retired_field.proto`, `retired_field_options.proto` | the retired-field options and their message, in the same library |
 | `nproto_generator.py`, `protoc_gen_nproto.py` | the generator and the protoc plugin (`:nproto_generator`, `:protoc-gen-nproto`) |
 | `nproto.bzl` | `nproto_cc_library` and its aspect; `:nproto_toolchain` is how it runs the plugin |
 | `include/nproto/Conversions.h`, `src/Conversions.cpp` | the helpers the generated code calls (`nproto::internal`, not an API) |
 | `include/nproto/Textproto.h`, `src/Textproto.cpp` | the textproto helpers |
+| `nproto_textproto.py` | the Python parser (`:nproto_textproto`, tested by `//tools/nproto/test:test_nproto_textproto`) |
+| `include/nproto/Schema.h`, `src/Schema.cpp`, `nproto_schema.py` | the unknown fields of a received message and the schema fingerprint, C++ and Python (`:nproto_schema`) |
 | `test/` | test protos for every mapping (one message or enum per file; `test/other/` is another proto and Bazel package) and the tests |
 
 ```bash
@@ -290,14 +379,19 @@ bazel test //tools/nproto/... //humanoid_nmpc/humanoid_mpc_msgs:messages_nproto_
 ```
 
 - `:test_nproto`: the member type of every kind of field, defaults (proto3, proto2 and edition 2023), equality,
-  round trips of every test message both ways, every oneof alternative, presence, maps, the errors of `FromProto()`.
+  round trips of every test message both ways, every oneof alternative, presence (`optional_message` included), maps,
+  the errors of `FromProto()`.
 - `:test_nproto_allocations`: allocation-freedom of the conversions into objects of the value's shape.
 - `:test_struct_headers`: the struct headers alone compile under `-Wpedantic -Werror` without protobuf or Abseil.
-- `:test_textproto`: a good file, unknown fields, type errors and other mistakes with their line and column, a missing
-  file, a conversion error, and `WriteTextproto()` round trips.
-- `:test_nproto_generator`: the generator's output and every error above, on requests built in the test, and the
-  plugin binary speaking protoc's protocol.
-- `:test_generated_code`: the generated code of the test protos and of `humanoid_mpc_msgs` is clang-format clean,
-  uses no `auto`, and its struct headers include neither protobuf nor Abseil.
+- `:test_textproto`: a good file, unknown fields, type errors and other mistakes with their line and column, retired
+  fields in both spellings, suggestions and layout hints, the header check, a missing file, a conversion error, and
+  `WriteTextproto()` round trips.
+- `//tools/nproto/test:test_nproto_textproto`: the same for the Python parser, plus deprecated fields.
+- `:test_nproto_generator`: the generator's output and every error above (the misplaced `optional_message` and the bad
+  retired names included), on requests built in the test, and the plugin binary speaking protoc's protocol.
+- `:test_generated_code`: the generated code of the test protos, of `humanoid_mpc_msgs` and of `humanoid_mpc_config`
+  is clang-format clean,
+  the repository's `no-auto` and `pointer-nullability` lint checks find nothing in it (`make lint` never sees
+  `bazel-out`), its output parameters are `absl_nonnull`, and its struct headers include neither protobuf nor Abseil.
 - `ExpectRoundTrips<Struct, Proto>()` (`:proto_test_values`) is the round-trip check any package can run over its own
   messages, as `//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto_test` does for every message there.

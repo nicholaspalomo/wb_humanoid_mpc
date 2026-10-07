@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/dynamics/SystemDynamicsBase.h>
 
 namespace ocs2 {
@@ -48,7 +50,7 @@ class LinearSystemDynamics : public SystemDynamicsBase {
 
   ~LinearSystemDynamics() override = default;
 
-  LinearSystemDynamics* clone() const override;
+  LinearSystemDynamics* absl_nonnull clone() const override;
 
   vector_t computeFlowMap(scalar_t t, const vector_t& x, const vector_t& u, const PreComputation&) override;
 

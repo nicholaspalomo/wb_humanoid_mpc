@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <iostream>
 #include <utility>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/control/LinearController.h>
 
 namespace ocs2 {
@@ -59,7 +61,7 @@ LinearController& LinearController::operator=(LinearController rhs) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-LinearController* LinearController::clone() const {
+LinearController* absl_nonnull LinearController::clone() const {
   return new LinearController(*this);
 }
 
@@ -89,7 +91,7 @@ vector_t LinearController::computeInput(scalar_t t, const vector_t& x) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void LinearController::flatten(const scalar_array_t& timeArray, const std::vector<std::vector<double>*>& flatArray2) const {
+void LinearController::flatten(const scalar_array_t& timeArray, const std::vector<std::vector<double>* absl_nonnull>& flatArray2) const {
   const auto timeSize = timeArray.size();
   const auto dataSize = flatArray2.size();
 
@@ -149,8 +151,10 @@ void LinearController::flattenSingle(scalar_t time, std::vector<double>& flatArr
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-LinearController LinearController::unFlatten(const size_array_t& stateDim, const size_array_t& inputDim, const scalar_array_t& timeArray,
-                                             const std::vector<std::vector<double> const*>& flatArray2) {
+LinearController LinearController::unFlatten(const size_array_t& stateDim,
+                                             const size_array_t& inputDim,
+                                             const scalar_array_t& timeArray,
+                                             const std::vector<const std::vector<double>* absl_nonnull>& flatArray2) {
   vector_array_t bias;
   matrix_array_t gain;
 
@@ -177,8 +181,8 @@ LinearController LinearController::unFlatten(const size_array_t& stateDim, const
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void LinearController::concatenate(const ControllerBase* nextController, int index, int length) {
-  if (const auto* nextLinCtrl = dynamic_cast<const LinearController*>(nextController)) {
+void LinearController::concatenate(const ControllerBase* absl_nonnull nextController, int index, int length) {
+  if (const LinearController* absl_nullable nextLinCtrl = dynamic_cast<const LinearController*>(nextController)) {
     if (!timeStamp_.empty() && timeStamp_.back() > nextLinCtrl->timeStamp_.front()) {
       throw std::runtime_error("Concatenate requires that the nextController comes later in time.");
     }

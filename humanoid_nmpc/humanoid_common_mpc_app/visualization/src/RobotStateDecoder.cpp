@@ -31,13 +31,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include <ocs2_robotic_tools/common/RotationDerivativesTransforms.h>
-
+#include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_robotic_tools/common/RotationDerivativesTransforms.h"
 
 #include "humanoid_common_mpc_app/visualization/EulerAngles.h"
 
@@ -46,10 +47,10 @@ namespace ocs2::humanoid::visualization {
 namespace {
 
 /** A quaternion whose norm is this far from 1 is not a rotation up to rounding. */
-constexpr scalar_t kQuaternionNormTolerance = 1e-3;
+constexpr scalar_t kQuaternionNormTolerance = 1.0e-3;
 
 /** A joint array of the sample: aligned with the joint names, or (`optional`) empty. */
-absl::Status checkJointArray(const Eigen::VectorXd& values, size_t jointCount, const char* field, bool optional) {
+absl::Status checkJointArray(const Eigen::VectorXd& values, size_t jointCount, const char* absl_nonnull field, bool optional) {
   const size_t size = static_cast<size_t>(values.size());
   if (size == jointCount || (optional && size == 0)) {
     return absl::OkStatus();
@@ -85,7 +86,7 @@ scalar_t appliedEffort(const msgs::RobotStateSample& sample, int index) {
 /** For each of `names`, its index in `sampleIndices`, or -1. */
 void lookUpJoints(const absl::flat_hash_map<std::string, int>& sampleIndices,
                   const std::vector<std::string>& names,
-                  std::vector<int>* indices) {
+                  std::vector<int>* absl_nonnull indices) {
   indices->assign(names.size(), -1);
   for (size_t joint = 0; joint < names.size(); ++joint) {
     const absl::flat_hash_map<std::string, int>::const_iterator found = sampleIndices.find(names[joint]);
@@ -114,7 +115,7 @@ void RobotStateDecoder::updateJointIndices(const std::vector<std::string>& sampl
   hasJointIndices_ = true;
 }
 
-absl::Status RobotStateDecoder::decode(const msgs::RobotStateSample& sample, DecodedRobotState* state) {
+absl::Status RobotStateDecoder::decode(const msgs::RobotStateSample& sample, DecodedRobotState* absl_nonnull state) {
   const size_t jointCount = sample.joint_names.size();
   if (absl::Status status = checkJointArray(sample.joint_positions, jointCount, "joint_positions", /*optional=*/false); !status.ok()) {
     return status;
@@ -122,14 +123,14 @@ absl::Status RobotStateDecoder::decode(const msgs::RobotStateSample& sample, Dec
   if (absl::Status status = checkJointArray(sample.joint_velocities, jointCount, "joint_velocities", /*optional=*/false); !status.ok()) {
     return status;
   }
-  const std::array<std::pair<const Eigen::VectorXd*, const char*>, 5> actionArrays = {{
+  const std::array<std::pair<const Eigen::VectorXd* absl_nonnull, const char* absl_nonnull>, 5> actionArrays = {{
       {&sample.joint_position_targets, "joint_position_targets"},
       {&sample.joint_velocity_targets, "joint_velocity_targets"},
       {&sample.joint_kp, "joint_kp"},
       {&sample.joint_kd, "joint_kd"},
       {&sample.joint_feed_forward_efforts, "joint_feed_forward_efforts"},
   }};
-  for (const std::pair<const Eigen::VectorXd*, const char*>& actionArray : actionArrays) {
+  for (const std::pair<const Eigen::VectorXd* absl_nonnull, const char* absl_nonnull>& actionArray : actionArrays) {
     if (absl::Status status = checkJointArray(*actionArray.first, jointCount, actionArray.second, /*optional=*/true); !status.ok()) {
       return status;
     }
@@ -153,22 +154,22 @@ absl::Status RobotStateDecoder::decode(const msgs::RobotStateSample& sample, Dec
   state->baseEulerAnglesZyx = eulerAnglesZyxFromRotation(state->baseRotation);
 
   const size_t mpcJointCount = mpcJointNames_.size();
-  state->generalizedCoordinates.setZero(FLOATING_BASE_DIM + mpcJointCount);
-  state->generalizedVelocities.setZero(FLOATING_BASE_DIM + mpcJointCount);
-  state->generalizedForces.setZero(FLOATING_BASE_DIM + mpcJointCount);
-  state->generalizedCoordinates.head<BASE_TRANSLATION_DIM>() = state->basePosition;
-  state->generalizedCoordinates.segment<BASE_ROTATION_DIM>(BASE_TRANSLATION_DIM) = state->baseEulerAnglesZyx;
-  state->generalizedVelocities.head<BASE_TRANSLATION_DIM>() = state->baseLinearVelocity;
-  state->generalizedVelocities.segment<BASE_ROTATION_DIM>(BASE_TRANSLATION_DIM) =
+  state->generalizedCoordinates.setZero(kFloatingBaseDim + mpcJointCount);
+  state->generalizedVelocities.setZero(kFloatingBaseDim + mpcJointCount);
+  state->generalizedForces.setZero(kFloatingBaseDim + mpcJointCount);
+  state->generalizedCoordinates.head<kBaseTranslationDim>() = state->basePosition;
+  state->generalizedCoordinates.segment<kBaseRotationDim>(kBaseTranslationDim) = state->baseEulerAnglesZyx;
+  state->generalizedVelocities.head<kBaseTranslationDim>() = state->baseLinearVelocity;
+  state->generalizedVelocities.segment<kBaseRotationDim>(kBaseTranslationDim) =
       getEulerAnglesZyxDerivativesFromGlobalAngularVelocity<scalar_t>(state->baseEulerAnglesZyx, state->baseAngularVelocity);
   for (size_t joint = 0; joint < mpcJointCount; ++joint) {
     const int index = mpcJointToSample_[joint];
     if (index < 0) {
       continue;
     }
-    state->generalizedCoordinates[JOINT_COORDINATE_OFFSET + joint] = sample.joint_positions[index];
-    state->generalizedVelocities[JOINT_COORDINATE_OFFSET + joint] = sample.joint_velocities[index];
-    state->generalizedForces[JOINT_COORDINATE_OFFSET + joint] = appliedEffort(sample, index);
+    state->generalizedCoordinates[kJointCoordinateOffset + joint] = sample.joint_positions[index];
+    state->generalizedVelocities[kJointCoordinateOffset + joint] = sample.joint_velocities[index];
+    state->generalizedForces[kJointCoordinateOffset + joint] = appliedEffort(sample, index);
   }
 
   const size_t fullJointCount = fullJointNames_.size();
@@ -195,7 +196,7 @@ absl::Status RobotStateDecoder::decode(const msgs::RobotStateSample& sample, Dec
     }
   }
 
-  for (size_t contact = 0; contact < N_CONTACTS; ++contact) {
+  for (size_t contact = 0; contact < kNumContacts; ++contact) {
     vector6_t& wrench = state->measuredContactWrenches[contact];
     wrench.setZero();
     if (contact < sample.measured_contact_wrenches.size()) {

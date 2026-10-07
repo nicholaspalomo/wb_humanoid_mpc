@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc_app/node/MpcFiles.h"
+#include "humanoid_common_mpc_app/robot/RobotConfigDirectory.h"
 
 namespace ocs2::humanoid {
 
@@ -67,6 +68,10 @@ struct RobotAppOptions {
   std::vector<int> realtimeCores;
   std::vector<int> backendCores;
   bool headless = false;
+  /** The persistent directory of this robot configuration (RobotConfigDirectory); empty: read the files in place. */
+  std::string configStoreDirectory;
+  /** When the stored copies are replaced by the bundled files (--config_seed). */
+  ConfigSeedPolicy configSeedPolicy = ConfigSeedPolicy::kWhenBundleChanges;
 };
 
 }  // namespace ocs2::humanoid

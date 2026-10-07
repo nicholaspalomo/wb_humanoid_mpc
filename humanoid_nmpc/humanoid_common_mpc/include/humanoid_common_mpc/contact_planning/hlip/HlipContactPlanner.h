@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -124,7 +128,7 @@ class HlipContactPlanner final : public ContactPlannerInterface {
    * reduced model forward to tell the two apart.
    *
    * Shortening the single support is what shrinks the demand: less time falling before the foot lands. At the shipped
-   * `hlip.dspDuration` of 0.05 s and the Atlas's 1.0805 m pendulum (its model's, which shared.comHeight: 0 resolves
+   * `hlip.dspDuration` of 0.05 s and the Atlas's 1.0805 m pendulum (its model's, which an unset shared.comHeight resolves
    * to) it drops from 0.47 m at a 0.35 s single support to 0.39 m at 0.25 s, which against a 0.45 m reach is the
    * difference between not fitting and fitting. The double support and the pendulum have to be named with the figures
    * because both enter the deadbeat gain: at 0.35 s the demand is 0.45 m with dspDuration 0 and 0.49 m with 0.1, and

@@ -32,13 +32,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 
-#include <humanoid_common_mpc/common/Types.h>
-#include <mujoco_sim_interface/MujocoSimInterface.h>
-#include <robot_model/ContactEstimatorRegistry.h>
-#include <robot_model/RobotHWInterfaceBase.h>
+#include "humanoid_common_mpc/common/Types.h"
+#include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "robot_model/ContactEstimatorRegistry.h"
+#include "robot_model/RobotHWInterfaceBase.h"
 
 namespace ocs2::humanoid {
 
@@ -84,7 +85,7 @@ class RobotBackend {
    * robot has no sensor.
    * Realtime thread.
    */
-  virtual void readMeasuredContactForces(std::array<vector3_t, N_CONTACTS>& forces) = 0;
+  virtual void readMeasuredContactForces(std::array<vector3_t, kNumContacts>& forces) = 0;
 
   /**
    * Takes the actuators to the backend's safe state, whatever action is latched: the realtime loop's last act when a
@@ -101,7 +102,7 @@ class RobotBackend {
    * The simulator, when this backend is one: its gantry, its torque switch, its dodgeballs and its viewer, which the
    * FSM bridge, the fall recovery and the viewer annotations drive. nullptr on hardware.
    */
-  virtual robot::mujoco_sim_interface::MujocoSimInterface* simulator() { return nullptr; }
+  virtual robot::mujoco_sim_interface::MujocoSimInterface* absl_nullable simulator() { return nullptr; }
 };
 
 }  // namespace ocs2::humanoid

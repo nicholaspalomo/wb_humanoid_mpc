@@ -1,27 +1,44 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Decodes bus payloads by their full protobuf type name and prints them as protobuf text format or JSON.
 
 The second frame of every bus message names its type (`humanoid_mpc_msgs.MpcPolicy`), so a payload decodes without a
-topic registry: once every generated module of the message package is imported, the default descriptor pool knows
+topic registry: once every generated module of the message packages is imported, the default descriptor pool knows
 every type, and the message factory builds the class from the descriptor.
 """
 
 import base64
+from collections.abc import Callable, Sequence
 import importlib
 import io
 import json
 import pkgutil
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    List,
-    NamedTuple,
-    Optional,
-    Sequence,
-    TextIO,
-    Type,
-    Union,
-)
+from typing import Any, NamedTuple, TextIO, TypeAlias
 
 from google.protobuf import descriptor
 from google.protobuf import descriptor_pool
@@ -29,7 +46,11 @@ from google.protobuf import message
 from google.protobuf import message_factory
 from google.protobuf import text_format
 
-MESSAGE_PACKAGE = "humanoid_mpc_msgs"
+# The Python packages of the messages on the bus: the bus messages, and the configuration files the tuning GUI publishes
+# whole on operator/mpc_parameters and operator/pd_gains (humanoid_mpc_config.MpcParameterUpdate, JointPdGainsFile).
+# LINT.IfChange(message_packages)
+MESSAGE_PACKAGES: tuple[str, ...] = ("humanoid_mpc_msgs", "humanoid_mpc_config")
+# LINT.ThenChange(//humanoid_nmpc/remote_control/test/test_operator_topics.py)
 GENERATED_MODULE_SUFFIX = "_pb2"
 
 
@@ -41,26 +62,33 @@ class FieldPathError(ValueError):
     """A --fields path names no field of the message."""
 
 
-def import_message_modules(package_name: str = MESSAGE_PACKAGE) -> List[str]:
-    """Imports every generated `*_pb2` module of a package, so that the default pool knows its messages.
+def import_message_modules(
+    package_names: Sequence[str] = MESSAGE_PACKAGES,
+) -> list[str]:
+    """Imports every generated `*_pb2` module of the packages, so that the default pool knows their messages.
 
-    Returns the full names of the modules, sorted. The package is scanned rather than listed, so a new .proto file is
-    decodable without touching this tool.
+    The packages are scanned rather than listed, so a new .proto file is decodable without touching this tool.
+
+    Args:
+      package_names: The Python packages of the generated modules.
+
+    Returns:
+      The full names of the imported modules, sorted.
     """
-    package = importlib.import_module(package_name)
-    names = sorted(
-        {
+    names: set[str] = set()
+    for package_name in package_names:
+        package = importlib.import_module(package_name)
+        names.update(
             f"{package_name}.{module.name}"
             for module in pkgutil.iter_modules(package.__path__)
             if module.name.endswith(GENERATED_MODULE_SUFFIX)
-        }
-    )
-    for name in names:
+        )
+    for name in sorted(names):
         importlib.import_module(name)
-    return names
+    return sorted(names)
 
 
-def message_class(type_name: str) -> Type[message.Message]:
+def message_class(type_name: str) -> type[message.Message]:
     """The generated class of a full type name, from the default descriptor pool."""
     try:
         message_descriptor = descriptor_pool.Default().FindMessageTypeByName(type_name)
@@ -113,7 +141,7 @@ def field_to_python(value: Any, field: descriptor.FieldDescriptor) -> Any:
     return _scalar_to_python(value, field)
 
 
-def message_to_python(msg: message.Message) -> Dict[str, Any]:
+def message_to_python(msg: message.Message) -> dict[str, Any]:
     """Every field of a message, set or not, as plain Python, in declaration order.
 
     Fields at their default value are included, so that a zero or a false reads as such rather than as a missing
@@ -126,11 +154,11 @@ def message_to_python(msg: message.Message) -> Dict[str, Any]:
 
 
 # A component of a resolved field path: a field name, or a non-negative index into a repeated field.
-PathStep = Union[str, int]
+PathStep: TypeAlias = str | int
 
 
 class _ResolvedPath(NamedTuple):
-    steps: List[PathStep]
+    steps: list[PathStep]
     value: Any
     field: descriptor.FieldDescriptor
     # The path ends at a repeated or map field itself rather than at one of its elements.
@@ -143,9 +171,9 @@ def _resolve_path(msg: message.Message, path: str) -> _ResolvedPath:
     if not path or any(not component for component in components):
         raise FieldPathError(f"'{path}' is not a dotted field path")
 
-    steps: List[PathStep] = []
+    steps: list[PathStep] = []
     current: Any = msg
-    field: Optional[descriptor.FieldDescriptor] = None
+    field: descriptor.FieldDescriptor | None = None
     indexable = False
     for position, component in enumerate(components):
         prefix = ".".join(components[:position]) or "<message>"
@@ -179,7 +207,10 @@ def _resolve_path(msg: message.Message, path: str) -> _ResolvedPath:
         current = getattr(current, component)
         indexable = _is_repeated(field) and not _is_map(field)
 
-    assert field is not None  # A valid path names at least one field.
+    if (
+        field is None
+    ):  # Unreachable: the checks above make the first component name a field.
+        raise FieldPathError(f"'{path}' names no field")
     return _ResolvedPath(steps, current, field, indexable or _is_map(field))
 
 
@@ -197,17 +228,27 @@ def select_field(msg: message.Message, path: str) -> Any:
 
 # What to print of a message or a repeated field: the field names of a message, or the indices of a repeated field,
 # each mapped to what to print of it. None prints all of it.
-Selection = Optional[Dict[PathStep, "Selection"]]
+Selection: TypeAlias = dict[PathStep, "Selection"] | None
 
 
 def selection_of(msg: message.Message, paths: Sequence[str]) -> Selection:
     """The selection the dotted field paths make of a message (see select_field); None, all of it, without paths.
 
     A path that selects a field whole wins over the paths into it.
+
+    Args:
+      msg: The message the paths are resolved in.
+      paths: Dotted field paths, as select_field takes them.
+
+    Returns:
+      The field names and indices to print, nested as the paths are; None when there are no paths.
+
+    Raises:
+      FieldPathError: A path names no field of the message.
     """
     if not paths:
         return None
-    selection: Dict[PathStep, Selection] = {}
+    selection: dict[PathStep, Selection] = {}
     for path in paths:
         steps = _resolve_path(msg, path).steps
         node = selection
@@ -216,8 +257,13 @@ def selection_of(msg: message.Message, paths: Sequence[str]) -> Selection:
                 break
             if position == len(steps) - 1:
                 node[step] = None
-            else:
-                node = node.setdefault(step, {})
+                continue
+            # Not None: a step selected whole ended the walk above.
+            child = node.get(step)
+            if child is None:
+                child = {}
+                node[step] = child
+            node = child
     return selection
 
 
@@ -244,6 +290,7 @@ def _write_field_text(
     indent: int,
     out: TextIO,
 ) -> None:
+    """Writes the field `field` of value `value` to `out` in text format, its selected elements only, `indent` deep."""
     pad = " " * indent
     if _is_map(field):
         if not value:
@@ -311,13 +358,21 @@ def message_to_text(msg: message.Message, selection: Selection = None) -> str:
     """A message in protobuf text format, with every field, in declaration order.
 
     Unlike text_format.MessageToString, fields at their default value are printed too (`healthy: false`, `data: []`,
-    an unset submessage as its defaults), so that a zero or a false reads as such rather than as a missing line. Repeated scalars are printed as one list, `data: [0.0, 0.5]`. A member of a oneof
-    that is not set is a comment. The text parses back with text_format.Parse into a message of equal values; only
-    the presence of the submessages that were unset differs.
+    an unset submessage as its defaults), so that a zero or a false reads as such rather than as a missing line.
+    Repeated scalars are printed as one list, `data: [0.0, 0.5]`. A member of a oneof that is not set is a comment.
+    The text parses back with text_format.Parse into a message of equal values; only the presence of the submessages
+    that were unset differs.
 
     With a selection (selection_of), only the selected fields are printed, so that the text is still a textproto of
     the message's type; a repeated field of which only some elements are selected carries a comment with their
     indices.
+
+    Args:
+      msg: The message to print.
+      selection: What to print of it (selection_of); None prints all of it.
+
+    Returns:
+      The text, without a final newline.
     """
     out = io.StringIO()
     _write_message_text(msg, selection, 0, out)
@@ -335,7 +390,7 @@ def _format_json(msg: message.Message, paths: Sequence[str]) -> str:
 
 
 # LINT.IfChange(output_formats)
-OUTPUT_FORMATS: Dict[str, Callable[[message.Message, Sequence[str]], str]] = {
+OUTPUT_FORMATS: dict[str, Callable[[message.Message, Sequence[str]], str]] = {
     "text": _format_text,
     "json": _format_json,
 }
@@ -347,7 +402,17 @@ def format_fields(
 ) -> str:
     """The message, or only the fields at `paths`, printed in one of OUTPUT_FORMATS.
 
-    Raises FieldPathError when a path is not a field of the message, and ValueError for an unknown format.
+    Args:
+      msg: The message to print.
+      paths: Dotted field paths to print (select_field); all of the message without paths.
+      output_format: A name of OUTPUT_FORMATS.
+
+    Returns:
+      The printed message.
+
+    Raises:
+      FieldPathError: A path names no field of the message.
+      ValueError: `output_format` is not a name of OUTPUT_FORMATS.
     """
     if output_format not in OUTPUT_FORMATS:
         raise ValueError(

@@ -18,38 +18,22 @@ source_env := source $(current_path)/setup_env.sh
 ############################################################
 .PHONY: help build-all build-debug build-release build-relwithdebinfo build \
         test-all test test-heuristic-parameters derive-heuristic-parameters clean clean-all format lint ci-local \
-        lint-tidy lint-tidy-sweep lint-tidy-fix \
+        lint-tidy lint-tidy-fix \
         test-pinocchio-model-atlas test-pinocchio-model-r1 test-pinocchio-model-sa01 \
-        start-vnc stop-vnc kill-sims kill-builds check-zombies \
+        start-vnc stop-vnc kill-sims check-zombies \
         deploy-robot robot-images rerun-viewer rerun-web ipc-list ipc-echo ipc-hz \
         closed-loop-metrics benchmark-mpc-solve \
-        run-ocs2-tests run-mpc-tests test-rl train-rl train-cartpole train-cartpole-vnc train-bc export-rollouts lock-rl-deps echo-packages update-submodules git-lfs install-hooks train-acom-jupyter
+        run-ocs2-tests run-mpc-tests test-rl train-rl train-cartpole train-cartpole-vnc train-bc export-rollouts lock-rl-deps echo-packages update-submodules install-hooks train-acom-jupyter
 # The launch targets are declared .PHONY where the robot table below generates them.
 
 ## Launch ACoM SIREN training notebook in Jupyter Lab
 train-acom-jupyter:
 	@tools/launch_jupyter.sh
 
-## Kill any running Bazel builds, compilers, and stale server locks
-kill-builds:
-	@echo "🧹 Cleaning up background Bazel builds and stale locks..."
-# 	@pkill -9 -x bazel 2>/dev/null || true
-# 	@pkill -9 -x bazelisk 2>/dev/null || true
-# 	@pkill -9 -x cc1plus 2>/dev/null || true
-# 	@for pid_file in $$HOME/.cache/bazel/_bazel_*/*/server/server.pid.txt; do \
-# 		[ -f "$$pid_file" ] || continue; \
-# 		b_pid=$$(cat "$$pid_file" 2>/dev/null); \
-# 		if [ -n "$$b_pid" ]; then \
-# 			kill -9 "$$b_pid" 2>/dev/null || true; \
-# 			rm -rf "$$(dirname "$$pid_file")"; \
-# 		fi; \
-# 	done
-# 	@echo "✅ Build cleanup done."
-
 ## Stop what a launch target left running: the laptop side's launcher (the PID it left in .deploy/ of this checkout,
 ## never a process of another checkout or test), the simulation's robot container, and a NETEM qdisc on lo.
 ## This cannot remove zombies: a zombie has already exited and only its parent can reap it. See check-zombies.
-kill-sims: kill-builds
+kill-sims:
 	@echo "🧹 Cleaning up previous sim processes..."
 	@$(session) stop
 	@echo "✅ Cleanup done."
@@ -57,8 +41,8 @@ kill-sims: kill-builds
 
 ## Report zombie processes and which parent is holding them.
 ## A zombie has already exited and only its parent can reap it, so kill/pkill have no effect; that is why kill-sims
-## and kill-builds never cleared them. Docker's init (tini) reaps orphans, which is why docker-compose.yaml sets
-## `init: true`. Run this inside the dev container for a container-local view.
+## never cleared them. Docker's init (tini) reaps orphans, which is why docker-compose.yaml sets `init: true`. Run
+## this inside the dev container for a container-local view.
 check-zombies:
 	@z=$$(ps -eo stat --no-headers 2>/dev/null | awk '/^Z/ {n++} END {print n+0}'); \
 	if [ "$$z" -eq 0 ]; then \
@@ -186,36 +170,33 @@ lint:
 
 # clang-tidy runs as a Bazel aspect (tools/clang_tidy/README.md), inside .bazelrc's RAM-bounded --jobs and tools/bazel's
 # machine lock: never by hand. Each target prints the findings of the build's reports even when an action failed, and
-# fails when either did. The build event file names exactly this build's reports.
+# fails when either did. The build event file names exactly this build's reports. The report is read after the build
+# has released the machine lock, so each run writes its own file (named after the shell's PID, and deleted afterwards)
+# and a concurrent run cannot overwrite it; CLANG_TIDY_BEP=<path> keeps the file of a run.
 # LINT.IfChange(lint_tidy)
-CLANG_TIDY_BEP := .bazel/clang_tidy_bep.json
+CLANG_TIDY_BEP ?=
+clang_tidy_bep := bep="$(or $(CLANG_TIDY_BEP),.bazel/clang_tidy_bep.$$$$.json)"
+clang_tidy_bep_cleanup := $(if $(CLANG_TIDY_BEP),,rm -f "$$bep";)
 
 ## Lint C++ with clang-tidy as a Bazel aspect (RAM-bounded, machine lock), its self-test included:
 ## make lint-tidy [PKG=//humanoid_nmpc/...]
 lint-tidy:
-	@$(source_env) && mkdir -p .bazel && status=0; \
-	bazel build --config=clang-tidy --keep_going --build_event_json_file=$(CLANG_TIDY_BEP) \
+	@$(source_env) && mkdir -p .bazel && status=0 && $(clang_tidy_bep); \
+	bazel build --config=clang-tidy --keep_going --build_event_json_file="$$bep" \
 		$(or $(PKG),//...) //tools/clang_tidy:selftest || status=$$?; \
-	python3 -m tools.clang_tidy.clang_tidy_report $(CLANG_TIDY_BEP) && exit $$status
-
-## The same with every candidate check, the ones not yet enforced included (removed with tools/clang_tidy/sweep.clang-tidy):
-## make lint-tidy-sweep [PKG=//humanoid_nmpc/...] [PATHS="dir ..."] [SUMMARY=1]
-lint-tidy-sweep:
-	@$(source_env) && mkdir -p .bazel && status=0; \
-	bazel build --config=clang-tidy-sweep --keep_going --build_event_json_file=$(CLANG_TIDY_BEP) \
-		$(or $(PKG),//...) || status=$$?; \
-	python3 -m tools.clang_tidy.clang_tidy_report $(CLANG_TIDY_BEP) $(if $(SUMMARY),--summary) \
-		$(if $(PATHS),--paths $(PATHS)) && exit $$status
+	python3 -m tools.clang_tidy.clang_tidy_report "$$bep" || status=$$?; \
+	$(clang_tidy_bep_cleanup) exit $$status
 
 ## Apply clang-tidy's fix-its, all or nothing per diagnostic, and clang-format the edited files; build afterwards:
 ## make lint-tidy-fix CHECKS='modernize-use-override' [PKG=//humanoid_nmpc/...] [PATHS="dir ..."]
 lint-tidy-fix:
 	@$(if $(CHECKS),,$(error lint-tidy-fix needs CHECKS=<glob>, e.g. CHECKS=modernize-use-override))
-	@$(source_env) && mkdir -p .bazel && status=0; \
-	bazel build --config=clang-tidy-fix --keep_going --build_event_json_file=$(CLANG_TIDY_BEP) \
+	@$(source_env) && mkdir -p .bazel && status=0 && $(clang_tidy_bep); \
+	bazel build --config=clang-tidy-fix --keep_going --build_event_json_file="$$bep" \
 		$(or $(PKG),//...) || status=$$?; \
-	python3 -m tools.clang_tidy.clang_tidy_apply $(CLANG_TIDY_BEP) --checks '$(CHECKS)' \
-		$(if $(PATHS),--paths $(PATHS)) && exit $$status
+	python3 -m tools.clang_tidy.clang_tidy_apply "$$bep" --checks '$(CHECKS)' \
+		$(if $(PATHS),--paths $(PATHS)) || status=$$?; \
+	$(clang_tidy_bep_cleanup) exit $$status
 # LINT.ThenChange(//.bazelrc:clang_tidy_config, //AGENTS.md:style_commands)
 
 ############################################################
@@ -271,13 +252,16 @@ benchmark-mpc-solve:
 ## Check the locomotion-heuristic coefficients against the robots' URDFs (humanoid_nmpc/docs/locomotion_heuristics)
 # Not a bazel target: Pinocchio reaches Python through robotpkg's bindings in /opt/openrobots (setup_env.sh puts them on
 # PYTHONPATH), which bazel's hermetic toolchain cannot see.
+# The script reads the configuration textprotos with config_textproto (the standard library only, so the system Python
+# of robotpkg's pinocchio can run it), which lives under its Bazel import root.
+HEURISTICS_PYTHONPATH := $(CURDIR)/humanoid_nmpc/humanoid_mpc_config/python$(if $(PYTHONPATH),:$(PYTHONPATH))
 test-heuristic-parameters:
-	@python3 -m unittest discover -s tools/locomotion_heuristics -p "test_*.py" -v
+	@PYTHONPATH="$(HEURISTICS_PYTHONPATH)" python3 -m unittest discover -s tools/locomotion_heuristics -p "test_*.py" -v
 
 ## Print the derived locomotion-heuristic block for one robot: make derive-heuristic-parameters ROBOT=drc_atlas
 # LINT.IfChange(derive_heuristic_parameters_usage)
 derive-heuristic-parameters:
-	@$(if $(ROBOT),python3 tools/locomotion_heuristics/derive_parameters.py --robot $(ROBOT),\
+	@$(if $(ROBOT),PYTHONPATH="$(HEURISTICS_PYTHONPATH)" python3 tools/locomotion_heuristics/derive_parameters.py --robot $(ROBOT),\
 		@echo "Usage: make derive-heuristic-parameters ROBOT=drc_atlas|engineai_sa01|unitree_g1|unitree_r1")
 # LINT.ThenChange(//tools/locomotion_heuristics/derive_parameters.py:derive_parameters_robots)
 
@@ -288,13 +272,9 @@ install-hooks:
 	ln -sfn ../../tools/hooks/pre-commit .git/hooks/pre-commit && \
 	echo "✅ Git pre-commit hook installed successfully (a symlink to tools/hooks/pre-commit)."
 
-## Update git submodules (mujoco)
+## Update git submodules (tools/ifttt-lint)
 update-submodules:
 	git submodule update --init --recursive
-
-## Pull git-lfs files
-git-lfs:
-	git lfs install && git lfs pull
 
 ############################################################
 # VNC visualization (for macOS host)
@@ -379,6 +359,7 @@ CPUSET ?=
 REALTIME_PRIORITY ?=
 REALTIME_CORES ?=
 BACKEND_CORES ?=
+CONFIG_SEED ?=
 NETEM_INTERFACE ?= lo
 DEPLOY_DIR ?= wb-humanoid-robot
 
@@ -398,7 +379,7 @@ deploy_flags = --host $(HOST) --deploy_dir $(DEPLOY_DIR) \
 	$(if $(BACKEND),--backend $(BACKEND)) $(if $(MEMORY_LIMIT),--memory_limit $(MEMORY_LIMIT)) \
 	$(if $(REALTIME_PRIORITY),--realtime_priority $(REALTIME_PRIORITY)) \
 	$(if $(REALTIME_CORES),--realtime_cores $(REALTIME_CORES)) \
-	$(if $(BACKEND_CORES),--backend_cores $(BACKEND_CORES)) \
+	$(if $(BACKEND_CORES),--backend_cores $(BACKEND_CORES)) $(if $(CONFIG_SEED),--config_seed $(CONFIG_SEED)) \
 	$(if $(NETEM),--netem "$(NETEM)" --netem_interface $(NETEM_INTERFACE))
 
 # The laptop side's binaries, per formulation, and the bridge and the GUI every launch file starts: the processes of the
@@ -544,6 +525,5 @@ help:
 	@echo "  lint                            every check without a compiler; one check or directory:"
 	@echo "                                  python3 -m tools.hooks.lint_code --only <check> --paths <dir>"
 	@echo "  lint-tidy [PKG=]                clang-tidy as a Bazel aspect, inside the machine lock"
-	@echo "  lint-tidy-sweep [PKG=] [PATHS=] [SUMMARY=1]  with the checks not yet enforced"
 	@echo "  lint-tidy-fix CHECKS= [PKG=] [PATHS=]        apply clang-tidy's fix-its, then build"
 	@echo "  install-hooks                   the pre-commit hook: format, then lint the staged files"

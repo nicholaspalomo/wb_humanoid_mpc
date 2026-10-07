@@ -34,7 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <Eigen/Core>
+#include "Eigen/Core"
 
 #include "humanoid_mpc_validation/io/JsonValue.h"
 
@@ -119,7 +119,6 @@ class ClosedLoopMetrics {
   void setFall(double time, std::string reason);
   void setCounters(const ClosedLoopCounters& counters) { counters_ = counters; }
 
-  size_t numControlCycles() const { return numCycles_; }
   size_t numSolves() const { return wallTimesMs_.size(); }
   bool survived() const { return !fallTime_.has_value(); }
 

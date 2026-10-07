@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
@@ -48,8 +49,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation {
 namespace {
 
-std::string environmentOr(const char* name, const std::string& fallback) {
-  const char* value = std::getenv(name);
+std::string environmentOr(const char* absl_nonnull name, const std::string& fallback) {
+  const char* absl_nullable value = std::getenv(name);
   return value != nullptr && value[0] != '\0' ? std::string(value) : fallback;
 }
 
