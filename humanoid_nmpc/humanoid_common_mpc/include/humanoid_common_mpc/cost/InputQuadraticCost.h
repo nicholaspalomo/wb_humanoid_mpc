@@ -29,7 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_core/cost/QuadraticStateInputCost.h>
+#include <utility>
+
+#include "absl/base/nullability.h"
+#include "ocs2_core/cost/QuadraticStateInputCost.h"
+
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
@@ -46,7 +50,10 @@ class InputQuadraticCost final : public QuadraticStateInputCost {
                      const MpcRobotModelBase<scalar_t>& mpcRobotModel);
 
   ~InputQuadraticCost() override = default;
-  InputQuadraticCost* clone() const override { return new InputQuadraticCost(*this); }
+  InputQuadraticCost& operator=(const InputQuadraticCost&) = delete;
+  InputQuadraticCost(InputQuadraticCost&&) = delete;
+  InputQuadraticCost& operator=(InputQuadraticCost&&) = delete;
+  InputQuadraticCost* absl_nonnull clone() const override { return new InputQuadraticCost(*this); }
 
  private:
   InputQuadraticCost(const InputQuadraticCost& rhs);
@@ -57,8 +64,8 @@ class InputQuadraticCost final : public QuadraticStateInputCost {
                                                        const TargetTrajectories& targetTrajectories) const override;
 
   const size_t stateDim_;
-  const SwitchedModelReferenceManager* referenceManagerPtr_;
-  const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
+  const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
+  const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModelPtr_;
 };
 
 }  // namespace ocs2::humanoid

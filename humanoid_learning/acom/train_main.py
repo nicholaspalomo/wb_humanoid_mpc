@@ -1,27 +1,29 @@
-"""****************************************************************************
-Copyright (c) 2026, Nicholas Palomo. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-* Redistributions of source code must retain the above copyright notice, this
-  list of conditions and the following disclaimer.
-
-* Redistributions in binary form must reproduce the above copyright notice,
-  this list of conditions and the following disclaimer in the documentation
-  and/or other materials provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-****************************************************************************"""
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """CLI entrypoint to train and export aCOM models for humanoid robots.
 
@@ -34,35 +36,34 @@ import argparse
 import os
 import re
 import shutil
-from typing import Dict, List, Optional, Tuple
 
-import yaml
+from humanoid_mpc_config import task_file_pb2
+import numpy as np
 
-from humanoid_learning.acom.dataset_generator import (
-    AcomDatasetGenerator,
-    resolve_xml_path,
-)
-from humanoid_learning.acom.train_acom import train_acom
-from humanoid_learning.acom.export_acom import export_to_json, export_to_cpp_header
+from humanoid_learning.acom import dataset_generator
+from humanoid_learning.acom import export_acom
+from humanoid_learning.acom import models
+from humanoid_learning.acom import train_acom
+import nproto_textproto
 
 # Model files per robot, keyed by --robot. What has to agree with the MPC - the
-# robot's model_settings.robotName and the joints it holds fixed - is read out of
-# the robot's centroidal task.yaml ("task") rather than repeated here, so there is
-# no second copy to drift. Keep in sync with Bazel data dependencies.
+# robot's model_settings.robot_name and the joints it holds fixed - is read out of
+# the robot's centroidal task.textproto ("task") rather than repeated here, so there
+# is no second copy to drift. Keep in sync with Bazel data dependencies.
 # LINT.IfChange(robot_paths)
 _ROBOT_CONFIGS = {
     "g1": {
         "xml": "robot_models/unitree_g1/g1_description/urdf/g1_29dof.xml",
         "urdf": "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf",
-        "task": "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml",
+        "task": "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto",
     },
     "atlas": {
         "xml": "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml",
         "urdf": "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
-        "task": "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml",
+        "task": "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto",
     },
     # The EngineAI SA01 is LEGS ONLY: twelve joints, six per leg, with no arms, no waist and no torso link - its
-    # only body above the legs is base_link, which is the floating base itself. Its task.yaml therefore fixes no
+    # only body above the legs is base_link, which is the floating base itself. Its task file therefore fixes no
     # joints, unlike the wrists the other two hold at zero, and the aCOM offset is a function of the leg joints alone.
     #
     # That also sets expectations for what the coordinate buys on this robot. The aCOM exists because limb motion
@@ -72,11 +73,11 @@ _ROBOT_CONFIGS = {
     "sa01": {
         "xml": "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.xml",
         "urdf": "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf",
-        "task": "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml",
+        "task": "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto",
     },
 }
 # clang-format off
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/acom/AngularCenterOfMass.cpp:acom_robot_dispatch, //humanoid_learning/acom/BUILD.bazel:acom_train_data, //humanoid_learning/acom/tests/BUILD.bazel:acom_test_data, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:acom_robot_name, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:acom_robot_name, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml:acom_robot_name)
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/acom/AngularCenterOfMass.cpp:acom_robot_dispatch, //humanoid_learning/acom/BUILD.bazel:acom_train_data, //humanoid_learning/acom/tests/BUILD.bazel:acom_test_data, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:acom_robot_name, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto:acom_robot_name, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto:acom_robot_name)
 # clang-format on
 
 # Number of sinusoidal layers the C++ evaluator is hard-coded to load. See the
@@ -109,35 +110,43 @@ _DATASET_SEED = 42
 _TRAINING_SEED = 42
 
 
-def robot_names() -> List[str]:
+def robot_names() -> list[str]:
     """The --robot keys a network can be trained for."""
     return list(_ROBOT_CONFIGS)
 
 
-def load_mpc_model_settings(robot: str) -> Tuple[str, List[str]]:
+def load_mpc_model_settings(robot: str) -> tuple[str, list[str]]:
     """Reads what the network has to agree with out of the robot's MPC task file.
 
     Args:
         robot: A key of _ROBOT_CONFIGS.
 
     Returns:
-        (model_settings.robotName, model_settings.fixedJointNames) of the robot's
-        centroidal task.yaml. The robot name is the one the C++ runtime looks the
+        (model_settings.robot_name, model_settings.fixed_joint_names) of the robot's
+        centroidal task.textproto. The robot name is the one the C++ runtime looks the
         network up by; the fixed joints are the ones it holds at zero and leaves
         out of the joint vector it feeds the network.
 
     Raises:
-        KeyError: If `robot` is unknown or the task file lacks either key.
+        KeyError: If `robot` is unknown or the task file names no robot.
+        OSError: If the task file cannot be read.
+        nproto_textproto.TextprotoError: If it does not parse strictly into its schema
+            (humanoid_mpc_config.TaskFile); the message names the line and column.
     """
-    task_path = resolve_xml_path(_ROBOT_CONFIGS[robot]["task"])
-    with open(task_path, "r", encoding="utf-8") as task_file:
-        model_settings = yaml.safe_load(task_file)["model_settings"]
-    return model_settings["robotName"], list(model_settings["fixedJointNames"] or [])
+    task_path = dataset_generator.resolve_xml_path(_ROBOT_CONFIGS[robot]["task"])
+    model_settings = nproto_textproto.load_textproto(
+        task_path, task_file_pb2.TaskFile
+    ).model_settings
+    if not model_settings.robot_name:
+        raise KeyError(f"{task_path} names no model_settings.robot_name")
+    return str(model_settings.robot_name), [
+        str(name) for name in model_settings.fixed_joint_names
+    ]
 
 
 def make_generator(
-    robot: str, xml_path: Optional[str] = None, urdf_path: Optional[str] = None
-) -> AcomDatasetGenerator:
+    robot: str, xml_path: str | None = None, urdf_path: str | None = None
+) -> dataset_generator.AcomDatasetGenerator:
     """The dataset generator for `robot`, set up exactly as the MPC sees the robot.
 
     The joint axis is put in Pinocchio's order via the URDF, and the joints the
@@ -148,10 +157,13 @@ def make_generator(
         robot: A key of _ROBOT_CONFIGS.
         xml_path: MuJoCo model to sample, instead of the robot's own.
         urdf_path: URDF to take the joint order from, instead of the robot's own.
+
+    Returns:
+        The generator, its fixed joints read from the robot's task file.
     """
     config = _ROBOT_CONFIGS[robot]
     _, fixed_joints = load_mpc_model_settings(robot)
-    return AcomDatasetGenerator(
+    return dataset_generator.AcomDatasetGenerator(
         xml_path or config["xml"],
         urdf_path=urdf_path or config["urdf"],
         fixed_joints=fixed_joints,
@@ -168,11 +180,18 @@ def _header_path(robot: str) -> str:
     return os.path.join(_CPP_HEADER_INSTALL_DIR, f"{header_class_name(robot)}.h")
 
 
-def _installed_hidden_dim(robot: str, workspace_dir: Optional[str] = None):
+def _installed_hidden_dim(robot: str, workspace_dir: str | None = None) -> int | None:
     """The hidden width of the weight header currently installed, or None if it cannot be determined.
 
     Read out of the generated `W0_rows` constant rather than tracked separately, so the guard compares against what is
     really on disk and keeps working after a deliberate architecture change.
+
+    Args:
+        robot: A key of _ROBOT_CONFIGS.
+        workspace_dir: The workspace the header is installed in; BUILD_WORKSPACE_DIRECTORY when not given.
+
+    Returns:
+        The header's `W0_rows`; _SHIPPED_HIDDEN_DIM when no workspace is known, None when the header cannot be read.
     """
     ws_dir = workspace_dir or os.environ.get("BUILD_WORKSPACE_DIRECTORY", "")
     if not ws_dir:
@@ -189,29 +208,38 @@ def _installed_hidden_dim(robot: str, workspace_dir: Optional[str] = None):
     return None
 
 
-def generate_dataset(generator: AcomDatasetGenerator, num_samples: int) -> Dict:
+def generate_dataset(
+    generator: dataset_generator.AcomDatasetGenerator, num_samples: int
+) -> dict[str, np.ndarray]:
     """Samples `num_samples` configurations with the pipeline's fixed sampler seed."""
     return generator.generate_dataset(num_samples=num_samples, seed=_DATASET_SEED)
 
 
 def train_network(
-    dataset: Dict,
-    generator: AcomDatasetGenerator,
+    dataset: dict[str, np.ndarray],
+    generator: dataset_generator.AcomDatasetGenerator,
     hidden_dim: int = _SHIPPED_HIDDEN_DIM,
     epochs: int = _DEFAULT_EPOCHS,
-    log_dir: Optional[str] = None,
+    log_dir: str | None = None,
     verbose: bool = True,
     num_layers: int = _CPP_SUPPORTED_NUM_LAYERS,
-):
+) -> tuple[models.SirenACOM, models.SirenParams, dict[str, list[float]]]:
     """Trains a SIREN on `dataset` at _OMEGA_0.
 
-    `num_layers` counts sine layers only; leave it at its default, the only
-    count the C++ evaluator loads, unless the network is for analysis alone.
+    Args:
+        dataset: generate_dataset's output.
+        generator: The generator the dataset came from; it gives the input width.
+        hidden_dim: Width of every sinusoidal layer.
+        epochs: Number of training epochs.
+        log_dir: TensorBoard log directory, or None for no logging.
+        verbose: Whether to print progress.
+        num_layers: Sine layers only; leave it at its default, the only count the
+            C++ evaluator loads, unless the network is for analysis alone.
 
     Returns:
         train_acom's (model, params, history).
     """
-    return train_acom(
+    return train_acom.train_acom(
         dataset=dataset,
         in_dim=generator.num_active_joints,
         hidden_dim=hidden_dim,
@@ -225,12 +253,12 @@ def train_network(
 
 
 def export_network(
-    params,
-    generator: AcomDatasetGenerator,
+    params: models.SirenParams,
+    generator: dataset_generator.AcomDatasetGenerator,
     robot: str,
     output_dir: str,
-    recipe: Dict[str, object],
-) -> Tuple[str, str]:
+    recipe: dict[str, object],
+) -> tuple[str, str]:
     """Writes the trained network as JSON and as the C++ weight header for `robot`.
 
     The header is named and laid out as AngularCenterOfMass.cpp includes it,
@@ -238,14 +266,21 @@ def export_network(
     model at start-up), and records `recipe` - how it was trained - in its
     banner.
 
+    Args:
+        params: The trained network's parameters.
+        generator: The generator the network was trained on; it names the joints.
+        robot: A key of _ROBOT_CONFIGS.
+        output_dir: Directory the two files are written to.
+        recipe: How the network was trained, recorded in the header's banner.
+
     Returns:
         (json_path, cpp_path).
     """
     robot_name, fixed_joints = load_mpc_model_settings(robot)
     provenance = {
         "train_main --robot": robot,
-        "model_settings.robotName": robot_name,
-        "model_settings.fixedJointNames": fixed_joints,
+        "model_settings.robot_name": robot_name,
+        "model_settings.fixed_joint_names": fixed_joints,
         "sampling": "uniform over the full joint-limit box",
         "sine_layers": len(params) - 1,
         "omega_0": _OMEGA_0,
@@ -257,8 +292,8 @@ def export_network(
     os.makedirs(output_dir, exist_ok=True)
     json_path = os.path.join(output_dir, f"acom_{robot}.json")
     cpp_path = os.path.join(output_dir, f"{header_class_name(robot)}.h")
-    export_to_json(params, json_path, omega_0=_OMEGA_0)
-    export_to_cpp_header(
+    export_acom.export_to_json(params, json_path, omega_0=_OMEGA_0)
+    export_acom.export_to_cpp_header(
         params,
         cpp_path,
         class_name=header_class_name(robot),
@@ -277,6 +312,13 @@ def install_header(
     force_architecture: bool = False,
 ) -> str:
     """Copies an exported header into the C++ source tree, where the next build compiles it in.
+
+    Args:
+        cpp_path: The exported header.
+        robot: A key of _ROBOT_CONFIGS.
+        hidden_dim: The exported network's hidden width.
+        workspace_dir: The workspace root the header is installed below.
+        force_architecture: Whether to replace a header of a different hidden width.
 
     Raises:
         ValueError: If the header would replace an installed one of a different
@@ -302,7 +344,7 @@ def install_header(
     return install_path
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Train Angular Center of Mass (aCOM) in JAX"
     )
@@ -409,11 +451,11 @@ def main():
 
     robot_name, fixed_joints = load_mpc_model_settings(args.robot)
     print(
-        f"Generating aCOM dataset for {args.robot} (model_settings.robotName: {robot_name})"
+        f"Generating aCOM dataset for {args.robot} (model_settings.robot_name: {robot_name})"
     )
     if fixed_joints:
         print(
-            f"  Holding {len(fixed_joints)} joints fixed, as task.yaml does: {fixed_joints}"
+            f"  Holding {len(fixed_joints)} joints fixed, as the task file does: {fixed_joints}"
         )
     generator = make_generator(args.robot, xml_path=args.xml, urdf_path=args.urdf)
     dataset = generate_dataset(generator, args.num_samples)

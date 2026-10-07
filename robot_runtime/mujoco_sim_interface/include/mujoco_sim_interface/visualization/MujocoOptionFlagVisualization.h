@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <memory>
+#include <string>
 
 #include "mujoco_sim_interface/visualization/MujocoVisualization.h"
 
@@ -66,7 +67,7 @@ class MujocoOptionFlagVisualization final : public MujocoVisualization {
   std::string description_;
   char hotkey_;
   int flag_;
-  bool transparencyApplied_{false};
+  bool transparencyApplied_ = false;
 };
 
 }  // namespace robot::mujoco_sim_interface

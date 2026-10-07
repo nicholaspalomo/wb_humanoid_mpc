@@ -32,7 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -66,7 +66,7 @@ struct ContactPlanningModelParameters {
 
   /**
    * Writes the derived values into the term blocks of `config`: yaw_torque_budget and hip_yaw_range always; shared.comHeight
-   * and the zmp_support_region box only where the file left them at 0 ("from the model").
+   * only where the file left it unset, and the zmp_support_region box only where the file left it at 0 ("from the model").
    */
   void applyTo(ContactPlanningConfig& config) const;
   std::string summary() const;

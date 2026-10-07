@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -23,33 +27,42 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cmath>
+#include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
+#include <utility>
 
-#include <ocs2_centroidal_model/FactoryFunctions.h>
-#include <ocs2_centroidal_model/ModelHelperFunctions.h>
-#include <ocs2_core/misc/LoadData.h>
-#include <ament_index_cpp/get_package_share_directory.hpp>
-#include <pinocchio/algorithm/center-of-mass.hpp>
-#include <pinocchio/algorithm/centroidal.hpp>
+#include "absl/base/nullability.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
+#include "gtest/gtest.h"
+#include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/algorithm/centroidal.hpp"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/kinematics.hpp"
 
-#include <pinocchio/algorithm/frames.hpp>
-#include <pinocchio/algorithm/kinematics.hpp>
-
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h"
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/config/contact_planning/ContactPlanningFromConfig.h"
+#include "humanoid_common_mpc/config/swing/SwingTrajectoryFromConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "humanoid_mpc_config/reference_file.nproto.h"
+#include "support/TypedConfigFiles.h"
 
 namespace ocs2::humanoid {
 
@@ -71,33 +84,33 @@ constexpr Eigen::Index kBaseYawIndex = 3;
  * The centroidal state carries the normalized momentum h = [p / m, L / m]. A commanded base twist must land in it as
  * the momentum that twist actually produces on the whole body, or the MPC is asked for a different motion than the one
  * the operator commanded. Every expectation below is computed independently from Pinocchio's centroidal dynamics of the
- * same reduced model the MPC uses, never from the code under test.
+ * same reduced model the MPC uses, never from the code under test. The last test is the calculator's Create() on a
+ * reference file that does not load.
  */
 class YawCommandDynamicsTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    const std::string configDir = ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc");
-    const std::string descriptionDir = ament_index_cpp::get_package_share_directory("drc_atlas_description");
-    taskFile_ = configDir + "/config/mpc/task.yaml";
-    referenceFile_ = configDir + "/config/command/reference.yaml";
-    urdfFile_ = descriptionDir + "/urdf/atlas.urdf";
+    const CentroidalRobotFiles files = atlasFiles();
+    referenceFile_ = files.referenceFile;
+    urdfFile_ = files.urdfFile;
+    absl::StatusOr<CentroidalMpcConfig> config = loadConfigOf(files);
+    ASSERT_TRUE(config.ok()) << config.status();
+    atlas_ = *std::move(config);
 
-    modelSettings_ = std::make_unique<ModelSettings>(taskFile_, urdfFile_, "testYawCommandDynamics", /*verbose=*/false);
+    modelSettings_ =
+        std::make_unique<ModelSettings>(ModelSettings::Create(atlas_.task, urdfFile_, "testYawCommandDynamics", /*verbose=*/false).value());
     pinocchioInterface_ = std::make_unique<PinocchioInterface>(
-        createCustomPinocchioInterface(taskFile_, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false));
-    info_ = centroidal_model::createCentroidalModelInfo(
-        *pinocchioInterface_, centroidal_model::loadCentroidalType(taskFile_),
-        centroidal_model::loadDefaultJointState(pinocchioInterface_->getModel().nq - 6, referenceFile_), modelSettings_->contactNames3DoF,
-        modelSettings_->contactNames6DoF);
+        loadCustomPinocchioInterface(atlas_.task, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false).value());
+    info_ = centroidalModelInfoOf(atlas_, *pinocchioInterface_, *modelSettings_).value();
     robotModel_ = std::make_unique<CentroidalMpcRobotModel<scalar_t>>(*modelSettings_, *pinocchioInterface_, info_);
 
-    initialState_.setZero(info_.stateDim);
-    loadData::loadEigenMatrix(taskFile_, "initialState", initialState_);
+    initialState_ = initialStateOf(atlas_.task, *modelSettings_).value();
     mass_ = pinocchio::computeTotalMass(pinocchioInterface_->getModel());
 
     // Constructed exactly as CentroidalMpcRobotSim does for the walking command path.
-    calculator_ = std::make_unique<CentroidalMpcTargetTrajectoriesCalculator>(referenceFile_, *robotModel_, *pinocchioInterface_, info_,
-                                                                              /*mpcHorizon=*/1.0);
+    calculator_ = CentroidalMpcTargetTrajectoriesCalculator::Create(referenceFile_, *robotModel_, *pinocchioInterface_, info_,
+                                                                    /*mpcHorizon=*/1.0)
+                      .value();
   }
 
   /** The target the calculator emits once its command filter has settled on `command` = [v_x, v_y, dz, yaw_rate]. */
@@ -117,8 +130,9 @@ class YawCommandDynamicsTest : public ::testing::Test {
 
   /** A contact-planning reference manager with the heading model, built the way the interface builds it. */
   std::shared_ptr<ContactPlanningReferenceManager> makeHeadingReferenceManager() {
-    absl::StatusOr<ContactPlanningConfig> loaded = loadContactPlanningConfigStatus(
-        resolveContactPlanningConfigFile(taskFile_), "contact_planning.", /*verbose=*/false, /*validate=*/false);
+    absl::StatusOr<ContactPlanningConfig> loaded =
+        contactPlanningConfigFromOptionalFile(atlas_.contactPlanning.has_value() ? &*atlas_.contactPlanning : nullptr,
+                                              ContactPlanningValidation::kDeferUntilModelParametersApplied);
     EXPECT_TRUE(loaded.ok()) << loaded.status();
     if (!loaded.ok()) return nullptr;
     ContactPlanningConfig config = *loaded;
@@ -131,9 +145,9 @@ class YawCommandDynamicsTest : public ::testing::Test {
                                          ground, config.shared.gravity, config.stepWidth.nominalStepWidth)
         .applyTo(config);
     std::unique_ptr<SwingTrajectoryPlanner> swingPlanner(
-        new SwingTrajectoryPlanner(loadSwingTrajectorySettings(taskFile_, "swing_trajectory_config", /*verbose=*/false), N_CONTACTS));
+        new SwingTrajectoryPlanner(swingTrajectorySettingsFromConfig(atlas_.task.swing_trajectory_config).value(), kNumContacts));
     absl::StatusOr<std::shared_ptr<ContactPlanningReferenceManager>> referenceManager =
-        ContactPlanningReferenceManager::Create(GaitSchedule::loadGaitSchedule(referenceFile_, *modelSettings_, /*verbose=*/false),
+        ContactPlanningReferenceManager::Create(GaitSchedule::Create(atlas_.reference, *modelSettings_, /*verbose=*/false).value(),
                                                 std::move(swingPlanner), *pinocchioInterface_, *robotModel_, config);
     EXPECT_TRUE(referenceManager.ok()) << referenceManager.status();
     if (!referenceManager.ok()) return nullptr;
@@ -172,7 +186,9 @@ class YawCommandDynamicsTest : public ::testing::Test {
     return computeFloatingBaseCentroidalMomentumMatrixInverse(Ab) * (mass_ * h);
   }
 
-  std::string taskFile_, referenceFile_, urdfFile_;
+  std::string referenceFile_, urdfFile_;
+  // The typed DRC Atlas files.
+  CentroidalMpcConfig atlas_;
   std::unique_ptr<ModelSettings> modelSettings_;
   std::unique_ptr<PinocchioInterface> pinocchioInterface_;
   CentroidalModelInfo info_;
@@ -196,12 +212,12 @@ TEST_F(YawCommandDynamicsTest, YawRateCommandMapsToWholeBodyAngularMomentum) {
 
   // L = I_G * (0, 0, yaw_rate): the yaw column of the locked inertia, products of inertia included.
   const vector3_t expected = Ig.col(2) * yawRate / mass_;
-  EXPECT_NEAR((h.tail<3>() - expected).norm(), 0.0, 1e-9);
-  EXPECT_NEAR(h(5), Ig(2, 2) * yawRate / mass_, 1e-9);
+  EXPECT_NEAR((h.tail<3>() - expected).norm(), 0.0, 1.0e-9);
+  EXPECT_NEAR(h(5), Ig(2, 2) * yawRate / mass_, 1.0e-9);
   // The old mapping is a factor of I_zz away from the right one; make sure the test would have caught it.
-  EXPECT_GT(std::abs(h(5) - yawRate / mass_), 1e-3);
+  EXPECT_GT(std::abs(h(5) - yawRate / mass_), 1.0e-3);
   // A pure turn commands no linear momentum.
-  EXPECT_NEAR(h.head<3>().norm(), 0.0, 1e-9);
+  EXPECT_NEAR(h.head<3>().norm(), 0.0, 1.0e-9);
 }
 
 /**
@@ -220,27 +236,27 @@ TEST_F(YawCommandDynamicsTest, MomentumTargetIsARigidSpinAboutTheCenterOfMass) {
   // Angular velocity from the angular momentum.
   const matrix3_t Ig = lockedInertia(initialState_);
   const vector3_t omega = Ig.ldlt().solve(vector3_t(mass_ * h.tail<3>()));
-  EXPECT_NEAR(omega(0), 0.0, 1e-9) << "no roll rate";
-  EXPECT_NEAR(omega(1), 0.0, 1e-9) << "no pitch rate";
-  EXPECT_NEAR(omega(2), yawRate, 1e-9) << "the commanded yaw rate";
+  EXPECT_NEAR(omega(0), 0.0, 1.0e-9) << "no roll rate";
+  EXPECT_NEAR(omega(1), 0.0, 1.0e-9) << "no pitch rate";
+  EXPECT_NEAR(omega(2), yawRate, 1.0e-9) << "the commanded yaw rate";
 
   // CoM velocity from the linear momentum.
-  EXPECT_NEAR(h(0), forwardVelocity, 1e-9);
-  EXPECT_NEAR(h(1), 0.0, 1e-9);
-  EXPECT_NEAR(h(2), 0.0, 1e-9);
+  EXPECT_NEAR(h(0), forwardVelocity, 1.0e-9);
+  EXPECT_NEAR(h(1), 0.0, 1.0e-9);
+  EXPECT_NEAR(h(2), 0.0, 1.0e-9);
 
   // Pelvis twist through the centroidal momentum matrix. The pelvis is not at the CoM, so a spin about the CoM moves it
   // sideways by omega x r; with the base level the ZYX yaw rate is the angular velocity about the vertical.
   const vector6_t twist = baseTwistFromMomentum(h, initialState_);
   const vector3_t r = -comFromBase(initialState_);  // p_base - p_com
   const vector3_t expectedBaseVelocity = vector3_t(forwardVelocity, 0.0, 0.0) + vector3_t(0.0, 0.0, yawRate).cross(r);
-  EXPECT_NEAR((twist.head<3>() - expectedBaseVelocity).norm(), 0.0, 1e-6)
+  EXPECT_NEAR((twist.head<3>() - expectedBaseVelocity).norm(), 0.0, 1.0e-6)
       << "recovered " << twist.head<3>().transpose() << " expected " << expectedBaseVelocity.transpose();
-  EXPECT_NEAR(twist(3), yawRate, 1e-6) << "recovered yaw rate";
-  EXPECT_NEAR(twist(4), 0.0, 1e-6) << "pitch rate";
-  EXPECT_NEAR(twist(5), 0.0, 1e-6) << "roll rate";
+  EXPECT_NEAR(twist(3), yawRate, 1.0e-6) << "recovered yaw rate";
+  EXPECT_NEAR(twist(4), 0.0, 1.0e-6) << "pitch rate";
+  EXPECT_NEAR(twist(5), 0.0, 1.0e-6) << "roll rate";
   // And the sideways component is not a rounding artifact: the pelvis really is offset from the CoM.
-  EXPECT_GT(r.norm(), 1e-3);
+  EXPECT_GT(r.norm(), 1.0e-3);
 }
 
 /**
@@ -249,9 +265,9 @@ TEST_F(YawCommandDynamicsTest, MomentumTargetIsARigidSpinAboutTheCenterOfMass) {
  */
 TEST_F(YawCommandDynamicsTest, LinearVelocityCommandIsCenterOfMassVelocity) {
   const vector6_t h = settledMomentumTarget(vector4_t(0.7, -0.2, 0.0, 0.0), initialState_);
-  EXPECT_NEAR(h(0), 0.7, 1e-6);
-  EXPECT_NEAR(h(1), -0.2, 1e-6);
-  EXPECT_NEAR(h.tail<4>().norm(), 0.0, 1e-9);
+  EXPECT_NEAR(h(0), 0.7, 1.0e-6);
+  EXPECT_NEAR(h(1), -0.2, 1.0e-6);
+  EXPECT_NEAR(h.tail<4>().norm(), 0.0, 1.0e-9);
 }
 
 /**
@@ -267,10 +283,10 @@ TEST_F(YawCommandDynamicsTest, YawMomentumTargetIsInvariantToBaseYaw) {
     vector_t turned = initialState_;
     robotModel_->setBaseOrientationEulerZYX(turned, vector3_t(baseYaw, 0.0, 0.0));
     const vector6_t h = settledMomentumTarget(vector4_t(0.0, 0.0, 0.0, yawRate), turned);
-    EXPECT_NEAR(h(5), reference(5), 1e-9) << "base yaw " << baseYaw;
+    EXPECT_NEAR(h(5), reference(5), 1.0e-9) << "base yaw " << baseYaw;
     // The products of inertia I_xz, I_yz rotate with the body; only their magnitude is invariant.
-    EXPECT_NEAR(h.segment<2>(3).norm(), reference.segment<2>(3).norm(), 1e-9) << "base yaw " << baseYaw;
-    EXPECT_NEAR(yawInertia(turned), yawInertia(initialState_), 1e-9) << "I_zz must not change under a rotation about z";
+    EXPECT_NEAR(h.segment<2>(3).norm(), reference.segment<2>(3).norm(), 1.0e-9) << "base yaw " << baseYaw;
+    EXPECT_NEAR(yawInertia(turned), yawInertia(initialState_), 1.0e-9) << "I_zz must not change under a rotation about z";
   }
 }
 
@@ -286,7 +302,7 @@ TEST_F(YawCommandDynamicsTest, YawInertiaMatchesTheCentroidalMomentumMatrix) {
   // Column 3 of the CMM is the momentum of a unit ZYX yaw rate; with the base level that is a unit angular velocity
   // about the vertical, so its z component is I_zz.
   const scalar_t fromCmm = getCentroidalMomentumMatrix(pinocchio)(5, kBaseYawIndex);
-  EXPECT_NEAR(fromCmm, yawInertia(initialState_), 1e-9);
+  EXPECT_NEAR(fromCmm, yawInertia(initialState_), 1.0e-9);
   EXPECT_GT(fromCmm, 1.0);
 }
 
@@ -316,25 +332,25 @@ TEST_F(YawCommandDynamicsTest, PlannerInputCarriesTheAcomHeadingAndItsRateFromAn
   // Heading: the ACoM yaw of the state (base yaw plus the learned joint offset), and the planning frame is the heading.
   const vector_t q = robotModel_->getGeneralizedCoordinates(state);
   const scalar_t acomYaw = acom->computeAcomOrientation(q)(0);
-  EXPECT_NEAR(input.heading, acomYaw, 1e-12);
-  EXPECT_NEAR(input.yaw, input.heading, 1e-12);
-  EXPECT_GT(std::abs(acomYaw - 0.7), 1e-4)
+  EXPECT_NEAR(input.heading, acomYaw, 1.0e-12);
+  EXPECT_NEAR(input.yaw, input.heading, 1.0e-12);
+  EXPECT_GT(std::abs(acomYaw - 0.7), 1.0e-4)
       << "the joint offset must actually contribute, or this test would not tell the ACoM yaw from the base yaw";
 
   // Heading rate: L_z / I_zz recovers the spin the momentum was built from, with the inertia the manager derives itself.
-  EXPECT_NEAR(input.yawInertia, Ig(2, 2), 1e-9);
-  EXPECT_NEAR(input.headingRate, yawRate, 1e-9);
+  EXPECT_NEAR(input.yawInertia, Ig(2, 2), 1.0e-9);
+  EXPECT_NEAR(input.headingRate, yawRate, 1.0e-9);
 
   // Foot yaws: the contact frames' yaws from forward kinematics, unwrapped to within pi of the heading.
   PinocchioInterface pinocchio(*pinocchioInterface_);
   pinocchio::forwardKinematics(pinocchio.getModel(), pinocchio.getData(), q);
   pinocchio::updateFramePlacements(pinocchio.getModel(), pinocchio.getData());
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     const pinocchio::FrameIndex frameId = pinocchio.getModel().getFrameId(modelSettings_->contactNames6DoF[foot]);
     const matrix3_t R = pinocchio.getData().oMf[frameId].rotation();
     const scalar_t frameYaw = std::atan2(R(1, 0), R(0, 0));
-    EXPECT_NEAR(std::remainder(input.footYaws[foot] - frameYaw, 2.0 * M_PI), 0.0, 1e-9) << "foot " << foot;
-    EXPECT_LE(std::abs(input.footYaws[foot] - input.heading), M_PI + 1e-9) << "unwrapped near the heading, foot " << foot;
+    EXPECT_NEAR(std::remainder(input.footYaws[foot] - frameYaw, 2.0 * M_PI), 0.0, 1.0e-9) << "foot " << foot;
+    EXPECT_LE(std::abs(input.footYaws[foot] - input.heading), M_PI + 1.0e-9) << "unwrapped near the heading, foot " << foot;
   }
 }
 
@@ -354,13 +370,13 @@ TEST_F(YawCommandDynamicsTest, PlannerYawRateCommandIsTheOperatorsNotTheBlendedT
   // What differentiating the target's base yaw over its first stretch gives for a robot at rest: half the command.
   const scalar_t yaw0 = robotModel_->getBaseOrientationEulerZYX(target.getDesiredState(0.0))(0);
   const scalar_t yaw1 = robotModel_->getBaseOrientationEulerZYX(target.getDesiredState(0.2))(0);
-  EXPECT_NEAR((yaw1 - yaw0) / 0.2, 0.5 * yawRate, 1e-6) << "the blended ramp is why the base yaw is not the command source";
+  EXPECT_NEAR((yaw1 - yaw0) / 0.2, 0.5 * yawRate, 1.0e-6) << "the blended ramp is why the base yaw is not the command source";
 
   referenceManager->setTargetTrajectories(target);
-  referenceManager->preSolverRun(/*initTime=*/0.0, horizon, initialState_, ModeNumber::STANCE);
-  EXPECT_NEAR(referenceManager->commandedYawRate(), yawRate, 1e-6);
+  referenceManager->preSolverRun(/*initTime=*/0.0, horizon, initialState_, ModeNumber::kStance);
+  EXPECT_NEAR(referenceManager->commandedYawRate(), yawRate, 1.0e-6);
   const ContactPlannerInput input = referenceManager->makePlannerInput(/*initTime=*/0.0, initialState_, vector2_t::Zero());
-  EXPECT_NEAR(input.headingRateCommand, yawRate, 1e-6);
+  EXPECT_NEAR(input.headingRateCommand, yawRate, 1.0e-6);
 
   // The same command read with the robot already turning at the commanded rate, and with a turned base: the momentum
   // channel is a base-frame-invariant quantity and the inertia the manager derives matches the calculator's.
@@ -368,17 +384,123 @@ TEST_F(YawCommandDynamicsTest, PlannerYawRateCommandIsTheOperatorsNotTheBlendedT
   robotModel_->setBaseOrientationEulerZYX(turning, vector3_t(1.1, 0.0, 0.0));
   turning.segment<3>(3) = lockedInertia(turning).col(2) * (yawRate / mass_);
   referenceManager->setTargetTrajectories(settledTarget(vector4_t(0.0, 0.0, 0.0, yawRate), turning));
-  referenceManager->preSolverRun(/*initTime=*/0.02, 0.02 + horizon, turning, ModeNumber::STANCE);
-  EXPECT_NEAR(referenceManager->commandedYawRate(), yawRate, 1e-6);
+  referenceManager->preSolverRun(/*initTime=*/0.02, 0.02 + horizon, turning, ModeNumber::kStance);
+  EXPECT_NEAR(referenceManager->commandedYawRate(), yawRate, 1.0e-6);
 
   // No yaw command, or a linear command only: no yaw rate is asked of the planner.
   referenceManager->setTargetTrajectories(settledTarget(vector4_t(0.5, 0.1, 0.0, 0.0), initialState_));
-  referenceManager->preSolverRun(/*initTime=*/0.04, 0.04 + horizon, initialState_, ModeNumber::STANCE);
-  EXPECT_NEAR(referenceManager->commandedYawRate(), 0.0, 1e-9);
+  referenceManager->preSolverRun(/*initTime=*/0.04, 0.04 + horizon, initialState_, ModeNumber::kStance);
+  EXPECT_NEAR(referenceManager->commandedYawRate(), 0.0, 1.0e-9);
   // An empty target leaves nothing to command.
   referenceManager->setTargetTrajectories(TargetTrajectories());
-  referenceManager->preSolverRun(/*initTime=*/0.06, 0.06 + horizon, initialState_, ModeNumber::STANCE);
-  EXPECT_NEAR(referenceManager->commandedYawRate(), 0.0, 1e-9);
+  referenceManager->preSolverRun(/*initTime=*/0.06, 0.06 + horizon, initialState_, ModeNumber::kStance);
+  EXPECT_NEAR(referenceManager->commandedYawRate(), 0.0, 1.0e-9);
+}
+
+namespace {
+
+/**
+ * The shipped reference file with its target_joint_state_interpolation_time_constant made unparsable, in the test's
+ * temporary directory; empty (and a test failure) when the shipped file does not give one.
+ */
+std::string writeReferenceWithAnUnparsableTimeConstant(const std::string& referenceFile) {
+  const absl::StatusOr<mpc_config::ReferenceFile> shipped = loadReferenceFile(referenceFile);
+  if (!shipped.ok()) {
+    ADD_FAILURE() << shipped.status();
+    return std::string();
+  }
+  std::string reference = referenceFileText(*shipped);
+  const std::string key = "target_joint_state_interpolation_time_constant: ";
+  const size_t value = reference.find(key);
+  if (value == std::string::npos) {
+    ADD_FAILURE() << "the shipped reference file no longer gives target_joint_state_interpolation_time_constant";
+    return std::string();
+  }
+  const size_t valueStart = value + key.size();
+  reference.replace(valueStart, reference.find_first_of(" \n", valueStart) - valueStart, "slowly");
+  const std::string brokenReference = (std::filesystem::path(testing::TempDir()) / "testYawCommandDynamics_reference.textproto").string();
+  EXPECT_TRUE(writeTextFile(brokenReference, reference).ok());
+  return brokenReference;
+}
+
+}  // namespace
+
+TEST_F(YawCommandDynamicsTest, CreateRefusesAJointStateTimeConstantThatDoesNotParse) {
+  // A value the strict parser cannot read is refused with the file, the line and the column.
+  const std::string brokenReference = writeReferenceWithAnUnparsableTimeConstant(referenceFile_);
+  ASSERT_FALSE(brokenReference.empty());
+
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator>> created =
+      CentroidalMpcTargetTrajectoriesCalculator::Create(brokenReference, *robotModel_, *pinocchioInterface_, info_, /*mpcHorizon=*/1.0);
+  EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument) << created.status();
+  EXPECT_TRUE(absl::StrContains(created.status().message(), absl::StrCat(brokenReference, ":"))) << created.status();
+}
+
+TEST_F(YawCommandDynamicsTest, CreateRequiresAPositiveJointStateTimeConstant) {
+  // The centroidal calculator's own field, which the whole-body MPC does not read: the conversion leaves it absent when
+  // the file has none, and the centroidal calculator refuses that, and a time constant that would make the joint-state
+  // filter grow rather than decay.
+  mpc_config::ReferenceFile reference = atlas_.reference;
+  for (const std::optional<double> timeConstant : {std::optional<double>(), std::optional<double>(0.0), std::optional<double>(-0.5)}) {
+    reference.target_joint_state_interpolation_time_constant = timeConstant;
+    const absl::StatusOr<std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator>> created =
+        CentroidalMpcTargetTrajectoriesCalculator::Create(reference, *robotModel_, *pinocchioInterface_, info_, /*mpcHorizon=*/1.0);
+    EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument) << created.status();
+    EXPECT_TRUE(absl::StrContains(created.status().message(), "target_joint_state_interpolation_time_constant")) << created.status();
+  }
+}
+
+namespace {
+
+/** The centroidal robot model of the Atlas, counting its live instances, clones included. */
+class CountingRobotModel final : public CentroidalMpcRobotModel<scalar_t> {
+ public:
+  CountingRobotModel(const ModelSettings& modelSettings, const PinocchioInterface& pinocchioInterface, const CentroidalModelInfo& info)
+      : CentroidalMpcRobotModel<scalar_t>(modelSettings, pinocchioInterface, info),
+        modelSettings_(modelSettings),
+        pinocchioInterface_(pinocchioInterface),
+        info_(info) {
+    ++liveInstances;
+  }
+  ~CountingRobotModel() override { --liveInstances; }
+  CountingRobotModel(const CountingRobotModel&) = delete;
+  CountingRobotModel& operator=(const CountingRobotModel&) = delete;
+  CountingRobotModel* absl_nonnull clone() const override { return new CountingRobotModel(modelSettings_, pinocchioInterface_, info_); }
+
+  /** The instances alive in the test program. */
+  inline static int liveInstances = 0;
+
+ private:
+  // The arguments of the model, which outlive it, for clone(): the base's copy constructor is private.
+  const ModelSettings& modelSettings_;
+  const PinocchioInterface& pinocchioInterface_;
+  const CentroidalModelInfo& info_;
+};
+
+}  // namespace
+
+TEST_F(YawCommandDynamicsTest, TheCalculatorReleasesTheRobotModelItClonesAlsoWhenCreateFails) {
+  // TargetTrajectoriesCalculatorBase clones the model it is given; it used to keep the clone in a raw pointer that
+  // nothing deleted, so every calculator, and every Create() refused by a loader, leaked a model.
+  {
+    const CountingRobotModel model(*modelSettings_, *pinocchioInterface_, info_);
+    ASSERT_EQ(CountingRobotModel::liveInstances, 1);
+    {
+      absl::StatusOr<std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator>> created =
+          CentroidalMpcTargetTrajectoriesCalculator::Create(referenceFile_, model, *pinocchioInterface_, info_, /*mpcHorizon=*/1.0);
+      ASSERT_TRUE(created.ok()) << created.status();
+      EXPECT_EQ(CountingRobotModel::liveInstances, 2) << "the calculator holds a copy of the model of its own";
+    }
+    EXPECT_EQ(CountingRobotModel::liveInstances, 1) << "the calculator released its model";
+
+    const std::string brokenReference = writeReferenceWithAnUnparsableTimeConstant(referenceFile_);
+    ASSERT_FALSE(brokenReference.empty());
+    const absl::StatusOr<std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator>> refused =
+        CentroidalMpcTargetTrajectoriesCalculator::Create(brokenReference, model, *pinocchioInterface_, info_, /*mpcHorizon=*/1.0);
+    ASSERT_FALSE(refused.ok());
+    EXPECT_EQ(CountingRobotModel::liveInstances, 1) << "a Create() its loader refused released the model it had cloned";
+  }
+  EXPECT_EQ(CountingRobotModel::liveInstances, 0);
 }
 
 }  // namespace ocs2::humanoid

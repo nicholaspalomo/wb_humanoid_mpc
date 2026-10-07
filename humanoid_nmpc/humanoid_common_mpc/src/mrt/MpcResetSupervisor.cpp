@@ -31,25 +31,31 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <thread>
 
 #include "absl/log/log.h"
 
 namespace ocs2::humanoid {
 
 void MpcResetSupervisor::requestReset(ResetKind kind) {
-  {
-    // Under the mutex the waiting solver thread evaluates its predicate with, so the notification cannot be lost.
-    std::lock_guard<std::mutex> lock(waitMutex_);
-    if (kind == ResetKind::kFull) fullResetsRequested_.fetch_add(1);
-    resetsRequested_.fetch_add(1);
-  }
-  waitCondition_.notify_all();
+  // A full request first: a ticket that sees the new request count sees the full one too. Nothing to wake: a solver
+  // thread waiting out a back-off polls the request count (waitBeforeRetry()).
+  if (kind == ResetKind::kFull) fullResetsRequested_.fetch_add(1);
+  resetsRequested_.fetch_add(1);
 }
 
 bool MpcResetSupervisor::hasOutstandingReset() const {
   // Served first: it only ever catches up with requested, so reading it first can only err towards "outstanding".
   const uint64_t served = resetsServed_.load();
   return resetsRequested_.load() != served;
+}
+
+MpcResetSupervisor::ResetCounters MpcResetSupervisor::resetsRequested() const {
+  ResetCounters counters;
+  counters.requested = resetsRequested_.load();
+  // Read after the request count, as takeResetRequest() does: every full request counted there is counted here too.
+  counters.fullRequested = fullResetsRequested_.load();
+  return counters;
 }
 
 std::optional<MpcResetSupervisor::ResetTicket> MpcResetSupervisor::takeResetRequest() const {
@@ -99,20 +105,27 @@ std::chrono::duration<scalar_t> MpcResetSupervisor::onSolveResult(const absl::St
   }
   const scalar_t exponent = static_cast<scalar_t>(failures - config_.maxConsecutiveFailures);
   const scalar_t interval = std::min(config_.initialRetryInterval * std::pow(2.0, exponent), config_.maxRetryInterval);
-  return std::chrono::duration<scalar_t>(std::max(interval, scalar_t(0.0)));
+  return std::chrono::duration<scalar_t>(std::max(interval, 0.0));
 }
 
-void MpcResetSupervisor::waitBeforeRetry(std::chrono::duration<scalar_t> duration, const std::function<bool()>& stop) {
+void MpcResetSupervisor::waitBeforeRetry(std::chrono::duration<scalar_t> duration, const std::function<bool()>& stop) const {
   const std::chrono::steady_clock::time_point deadline =
       std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::steady_clock::duration>(duration);
-  std::unique_lock<std::mutex> lock(waitMutex_);
   while (std::chrono::steady_clock::now() < deadline) {
-    if (resetsRequested_.load() != requestsAtLastFailure_) return;
+    if (resetRequestedSinceLastFailure()) return;
     if (stop && stop()) return;
-    const std::chrono::steady_clock::time_point wakeUp =
-        std::min(deadline, std::chrono::steady_clock::now() + std::chrono::milliseconds(10));
-    waitCondition_.wait_until(lock, wakeUp);
+    const std::chrono::steady_clock::time_point wakeUp = std::min(deadline, std::chrono::steady_clock::now() + kRetryPollPeriod);
+    std::this_thread::sleep_until(wakeUp);
   }
+}
+
+bool MpcResetSupervisor::resetRequestedSinceLastFailure() const {
+  return resetsRequested_.load() != requestsAtLastFailure_;
+}
+
+void MpcResetSupervisor::setRemoteHealth(bool healthy, size_t consecutiveFailures) {
+  consecutiveFailures_.store(consecutiveFailures);
+  healthy_.store(healthy);
 }
 
 scalar_t MpcResetSupervisor::observeTime(scalar_t time) {

@@ -1,0 +1,43 @@
+# ==============================================================================
+# Bridge-network override for docker-compose.yaml: Docker Desktop (macOS, Windows)
+# Usage:
+#   docker compose -f docker-compose.yaml -f docker-compose.bridge.yaml up -d
+# (the dev container: add "../docker-compose.bridge.yaml" to dockerComposeFile in .devcontainer/devcontainer.json)
+#
+# docker-compose.yaml runs the dev container on the host's network, which on Linux is the computer's own. Docker
+# Desktop runs containers in a VM, whose host network the computer cannot reach, so there the container keeps a bridge
+# network of its own and publishes every port a process in it listens on, each at its own number. A bus node that is
+# to be reached from outside the container then has to bind every interface (`bind_host: "0.0.0.0"` in the network
+# file), not just the container's loopback (.devcontainer/README.md, "Ports").
+# ==============================================================================
+
+services:
+  app:
+    # LINT.IfChange(published_ports)
+    network_mode: bridge
+    # A bridge network resolves names through Docker's embedded DNS, which forwards to these. (With host networking the
+    # container uses the host's resolver, and Docker refuses a `dns` option.)
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    # LINT.ThenChange(//docker-compose.yaml:network_mode, //.devcontainer/README.md:ports)
+    ports:
+      # LINT.IfChange(bus_ports)
+      # The ZeroMQ bus: every node binds its PUB socket at its port in the network file (config/ipc/network.textproto),
+      # so processes on the host or on another machine can join the bus of the processes running here. The range holds
+      # every node: robot 5600, mpc 5610, operator 5620, teleop 5621, config_push 5622.
+      - "5600-5629:5600-5629/tcp"
+      # LINT.ThenChange(//.devcontainer/README.md:bus_ports, //config/ipc/network.textproto:localhost_nodes)
+      # LINT.IfChange(rerun_ports)
+      # Rerun: the bridge's gRPC server, which a viewer on the host connects to, and its web viewer
+      # (--rerun_sink serve_web).
+      - "9876:9876/tcp"
+      - "9090:9090/tcp"
+      # LINT.ThenChange(//.devcontainer/devcontainer.json:rerun_ports, //.devcontainer/README.md:rerun_ports, //humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/rerun_sinks.py:sink_defaults)
+      # LINT.IfChange(vnc_ports)
+      # VNC and noVNC for the desktop on display :99 (the MuJoCo viewer and the operator GUI)
+      - "5901:5901"
+      - "6080:6080"
+      # LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/README.md:vnc_ports, //Makefile:vnc_ports)
+      # Jupyter Notebook Dashboard port
+      - "8888:8888"

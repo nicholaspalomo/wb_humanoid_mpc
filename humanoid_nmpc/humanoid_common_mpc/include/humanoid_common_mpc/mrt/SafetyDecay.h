@@ -46,12 +46,10 @@ namespace ocs2::humanoid::safety_decay {
  */
 
 /// [s] Guards against a division by zero in alpha(t) when a task file sets the time constant to zero.
-inline constexpr scalar_t kMinTimeConstant = 1e-3;
+inline constexpr scalar_t kMinTimeConstant = 1.0e-3;
 
-// LINT.IfChange(safety_decay_cutoff)
 /// alpha below which the command becomes zero torque.
 inline constexpr scalar_t kCutoff = 0.02;
-// LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/humanoid_finite_state_machine.py:safety_decay_cutoff)
 
 /**
  * alpha = exp(-elapsed / tau), snapped to 0 once it falls below kCutoff so that the mode reaches true zero torque in
@@ -59,9 +57,9 @@ inline constexpr scalar_t kCutoff = 0.02;
  * factor never exceeds one.
  */
 inline scalar_t factor(scalar_t elapsedSinceEntry, scalar_t timeConstant) {
-  const scalar_t elapsed = std::max(scalar_t(0.0), elapsedSinceEntry);
+  const scalar_t elapsed = std::max(0.0, elapsedSinceEntry);
   const scalar_t alpha = std::exp(-elapsed / std::max(kMinTimeConstant, timeConstant));
-  return alpha < kCutoff ? scalar_t(0.0) : alpha;
+  return alpha < kCutoff ? 0.0 : alpha;
 }
 
 }  // namespace ocs2::humanoid::safety_decay

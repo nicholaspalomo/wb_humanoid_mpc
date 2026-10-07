@@ -38,19 +38,15 @@ namespace ocs2 {
 
 /**
  * @brief The IntegratorType enum
- * Enum used in selecting a specific integrator.
+ * Enum used in selecting a specific integrator. The values keep the numbers they had when the enum also listed odeint's
+ * ADAMS_BASHFORTH (3), BULIRSCH_STOER (4), RK5_VARIABLE (7) and ADAMS_BASHFORTH_MOULTON (8), which nothing selected and
+ * which were removed when the odeint integrators were replaced by native ones.
  */
-enum class IntegratorType {
-  EULER,
-  ODE45,
-  ODE45_OCS2,
-  ADAMS_BASHFORTH,
-  BULIRSCH_STOER,
-  MODIFIED_MIDPOINT,
-  RK4,
-  RK5_VARIABLE,
-  ADAMS_BASHFORTH_MOULTON
-};
+// LINT.IfChange(integrator_types)
+enum class IntegratorType { EULER = 0, ODE45 = 1, ODE45_OCS2 = 2, MODIFIED_MIDPOINT = 5, RK4 = 6 };
+// clang-format off
+// LINT.ThenChange(//lib/ocs2/core/src/integration/Integrator.cpp:integrator_names, //lib/ocs2/core/src/integration/Integrator.cpp:integrator_factory, //humanoid_nmpc/humanoid_common_mpc/src/config/solver/SolverSettingsFromConfig.cpp:rollout_integrators)
+// clang-format on
 
 namespace integrator_type {
 
@@ -62,7 +58,8 @@ std::string toString(IntegratorType integratorType);
 
 /**
  * Get integrator type from string name, useful for reading config file
- * @param [in] name: Integrator name
+ * @param [in] name: Integrator name, the name of an IntegratorType value, e.g. "ODE45".
+ * @throws std::invalid_argument naming the valid names when `name` is none of them.
  */
 IntegratorType fromString(const std::string& name);
 

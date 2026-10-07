@@ -66,7 +66,8 @@ OptimalControlProblem::OptimalControlProblem()
       finalInequalityLagrangianPtr(new StateAugmentedLagrangianCollection),
       /* Misc. */
       preComputationPtr(new PreComputation),
-      targetTrajectoriesPtr(nullptr) {}
+      targetTrajectoriesPtr(nullptr),
+      stateManifoldPtr(nullptr) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -103,7 +104,8 @@ OptimalControlProblem::OptimalControlProblem(const OptimalControlProblem& other)
       finalInequalityLagrangianPtr(other.finalInequalityLagrangianPtr->clone()),
       /* Misc. */
       preComputationPtr(other.preComputationPtr->clone()),
-      targetTrajectoriesPtr(other.targetTrajectoriesPtr) {
+      targetTrajectoriesPtr(other.targetTrajectoriesPtr),
+      stateManifoldPtr(other.stateManifoldPtr) {
   if (other.dynamicsPtr != nullptr) {
     dynamicsPtr.reset(other.dynamicsPtr->clone());
   }
@@ -162,6 +164,7 @@ void OptimalControlProblem::swap(OptimalControlProblem& other) noexcept {
   /* Misc. */
   preComputationPtr.swap(other.preComputationPtr);
   std::swap(targetTrajectoriesPtr, other.targetTrajectoriesPtr);
+  stateManifoldPtr.swap(other.stateManifoldPtr);
 }
 
 }  // namespace ocs2

@@ -29,23 +29,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <robot_model/ContactEstimator.h>
-
 #include <functional>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "absl/strings/string_view.h"
+
+#include "robot_model/ContactEstimator.h"
+
 namespace robot::model {
 
 /**
- * Contact estimators by name, the way the task file selects one (`contactEstimator: <name>`), like the costs and
+ * Contact estimators by name, the way the task file selects one (`contact_estimator: "<name>"`), like the costs and
  * constraints of the MPC formulation or the viewer's visualizations.
  *
  * The registry starts with the estimators that need nothing but the robot state (`robot_state`, `always_in_contact`);
  * an interface that can offer more registers it under its own name (the MuJoCo simulator adds `cheater_sim`, see
  * mujoco_sim_interface/CheaterSimContactEstimator.h). Names are matched case-insensitively with surrounding blanks
- * removed; an unknown name is an error that lists the available ones.
+ * removed. A name from a file is the caller's to validate with has(), reporting availableNames() for one that is not
+ * registered; create() of an unregistered name is a programming error. Not thread-safe: register everything before
+ * sharing the registry, which is then read-only.
  */
 class ContactEstimatorRegistry {
  public:
@@ -56,19 +60,25 @@ class ContactEstimatorRegistry {
     std::string description;
   };
 
-  static constexpr const char* kRobotState = "robot_state";
-  static constexpr const char* kAlwaysInContact = "always_in_contact";
+  static constexpr char kRobotState[] = "robot_state";
+  static constexpr char kAlwaysInContact[] = "always_in_contact";
 
   /** Registers the estimators of robot_model. */
   ContactEstimatorRegistry();
 
-  /** Adds an estimator; a name already registered is a programming error (std::invalid_argument). */
-  void add(const std::string& name, const std::string& description, Factory factory);
+  /**
+   * Adds an estimator. An empty name, an empty factory or a name already registered is a programming error, which ends
+   * the process.
+   */
+  void add(absl::string_view name, absl::string_view description, Factory factory);
 
-  /** The estimator registered under `name`; std::invalid_argument for an unknown name, listing the available ones. */
-  std::shared_ptr<ContactEstimator> create(const std::string& name) const;
+  /**
+   * A new estimator of the one registered under `name`, which must be registered (has()); an unregistered name ends the
+   * process with the available ones.
+   */
+  std::shared_ptr<ContactEstimator> create(absl::string_view name) const;
 
-  bool has(const std::string& name) const;
+  bool has(absl::string_view name) const;
 
   /** The registered estimators, in registration order. */
   std::vector<Entry> available() const;
@@ -77,7 +87,7 @@ class ContactEstimatorRegistry {
   std::string availableNames() const;
 
   /** `name` as the registry matches it: trimmed and lower case. */
-  static std::string canonicalName(const std::string& name);
+  static std::string canonicalName(absl::string_view name);
 
  private:
   struct Registered {

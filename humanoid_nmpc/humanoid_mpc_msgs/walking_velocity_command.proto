@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "nproto/options.proto";
+
+// Topic operator/walking_velocity_command; read by the MPC (motion manager) and, in simulation, by the gantry.
+// Next ID: 5
+message WalkingVelocityCommand {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::WalkingVelocityCommand";
+
+  reserved 5 to max;
+
+  // Normalized to [-1, 1]; the MPC scales them by the limits in reference.textproto.
+  double linear_velocity_x = 1;
+  double linear_velocity_y = 2;
+  // Absolute height of the pelvis above the ground [m].
+  double desired_pelvis_height = 3;
+  // Normalized to [-1, 1].
+  double angular_velocity_z = 4;
+}

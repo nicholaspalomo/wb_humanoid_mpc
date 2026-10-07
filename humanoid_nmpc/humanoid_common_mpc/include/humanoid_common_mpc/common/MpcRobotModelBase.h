@@ -35,20 +35,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <Eigen/Core>
+#include "Eigen/Core"
+#include "absl/base/nullability.h"
+#include "absl/container/flat_hash_map.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
 
-#include <boost/property_tree/info_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
-
-#include <stdexcept>
-
-#include <ocs2_core/misc/LoadData.h>
-
 namespace ocs2::humanoid {
 
+/**
+ * The state and input layout of one MPC formulation: where the base pose, the joints and the contact wrenches sit in
+ * the state and input vectors, and how to read and write them, for scalar_t and for the CppAD scalar.
+ *
+ * Each formulation derives one. It keeps a reference to the ModelSettings it is built with, which must outlive it, and
+ * is cloned into every term that needs it. The base class holds only the layout, and its const functions are safe to
+ * call concurrently.
+ */
 template <typename SCALAR_T>
 class MpcRobotModelBase {
  public:
@@ -56,22 +62,22 @@ class MpcRobotModelBase {
       : modelSettings(modelSettings),
         state_dim(state_dim),
         input_dim(input_dim),
-        base_dim(6),
         gen_coordinates_dim(base_dim + modelSettings.mpc_joint_dim) {}
 
   virtual ~MpcRobotModelBase() = default;
-  virtual MpcRobotModelBase* clone() const = 0;
+  MpcRobotModelBase& operator=(const MpcRobotModelBase&) = delete;
+  MpcRobotModelBase(MpcRobotModelBase&&) = delete;
+  MpcRobotModelBase& operator=(MpcRobotModelBase&&) = delete;
+  virtual MpcRobotModelBase* absl_nonnull clone() const = 0;
 
   /******************************************************************************************************/
   /*                                           Dimensions                                               */
   /******************************************************************************************************/
 
-  size_t getStateDim() const { return state_dim; };
-  size_t getInputDim() const { return input_dim; };
-  size_t getBaseDim() const { return base_dim; };
-  size_t getJointDim() const { return modelSettings.mpc_joint_dim; };
-  size_t getFullModelJointDim() const { return modelSettings.full_joint_dim; };
-  size_t getGenCoordinatesDim() const { return gen_coordinates_dim; };
+  size_t getStateDim() const { return state_dim; }
+  size_t getInputDim() const { return input_dim; }
+  size_t getJointDim() const { return modelSettings.mpc_joint_dim; }
+  size_t getGenCoordinatesDim() const { return gen_coordinates_dim; }
 
   /******************************************************************************************************/
   /*                                          Start indices                                             */
@@ -92,7 +98,7 @@ class MpcRobotModelBase {
    * parameterization (BasisInputsModelDecorator) overrides this with its number of generators per foot. Use it
    * instead of inferring the block size from the surrounding start indices, which differ between models.
    */
-  virtual size_t getContactInputDim(size_t /*contactIndex*/) const { return CONTACT_WRENCH_DIM; }
+  virtual size_t getContactInputDim(size_t /*contactIndex*/) const { return kContactWrenchDim; }
 
   /******************************************************************************************************/
   /*                                     Generalized coordinates                                        */
@@ -218,34 +224,13 @@ class MpcRobotModelBase {
   /*                                         Joint angle                                                */
   /******************************************************************************************************/
 
-  size_t getJointIndex(const std::string& jointName) const {
-    auto it = modelSettings.jointIndexMap.find(jointName);
-    if (it != modelSettings.jointIndexMap.end()) {
-      return it->second;  // Return the found index
-    } else {
-      throw std::runtime_error("Joint name " + jointName + " is not contained in MPC model!");
+  /** The index of `jointName` among the MPC joints, or NotFound when it is not an active joint of the MPC model. */
+  absl::StatusOr<size_t> findJointIndex(const std::string& jointName) const {
+    const absl::flat_hash_map<std::string, size_t>::const_iterator found = modelSettings.jointIndexMap.find(jointName);
+    if (found == modelSettings.jointIndexMap.end()) {
+      return absl::NotFoundError(absl::StrCat("Joint name ", jointName, " is not contained in MPC model!"));
     }
-  }
-
-  VECTOR_T<SCALAR_T> getFullModelJointAngles(const VECTOR_T<SCALAR_T>& mpcModelJointAngles,
-                                             const VECTOR_T<SCALAR_T>& defaultFullModelJointAngles) const {
-    VECTOR_T<SCALAR_T> fullModelJointAngles = VECTOR_T<SCALAR_T>(defaultFullModelJointAngles);
-    assert(mpcModelJointAngles.size() == modelSettings.mpc_joint_dim);
-    assert(defaultFullModelJointAngles.size() == modelSettings.full_joint_dim);
-    for (size_t i = 0; i < modelSettings.mpc_joint_dim; ++i) {
-      size_t currJointFullIndex = modelSettings.mpcModelToFullJointsIndices[i];
-      fullModelJointAngles[currJointFullIndex] = mpcModelJointAngles[i];
-    }
-    return fullModelJointAngles;
-  }
-
-  VECTOR_T<SCALAR_T> getMpcModelJointAngles(const VECTOR_T<SCALAR_T>& fullModelJointAngles) const {
-    VECTOR_T<SCALAR_T> mpcModelJointAngles(modelSettings.mpc_joint_dim);
-    assert(fullModelJointAngles.size() == modelSettings.full_joint_dim);
-    for (size_t i = 0; i < modelSettings.mpc_joint_dim; ++i) {
-      mpcModelJointAngles[i] = fullModelJointAngles[modelSettings.mpcModelToFullJointsIndices[i]];
-    }
-    return mpcModelJointAngles;
+    return found->second;
   }
 
  protected:
@@ -253,7 +238,6 @@ class MpcRobotModelBase {
       : modelSettings(rhs.modelSettings),
         state_dim(rhs.state_dim),
         input_dim(rhs.input_dim),
-        base_dim(6),
         gen_coordinates_dim(rhs.gen_coordinates_dim) {}
 
  public:
@@ -261,7 +245,7 @@ class MpcRobotModelBase {
 
   const size_t state_dim;
   const size_t input_dim;
-  const size_t base_dim;
+  const size_t base_dim = 6;
   const size_t gen_coordinates_dim;
 };
 

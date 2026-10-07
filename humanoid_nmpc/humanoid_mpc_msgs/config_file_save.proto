@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "humanoid_mpc_msgs/config_file_kind.proto";
+import "nproto/options.proto";
+
+// Topic operator/config_save: a configuration file the tuning GUI saved on the laptop, for the robot process to store
+// in its persistent copy (humanoid_nmpc/docs/distributed_runtime/README.md, "Saving the configuration"). The robot
+// checks it as it would check the file at start-up and answers with a ConfigFileSaveStatus on robot/config_save_status.
+// The payload carries the file's text, not a typed file: the robot stores exactly the bytes the GUI wrote.
+// Next ID: 7
+message ConfigFileSave {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::ConfigFileSave";
+
+  reserved 7 to max;
+
+  ConfigFileKind kind = 1;
+  // model_settings.robot_name of the GUI's task file.
+  string robot_name = 2;
+  // The file's path from its last robot_models/ component on (configFileIdentity(), the GUI's config_path_of()): the
+  // configuration's identity. The robot compares it with its own file's and never uses it as a path.
+  string config_path = 3;
+  // nproto's SchemaFingerprint of the kind's file message (TaskFile, ReferenceFile or JointPdGainsFile) in the
+  // sender's build: a robot refuses a file of another schema version.
+  string schema_fingerprint = 4;
+  // Exactly the bytes the GUI wrote into the laptop's copy (UTF-8).
+  string text = 5;
+  // The sender's id of this save (the GUI takes time_ns()), echoed by the status. A save repeated with the same kind
+  // and sequence is answered with the status of the first, not stored again.
+  uint64 sequence = 6;
+}

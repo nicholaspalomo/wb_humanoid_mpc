@@ -1,4 +1,30 @@
-#!/usr/bin/env python3
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Flags bare literal arguments that need a Google-style argument comment.
 
 The Google C++ style guide asks for the meaning of a non-obvious function argument to be visible at the call site, and
@@ -6,14 +32,17 @@ this repository writes that as an argument comment carrying the parameter's name
 
     ContactRectangle::loadContactRectangle(taskFile_, modelSettings_, /*contactIndex=*/0, verbose_);
 
-A bare `0` there says nothing. This check finds every argument that is a lone numeric, boolean or `nullptr` literal
-without a `/*name=*/` comment directly in front of it, in a call with two or more arguments. The name itself is not
-verified - that needs a compiler (clang-tidy's bugprone-argument-comment) - so copy it from the callee's declaration.
+A bare `0` there says nothing. This check finds every argument that is a lone numeric, boolean, `nullptr` or
+character literal, or an empty value (`{}`, `""`, `std::nullopt`), without a `/*name=*/` comment directly in front of
+it. The name itself is not verified - that needs a compiler (clang-tidy's bugprone-argument-comment) - so copy it from
+the callee's declaration.
 
 It is a syntactic check, so it cannot tell a function call from every other use of parentheses, and some literals are
 conventional enough that a comment would be noise. Those are exempt:
   - calls whose arguments are ALL numeric literals: element access `R(2, 2)`, coordinates `vector3_t(0.0, 0.0, 1.0)`;
-  - one-argument calls: the function's name says what its only argument is;
+  - one-argument calls, where the function's name says what its only argument is, except a `true`, `false` or
+    `nullptr` argument: that one needs its comment unless the callee is a setter (`set*`, `enable*`, `disable*`, a
+    protobuf `add_*`), a member or variable being initialized (`stopped_(false)`), or conventional;
   - the callees in CONVENTIONAL_CALLEES and the types matched by CONVENTIONAL_TYPE_PATTERNS (std::max, block, resize,
     StrCat, EXPECT_NEAR, Eigen vectors, ...), where the position of a literal is its meaning;
   - a line carrying `// NOLINT(argument-comment)`, or following a line carrying `// NOLINTNEXTLINE(argument-comment)`.
@@ -21,19 +50,18 @@ Preprocessor lines (#define bodies included) are not checked.
 """
 
 import argparse
+from collections.abc import Iterable
 import os
 import re
-import subprocess
 import sys
-from typing import Iterable, List, NamedTuple, Optional, Tuple
+from typing import NamedTuple
 
+from tools.hooks import check_types
+from tools.hooks import cpp_source
+from tools.hooks import lint_files
+
+NAME = "argument-comment"
 NOLINT = "NOLINT(argument-comment)"
-
-CPP_EXTENSIONS = (".cpp", ".cc", ".cxx", ".h", ".hh", ".hpp", ".hxx")
-# Third-party code this repository vendors: not ours to restyle.
-# LINT.IfChange(vendored_dirs)
-VENDORED_DIRS = ("lib/ocs2/", "lib/mujoco_vendor/", "tools/ifttt-lint/")
-# LINT.ThenChange(//tools/hooks/lint_code.py:vendored_dirs)
 NOLINTNEXTLINE = "NOLINTNEXTLINE(argument-comment)"
 
 # Words that are followed by a parenthesis without being a call.
@@ -107,6 +135,21 @@ CONVENTIONAL_CALLEES = frozenset(
         "resize",
         "rfind",
         "substr",
+        "append",
+        "find_first_of",
+        "find_first_not_of",
+        "find_last_of",
+        "find_last_not_of",
+        "value_or",
+        # <atomic>: the value stored or exchanged is the call's whole meaning.
+        "store",
+        "exchange",
+        "fetch_add",
+        "fetch_sub",
+        # <ctime>: time(nullptr) is the C API's spelling of "now".
+        "time",
+        # this repository's fill: a feet_array_t holding one value per foot (humanoid_common_mpc/common/Types.h)
+        "makeFeetArray",
         # Eigen
         "block",
         "bottomLeftCorner",
@@ -146,6 +189,19 @@ CONVENTIONAL_CALLEES = frozenset(
         "StrCat",
         "StrFormat",
         "StrJoin",
+        "StrSplit",
+        "StrContains",
+        "StrReplaceAll",
+        "StartsWith",
+        "EndsWith",
+        "ConsumePrefix",
+        "ConsumeSuffix",
+        "StripPrefix",
+        "StripSuffix",
+        "MaxSplits",
+        "ByChar",
+        "ByString",
+        "ByAnyChar",
         "Substitute",
         "printf",
         "snprintf",
@@ -156,11 +212,12 @@ CONVENTIONAL_CALLEES = frozenset(
 # Macros and types whose literal arguments are conventional, matched on the callee's (or declared type's) name.
 CONVENTIONAL_TYPE_PATTERNS = [
     re.compile(
-        r"^(EXPECT|ASSERT|CHECK|DCHECK|QCHECK)_\w+$"
+        r"^(ABSL_)?(EXPECT|ASSERT|CHECK|DCHECK|QCHECK)_\w+$"
     ),  # gtest and Abseil check macros
     re.compile(
         r"^(LOG|VLOG|PLOG|LOG_EVERY_N|LOG_FIRST_N|LOG_IF|DLOG)\w*$"
     ),  # Abseil logging
+    re.compile(r"^ABSL_(RETIRED_)?FLAG$"),  # ABSL_FLAG(type, name, default, help)
     re.compile(
         r"^(Vector|Matrix|Array|Quaternion|AngleAxis|Translation|RowVector)\w*$"
     ),  # Eigen types
@@ -168,16 +225,12 @@ CONVENTIONAL_TYPE_PATTERNS = [
         r"^\w*(vector|matrix|quaternion|array)\d*[a-z]*_t$"
     ),  # this repository's Eigen typedefs
     re.compile(
-        r"^(vector|array|pair|tuple|basic_string|string|duration)$"
+        r"^(vector|array|pair|tuple|basic_string|string|duration|optional)$"
     ),  # std containers, as declared types
 ]
 
 
-class Token(NamedTuple):
-    kind: str  # "ident", "number", "punct", "comment", "string"
-    text: str
-    line: int
-    col: int
+Token = cpp_source.Token
 
 
 class Violation(NamedTuple):
@@ -196,133 +249,15 @@ class Violation(NamedTuple):
         )
 
 
-_NUMBER = re.compile(
-    r"""
-    (?:0[xX][0-9a-fA-F']+(?:\.[0-9a-fA-F']*)?(?:[pP][+-]?\d+)?   # hexadecimal (and hex float)
-      |0[bB][01']+                                               # binary
-      |(?:\d[\d']*\.?[\d']*|\.\d[\d']*)(?:[eE][+-]?\d+)?         # decimal and floating point
-    )[a-zA-Z_]*                                                   # suffix (u, l, f, ...) or user-defined literal
-    """,
-    re.VERBOSE,
-)
 _STANDARD_SUFFIX = re.compile(
     r"^(?:[uU](?:ll|LL|l|L|z|Z)?|(?:ll|LL|l|L|z|Z)[uU]?|[fFlL])?$"
 )
 _ARGUMENT_COMMENT = re.compile(r"^/\*\s*[A-Za-z_]\w*\s*=\s*\*/$")
-_PUNCT2 = (
-    "::",
-    "->",
-    "<<",
-    ">>",
-    "<=",
-    ">=",
-    "==",
-    "!=",
-    "&&",
-    "||",
-    "++",
-    "--",
-    "+=",
-    "-=",
-    "*=",
-    "/=",
-)
-
-
-def tokenize(source: str) -> List[Token]:
-    """Splits C++ source into tokens, skipping preprocessor lines and keeping block comments."""
-    tokens: List[Token] = []
-    i, line, col = 0, 1, 1
-    n = len(source)
-    at_line_start = True
-
-    def advance(count: int) -> None:
-        nonlocal i, line, col
-        for _ in range(count):
-            if source[i] == "\n":
-                line += 1
-                col = 1
-            else:
-                col += 1
-            i += 1
-
-    while i < n:
-        c = source[i]
-        if c == "\n":
-            at_line_start = True
-            advance(1)
-            continue
-        if c in " \t\r\f\v":
-            advance(1)
-            continue
-        # Preprocessor directive: skip it and its continuation lines.
-        if c == "#" and at_line_start:
-            while i < n:
-                if source[i] == "\\" and i + 1 < n and source[i + 1] == "\n":
-                    advance(2)
-                    continue
-                if source[i] == "\n":
-                    break
-                advance(1)
-            continue
-        at_line_start = False
-        start_line, start_col = line, col
-        if source.startswith("//", i):
-            end = source.find("\n", i)
-            end = n if end < 0 else end
-            tokens.append(Token("comment", source[i:end], start_line, start_col))
-            advance(end - i)
-            continue
-        if source.startswith("/*", i):
-            end = source.find("*/", i + 2)
-            end = n if end < 0 else end + 2
-            tokens.append(Token("comment", source[i:end], start_line, start_col))
-            advance(end - i)
-            continue
-        raw = re.match(r'(?:u8|u|U|L)?R"([^()\\\s]{0,16})\(', source[i:])
-        if raw:
-            terminator = ")" + raw.group(1) + '"'
-            end = source.find(terminator, i + raw.end())
-            end = n if end < 0 else end + len(terminator)
-            tokens.append(Token("string", source[i:end], start_line, start_col))
-            advance(end - i)
-            continue
-        prefix = re.match(r"(?:u8|u|U|L)?[\"']", source[i:])
-        if prefix:
-            quote = prefix.group(0)[-1]
-            j = i + prefix.end()
-            while j < n and source[j] != quote:
-                j += 2 if source[j] == "\\" else 1
-            end = min(j + 1, n)
-            tokens.append(Token("string", source[i:end], start_line, start_col))
-            advance(end - i)
-            continue
-        if c.isdigit() or (c == "." and i + 1 < n and source[i + 1].isdigit()):
-            match = _NUMBER.match(source, i)
-            text = match.group(0) if match else c
-            tokens.append(Token("number", text, start_line, start_col))
-            advance(len(text))
-            continue
-        if c.isalpha() or c == "_":
-            match = re.match(r"[A-Za-z_]\w*", source[i:])
-            tokens.append(Token("ident", match.group(0), start_line, start_col))
-            advance(match.end())
-            continue
-        two = source[i : i + 2]
-        if two in _PUNCT2:
-            tokens.append(Token("punct", two, start_line, start_col))
-            advance(2)
-            continue
-        tokens.append(Token("punct", c, start_line, start_col))
-        advance(1)
-    return tokens
-
-
 _OPEN = {"(": ")", "[": "]", "{": "}"}
 _CLOSE = frozenset(_OPEN.values())
 
 
-def _callee_before(code: List[Token], paren: int) -> Optional[Tuple[str, int]]:
+def _callee_before(code: list[Token], paren: int) -> tuple[str, int] | None:
     """The name a `(` at code[paren] calls and its index, or None when the parenthesis is not a call."""
     k = paren - 1
     if k < 0:
@@ -350,11 +285,18 @@ def _callee_before(code: List[Token], paren: int) -> Optional[Tuple[str, int]]:
     return code[k].text, k
 
 
-def _declared_type_before(code: List[Token], name_index: int) -> Optional[str]:
+def _declared_type_before(code: list[Token], name_index: int) -> str | None:
     """For `Type name(...)`, the type's own name; None when the name is not preceded by a type.
 
     A later declarator of a list, the `b` of `Type a(...), b(...)`, has the type of the declaration: the walk goes back
     over the earlier `name(...)` declarators to it.
+
+    Args:
+        code: The tokens of the file, comments removed.
+        name_index: The index in `code` of the declared name.
+
+    Returns:
+        The last identifier of the declared type (`Foo` for `ns::Foo`), or None.
     """
     k = name_index - 1
     while k >= 1 and code[k].text == "," and code[k - 1].text == ")":
@@ -395,21 +337,42 @@ def _is_conventional_type(name: str) -> bool:
     return any(pattern.match(name) for pattern in CONVENTIONAL_TYPE_PATTERNS)
 
 
-def _is_conventional(name: Optional[str]) -> bool:
+def _is_conventional(name: str | None) -> bool:
     return name is not None and (
         name in CONVENTIONAL_CALLEES or _is_conventional_type(name)
     )
 
 
-def _literal_text(argument: List[Token]) -> Optional[str]:
-    """The literal an argument consists of - numeric (optionally signed), bool or nullptr - or None."""
+# The literals whose meaning a call site cannot show: besides numbers, these (and character literals).
+_BOOL_OR_NULL = frozenset({"true", "false", "nullptr"})
+_EMPTY_VALUES = frozenset({"{}", '""', "std::nullopt", "nullopt"})
+_CHARACTER = re.compile(r"^(?:u8|u|U|L)?'(?:[^'\\]|\\.){1,4}'$")
+
+
+def _literal_text(argument: list[Token]) -> str | None:
+    """The literal an argument consists of, or None.
+
+    Numeric (optionally signed), `true` / `false` / `nullptr`, a character literal, and the empty values `{}`, `""` and
+    `std::nullopt`, whose meaning a call site shows no more than a number's.
+
+    Args:
+      argument: The tokens of one argument, comments included.
+
+    Returns:
+      The literal's text (`-1`, `{}`, `std::nullopt`), or None when the argument is anything else.
+    """
     body = [t for t in argument if t.kind != "comment"]
     if len(body) == 2 and body[0].text in ("-", "+") and body[1].kind == "number":
         body = [Token("number", body[0].text + body[1].text, body[0].line, body[0].col)]
+    joined = "".join(t.text for t in body)
+    if joined in _EMPTY_VALUES and len(body) in (1, 2, 3):
+        return joined
     if len(body) != 1:
         return None
     token = body[0]
-    if token.kind == "ident" and token.text in ("true", "false", "nullptr"):
+    if token.kind == "ident" and token.text in _BOOL_OR_NULL:
+        return token.text
+    if token.kind == "string" and _CHARACTER.match(token.text):
         return token.text
     if token.kind == "number":
         suffix = re.sub(
@@ -422,7 +385,45 @@ def _literal_text(argument: List[Token]) -> Optional[str]:
     return None
 
 
-def _has_argument_comment(argument: List[Token]) -> bool:
+def _is_number(text: str | None) -> bool:
+    """True for the text of a numeric literal (not a bool, null, character or empty value)."""
+    return (
+        text is not None
+        and text not in _BOOL_OR_NULL
+        and text not in _EMPTY_VALUES
+        and not text.endswith("'")
+    )
+
+
+# A one-argument call whose name already says what its argument is: a setter, or a protobuf repeated-field adder.
+_SETTER = re.compile(r"^(?:(?:set|Set|enable|Enable|disable|Disable)[A-Z_]|add_[a-z])")
+
+
+def _single_argument_needs_comment(
+    callee: str, literal: str | None, declared_type: str | None
+) -> bool:
+    """True when the one argument of `callee(literal)` needs a comment: a bool or null the name does not explain.
+
+    A one-argument call's name usually says what its argument is (`resize(3)`, `push_back('x')`); a `true`, `false` or
+    `nullptr` is the exception (`reset(true)`), unless the callee is a setter (`setVerbose(true)`), a member or variable
+    being initialized (`stopped_(false)`, `std::atomic<bool> stopped(false)`), or conventional.
+
+    Args:
+      callee: The name the call calls.
+      literal: Its argument's literal (_literal_text()), or None.
+      declared_type: The type of the declaration the call constructs (`Type name(...)`), or None.
+
+    Returns:
+      Whether the argument needs a `/*name=*/` comment.
+    """
+    if literal not in _BOOL_OR_NULL:
+        return False
+    if _SETTER.match(callee) or callee.endswith("_") or declared_type is not None:
+        return False
+    return not _is_conventional(callee)
+
+
+def _has_argument_comment(argument: list[Token]) -> bool:
     """True when a `/*name=*/` comment stands directly in front of the argument's value."""
     for token in argument:
         if token.kind != "comment":
@@ -432,19 +433,12 @@ def _has_argument_comment(argument: List[Token]) -> bool:
     return False
 
 
-def check_source(source: str, path: str = "<source>") -> List[Violation]:
-    tokens = tokenize(source)
-    lines = source.splitlines()
-    suppressed = set()
-    for number, text in enumerate(lines, start=1):
-        if NOLINT in text:
-            suppressed.add(number)
-        if NOLINTNEXTLINE in text:
-            suppressed.add(number + 1)
-
+def unsuppressed_violations(source: str, path: str = "<source>") -> list[Violation]:
+    """Every bare literal argument in `source`, whatever NOLINT markers it carries (the registry applies those)."""
+    tokens = cpp_source.tokenize(source)
     # Line comments are irrelevant to the analysis; block comments stay, to see argument comments.
     code = [t for t in tokens if not (t.kind == "comment" and t.text.startswith("//"))]
-    violations: List[Violation] = []
+    violations: list[Violation] = []
     for index, token in enumerate(code):
         if token.text != "(":
             continue
@@ -454,8 +448,8 @@ def check_source(source: str, path: str = "<source>") -> List[Violation]:
         callee, callee_index = found
         # Split the argument list at the commas of this parenthesis level. The template argument list of a conventional
         # type is a level of its own: the sizes of `Eigen::Matrix<SCALAR, 3, 3>` are not arguments of the call around it.
-        arguments: List[List[Token]] = [[]]
-        stack = []
+        arguments: list[list[Token]] = [[]]
+        stack: list[str] = []
         k = index + 1
         while k < len(code):
             t = code[k]
@@ -486,62 +480,100 @@ def check_source(source: str, path: str = "<source>") -> List[Violation]:
             arguments[-1].append(t)
             k += 1
         arguments = [a for a in arguments if a] if any(arguments) else []
-        if len(arguments) < 2:
+        if not arguments:
             continue
         literals = [_literal_text(a) for a in arguments]
-        if all(
-            text is not None and text not in ("true", "false", "nullptr")
-            for text in literals
+        declared_type = _declared_type_before(code, callee_index)
+        if len(arguments) == 1 and not _single_argument_needs_comment(
+            callee, literals[0], declared_type
         ):
+            continue
+        if len(arguments) > 1 and all(_is_number(text) for text in literals):
             continue  # element access and coordinates: R(2, 2), vector3_t(0.0, 0.0, 1.0)
-        if _is_conventional(callee) or _is_conventional(
-            _declared_type_before(code, callee_index)
-        ):
+        if _is_conventional(callee) or _is_conventional(declared_type):
             continue
         for position, (argument, text) in enumerate(zip(arguments, literals), start=1):
             if text is None or _has_argument_comment(argument):
                 continue
             first = next(t for t in argument if t.kind != "comment")
-            if first.line in suppressed:
-                continue
             violations.append(
                 Violation(path, first.line, first.col, callee, text, position)
             )
     return violations
 
 
-def check_files(paths: Iterable[str], root: str) -> List[Violation]:
-    violations: List[Violation] = []
+def check_source(source: str, path: str = "<source>") -> list[Violation]:
+    """The violations of `source` that no `NOLINT(argument-comment)` or `NOLINTNEXTLINE(argument-comment)` exempts."""
+    suppressed = set()
+    for number, text in enumerate(source.splitlines(), start=1):
+        if NOLINT in text:
+            suppressed.add(number)
+        if NOLINTNEXTLINE in text:
+            suppressed.add(number + 1)
+    return [
+        v for v in unsuppressed_violations(source, path) if v.line not in suppressed
+    ]
+
+
+def check_files(paths: Iterable[str], root: str) -> list[Violation]:
+    violations: list[Violation] = []
     for path in paths:
         with open(path, encoding="utf-8", errors="ignore") as f:
             violations += check_source(f.read(), os.path.relpath(path, root))
     return violations
 
 
-def check_staged(repository: str) -> List[Violation]:
+def check_staged(repository: str) -> list[Violation]:
     """Checks the STAGED version of every first-party C++ file staged for commit - the index, not the working tree.
 
     This is what the pre-commit hook runs: it judges exactly what is about to be committed, a partial `git add -p`
     included, and only the files the commit touches, so a commit is never blocked by a file it does not change.
+
+    Args:
+        repository: The root of the git checkout.
+
+    Returns:
+        The violations of the staged files, file by file.
     """
-
-    def git(*args: str) -> str:
-        return subprocess.run(
-            ["git", "-C", repository, *args], capture_output=True, text=True, check=True
-        ).stdout
-
-    staged = git("diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z").split(
-        "\0"
-    )
-    violations: List[Violation] = []
-    for path in staged:
-        if not path.endswith(CPP_EXTENSIONS) or path.startswith(VENDORED_DIRS):
+    violations: list[Violation] = []
+    for path in lint_files.staged_files(repository):
+        if not path.endswith(
+            lint_files.CPP_EXTENSIONS
+        ) or not lint_files.is_first_party(path):
             continue
-        violations += check_source(git("show", ":" + path), path)
+        violations += check_source(lint_files.staged_source(repository, path), path)
     return violations
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def _findings(source: str, path: str) -> list[check_types.Finding]:
+    return [
+        check_types.Finding(
+            v.path,
+            v.line,
+            v.col,
+            NAME,
+            f"bare literal `{v.literal}` as argument {v.position} of `{v.callee}(...)`: name it with an argument "
+            f"comment, `/*parameterName=*/{v.literal}`, with the name from the callee's declaration (Google C++ style, "
+            "Function argument comments).",
+        )
+        for v in unsuppressed_violations(source, path)
+    ]
+
+
+CHECKS = [
+    check_types.Check(
+        name=NAME,
+        languages=frozenset({check_types.Language.CPP}),
+        scope=lint_files.Scope.FIRST_PARTY,
+        check_source=_findings,
+        description="literal arguments carry a /*parameterName=*/ comment (AGENTS.md; Google C++ style).",
+        hint="Write /*parameterName=*/ in front of each literal, with the name from the callee's declaration "
+        "(tools/hooks/argument_comments.py says what is exempt).",
+    )
+]
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("paths", nargs="*", help="C++ files to check")
     parser.add_argument(

@@ -30,15 +30,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_core/reference/ModeSchedule.h>
-
 #include <optional>
-#include "humanoid_common_mpc/common/Types.h"
+#include <string>
+#include <utility>
+#include <vector>
 
+#include "absl/status/statusor.h"
+#include "ocs2_core/reference/ModeSchedule.h"
+
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/swing_foot_planner/SplineCpg.h"
 
 namespace ocs2::humanoid {
 
+/**
+ * Plans the swing-foot height, pitch and impact-proximity references of every foot over the mode schedule: update()
+ * rebuilds them from a schedule, and the getters evaluate them at a time.
+ *
+ * Not thread-safe: SwitchedModelReferenceManager updates it on the solver thread before each solve, and the costs read
+ * it during the solve.
+ */
 class SwingTrajectoryPlanner {
  public:
   struct Config {
@@ -179,9 +190,5 @@ class SwingTrajectoryPlanner {
   feet_array_t<std::vector<SplineCpg>> feetHeightTrajectories_;
   feet_array_t<std::vector<scalar_t>> feetHeightTrajectoriesEvents_;
 };
-
-SwingTrajectoryPlanner::Config loadSwingTrajectorySettings(const std::string& fileName,
-                                                           const std::string& fieldName = "swing_trajectory_config",
-                                                           bool verbose = true);
 
 }  // namespace ocs2::humanoid

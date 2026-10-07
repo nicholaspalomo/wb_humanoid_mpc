@@ -27,19 +27,21 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
 
-#include <pinocchio/algorithm/center-of-mass.hpp>
-#include <pinocchio/algorithm/frames.hpp>
-#include <pinocchio/algorithm/kinematics.hpp>
-#include <pinocchio/algorithm/model.hpp>
-#include <pinocchio/multibody/data.hpp>
-#include <pinocchio/multibody/model.hpp>
+#include <string>
+#include <vector>
 
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/algorithm/model.hpp"
+#include "pinocchio/multibody/data.hpp"
+#include "pinocchio/multibody/model.hpp"
 
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
@@ -48,8 +50,8 @@ namespace ocs2::humanoid {
 std::string LocomotionHeuristicModelParameters::summary() const {
   return absl::StrCat("  totalMass: ", totalMass, " kg, weight: ", totalWeight, " N, gravity: ", gravity,
                       " m/s^2\n  nominalComHeight: ", nominalComHeight, " m above the mean foot height\n  hip (base frame): left (",
-                      hipPositionInBaseFrame[CONTACT_LEFT_INDEX].x(), ", ", hipPositionInBaseFrame[CONTACT_LEFT_INDEX].y(), ") m, right (",
-                      hipPositionInBaseFrame[CONTACT_RIGHT_INDEX].x(), ", ", hipPositionInBaseFrame[CONTACT_RIGHT_INDEX].y(), ") m\n");
+                      hipPositionInBaseFrame[kContactLeftIndex].x(), ", ", hipPositionInBaseFrame[kContactLeftIndex].y(), ") m, right (",
+                      hipPositionInBaseFrame[kContactRightIndex].x(), ", ", hipPositionInBaseFrame[kContactRightIndex].y(), ") m\n");
 }
 
 absl::StatusOr<LocomotionHeuristicModelParameters> deriveLocomotionHeuristicModelParameters(
@@ -92,7 +94,7 @@ absl::StatusOr<LocomotionHeuristicModelParameters> deriveLocomotionHeuristicMode
   const scalar_t cosYaw = std::cos(baseYaw);
   const scalar_t sinYaw = std::sin(baseYaw);
   const std::vector<std::string>& contactParentJointNames = mpcRobotModel.modelSettings.contactParentJointNames;
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     // Fallback: this foot's own horizontal position relative to the base. It is exact for a leg standing vertically,
     // which is the posture this is evaluated in, so a robot whose tree cannot be walked still gets a sensible
     // landmark rather than the base origin - which would put both feet in the same place.

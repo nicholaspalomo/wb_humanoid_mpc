@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/ComputationRequest.h>
 #include <ocs2_core/Types.h>
 
@@ -54,7 +56,7 @@ class PreComputation {
   virtual ~PreComputation() = default;
 
   /** Clone */
-  virtual PreComputation* clone() const { return new PreComputation(*this); }
+  virtual PreComputation* absl_nonnull clone() const { return new PreComputation(*this); }
 
   /** Request callback */
   virtual void request(RequestSet request, scalar_t t, const vector_t& x, const vector_t& u) {}

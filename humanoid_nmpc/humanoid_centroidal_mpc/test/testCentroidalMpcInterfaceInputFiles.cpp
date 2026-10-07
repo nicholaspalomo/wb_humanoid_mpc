@@ -27,58 +27,44 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
-#include <gtest/gtest.h>
-
-#include <cstdlib>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <memory>
 #include <string>
-#include <vector>
+#include <utility>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_replace.h"
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
-#include "humanoid_common_mpc/common/ModelSettings.h"
+#include "support/TypedConfigFiles.h"
 
 /**
- * CentroidalMpcInterface::Create() on a missing input file. The constructor used to check the three files for existence and
- * throw std::invalid_argument, after its member initializer had already loaded the model settings - which read the URDF
- * as well as the task file - so a missing URDF surfaced as whatever the URDF parser threw, and a missing reference file
- * as an exception out of a function that returns a Status. Create() now checks all three before anything reads them and
- * returns NotFound naming the path. None of these builds a CppAD model: every case returns before the problem is set up.
+ * CentroidalMpcInterface::Create() on input files it cannot use. A missing file is NotFound naming its path, checked
+ * before anything reads the files; a file that does not parse strictly is an InvalidArgument naming the file, the line
+ * and the column; a YAML file is refused naming it; and a configuration that does not convert is an InvalidArgument naming
+ * the field. None of these builds a CppAD model: every case returns before the problem is set up.
  */
 namespace ocs2::humanoid {
 namespace {
 
-std::string runfilePath(absl::string_view relativePath) {
-  std::vector<std::filesystem::path> roots;
-  if (const char* srcDir = std::getenv("TEST_SRCDIR")) {
-    roots.emplace_back(std::filesystem::path(srcDir) / "_main");
-  }
-  roots.emplace_back(std::filesystem::current_path());
-  for (const std::filesystem::path& root : roots) {
-    const std::filesystem::path candidate = root / std::string(relativePath);
-    if (std::filesystem::exists(candidate)) return candidate.string();
-  }
-  return std::string();
-}
-
 class CentroidalMpcInterfaceInputFilesTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    taskFile_ = runfilePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml");
-    urdfFile_ = runfilePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf");
-    referenceFile_ = runfilePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml");
-    ASSERT_FALSE(taskFile_.empty() || urdfFile_.empty() || referenceFile_.empty())
+    files_ = atlasFiles();
+    ASSERT_FALSE(files_.taskFile.empty() || files_.urdfFile.empty() || files_.referenceFile.empty())
         << "the DRC Atlas centroidal files are not in the runfiles";
-    missing_ = (std::filesystem::path(testing::TempDir()) / "testCentroidalMpcInterfaceInputFiles_missing.yaml").string();
+    absl::StatusOr<CentroidalMpcConfig> config = loadConfigOf(files_);
+    ASSERT_TRUE(config.ok()) << config.status();
+    shipped_ = *std::move(config);
+    missing_ = (std::filesystem::path(testing::TempDir()) / "testCentroidalMpcInterfaceInputFiles_missing.textproto").string();
     ASSERT_FALSE(std::filesystem::exists(missing_));
   }
 
@@ -90,40 +76,78 @@ class CentroidalMpcInterfaceInputFilesTest : public ::testing::Test {
     EXPECT_TRUE(absl::StrContains(created.status().message(), what)) << created.status();
   }
 
-  std::string taskFile_, urdfFile_, referenceFile_, missing_;
+  /** The robot's files in a directory of the test's own, with `taskText` as the task file. */
+  CentroidalRobotFiles writtenWithTaskText(absl::string_view directory, absl::string_view taskText) const {
+    absl::StatusOr<CentroidalRobotFiles> files = writeConfig(absl::StrCat(testing::TempDir(), "/", directory), shipped_, files_.urdfFile);
+    EXPECT_TRUE(files.ok()) << files.status();
+    if (!files.ok()) return CentroidalRobotFiles{};
+    EXPECT_TRUE(writeTextFile(files->taskFile, taskText).ok());
+    return *files;
+  }
+
+  CentroidalRobotFiles files_;
+  CentroidalMpcConfig shipped_;
+  std::string missing_;
 };
 
 }  // namespace
 
 TEST_F(CentroidalMpcInterfaceInputFilesTest, AMissingTaskFileIsNotFoundNamingItsPath) {
-  expectNotFoundNamingTheMissingFile(CentroidalMpcInterface::Create(missing_, urdfFile_, referenceFile_), "task file");
+  expectNotFoundNamingTheMissingFile(CentroidalMpcInterface::Create(missing_, files_.urdfFile, files_.referenceFile), "task file");
 }
 
 TEST_F(CentroidalMpcInterfaceInputFilesTest, AMissingUrdfIsNotFoundBeforeTheModelSettingsReadIt) {
-  expectNotFoundNamingTheMissingFile(CentroidalMpcInterface::Create(taskFile_, missing_, referenceFile_), "URDF file");
+  expectNotFoundNamingTheMissingFile(CentroidalMpcInterface::Create(files_.taskFile, missing_, files_.referenceFile), "URDF file");
+  expectNotFoundNamingTheMissingFile(CentroidalMpcInterface::Create(shipped_, missing_), "URDF file");
 }
 
 TEST_F(CentroidalMpcInterfaceInputFilesTest, AMissingReferenceFileIsNotFoundNamingItsPath) {
-  expectNotFoundNamingTheMissingFile(CentroidalMpcInterface::Create(taskFile_, urdfFile_, missing_), "reference file");
+  expectNotFoundNamingTheMissingFile(CentroidalMpcInterface::Create(files_.taskFile, files_.urdfFile, missing_), "reference file");
 }
 
-TEST_F(CentroidalMpcInterfaceInputFilesTest, ExistingFilesPassTheCheckAndAreRead) {
-  // Positive control, without building the problem: with all three files present Create() gets past the check and reads
-  // the task file, whose interface.verbose is made unreadable here - the refusal is then that key's, not a NotFound.
-  std::ifstream in(taskFile_);
-  std::string task((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-  const std::string block = "\ninterface:\n  verbose: ";
-  const size_t value = task.find(block);
-  ASSERT_NE(value, std::string::npos) << "the shipped task file no longer carries interface.verbose";
-  const size_t valueStart = value + block.size();
-  task.replace(valueStart, task.find_first_of(" \n", valueStart) - valueStart, "sometimes");
-  const std::string brokenTask = (std::filesystem::path(testing::TempDir()) / "testCentroidalMpcInterfaceInputFiles_task.yaml").string();
-  std::ofstream(brokenTask) << task;
+TEST_F(CentroidalMpcInterfaceInputFilesTest, ATaskFileThatDoesNotParseIsRefusedWithItsPosition) {
+  // Positive control of the existence check: with all three files present Create() reads the task file, whose value is
+  // made unreadable here - the refusal is then the parser's, naming the file, the line and the column.
+  const std::string text = taskFileText(shipped_.task);
+  const std::string broken = absl::StrReplaceAll(text, {{"verbose: true", "verbose: sometimes"}});
+  ASSERT_NE(broken, text) << "the shipped task file no longer sets interface.verbose";
+  const CentroidalRobotFiles files = writtenWithTaskText("input_files_unparsable", broken);
+  for (const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>>& created :
+       {CentroidalMpcInterface::Create(files.taskFile, files.urdfFile, files.referenceFile),
+        CentroidalMpcInterface::CreateControllerModels(files.taskFile, files.urdfFile, files.referenceFile)}) {
+    EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument) << created.status();
+    EXPECT_TRUE(absl::StrContains(created.status().message(), "task.textproto:")) << created.status();
+    EXPECT_TRUE(absl::StrContains(created.status().message(), "verbose")) << created.status();
+  }
+}
 
+TEST_F(CentroidalMpcInterfaceInputFilesTest, AYamlTaskFileIsRefusedNamingIt) {
+  // A task file in the YAML format the configuration was written in before the textproto migration: the MPC reads
+  // textprotos only, and refuses it as a whole, naming the file, rather than reading a part of it.
+  const std::string yaml = (std::filesystem::path(testing::TempDir()) / "input_files_task.yaml").string();
+  ASSERT_TRUE(writeTextFile(yaml, "interface:\n  verbose: true\nmodel_settings:\n  robotName: drc_atlas\n").ok());
   const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created =
-      CentroidalMpcInterface::Create(brokenTask, urdfFile_, referenceFile_);
+      CentroidalMpcInterface::Create(yaml, files_.urdfFile, files_.referenceFile);
   EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument) << created.status();
-  EXPECT_TRUE(absl::StrContains(created.status().message(), ModelSettings::kInterfaceVerboseKey)) << created.status();
+  EXPECT_TRUE(absl::StrContains(created.status().message(), yaml)) << created.status();
+}
+
+TEST_F(CentroidalMpcInterfaceInputFilesTest, ModelSettingsThatDoNotConvertAreAnInvalidArgumentNamingTheField) {
+  CentroidalMpcConfig config = shipped_;
+  config.task.model_settings.arm_joint_names.left_shoulder_y = "no_such_joint";
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created = CentroidalMpcInterface::Create(config, files_.urdfFile);
+  EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument) << created.status();
+  EXPECT_TRUE(absl::StrContains(created.status().message(), "model_settings.arm_joint_names")) << created.status();
+}
+
+TEST_F(CentroidalMpcInterfaceInputFilesTest, ASolverSettingThatDoesNotConvertIsAnInvalidArgumentNamingTheField) {
+  CentroidalMpcConfig config = shipped_;
+  config.task.multiple_shooting.integrator_type = "RK9";
+  for (const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>>& created :
+       {CentroidalMpcInterface::Create(config, files_.urdfFile), CentroidalMpcInterface::CreateControllerModels(config, files_.urdfFile)}) {
+    EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument) << created.status();
+    EXPECT_TRUE(absl::StrContains(created.status().message(), "multiple_shooting.integrator_type")) << created.status();
+  }
 }
 
 }  // namespace ocs2::humanoid

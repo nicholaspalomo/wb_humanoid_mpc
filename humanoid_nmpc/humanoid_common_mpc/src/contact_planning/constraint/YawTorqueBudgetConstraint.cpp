@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -26,12 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/constraint/YawTorqueBudgetConstraint.h"
 
 #include <cmath>
+#include <string>
 
 #include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
-static_assert(N_CONTACTS == 2, "the yaw torque budget rows are written for a biped");
+static_assert(kNumContacts == 2, "the yaw torque budget rows are written for a biped");
 
 std::string YawTorqueBudgetConstraint::describe() const {
   return absl::StrCat("|tau_i| <= T_t c_i + (T_c - T_t) (c_L + c_R - 1) / 2 on the running nodes, T_t = ", params_.torsionalFrictionTorque,
@@ -45,9 +50,9 @@ void YawTorqueBudgetConstraint::configure(const ContactPlanningConfig& config) {
 void YawTorqueBudgetConstraint::addRows(const ContactPlanningContext& /*ctx*/, int /*node*/, RowBuilder& rows) const {
   const scalar_t torsion = params_.torsionalFrictionTorque;
   const scalar_t doubleSupportShare = 0.5 * (params_.doubleSupportYawCouple - torsion);
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     for (const scalar_t sign : {1.0, -1.0}) {
-      rows.addHard({},
+      rows.addHard(/*xCoefficients=*/{},
                    {{idx_.yawTorque[foot], sign},
                     {idx_.contact[foot], -torsion},
                     {idx_.contact[0], -doubleSupportShare},

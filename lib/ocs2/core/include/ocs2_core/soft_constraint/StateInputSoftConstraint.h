@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 #include <ocs2_core/constraint/StateInputConstraint.h>
 #include <ocs2_core/cost/StateInputCost.h>
@@ -78,7 +80,7 @@ class StateInputSoftConstraint final : public StateInputCost {
     return dynamic_cast<Derived&>(*constraintPtr_);
   }
 
-  StateInputSoftConstraint* clone() const override;
+  StateInputSoftConstraint* absl_nonnull clone() const override;
 
   bool isActive(scalar_t time) const override;
 

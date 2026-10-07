@@ -32,13 +32,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <string>
 
-#include <ocs2_centroidal_model/CentroidalModelInfo.h>
-#include <ocs2_mpc/MPC_Settings.h>
-#include <ocs2_mpc_test/ScriptedMpc.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-
+#include "absl/base/nullability.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_mpc/MPC_Settings.h"
+#include "ocs2_mpc_test/ScriptedMpc.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h"
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -71,18 +72,22 @@ class AtlasReferenceStack {
    */
   explicit AtlasReferenceStack(ScheduleSource scheduleSource = ScheduleSource::kGaitSchedule, absl::string_view plannerType = "");
 
+  /** The typed DRC Atlas files the stack is built from: its task, reference and contact planner's file. */
+  const CentroidalMpcConfig& config() const { return config_; }
   const ModelSettings& modelSettings() const { return *modelSettings_; }
   const PinocchioInterface& pinocchioInterface() const { return *pinocchioInterface_; }
   const CentroidalModelInfo& centroidalModelInfo() const { return info_; }
   const CentroidalMpcRobotModel<scalar_t>& model() const { return *model_; }
-  /** The task file's initialState: the robot standing at the origin. */
+  /** The task file's initial_state: the robot standing at the origin. */
   const vector_t& initialState() const { return initialState_; }
   scalar_t horizon() const { return mpcSettings_.timeHorizon_; }
 
   SwitchedModelReferenceManager& referenceManager() { return *referenceManager_; }
+  /** The reference manager, shared, for a component that keeps it as the stack's own ones do. */
+  std::shared_ptr<SwitchedModelReferenceManager> referenceManagerPtr() const { return referenceManager_; }
   /** Null under the gait schedule. */
-  ContactPlanningReferenceManager* planningReferenceManager() { return planningReferenceManager_.get(); }
-  ContactPlannerModule* contactPlannerModule() { return contactPlannerModule_.get(); }
+  ContactPlanningReferenceManager* absl_nullable planningReferenceManager() { return planningReferenceManager_.get(); }
+  ContactPlannerModule* absl_nullable contactPlannerModule() { return contactPlannerModule_.get(); }
   ProceduralMpcMotionManager& motionManager() { return *motionManager_; }
   CentroidalMpcTargetTrajectoriesCalculator& targetCalculator() { return *targetCalculator_; }
   mpc_test::ScriptedMpc& mpc() { return *mpc_; }
@@ -96,6 +101,7 @@ class AtlasReferenceStack {
   /** `state` moved to base position (x, y) and heading `yaw`, standing still. */
   vector_t standingAt(const vector_t& state, scalar_t x, scalar_t y, scalar_t yaw) const;
 
+  /** The paths of the DRC Atlas files in the runfiles: the task, reference and gait textprotos and the URDF. */
   const std::string& taskFile() const { return taskFile_; }
   const std::string& referenceFile() const { return referenceFile_; }
   const std::string& urdfFile() const { return urdfFile_; }
@@ -106,6 +112,7 @@ class AtlasReferenceStack {
   std::string referenceFile_;
   std::string urdfFile_;
   std::string gaitFile_;
+  CentroidalMpcConfig config_;
 
   mpc::Settings mpcSettings_;
   std::unique_ptr<ModelSettings> modelSettings_;

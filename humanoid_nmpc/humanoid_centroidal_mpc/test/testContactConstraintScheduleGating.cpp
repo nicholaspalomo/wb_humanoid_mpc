@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -23,43 +27,39 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>
+#include "pinocchio/fwd.hpp"
 
-#include <pinocchio/algorithm/center-of-mass.hpp>
-#include <pinocchio/algorithm/rnea.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
-
-#include <chrono>
 #include <cmath>
-#include <cstdio>
-#include <fstream>
-#include <iterator>
 #include <memory>
 #include <string>
-#include <thread>
+#include <utility>
 #include <vector>
 
-#include <ocs2_core/PreComputation.h>
-#include <ocs2_core/initialization/DefaultInitializer.h>
-#include <ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h>
-#include <ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h>
-#include <ocs2_core/penalties/penalties/SquaredHingePenalty.h>
-#include <ocs2_core/soft_constraint/StateInputSoftConstraint.h>
-#include <ocs2_mpc/MPC_Settings.h>
-#include <ocs2_oc/oc_problem/OptimalControlProblem.h>
-#include <ocs2_sqp/SqpMpc.h>
-#include <ocs2_sqp/SqpSettings.h>
-#include <ocs2_sqp/SqpSolver.h>
-
+#include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-#include "humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h"
+#include "gtest/gtest.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/initialization/DefaultInitializer.h"
+#include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
+#include "ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h"
+#include "ocs2_core/penalties/penalties/SquaredHingePenalty.h"
+#include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
+#include "ocs2_mpc/MPC_Settings.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
+#include "ocs2_sqp/SqpMpc.h"
+#include "ocs2_sqp/SqpSettings.h"
+#include "ocs2_sqp/SqpSolver.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/algorithm/rnea.hpp"  // forward declarations must be included first.
+
 #include "humanoid_common_mpc/HumanoidCostConstraintFactory.h"
 #include "humanoid_common_mpc/common/ContactTermNames.h"
-
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/config/solver/SolverSettingsFromConfig.h"
+#include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
 #include "humanoid_common_mpc/constraint/ContactComplementarityConstraint.h"
 #include "humanoid_common_mpc/constraint/ContactMomentXYConstraintCppAd.h"
@@ -67,7 +67,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/FrictionForceConeConstraint.h"
 #include "humanoid_common_mpc/contact/ContactInputJacobian.h"
 #include "humanoid_common_mpc/cost/StateInputQuadraticCost.h"
+#include "humanoid_common_mpc/parameter_update/ConstraintPenaltiesApplier.h"
+#include "humanoid_common_mpc/parameter_update/MpcParameterUpdaterModule.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "humanoid_mpc_config/mpc_parameter_update.nproto.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 #include "support/DrcAtlasContactTestModel.h"
 #include "support/FiniteDifferenceChecks.h"
 
@@ -75,13 +79,13 @@ namespace ocs2::humanoid {
 namespace {
 
 constexpr scalar_t kTime = DrcAtlasContactTestModel::kQueryTime;
-constexpr size_t kSwingFoot = CONTACT_LEFT_INDEX;
+constexpr size_t kSwingFoot = kContactLeftIndex;
 
 /**
  * Audit finding A1. Every contact cone in this repository switched itself off while the mode schedule called a foot a
  * swing foot. That gate was sound for exactly one reason: the hard `zero_wrench` constraint had already pinned the
  * swinging foot's wrench to zero, so there was nothing for a cone to bound. The contact-implicit formulation removes
- * `zero_wrench` - loadMpcFormulationTasks() insists on it - and the gate then leaves a foot the schedule calls a swing
+ * `zero_wrench` - checkMpcFormulationTasks() insists on it - and the gate then leaves a foot the schedule calls a swing
  * foot with an unbounded wrench: adhesion, unlimited friction, a center of pressure anywhere. On the shipped DRC Atlas
  * it is worse still, because `contactInputParameterization: basis_vectors` makes the non-negativity of the basis scalings the
  * only bound there is, and that term was gated too.
@@ -137,20 +141,20 @@ TEST(ContactConstraintScheduleGatingPredicate, followsZeroWrenchRatherThanTheCon
   EXPECT_FALSE(contactConstraintsAreScheduleGated(tasks));
   EXPECT_FALSE(usesContactImplicitFormulation(tasks));
 
-  tasks.hardConstraints.insert(MpcHardConstraintType::ZeroWrench);
+  tasks.hardConstraints.insert(MpcHardConstraintType::kZeroWrench);
   EXPECT_TRUE(contactConstraintsAreScheduleGated(tasks));
 
-  tasks.hardConstraints.erase(MpcHardConstraintType::ZeroWrench);
-  tasks.softConstraints.insert(MpcSoftConstraintType::ContactComplementarity);
+  tasks.hardConstraints.erase(MpcHardConstraintType::kZeroWrench);
+  tasks.softConstraints.insert(MpcSoftConstraintType::kContactComplementarity);
   EXPECT_FALSE(contactConstraintsAreScheduleGated(tasks));
   EXPECT_TRUE(usesContactImplicitFormulation(tasks));
 
   // Any one of the three names the formulation.
   MpcFormulationTasks slipOnly;
-  slipOnly.softConstraints.insert(MpcSoftConstraintType::ForceWeightedSlip);
+  slipOnly.softConstraints.insert(MpcSoftConstraintType::kForceWeightedSlip);
   EXPECT_TRUE(usesContactImplicitFormulation(slipOnly));
   MpcFormulationTasks penetrationOnly;
-  penetrationOnly.softConstraints.insert(MpcSoftConstraintType::GroundPenetration);
+  penetrationOnly.softConstraints.insert(MpcSoftConstraintType::kGroundPenetration);
   EXPECT_TRUE(usesContactImplicitFormulation(penetrationOnly));
 }
 
@@ -160,39 +164,39 @@ TEST(ContactConstraintScheduleGatingPredicate, followsZeroWrenchRatherThanTheCon
 
 TEST_F(ContactConstraintScheduleGatingTest, gatedTermsSwitchThemselvesOffDuringAScheduledSwing) {
   // The historical behavior, which must survive unchanged for a task file that still lists zero_wrench.
-  EXPECT_FALSE(makeWrenchCone(true)->isActive(kTime));
-  EXPECT_FALSE(makeFrictionCone(true)->isActive(kTime));
-  EXPECT_FALSE(makeCenterOfPressure(true)->isActive(kTime));
-  EXPECT_FALSE(makeLambdaBarrier(true)->isActive(kTime));
+  EXPECT_FALSE(makeWrenchCone(/*scheduleGated=*/true)->isActive(kTime));
+  EXPECT_FALSE(makeFrictionCone(/*scheduleGated=*/true)->isActive(kTime));
+  EXPECT_FALSE(makeCenterOfPressure(/*scheduleGated=*/true)->isActive(kTime));
+  EXPECT_FALSE(makeLambdaBarrier(/*scheduleGated=*/true)->isActive(kTime));
 
   model_->setStance();
-  EXPECT_TRUE(makeWrenchCone(true)->isActive(kTime));
-  EXPECT_TRUE(makeFrictionCone(true)->isActive(kTime));
-  EXPECT_TRUE(makeCenterOfPressure(true)->isActive(kTime));
-  EXPECT_TRUE(makeLambdaBarrier(true)->isActive(kTime));
+  EXPECT_TRUE(makeWrenchCone(/*scheduleGated=*/true)->isActive(kTime));
+  EXPECT_TRUE(makeFrictionCone(/*scheduleGated=*/true)->isActive(kTime));
+  EXPECT_TRUE(makeCenterOfPressure(/*scheduleGated=*/true)->isActive(kTime));
+  EXPECT_TRUE(makeLambdaBarrier(/*scheduleGated=*/true)->isActive(kTime));
 }
 
 TEST_F(ContactConstraintScheduleGatingTest, ungatedTermsStayActiveDuringAScheduledSwing) {
   // The fix. Without it every one of these is false, and the swing foot's wrench is bounded by nothing at all.
-  EXPECT_TRUE(makeWrenchCone(false)->isActive(kTime));
-  EXPECT_TRUE(makeFrictionCone(false)->isActive(kTime));
-  EXPECT_TRUE(makeCenterOfPressure(false)->isActive(kTime));
-  EXPECT_TRUE(makeLambdaBarrier(false)->isActive(kTime));
+  EXPECT_TRUE(makeWrenchCone(/*scheduleGated=*/false)->isActive(kTime));
+  EXPECT_TRUE(makeFrictionCone(/*scheduleGated=*/false)->isActive(kTime));
+  EXPECT_TRUE(makeCenterOfPressure(/*scheduleGated=*/false)->isActive(kTime));
+  EXPECT_TRUE(makeLambdaBarrier(/*scheduleGated=*/false)->isActive(kTime));
 
   // ...and in flight, with neither foot on the ground.
   model_->setContactFlags(makeFeetArray(false));
-  EXPECT_TRUE(makeWrenchCone(false)->isActive(kTime));
-  EXPECT_TRUE(makeFrictionCone(false)->isActive(kTime));
-  EXPECT_TRUE(makeCenterOfPressure(false)->isActive(kTime));
-  EXPECT_TRUE(makeLambdaBarrier(false)->isActive(kTime));
+  EXPECT_TRUE(makeWrenchCone(/*scheduleGated=*/false)->isActive(kTime));
+  EXPECT_TRUE(makeFrictionCone(/*scheduleGated=*/false)->isActive(kTime));
+  EXPECT_TRUE(makeCenterOfPressure(/*scheduleGated=*/false)->isActive(kTime));
+  EXPECT_TRUE(makeLambdaBarrier(/*scheduleGated=*/false)->isActive(kTime));
 }
 
 TEST_F(ContactConstraintScheduleGatingTest, setActiveStillSwitchesAnUngatedTermOffEntirely) {
   // Dropping the schedule gate must not make a term impossible to disable: the runtime tuning path uses setActive().
-  std::unique_ptr<ContactWrenchConeConstraint> cone = makeWrenchCone(false);
+  std::unique_ptr<ContactWrenchConeConstraint> cone = makeWrenchCone(/*scheduleGated=*/false);
   cone->setActive(false);
   EXPECT_FALSE(cone->isActive(kTime));
-  std::unique_ptr<FrictionForceConeConstraint> friction = makeFrictionCone(false);
+  std::unique_ptr<FrictionForceConeConstraint> friction = makeFrictionCone(/*scheduleGated=*/false);
   friction->setActive(false);
   EXPECT_FALSE(friction->isActive(kTime));
 }
@@ -229,12 +233,12 @@ TEST_F(ContactConstraintScheduleGatingTest, theUngatedWrenchConeIsSatisfiedExact
   const vector_t zeroInput = vector_t::Zero(model_->wrenchModel().getInputDim());
   const vector_t value = ungated.getValue(kTime, model_->nominalState(), zeroInput, preComp);
   // Every row of the homogeneous cone is exactly zero at the zero wrench: the zero wrench is on its boundary.
-  EXPECT_NEAR(value.cwiseAbs().maxCoeff(), 0.0, 1e-12);
+  EXPECT_NEAR(value.cwiseAbs().maxCoeff(), 0.0, 1.0e-12);
 
   // The cone must still bound a real wrench: a purely tangential force is outside it.
   vector_t slidingInput = vector_t::Zero(model_->wrenchModel().getInputDim());
   vector6_t wrench = vector6_t::Zero();
-  wrench(WRENCH_FORCE_X_INDEX) = 50.0;
+  wrench(kWrenchForceXIndex) = 50.0;
   model_->wrenchModel().setContactWrench(slidingInput, wrench, kSwingFoot);
   EXPECT_LT(ungated.getValue(kTime, model_->nominalState(), slidingInput, preComp).minCoeff(), 0.0);
 }
@@ -247,7 +251,7 @@ TEST_F(ContactConstraintScheduleGatingTest, theUngatedFrictionConeIsExactlyZeroA
   // reports -sqrt(regularization) = -5 with the default regularization of 25.
   const FrictionForceConeConstraint gated(model_->referenceManager(), FrictionForceConeConstraint::Config(), kSwingFoot,
                                           model_->wrenchModel(), /*scheduleGated=*/true);
-  EXPECT_NEAR(gated.getValue(kTime, model_->nominalState(), zeroInput, preComp)(0), -5.0, 1e-9);
+  EXPECT_NEAR(gated.getValue(kTime, model_->nominalState(), zeroInput, preComp)(0), -5.0, 1.0e-9);
 
   // Un-gated: every row is exactly zero at the zero force, so a foot in flight is on the boundary and a squared hinge
   // charges it nothing.
@@ -255,7 +259,7 @@ TEST_F(ContactConstraintScheduleGatingTest, theUngatedFrictionConeIsExactlyZeroA
                                             model_->wrenchModel(), /*scheduleGated=*/false);
   const vector_t value = ungated.getValue(kTime, model_->nominalState(), zeroInput, preComp);
   ASSERT_EQ(value.size(), 2) << "the friction row and Fz >= 0";
-  EXPECT_NEAR(value.cwiseAbs().maxCoeff(), 0.0, 1e-12);
+  EXPECT_NEAR(value.cwiseAbs().maxCoeff(), 0.0, 1.0e-12);
   EXPECT_FALSE(ungated.isScheduleGated());
 }
 
@@ -278,9 +282,9 @@ TEST_F(ContactConstraintScheduleGatingTest, theUngatedFrictionConeIsExactlyTheCo
       const scalar_t tangential = ratio * mu * std::abs(normalForce) + (normalForce == 0.0 ? ratio : 0.0);
       vector_t input = vector_t::Zero(model_->wrenchModel().getInputDim());
       vector6_t wrench = vector6_t::Zero();
-      wrench(WRENCH_FORCE_X_INDEX) = 0.6 * tangential;
-      wrench(WRENCH_FORCE_Y_INDEX) = -0.8 * tangential;
-      wrench(WRENCH_FORCE_Z_INDEX) = normalForce;
+      wrench(kWrenchForceXIndex) = 0.6 * tangential;
+      wrench(kWrenchForceYIndex) = -0.8 * tangential;
+      wrench(kWrenchForceZIndex) = normalForce;
       model_->wrenchModel().setContactWrench(input, wrench, kSwingFoot);
 
       const bool insideCoulomb = normalForce >= 0.0 && tangential <= mu * normalForce;
@@ -296,8 +300,8 @@ TEST_F(ContactConstraintScheduleGatingTest, theUngatedFrictionConeIsExactlyTheCo
   // accepted it (0.7 - sqrt(4 + 25) + 5 = 0.31 >= 0).
   vector_t lightlyLoaded = vector_t::Zero(model_->wrenchModel().getInputDim());
   vector6_t wrench = vector6_t::Zero();
-  wrench(WRENCH_FORCE_X_INDEX) = 2.0;
-  wrench(WRENCH_FORCE_Z_INDEX) = 1.0;
+  wrench(kWrenchForceXIndex) = 2.0;
+  wrench(kWrenchForceZIndex) = 1.0;
   model_->wrenchModel().setContactWrench(lightlyLoaded, wrench, kSwingFoot);
   EXPECT_LT(ungated.getValue(kTime, model_->nominalState(), lightlyLoaded, preComp)(0), 0.0);
   const scalar_t oldOuterRow = mu * 1.0 - std::sqrt(4.0 + config.regularization) + std::sqrt(config.regularization);
@@ -310,7 +314,8 @@ TEST_F(ContactConstraintScheduleGatingTest, onlyTheGatedFrictionConeIsHandedToTh
   // keeps its second-order treatment unchanged.
   EXPECT_EQ(makeFrictionCone(/*scheduleGated=*/true)->getOrder(), ConstraintOrder::Quadratic);
   EXPECT_EQ(makeFrictionCone(/*scheduleGated=*/false)->getOrder(), ConstraintOrder::Linear);
-  EXPECT_EQ(std::unique_ptr<FrictionForceConeConstraint>(makeFrictionCone(false)->clone())->getOrder(), ConstraintOrder::Linear);
+  EXPECT_EQ(std::unique_ptr<FrictionForceConeConstraint>(makeFrictionCone(/*scheduleGated=*/false)->clone())->getOrder(),
+            ConstraintOrder::Linear);
 }
 
 TEST_F(ContactConstraintScheduleGatingTest, theUngatedFrictionConeStillBoundsSlidingUnderLoad) {
@@ -320,14 +325,14 @@ TEST_F(ContactConstraintScheduleGatingTest, theUngatedFrictionConeStillBoundsSli
   // A foot sliding under load is outside the un-gated cone...
   vector_t slidingInput = model_->makeInput(model_->wrenchModel(), kSwingFoot, /*normalForce=*/100.0);
   vector6_t wrench = vector6_t::Zero();
-  wrench(WRENCH_FORCE_Z_INDEX) = 100.0;
-  wrench(WRENCH_FORCE_X_INDEX) = 500.0;
+  wrench(kWrenchForceZIndex) = 100.0;
+  wrench(kWrenchForceXIndex) = 500.0;
   model_->wrenchModel().setContactWrench(slidingInput, wrench, kSwingFoot);
   EXPECT_LT(ungated.getValue(kTime, model_->nominalState(), slidingInput, preComp)(0), 0.0);
 
   // ...and a foot pulling on the ground is refused by the second row even with no tangential force at all.
   wrench.setZero();
-  wrench(WRENCH_FORCE_Z_INDEX) = -50.0;
+  wrench(kWrenchForceZIndex) = -50.0;
   model_->wrenchModel().setContactWrench(slidingInput, wrench, kSwingFoot);
   const vector_t pulling = ungated.getValue(kTime, model_->nominalState(), slidingInput, preComp);
   EXPECT_GE(pulling(0), 0.0) << "the friction row alone cannot tell adhesion from load";
@@ -339,16 +344,16 @@ TEST_F(ContactConstraintScheduleGatingTest, theCenterOfPressureRowsAreHomogeneou
   // If they did, an always-active term would be violated on every foot in flight.
   const PreComputation preComp;
   const vector_t zeroInput = vector_t::Zero(model_->wrenchModel().getInputDim());
-  const std::unique_ptr<ContactMomentXYConstraintCppAd> ungated = makeCenterOfPressure(false);
+  const std::unique_ptr<ContactMomentXYConstraintCppAd> ungated = makeCenterOfPressure(/*scheduleGated=*/false);
   const vector_t value = ungated->getValue(kTime, model_->nominalState(), zeroInput, preComp);
   ASSERT_EQ(value.size(), 4);
-  EXPECT_NEAR(value.cwiseAbs().maxCoeff(), 0.0, 1e-9);
+  EXPECT_NEAR(value.cwiseAbs().maxCoeff(), 0.0, 1.0e-9);
 
   // And a center of pressure outside the footprint is still rejected: a moment with no normal force to support it.
   vector_t offFootprint = vector_t::Zero(model_->wrenchModel().getInputDim());
   vector6_t wrench = vector6_t::Zero();
-  wrench(WRENCH_FORCE_Z_INDEX) = 100.0;
-  wrench(WRENCH_TORQUE_Y_INDEX) = 100.0;  // a CoP far ahead of the toe
+  wrench(kWrenchForceZIndex) = 100.0;
+  wrench(kWrenchTorqueYIndex) = 100.0;  // a CoP far ahead of the toe
   model_->wrenchModel().setContactWrench(offFootprint, wrench, kSwingFoot);
   EXPECT_LT(ungated->getValue(kTime, model_->nominalState(), offFootprint, preComp).minCoeff(), 0.0);
 }
@@ -361,7 +366,7 @@ TEST_F(ContactConstraintScheduleGatingTest, theCenterOfPressureRowsAreHomogeneou
 TEST(ContactConeGatingPenalty, aRelaxedBarrierPushesAtZeroSlackButASquaredHingeDoesNot) {
   // Atlas's shipped center-of-pressure barrier.
   const RelaxedBarrierPenalty barrier(RelaxedBarrierPenalty::Config(0.6, 0.03));
-  EXPECT_NEAR(barrier.getDerivative(0.0, 0.0), -2.0 * 0.6 / 0.03, 1e-9);
+  EXPECT_NEAR(barrier.getDerivative(0.0, 0.0), -2.0 * 0.6 / 0.03, 1.0e-9);
   EXPECT_LT(barrier.getDerivative(0.0, 0.0), -1.0) << "a log barrier pays the solver to leave the boundary";
 
   // The squared hinge with delta = 0 is zero in value AND in gradient at zero slack, and quadratic below it.
@@ -370,8 +375,8 @@ TEST(ContactConeGatingPenalty, aRelaxedBarrierPushesAtZeroSlackButASquaredHingeD
   EXPECT_DOUBLE_EQ(hinge.getDerivative(0.0, 0.0), 0.0);
   EXPECT_DOUBLE_EQ(hinge.getValue(0.0, 1.0), 0.0);
   EXPECT_DOUBLE_EQ(hinge.getDerivative(0.0, 1.0), 0.0);
-  EXPECT_NEAR(hinge.getValue(0.0, -2.0), 0.5 * 0.6 * 4.0, 1e-12);
-  EXPECT_NEAR(hinge.getDerivative(0.0, -2.0), 0.6 * -2.0, 1e-12);
+  EXPECT_NEAR(hinge.getValue(0.0, -2.0), 0.5 * 0.6 * 4.0, 1.0e-12);
+  EXPECT_NEAR(hinge.getDerivative(0.0, -2.0), 0.6 * -2.0, 1.0e-12);
 }
 
 TEST(ContactConeGatingPenalty, theSquaredHingeIsHotReloadable) {
@@ -386,7 +391,7 @@ TEST(ContactConeGatingPenalty, theSquaredHingeIsHotReloadable) {
   ASSERT_EQ(readBack.size(), 2);
   EXPECT_DOUBLE_EQ(readBack(0), 7.0);
   EXPECT_DOUBLE_EQ(readBack(1), 0.5);
-  EXPECT_NEAR(hinge.getSecondDerivative(0.0, 0.0), 7.0, 1e-12);
+  EXPECT_NEAR(hinge.getSecondDerivative(0.0, 0.0), 7.0, 1.0e-12);
 
   vector_t wrongSize(3);
   wrongSize << 1.0, 2.0, 3.0;
@@ -400,33 +405,33 @@ TEST(ContactConeGatingPenalty, theSquaredHingeIsHotReloadable) {
 TEST_F(ContactConstraintScheduleGatingTest, theGateAndTheActiveFlagSurviveACloneOfEveryTerm) {
   // FrictionForceConeConstraint and ContactMomentXYConstraintCppAd both dropped isActive_ in their copy constructors,
   // so a deactivated term silently came back to life in every worker thread.
-  std::unique_ptr<FrictionForceConeConstraint> friction = makeFrictionCone(false);
+  std::unique_ptr<FrictionForceConeConstraint> friction = makeFrictionCone(/*scheduleGated=*/false);
   friction->setActive(false);
   const std::unique_ptr<FrictionForceConeConstraint> frictionClone(friction->clone());
   EXPECT_FALSE(frictionClone->getActive()) << "isActive_ was dropped by the copy constructor";
   EXPECT_FALSE(frictionClone->isScheduleGated());
   EXPECT_FALSE(frictionClone->isActive(kTime));
 
-  std::unique_ptr<ContactWrenchConeConstraint> cone = makeWrenchCone(false);
+  std::unique_ptr<ContactWrenchConeConstraint> cone = makeWrenchCone(/*scheduleGated=*/false);
   cone->setActive(false);
   const std::unique_ptr<ContactWrenchConeConstraint> coneClone(cone->clone());
   EXPECT_FALSE(coneClone->getActive());
   EXPECT_FALSE(coneClone->isScheduleGated());
 
-  std::unique_ptr<ContactMomentXYConstraintCppAd> centerOfPressure = makeCenterOfPressure(false);
+  std::unique_ptr<ContactMomentXYConstraintCppAd> centerOfPressure = makeCenterOfPressure(/*scheduleGated=*/false);
   centerOfPressure->setActive(false);
   const std::unique_ptr<ContactMomentXYConstraintCppAd> centerOfPressureClone(centerOfPressure->clone());
   EXPECT_FALSE(centerOfPressureClone->getActive()) << "isActive_ was dropped by the copy constructor";
   EXPECT_FALSE(centerOfPressureClone->isScheduleGated());
 
-  std::unique_ptr<BasisScalingNonNegativityConstraint> barrier = makeLambdaBarrier(false);
+  std::unique_ptr<BasisScalingNonNegativityConstraint> barrier = makeLambdaBarrier(/*scheduleGated=*/false);
   const std::unique_ptr<BasisScalingNonNegativityConstraint> barrierClone(barrier->clone());
   EXPECT_FALSE(barrierClone->isScheduleGated());
   EXPECT_TRUE(barrierClone->isActive(kTime));
 
   // And an un-gated cone's dropped offsets survive the clone too - otherwise a worker thread would enforce a
   // different cone from the one the main thread was configured with.
-  const std::unique_ptr<ContactWrenchConeConstraint> ungatedClone(makeWrenchCone(false)->clone());
+  const std::unique_ptr<ContactWrenchConeConstraint> ungatedClone(makeWrenchCone(/*scheduleGated=*/false)->clone());
   EXPECT_DOUBLE_EQ(ungatedClone->getConfig().minNormalForce, 0.0);
 }
 
@@ -444,10 +449,10 @@ TEST_F(ContactConstraintScheduleGatingTest, theUngatedLambdaBoundIsSilentAtZeroL
   // zero sits on the boundary in value AND gradient.
   const PreComputation preComp;
   const TargetTrajectories emptyTarget;
-  const std::unique_ptr<BasisScalingNonNegativityConstraint> ungated = makeLambdaBarrier(false);
-  const std::unique_ptr<BasisScalingNonNegativityConstraint> gated = makeLambdaBarrier(true);
+  const std::unique_ptr<BasisScalingNonNegativityConstraint> ungated = makeLambdaBarrier(/*scheduleGated=*/false);
+  const std::unique_ptr<BasisScalingNonNegativityConstraint> gated = makeLambdaBarrier(/*scheduleGated=*/true);
 
-  const long lambdaStart = static_cast<long>(model_->basisModel().getContactWrenchStartIndices(kSwingFoot));
+  const Eigen::Index lambdaStart = static_cast<Eigen::Index>(model_->basisModel().getContactWrenchStartIndices(kSwingFoot));
   const vector_t noLoad = vector_t::Zero(model_->basisModel().getInputDim());
 
   // Un-gated: zero cost and zero gradient at zero load, so a foot carrying nothing is charged nothing and pulled
@@ -456,7 +461,7 @@ TEST_F(ContactConstraintScheduleGatingTest, theUngatedLambdaBoundIsSilentAtZeroL
   const ScalarFunctionQuadraticApproximation ungatedApprox =
       ungated->getQuadraticApproximation(kTime, model_->nominalState(), noLoad, emptyTarget, preComp);
   for (size_t basis = 0; basis < model_->numBasisPerFoot(); ++basis) {
-    EXPECT_DOUBLE_EQ(ungatedApprox.dfdu(lambdaStart + static_cast<long>(basis)), 0.0) << "basis " << basis;
+    EXPECT_DOUBLE_EQ(ungatedApprox.dfdu(lambdaStart + static_cast<Eigen::Index>(basis)), 0.0) << "basis " << basis;
   }
   EXPECT_EQ(ungated->getPenaltyName(), "SquaredHingePenalty");
 
@@ -483,7 +488,7 @@ TEST_F(ContactConstraintScheduleGatingTest, hotReloadingTheUngatedLambdaBoundKee
   // how the equivalent hot-reload path for the cone terms was caught doing it.
   const PreComputation preComp;
   const TargetTrajectories emptyTarget;
-  const std::unique_ptr<BasisScalingNonNegativityConstraint> ungated = makeLambdaBarrier(false);
+  const std::unique_ptr<BasisScalingNonNegativityConstraint> ungated = makeLambdaBarrier(/*scheduleGated=*/false);
   ungated->setBarrierPenalty(PieceWisePolynomialBarrierPenalty::Config(0.5, 0.25));
 
   // The configured values round-trip, so the dashboard still shows what the operator typed...
@@ -491,7 +496,7 @@ TEST_F(ContactConstraintScheduleGatingTest, hotReloadingTheUngatedLambdaBoundKee
   EXPECT_DOUBLE_EQ(ungated->getBarrierConfig().delta, 0.25);
 
   // ...but the penalty's zero has not moved off the boundary.
-  const long lambdaStart = static_cast<long>(model_->basisModel().getContactWrenchStartIndices(kSwingFoot));
+  const Eigen::Index lambdaStart = static_cast<Eigen::Index>(model_->basisModel().getContactWrenchStartIndices(kSwingFoot));
   const vector_t noLoad = vector_t::Zero(model_->basisModel().getInputDim());
   EXPECT_DOUBLE_EQ(ungated->getValue(kTime, model_->nominalState(), noLoad, emptyTarget, preComp), 0.0);
   const ScalarFunctionQuadraticApproximation approx =
@@ -501,14 +506,14 @@ TEST_F(ContactConstraintScheduleGatingTest, hotReloadingTheUngatedLambdaBoundKee
   // And the new stiffness did take effect: 0.5 * mu * 1^2 with mu = 0.5.
   vector_t negativeLambda = vector_t::Zero(model_->basisModel().getInputDim());
   negativeLambda(lambdaStart) = -1.0;
-  EXPECT_NEAR(ungated->getValue(kTime, model_->nominalState(), negativeLambda, emptyTarget, preComp), 0.25, 1e-12);
+  EXPECT_NEAR(ungated->getValue(kTime, model_->nominalState(), negativeLambda, emptyTarget, preComp), 0.25, 1.0e-12);
 }
 
 TEST_F(ContactConstraintScheduleGatingTest, theUngatedLambdaBarrierPricesANegativeScalingDuringASwing) {
   const PreComputation preComp;
   const TargetTrajectories emptyTarget;
-  const std::unique_ptr<BasisScalingNonNegativityConstraint> ungated = makeLambdaBarrier(false);
-  const std::unique_ptr<BasisScalingNonNegativityConstraint> gated = makeLambdaBarrier(true);
+  const std::unique_ptr<BasisScalingNonNegativityConstraint> ungated = makeLambdaBarrier(/*scheduleGated=*/false);
+  const std::unique_ptr<BasisScalingNonNegativityConstraint> gated = makeLambdaBarrier(/*scheduleGated=*/true);
 
   // A negative basis scaling is an adhesive, outside-the-cone wrench. The complementarity penalty (f_n h)^2 is
   // sign-blind and would not object to it, so this term is the only thing that does.
@@ -523,7 +528,7 @@ TEST_F(ContactConstraintScheduleGatingTest, theUngatedLambdaBarrierPricesANegati
 
   // A non-negative scaling is (nearly) free either way: the barrier's value at zero is mu*delta^2/6.
   const vector_t zeroLambda = vector_t::Zero(model_->basisModel().getInputDim());
-  EXPECT_LT(ungated->getValue(kTime, model_->nominalState(), zeroLambda, emptyTarget, preComp), 1e-6);
+  EXPECT_LT(ungated->getValue(kTime, model_->nominalState(), zeroLambda, emptyTarget, preComp), 1.0e-6);
   EXPECT_GT(cost, ungated->getValue(kTime, model_->nominalState(), zeroLambda, emptyTarget, preComp));
 }
 
@@ -541,9 +546,9 @@ TEST_F(ContactConstraintScheduleGatingTest, theNominalInputLeavesTheScheduledSwi
       weightCompensatingInput(model_->pinocchioInterface(), model_->referenceManager().getContactFlags(kTime), model_->wrenchModel());
   const vector_t row = normalContactForceRow(model_->wrenchModel(), kSwingFoot);
   const vector_t stanceRow =
-      normalContactForceRow(model_->wrenchModel(), kSwingFoot == CONTACT_LEFT_INDEX ? CONTACT_RIGHT_INDEX : CONTACT_LEFT_INDEX);
+      normalContactForceRow(model_->wrenchModel(), kSwingFoot == kContactLeftIndex ? kContactRightIndex : kContactLeftIndex);
 
-  EXPECT_NEAR(row.dot(duringSwing), 0.0, 1e-9)
+  EXPECT_NEAR(row.dot(duringSwing), 0.0, 1.0e-9)
       << "the nominal input must give the scheduled swing foot no load: that is the only thing telling the solver "
          "which foot the plan wants in the air";
   EXPECT_GT(stanceRow.dot(duringSwing), 100.0) << "and the whole weight to the stance foot";
@@ -552,7 +557,7 @@ TEST_F(ContactConstraintScheduleGatingTest, theNominalInputLeavesTheScheduledSwi
   model_->setStance();
   const vector_t duringStance =
       weightCompensatingInput(model_->pinocchioInterface(), model_->referenceManager().getContactFlags(kTime), model_->wrenchModel());
-  EXPECT_NEAR(row.dot(duringStance), stanceRow.dot(duringStance), 1e-6);
+  EXPECT_NEAR(row.dot(duringStance), stanceRow.dot(duringStance), 1.0e-6);
   EXPECT_GT(row.dot(duringStance), 100.0);
 }
 
@@ -567,11 +572,11 @@ TEST_F(ContactConstraintScheduleGatingTest, theQuadraticCostPricesALoadedSwingFo
 
   // The schedule says the left foot is swinging. An input that loads it must cost more than one that does not, or
   // nothing in the problem prefers the gait the plan is proposing.
-  const size_t stanceFoot = kSwingFoot == CONTACT_LEFT_INDEX ? CONTACT_RIGHT_INDEX : CONTACT_LEFT_INDEX;
+  const size_t stanceFoot = kSwingFoot == kContactLeftIndex ? kContactRightIndex : kContactLeftIndex;
   const vector_t stanceCarries = model_->makeInput(model_->wrenchModel(), stanceFoot, /*normalForce=*/1600.0);
   vector_t swingAlsoCarries = model_->makeInput(model_->wrenchModel(), stanceFoot, /*normalForce=*/800.0);
   vector6_t swingWrench = vector6_t::Zero();
-  swingWrench(WRENCH_FORCE_Z_INDEX) = 800.0;
+  swingWrench(kWrenchForceZIndex) = 800.0;
   model_->wrenchModel().setContactWrench(swingAlsoCarries, swingWrench, kSwingFoot);
 
   EXPECT_LT(cost.getValue(kTime, model_->nominalState(), stanceCarries, target, preComp),
@@ -595,15 +600,15 @@ TEST_F(ContactConstraintScheduleGatingTest, theQuadraticCostPricesALoadedSwingFo
 vector_t loadedInputWithTangentialForce(const DrcAtlasContactTestModel& model, const MpcRobotModelBase<scalar_t>& robotModel) {
   vector_t input = model.makeInput(robotModel, kSwingFoot, /*normalForce=*/800.0);
   const size_t start = robotModel.getContactWrenchStartIndices(kSwingFoot);
-  if (robotModel.getContactInputDim(kSwingFoot) == CONTACT_WRENCH_DIM) {
+  if (robotModel.getContactInputDim(kSwingFoot) == kContactWrenchDim) {
     // Wrench-space: tilt the force directly.
-    input(static_cast<long>(start + WRENCH_FORCE_X_INDEX)) = 120.0;
-    input(static_cast<long>(start + WRENCH_FORCE_Y_INDEX)) = -80.0;
+    input(static_cast<Eigen::Index>(start + kWrenchForceXIndex)) = 120.0;
+    input(static_cast<Eigen::Index>(start + kWrenchForceYIndex)) = -80.0;
   } else {
     // Basis-vector: lean on two friction-pyramid edge generators, which are the first numBasisVectors columns of
     // B_local and the only ones with a tangential component.
-    input(static_cast<long>(start + 0)) += 150.0;
-    input(static_cast<long>(start + 1)) += 60.0;
+    input(static_cast<Eigen::Index>(start + 0)) += 150.0;
+    input(static_cast<Eigen::Index>(start + 1)) += 60.0;
   }
   const vector3_t force = robotModel.getContactForce(input, kSwingFoot);
   EXPECT_GT(force.head<2>().norm(), 10.0) << "the working point must have a tangential force, or the test proves nothing "
@@ -613,32 +618,32 @@ vector_t loadedInputWithTangentialForce(const DrcAtlasContactTestModel& model, c
 
 TEST_F(ContactConstraintScheduleGatingTest, theForceJacobianIsTheIdentityBlockOnTheWrenchModel) {
   const std::unique_ptr<FrictionForceConeConstraint> cone = makeFrictionCone(/*scheduleGated=*/false);
-  const matrix_t jacobian = cone->getContactForceInputJacobian();
+  const matrix_t& jacobian = cone->getContactForceInputJacobian();
 
   // The wrench model stores the force in the first three entries of a six-wide wrench block, so d(force)/d(block) is
   // [I3 | 0]. This is the case the hard-coded 3x3 happened to be right for.
   ASSERT_EQ(jacobian.rows(), 3);
-  ASSERT_EQ(jacobian.cols(), static_cast<long>(CONTACT_WRENCH_DIM));
-  EXPECT_TRUE(jacobian.leftCols<3>().isIdentity(1e-12)) << jacobian;
-  EXPECT_TRUE(jacobian.rightCols<3>().isZero(1e-12)) << "the moment cannot move the force";
+  ASSERT_EQ(jacobian.cols(), static_cast<Eigen::Index>(kContactWrenchDim));
+  EXPECT_TRUE(jacobian.leftCols<3>().isIdentity(1.0e-12)) << jacobian;
+  EXPECT_TRUE(jacobian.rightCols<3>().isZero(1.0e-12)) << "the moment cannot move the force";
 }
 
 TEST_F(ContactConstraintScheduleGatingTest, theForceJacobianIsTheBasisGeneratorsOnTheBasisModel) {
   const FrictionForceConeConstraint cone(model_->referenceManager(), FrictionForceConeConstraint::Config(), kSwingFoot,
                                          model_->basisModel(), /*scheduleGated=*/false);
-  const matrix_t jacobian = cone.getContactForceInputJacobian();
+  const matrix_t& jacobian = cone.getContactForceInputJacobian();
 
   ASSERT_EQ(jacobian.rows(), 3);
-  ASSERT_EQ(jacobian.cols(), static_cast<long>(model_->numBasisPerFoot()))
+  ASSERT_EQ(jacobian.cols(), static_cast<Eigen::Index>(model_->numBasisPerFoot()))
       << "the cone must linearize through the whole scaling block, not through three of it";
 
   // It is the force rows of B_local. Every generator of ContactWrenchConeBasisMatrix is a unit normal force applied
   // somewhere on the footprint, so the third row is all ones - the same property the load indicator rests on.
-  EXPECT_TRUE(jacobian.row(2).isOnes(1e-12)) << jacobian.row(2);
+  EXPECT_TRUE(jacobian.row(2).isOnes(1.0e-12)) << jacobian.row(2);
   EXPECT_GT(jacobian.topRows<2>().cwiseAbs().maxCoeff(), 0.1)
       << "the friction-pyramid generators must contribute tangential force, or the x and y columns are dead";
   // And it is emphatically NOT the identity the pre-fix code wrote there.
-  EXPECT_FALSE(jacobian.leftCols<3>().isIdentity(1e-9));
+  EXPECT_FALSE(jacobian.leftCols<3>().isIdentity(1.0e-9));
 }
 
 TEST_F(ContactConstraintScheduleGatingTest, theConeDerivativesMatchFiniteDifferencesOnTheWrenchModel) {
@@ -674,14 +679,15 @@ TEST_F(ContactConstraintScheduleGatingTest, theConeHessianMatchesFiniteDifferenc
       matrix_t analytic = quadratic.dfduu[constraintRow];
       analytic.diagonal().array() += config.hessianDiagonalShift;
 
-      for (long column = 0; column < input.size(); ++column) {
+      for (Eigen::Index column = 0; column < input.size(); ++column) {
         vector_t perturbed = input;
         perturbed(column) += kFiniteDifferenceStep;
         const matrix_t forward = term.getLinearApproximation(kTime, state, perturbed, preComp).dfdu;
         perturbed(column) -= 2.0 * kFiniteDifferenceStep;
         const matrix_t backward = term.getLinearApproximation(kTime, state, perturbed, preComp).dfdu;
-        const vector_t numerical = ((forward - backward) / (2.0 * kFiniteDifferenceStep)).row(static_cast<long>(constraintRow)).transpose();
-        for (long row = 0; row < numerical.size(); ++row) {
+        const vector_t numerical =
+            ((forward - backward) / (2.0 * kFiniteDifferenceStep)).row(static_cast<Eigen::Index>(constraintRow)).transpose();
+        for (Eigen::Index row = 0; row < numerical.size(); ++row) {
           EXPECT_NEAR(analytic(row, column), numerical(row), kDerivativeTol)
               << "gated: " << scheduleGated << ", constraint " << constraintRow << ", dfduu(" << row << ", " << column << ")";
         }
@@ -700,19 +706,20 @@ TEST_F(ContactConstraintScheduleGatingTest, theUngatedFrictionConeDerivativesAre
   const vector_t state = model_->nominalState();
   const PreComputation preComp;
 
-  for (const MpcRobotModelBase<scalar_t>* robotModel : {static_cast<const MpcRobotModelBase<scalar_t>*>(&model_->wrenchModel()),
-                                                        static_cast<const MpcRobotModelBase<scalar_t>*>(&model_->basisModel())}) {
+  for (const MpcRobotModelBase<scalar_t>* absl_nonnull robotModel :
+       {static_cast<const MpcRobotModelBase<scalar_t>*>(&model_->wrenchModel()),
+        static_cast<const MpcRobotModelBase<scalar_t>*>(&model_->basisModel())}) {
     const bool onBasis = robotModel == &model_->basisModel();
     // About 5 N of load and 2 N of friction: mu^2 Fz^2 is of the order of the regularization, where the two halves of the
     // friction row bend the most.
     vector_t input = model_->makeInput(*robotModel, kSwingFoot, /*normalForce=*/5.0);
-    const long start = static_cast<long>(robotModel->getContactWrenchStartIndices(kSwingFoot));
+    const Eigen::Index start = static_cast<Eigen::Index>(robotModel->getContactWrenchStartIndices(kSwingFoot));
     if (onBasis) {
       input(start + 0) += 1.5;
       input(start + 1) += 0.5;
     } else {
-      input(start + WRENCH_FORCE_X_INDEX) = 1.6;
-      input(start + WRENCH_FORCE_Y_INDEX) = -1.2;
+      input(start + kWrenchForceXIndex) = 1.6;
+      input(start + kWrenchForceYIndex) = -1.2;
     }
     const vector3_t force = robotModel->getContactForce(input, kSwingFoot);
     ASSERT_GT(force.head<2>().norm(), 0.5) << "basis: " << onBasis << ": the working point needs a tangential force";
@@ -731,14 +738,15 @@ TEST_F(ContactConstraintScheduleGatingTest, theUngatedFrictionConeDerivativesAre
     for (size_t constraintRow = 0; constraintRow < quadratic.dfduu.size(); ++constraintRow) {
       matrix_t analytic = quadratic.dfduu[constraintRow];
       analytic.diagonal().array() += config.hessianDiagonalShift;
-      for (long column = 0; column < input.size(); ++column) {
+      for (Eigen::Index column = 0; column < input.size(); ++column) {
         vector_t perturbed = input;
         perturbed(column) += kFiniteDifferenceStep;
         const matrix_t forward = ungated.getLinearApproximation(kTime, state, perturbed, preComp).dfdu;
         perturbed(column) -= 2.0 * kFiniteDifferenceStep;
         const matrix_t backward = ungated.getLinearApproximation(kTime, state, perturbed, preComp).dfdu;
-        const vector_t numerical = ((forward - backward) / (2.0 * kFiniteDifferenceStep)).row(static_cast<long>(constraintRow)).transpose();
-        for (long row = 0; row < numerical.size(); ++row) {
+        const vector_t numerical =
+            ((forward - backward) / (2.0 * kFiniteDifferenceStep)).row(static_cast<Eigen::Index>(constraintRow)).transpose();
+        for (Eigen::Index row = 0; row < numerical.size(); ++row) {
           EXPECT_NEAR(analytic(row, column), numerical(row), kDerivativeTol)
               << "basis: " << onBasis << ", constraint " << constraintRow << ", dfduu(" << row << ", " << column << ")";
         }
@@ -769,12 +777,12 @@ TEST_F(ContactConstraintScheduleGatingTest, theConeTouchesOnlyItsOwnContactsInpu
   const PreComputation preComp;
   const matrix_t dfdu = cone.getLinearApproximation(kTime, model_->nominalState(), input, preComp).dfdu;
 
-  const long start = static_cast<long>(model_->basisModel().getContactWrenchStartIndices(kSwingFoot));
-  const long width = static_cast<long>(model_->numBasisPerFoot());
+  const Eigen::Index start = static_cast<Eigen::Index>(model_->basisModel().getContactWrenchStartIndices(kSwingFoot));
+  const Eigen::Index width = static_cast<Eigen::Index>(model_->numBasisPerFoot());
   matrix_t outsideTheBlock = dfdu;
   outsideTheBlock.middleCols(start, width).setZero();
-  EXPECT_TRUE(outsideTheBlock.isZero(1e-12)) << "the cone of one foot must not put gradient on another input: " << outsideTheBlock;
-  EXPECT_GT(dfdu.middleCols(start, width).cwiseAbs().maxCoeff(), 1e-6) << "and it must put some on its own";
+  EXPECT_TRUE(outsideTheBlock.isZero(1.0e-12)) << "the cone of one foot must not put gradient on another input: " << outsideTheBlock;
+  EXPECT_GT(dfdu.middleCols(start, width).cwiseAbs().maxCoeff(), 1.0e-6) << "and it must put some on its own";
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -809,7 +817,7 @@ TEST_F(ContactConstraintScheduleGatingTest, theContactWrenchDominatesTheJointTor
   pinocchio::Data data = workingInterface.getData();
   pinocchio::nonLinearEffects(model, data, q, qd);
   const vector_t gravityOnly = data.nle.tail(jointDim);
-  EXPECT_TRUE(unloaded.isApprox(gravityOnly, 1e-9))
+  EXPECT_TRUE(unloaded.isApprox(gravityOnly, 1.0e-9))
       << "with no foot loaded the contact-aware torque must degrade to g_j(q), or the gantry case regresses";
 
   // Feet loaded: half the robot's weight up through each foot, as weightCompensatingInput produces in double support.
@@ -832,36 +840,6 @@ TEST_F(ContactConstraintScheduleGatingTest, theContactWrenchDominatesTheJointTor
 // MpcParameterUpdaterModule - that had to agree on the un-gated hinge's delta of 0, and neither was exercised: the
 // end-to-end fixtures run the basis-vector Atlas, which never asks the factory for a contact_wrench_cone.
 // ---------------------------------------------------------------------------------------------------------------
-
-/** `content` with `<key>:` of the `contacts.<block>` section (keys at four spaces) set to `value`. */
-std::string withContactsSectionValue(const std::string& content,
-                                     const std::string& block,
-                                     const std::string& key,
-                                     const std::string& value) {
-  const std::string blockLine = absl::StrCat("\n  ", block, ":");
-  const std::string::size_type blockPos = content.find(blockLine);
-  EXPECT_NE(blockPos, std::string::npos) << "the task file has no contacts." << block;
-  if (blockPos == std::string::npos) return content;
-  // The section ends at the next line indented by two spaces or fewer that is not a comment.
-  std::string::size_type blockEnd = content.size();
-  for (std::string::size_type lineStart = content.find('\n', blockPos + 1); lineStart != std::string::npos;
-       lineStart = content.find('\n', lineStart + 1)) {
-    const std::string::size_type firstChar = content.find_first_not_of(' ', lineStart + 1);
-    if (firstChar == std::string::npos) break;
-    if (content[firstChar] != '\n' && content[firstChar] != '#' && firstChar - (lineStart + 1) <= 2) {
-      blockEnd = lineStart;
-      break;
-    }
-  }
-  const std::string keyLine = absl::StrCat("\n    ", key, ":");
-  const std::string::size_type keyPos = content.find(keyLine, blockPos);
-  EXPECT_TRUE(keyPos != std::string::npos && keyPos < blockEnd) << "contacts." << block << "." << key << " is not in the task file";
-  if (keyPos == std::string::npos || keyPos >= blockEnd) return content;
-  const std::string::size_type valueStart = keyPos + keyLine.size();
-  std::string result = content;
-  result.replace(valueStart, result.find('\n', valueStart) - valueStart, absl::StrCat(" ", value));
-  return result;
-}
 
 /** The (mu, delta) parameters and the name of the penalty a cone's soft constraint carries. */
 struct InstalledPenalty {
@@ -886,55 +864,49 @@ InstalledPenalty installedPenalty(StateInputSoftConstraint& softConstraint) {
 }
 
 TEST_F(ContactConstraintScheduleGatingTest, theFactoryAndTheHotReloadKeepAnUngatedConesHingeZeroOnTheCone) {
-  const std::string reloadedTaskFile = absl::StrCat(testing::TempDir(), "/testContactConstraintScheduleGating_conePenalties.yaml");
-  std::string shipped;
-  {
-    std::ifstream in(model_->taskFile());
-    shipped.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-  }
-  ASSERT_FALSE(shipped.empty());
+  const absl::StatusOr<mpc_config::TaskFile> shipped = loadTaskFile(model_->taskFile());
+  ASSERT_TRUE(shipped.ok()) << shipped.status();
 
-  // The three cones, their task-file sections, and the (mu, delta) a reload writes: values the shipped file has for none
-  // of them, so that a parameter read back after the reload can only have come from it.
+  // The three cones, and the (mu, delta) a reload writes: values the shipped file has for none of them, so that a
+  // parameter read back after the reload can only have come from it.
   struct Cone {
-    absl::string_view termSuffix;
-    std::string section;
+    std::string termSuffix;
     scalar_t reloadedMu;
     scalar_t reloadedDelta;
   };
   const std::vector<Cone> cones = {
-      {contact_term::kContactWrenchCone, "contactWrenchConeSoftConstraint", 0.37, 4.5},
-      {contact_term::kFrictionForceCone, "frictionForceConeSoftConstraint", 0.29, 3.5},
-      {contact_term::kContactMomentXY, "contactMomentXYSoftConstraint", 0.71, 0.045},
+      {std::string(contact_term::kContactWrenchCone), 0.37, 4.5},
+      {std::string(contact_term::kFrictionForceCone), 0.29, 3.5},
+      {std::string(contact_term::kContactMomentXY), 0.71, 0.045},
   };
-  std::string reloaded = shipped;
-  for (const Cone& cone : cones) {
-    reloaded = withContactsSectionValue(reloaded, cone.section, "mu", absl::StrCat(cone.reloadedMu));
-    reloaded = withContactsSectionValue(reloaded, cone.section, "delta", absl::StrCat(cone.reloadedDelta));
-  }
+  mpc_config::TaskFile reloaded = *shipped;
+  reloaded.contacts.contact_wrench_cone_soft_constraint.mu = cones[0].reloadedMu;
+  reloaded.contacts.contact_wrench_cone_soft_constraint.delta = cones[0].reloadedDelta;
+  reloaded.contacts.friction_force_cone_soft_constraint.mu = cones[1].reloadedMu;
+  reloaded.contacts.friction_force_cone_soft_constraint.delta = cones[1].reloadedDelta;
+  reloaded.contacts.contact_moment_xy_soft_constraint.mu = cones[2].reloadedMu;
+  reloaded.contacts.contact_moment_xy_soft_constraint.delta = cones[2].reloadedDelta;
 
   for (const bool scheduleGated : {false, true}) {
     SCOPED_TRACE(scheduleGated ? "schedule-gated (zero_wrench listed)" : "un-gated (the contact-implicit formulation)");
-    {
-      std::ofstream out(reloadedTaskFile, std::ios::trunc);
-      out << shipped;
-    }
 
     // The cones exactly as the MPC interfaces build them: through the factory, on the wrench-space model.
-    const HumanoidCostConstraintFactory factory(model_->taskFile(), model_->referenceFile(), model_->referenceManager(),
+    const HumanoidCostConstraintFactory factory(&*shipped, StateInputLayout::Mpc::kCentroidal, model_->referenceManager(),
                                                 model_->pinocchioInterface(), model_->wrenchModel(), model_->adWrenchModel(),
                                                 model_->modelSettings(), /*verbose=*/false, scheduleGated);
     OptimalControlProblem problem;
     const std::vector<std::string>& contactNames = model_->modelSettings().contactNames;
     for (size_t foot = 0; foot < contactNames.size(); ++foot) {
-      absl::StatusOr<std::unique_ptr<StateInputCost>> wrenchCone = factory.getContactWrenchConeConstraint(foot);
+      absl::StatusOr<std::unique_ptr<StateInputCost>> wrenchCone = factory.makeContactWrenchConeConstraint(foot);
       ASSERT_TRUE(wrenchCone.ok()) << wrenchCone.status();
       problem.softConstraintPtr->add(contact_term::name(contactNames[foot], contact_term::kContactWrenchCone), *std::move(wrenchCone));
-      problem.softConstraintPtr->add(contact_term::name(contactNames[foot], contact_term::kFrictionForceCone),
-                                     factory.getFrictionForceConeConstraint(foot));
-      problem.softConstraintPtr->add(
-          contact_term::name(contactNames[foot], contact_term::kContactMomentXY),
-          factory.getContactMomentXYConstraint(foot, absl::StrCat("testContactConstraintScheduleGating_cop_", foot)));
+      absl::StatusOr<std::unique_ptr<StateInputCost>> frictionCone = factory.makeFrictionForceConeConstraint(foot);
+      ASSERT_TRUE(frictionCone.ok()) << frictionCone.status();
+      problem.softConstraintPtr->add(contact_term::name(contactNames[foot], contact_term::kFrictionForceCone), *std::move(frictionCone));
+      absl::StatusOr<std::unique_ptr<StateInputCost>> contactMoment =
+          factory.makeContactMomentXYConstraint(foot, absl::StrCat("testContactConstraintScheduleGating_cop_", foot));
+      ASSERT_TRUE(contactMoment.ok()) << contactMoment.status();
+      problem.softConstraintPtr->add(contact_term::name(contactNames[foot], contact_term::kContactMomentXY), *std::move(contactMoment));
     }
 
     // Built: an un-gated cone is a hinge whose zero is on the cone, a gated one the file's relaxed barrier. The gated
@@ -961,23 +933,23 @@ TEST_F(ContactConstraintScheduleGatingTest, theFactoryAndTheHotReloadKeepAnUngat
 
     // Reloaded: the updater walks every worker's copy of the problem and rewrites each cone's (mu, delta) from the file.
     const size_t inputDim = model_->wrenchModel().getInputDim();
-    const mpc::Settings mpcSettings = mpc::loadSettings(model_->taskFile(), "mpc", /*verbose=*/false);
-    const sqp::Settings sqpSettings = sqp::loadSettings(model_->taskFile(), "multiple_shooting", /*verbose=*/false);
+    const absl::StatusOr<SolverSettings> solverSettings = solverSettingsFromConfig(*shipped);
+    ASSERT_TRUE(solverSettings.ok()) << solverSettings.status();
     const DefaultInitializer initializer(inputDim);
-    SqpMpc mpc(mpcSettings, sqpSettings, problem, initializer);
-    absl::StatusOr<std::unique_ptr<MpcParameterUpdaterModule>> created = MpcParameterUpdaterModule::Create(
-        &mpc, reloadedTaskFile, /*urdfFile=*/"", model_->referenceFile(), model_->wrenchModel().getStateDim(), inputDim, contactNames);
+    SqpMpc mpc(solverSettings->mpcSettings, solverSettings->sqpSettings, problem, initializer);
+    MpcParameterUpdaterModule::Options options;
+    options.runningTask = *shipped;
+    options.layout = stateInputLayout(model_->modelSettings(), StateInputLayout::Mpc::kCentroidal);
+    options.inputDim = inputDim;
+    // The applier of the cones' penalties, the one this check is about.
+    options.appliers.push_back(std::make_unique<ConstraintPenaltiesApplier>());
+    absl::StatusOr<std::unique_ptr<MpcParameterUpdaterModule>> created = MpcParameterUpdaterModule::Create(&mpc, std::move(options));
     ASSERT_TRUE(created.ok()) << created.status();
     MpcParameterUpdaterModule& updater = **created;
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    {
-      std::ofstream out(reloadedTaskFile, std::ios::trunc);
-      out << reloaded;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    for (size_t i = 0; i < 101; ++i) {  // the file is stat-ed once every 100 pre-solve hooks
-      updater.preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, model_->nominalState(), model_->referenceManager());
-    }
+    mpc_config::MpcParameterUpdate update;
+    update.task = reloaded;
+    updater.enqueueParameterUpdate(update);
+    updater.preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, model_->nominalState(), model_->referenceManager());
 
     SqpSolver& solver = dynamic_cast<SqpSolver&>(*mpc.getSolverPtr());
     ASSERT_GT(solver.getOcpDefinitions().size(), 0U);
@@ -1001,7 +973,6 @@ TEST_F(ContactConstraintScheduleGatingTest, theFactoryAndTheHotReloadKeepAnUngat
       }
     }
   }
-  std::remove(reloadedTaskFile.c_str());
 }
 
 }  // namespace

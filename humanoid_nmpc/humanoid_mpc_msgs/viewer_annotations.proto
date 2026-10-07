@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "humanoid_mpc_msgs/target_contact_patch.proto";
+import "nproto/options.proto";
+
+// What the robot-side simulator draws about the plan but cannot compute without the MPC's own objects. Display only:
+// nothing in the control path reads it.
+// Next ID: 5
+message ViewerAnnotations {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::ViewerAnnotations";
+
+  reserved 5 to max;
+
+  // One per contact, in contact order; empty when the contact planner is not in use.
+  repeated TargetContactPatch target_contact_patches = 1;
+  // The walking command after the reference.textproto limits are applied [m/s, m/s, rad/s].
+  double scaled_velocity_x = 2;
+  double scaled_velocity_y = 3;
+  double scaled_yaw_rate = 4;
+}

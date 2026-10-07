@@ -40,6 +40,6 @@ namespace ocs2::humanoid::estimation {
  * glibc's own implementation after counting it. That catches every allocation, including Eigen's, which calls
  * std::malloc directly rather than operator new. Only for test and benchmark binaries, and only with glibc.
  */
-std::size_t heapAllocationCount();
+size_t heapAllocationCount();
 
 }  // namespace ocs2::humanoid::estimation

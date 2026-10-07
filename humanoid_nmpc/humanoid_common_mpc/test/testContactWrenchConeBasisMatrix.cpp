@@ -27,23 +27,25 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-
-#include <Eigen/Core>
 #include <algorithm>
 #include <cmath>
 #include <limits>
 #include <random>
 #include <regex>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "Eigen/Core"
+#include "absl/base/no_destructor.h"
+#include "absl/base/nullability.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
@@ -66,17 +68,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-constexpr scalar_t kTol = 1e-12;
+constexpr scalar_t kTol = 1.0e-12;
 /// Residual below which a wrench counts as reproduced, relative to its norm.
-constexpr scalar_t kRepresentableTolerance = 1e-9;
+constexpr scalar_t kRepresentableTolerance = 1.0e-9;
 /// Residual above which a wrench counts as not reproduced, relative to its norm (with a verified NNLS optimum).
-constexpr scalar_t kNotRepresentableTolerance = 1e-4;
+constexpr scalar_t kNotRepresentableTolerance = 1.0e-4;
 constexpr size_t kNumSamples = 3000;
 
 const std::vector<std::string>& allGeneratorSets() {
-  static const std::vector<std::string> sets = {std::string(kConservativeInnerApproximationGeneratorSet),
-                                                std::string(kExactWrenchConeGeneratorSet)};
-  return sets;
+  static const absl::NoDestructor<std::vector<std::string>> kSets(
+      std::vector<std::string>{std::string(kConservativeInnerApproximationGeneratorSet), std::string(kExactWrenchConeGeneratorSet)});
+  return *kSets;
 }
 
 ContactRectangle makeRectangle(scalar_t xMin, scalar_t xMax, scalar_t yMin, scalar_t yMax) {
@@ -133,7 +135,7 @@ struct GeometryCase {
 };
 
 const std::vector<GeometryCase>& geometryCases() {
-  static const std::vector<GeometryCase> cases = {
+  static const absl::NoDestructor<std::vector<GeometryCase>> kCases(std::vector<GeometryCase>{
       {4, 0.5, 0.05, -0.12, 0.12, -0.055, 0.055, vector3_t::Zero()},   // DRC Atlas
       {4, 0.5, 0.05, -0.125, 0.09, -0.035, 0.035, vector3_t::Zero()},  // EngineAI SA01: asymmetric footprint
       {8, 0.7, 0.05, -0.10, 0.10, -0.05, 0.05, vector3_t::Zero()},
@@ -141,8 +143,8 @@ const std::vector<GeometryCase>& geometryCases() {
       {6, 0.6, 0.08, -0.05, 0.20, -0.03, 0.09, vector3_t::Zero()},             // off-center footprint
       {6, 0.6, 0.08, -0.05, 0.20, -0.03, 0.09, vector3_t(0.04, 0.02, 0.0)},    // explicit patch offset
       {5, 0.3, 0.02, -0.08, 0.08, -0.04, 0.04, vector3_t(-0.08, -0.04, 0.0)},  // offset on the footprint edge
-  };
-  return cases;
+  });
+  return *kCases;
 }
 
 ContactWrenchConeConstraint::Config configFor(const GeometryCase& c) {
@@ -259,7 +261,7 @@ bool isRepresentable(const matrix_t& B, const vector6_t& wrench) {
   const vector_t lambda = solveNonNegativeLeastSquares(B, wrench);
   const vector_t residual = wrench - B * lambda;
   const vector_t gradient = B.transpose() * residual;
-  const scalar_t kktTolerance = 1e-9 * std::max(1.0, wrench.norm());
+  const scalar_t kktTolerance = 1.0e-9 * std::max(1.0, wrench.norm());
   if (lambda.minCoeff() < 0.0) {
     return ::testing::AssertionFailure() << "NNLS returned a negative scaling";
   }
@@ -331,18 +333,18 @@ void expectInvalidArgumentNaming(const ContactWrenchConeConstraint::Config& conf
 TEST(ContactWrenchConeBasisValidationTest, ConfigurationErrorsNameTheirKey) {
   for (const std::string& set : allGeneratorSets()) {
     expectInvalidArgumentNaming(makeTestConeConfig(2), makeTestContactRectangle(), set,
-                                "contacts.contactWrenchConeSoftConstraint.numBasisVectors");
+                                "contacts.contact_wrench_cone_soft_constraint.num_basis_vectors");
 
     ContactWrenchConeConstraint::Config noFriction = makeTestConeConfig();
     noFriction.frictionCoefficient = 0.0;
     expectInvalidArgumentNaming(noFriction, makeTestContactRectangle(), set,
-                                "contacts.contactWrenchConeSoftConstraint.frictionCoefficient");
+                                "contacts.contact_wrench_cone_soft_constraint.friction_coefficient");
 
     // A negative torsional coefficient used to surface as "generator 0 lies outside the cone", naming neither key.
     ContactWrenchConeConstraint::Config negativeTorsion = makeTestConeConfig();
     negativeTorsion.torsionalFrictionCoefficient = -0.05;
     expectInvalidArgumentNaming(negativeTorsion, makeTestContactRectangle(), set,
-                                "contacts.contactWrenchConeSoftConstraint.torsionalFrictionCoefficient");
+                                "contacts.contact_wrench_cone_soft_constraint.torsional_friction_coefficient");
 
     expectInvalidArgumentNaming(makeTestConeConfig(), makeRectangle(0.10, -0.10, -0.05, 0.05), set, "contacts.contact_rectangle.");
   }
@@ -363,25 +365,25 @@ TEST(ContactWrenchConeConfigValidationTest, EveryOutOfRangeValueIsRefusedNamingI
   boundary.gripperForce = 0.0;
   EXPECT_TRUE(ContactWrenchConeConstraint::validateConfig(boundary).ok());
 
-  const std::string block = "contacts.contactWrenchConeSoftConstraint.";
+  const std::string block = absl::StrCat(ContactWrenchConeConstraint::kConfigField, ".");
   std::vector<std::pair<std::string, ContactWrenchConeConstraint::Config>> bad;
-  bad.emplace_back("numBasisVectors", makeTestConeConfig(2));
-  bad.emplace_back("numBasisVectors", makeTestConeConfig(0));
+  bad.emplace_back("num_basis_vectors", makeTestConeConfig(2));
+  bad.emplace_back("num_basis_vectors", makeTestConeConfig(0));
   for (const scalar_t value : {0.0, -0.3, std::nan(""), std::numeric_limits<scalar_t>::infinity()}) {
     ContactWrenchConeConstraint::Config config = makeTestConeConfig();
     config.frictionCoefficient = value;
-    bad.emplace_back("frictionCoefficient", config);
+    bad.emplace_back("friction_coefficient", config);
   }
   for (const scalar_t value : {-0.01, std::nan("")}) {
     ContactWrenchConeConstraint::Config torsion = makeTestConeConfig();
     torsion.torsionalFrictionCoefficient = value;
-    bad.emplace_back("torsionalFrictionCoefficient", torsion);
+    bad.emplace_back("torsional_friction_coefficient", torsion);
     ContactWrenchConeConstraint::Config minForce = makeTestConeConfig();
     minForce.minNormalForce = value;
-    bad.emplace_back("minNormalForce", minForce);
+    bad.emplace_back("min_normal_force", minForce);
     ContactWrenchConeConstraint::Config gripper = makeTestConeConfig();
     gripper.gripperForce = value;
-    bad.emplace_back("gripperForce", gripper);
+    bad.emplace_back("gripper_force", gripper);
   }
   for (const std::pair<std::string, ContactWrenchConeConstraint::Config>& entry : bad) {
     SCOPED_TRACE(entry.first);
@@ -404,7 +406,7 @@ TEST(ContactWrenchConeBasisValidationDeathTest, TheConeRowsRefuseTooFewFrictionF
   // Positive control: three facets build.
   EXPECT_EQ(buildLocalWrenchConeRows(makeTestConeConfig(3), makeTestContactRectangle()).numRows(), 3u + 7u);
   EXPECT_DEATH(buildLocalWrenchConeRows(makeTestConeConfig(2), makeTestContactRectangle()),
-               "contacts\\.contactWrenchConeSoftConstraint\\.numBasisVectors");
+               "contacts\\.contact_wrench_cone_soft_constraint\\.num_basis_vectors");
 }
 
 TEST(ContactWrenchConeBasisValidationTest, PatchPointOffTheFootprintIsRejectedOnlyWhereItMatters) {
@@ -471,7 +473,7 @@ TEST(ContactWrenchConeBasisSoundnessTest, DimensionsOfEachSet) {
     const ContactWrenchConeBasisMatrix exact =
         createOrDie(makeTestConeConfig(numDirections), makeTestContactRectangle(), std::string(kExactWrenchConeGeneratorSet));
     EXPECT_EQ(exact.numBasis(), 8 * numDirections);
-    for (const ContactWrenchConeBasisMatrix* basis : {&conservative, &exact}) {
+    for (const ContactWrenchConeBasisMatrix* absl_nonnull basis : {&conservative, &exact}) {
       EXPECT_EQ(basis->getBasisMatrix().rows(), 6);
       EXPECT_EQ(static_cast<size_t>(basis->getBasisMatrix().cols()), basis->numBasis());
       EXPECT_EQ(basis->getBasisMatrixPseudoInverse().rows(), static_cast<Eigen::Index>(basis->numBasis()));
@@ -491,7 +493,7 @@ TEST(ContactWrenchConeExactSetTest, EveryWrenchOfTheConeIsANonNegativeCombinatio
     size_t numFailures = 0;
     for (const vector6_t& wrench : sampleConeWrenches(config, rectangle, kNumSamples, /*seed=*/17)) {
       // Positive control on the sampler: every sample really is a wrench wrench mode admits.
-      ASSERT_GE(worstConeRow(rows, wrench), -1e-9 * wrench.norm()) << describe(c) << ": the sampler left the cone";
+      ASSERT_GE(worstConeRow(rows, wrench), -1.0e-9 * wrench.norm()) << describe(c) << ": the sampler left the cone";
       if (!isRepresentable(exact.getBasisMatrix(), wrench)) {
         ++numFailures;
         ADD_FAILURE() << describe(c) << ": admissible wrench " << wrench.transpose() << " is not a non-negative combination";
@@ -522,7 +524,7 @@ TEST(ContactWrenchConeExactSetTest, ColumnsAreExactlyTheVerticesOfTheCone) {
               physicalWrench(frictionVertex, corner, sign * config.torsionalFrictionCoefficient, /*normalForce=*/1.0, patchPoint);
           bool found = false;
           for (size_t j = 0; j < exact.numBasis(); ++j) {
-            if (!matched[j] && (vector6_t(exact.getBasisMatrix().col(static_cast<Eigen::Index>(j))) - vertex).norm() < 1e-12) {
+            if (!matched[j] && (vector6_t(exact.getBasisMatrix().col(static_cast<Eigen::Index>(j))) - vertex).norm() < 1.0e-12) {
               matched[j] = found = true;
               break;
             }
@@ -532,7 +534,7 @@ TEST(ContactWrenchConeExactSetTest, ColumnsAreExactlyTheVerticesOfTheCone) {
       }
     }
     // NOLINTNEXTLINE(argument-comment): std::count's value parameter is a reserved name in libstdc++ (__value)
-    EXPECT_EQ(std::count(matched.begin(), matched.end(), true), static_cast<std::ptrdiff_t>(exact.numBasis())) << describe(c);
+    EXPECT_EQ(std::count(matched.begin(), matched.end(), true), static_cast<ptrdiff_t>(exact.numBasis())) << describe(c);
   }
 }
 
@@ -655,7 +657,7 @@ TEST(ContactWrenchConeConservativeSetTest, LayoutMatchesTheDocumentation) {
   for (size_t c = 0; c < corners.size(); ++c) {
     const vector6_t ray = B.col(static_cast<Eigen::Index>(N + 1 + c));
     EXPECT_TRUE(ray.head<2>().isZero(kTol));
-    EXPECT_TRUE(vector2_t(-ray(4), ray(3)).isApprox(corners[c], 1e-12)) << "CoP ray " << c;
+    EXPECT_TRUE(vector2_t(-ray(4), ray(3)).isApprox(corners[c], 1.0e-12)) << "CoP ray " << c;
   }
   // Columns N+5, N+6: the torsional limit of either sign, tau_z = +/- mu_torsion * Fz (not its reciprocal).
   EXPECT_NEAR(B(/*row=*/5, static_cast<Eigen::Index>(N + 5)), config.torsionalFrictionCoefficient, kTol);
@@ -672,14 +674,14 @@ TEST(ContactWrenchConeBasisAlgebraTest, PseudoinverseAndNullSpaceProjectorOfEver
     const matrix_t& P = basis.getNullSpaceProjector();
     const Eigen::Index n = B.cols();
     // B has full row rank, so B B+ is the identity on the whole wrench space.
-    EXPECT_TRUE((B * Bpinv).isApprox(matrix_t::Identity(6, 6), 1e-10)) << set;
+    EXPECT_TRUE((B * Bpinv).isApprox(matrix_t::Identity(6, 6), 1.0e-10)) << set;
     ASSERT_EQ(P.rows(), n);
     ASSERT_EQ(P.cols(), n);
-    EXPECT_LE((P - P.transpose()).cwiseAbs().maxCoeff(), 1e-14) << set << ": the projector must be symmetric";
-    EXPECT_LE((P * P - P).cwiseAbs().maxCoeff(), 1e-10) << set << ": the projector must be idempotent";
-    EXPECT_LE((B * P).cwiseAbs().maxCoeff(), 1e-10) << set << ": the projector must map into null(B)";
-    EXPECT_NEAR(P.trace(), static_cast<scalar_t>(n - 6), 1e-9) << set << ": null(B) has dimension numBasis - 6";
-    EXPECT_LE((P * B.transpose()).cwiseAbs().maxCoeff(), 1e-10) << set << ": the projector must vanish on range(B^T)";
+    EXPECT_LE((P - P.transpose()).cwiseAbs().maxCoeff(), 1.0e-14) << set << ": the projector must be symmetric";
+    EXPECT_LE((P * P - P).cwiseAbs().maxCoeff(), 1.0e-10) << set << ": the projector must be idempotent";
+    EXPECT_LE((B * P).cwiseAbs().maxCoeff(), 1.0e-10) << set << ": the projector must map into null(B)";
+    EXPECT_NEAR(P.trace(), static_cast<scalar_t>(n - 6), 1.0e-9) << set << ": null(B) has dimension numBasis - 6";
+    EXPECT_LE((P * B.transpose()).cwiseAbs().maxCoeff(), 1.0e-10) << set << ": the projector must vanish on range(B^T)";
   }
 }
 
@@ -688,7 +690,7 @@ TEST(ContactWrenchConeBasisAlgebraTest, PseudoinverseAndNullSpaceProjectorOfEver
 TEST(NonNegativeLeastSquaresTest, SolvesSmallProblemsWithKnownAnswers) {
   // Identity: the answer is the clamped right-hand side.
   const vector_t clamped = solveNonNegativeLeastSquares(matrix_t::Identity(3, 3), (vector_t(3) << 1.0, -2.0, 3.0).finished());
-  EXPECT_TRUE(clamped.isApprox((vector_t(3) << 1.0, 0.0, 3.0).finished(), 1e-14)) << clamped.transpose();
+  EXPECT_TRUE(clamped.isApprox((vector_t(3) << 1.0, 0.0, 3.0).finished(), 1.0e-14)) << clamped.transpose();
   // A right-hand side generated by a sparse non-negative combination is reproduced exactly.
   std::mt19937 gen(3);
   std::uniform_real_distribution<scalar_t> entry(-1.0, 1.0);
@@ -701,7 +703,7 @@ TEST(NonNegativeLeastSquaresTest, SolvesSmallProblemsWithKnownAnswers) {
     const vector_t b = A * xTrue;
     const vector_t x = solveNonNegativeLeastSquares(A, b);
     EXPECT_GE(x.minCoeff(), 0.0);
-    EXPECT_LE((A * x - b).norm(), 1e-10 * b.norm()) << "trial " << trial;
+    EXPECT_LE((A * x - b).norm(), 1.0e-10 * b.norm()) << "trial " << trial;
   }
   // The zero right-hand side gives the zero solution.
   EXPECT_TRUE(solveNonNegativeLeastSquares(matrix_t::Identity(3, 5), vector_t::Zero(3)).isZero(0.0));
@@ -724,7 +726,7 @@ TEST(NonNegativeBasisScalingsTest, ReproduceEveryWrenchOfTheConeEvenWhenTheMinim
       }
       ++numExercised;
       // Positive control: clamping the minimum-norm scalings, the old behavior, does NOT reproduce this wrench.
-      EXPECT_GT((B * minimumNorm.cwiseMax(0.0) - wrench).norm(), 1e-3 * wrench.norm()) << set;
+      EXPECT_GT((B * minimumNorm.cwiseMax(0.0) - wrench).norm(), 1.0e-3 * wrench.norm()) << set;
       const vector_t lambda = basis.solveNonNegativeScalings(wrench);
       EXPECT_GE(lambda.minCoeff(), 0.0) << set;
       EXPECT_LE((B * lambda - wrench).norm(), kRepresentableTolerance * wrench.norm())
@@ -758,7 +760,7 @@ TEST(NonNegativeBasisScalingsTest, ReplaceAWrenchOutsideTheConeByTheClosestOneIn
     ASSERT_LT(worstConeRow(rows, outside), 0.0);
     const vector_t lambda = basis.solveNonNegativeScalings(outside);
     EXPECT_GE(lambda.minCoeff(), 0.0) << set;
-    EXPECT_GE(worstConeRow(rows, vector6_t(basis.getBasisMatrix() * lambda)), -1e-9 * outside.norm()) << set;
+    EXPECT_GE(worstConeRow(rows, vector6_t(basis.getBasisMatrix() * lambda)), -1.0e-9 * outside.norm()) << set;
     EXPECT_TRUE(isProvablyNotRepresentable(basis.getBasisMatrix(), outside)) << set;
   }
 }
@@ -809,13 +811,13 @@ TEST(BasisInputsLibraryKeyTest, IgnoresRoundOffButNotRealChanges) {
   const feet_array_t<matrix_t> reference =
       basesFor(makeTestConeConfig(), makeTestContactRectangle(), std::string(kConservativeInnerApproximationGeneratorSet));
   feet_array_t<matrix_t> roundOff = reference;
-  roundOff[0](0, 0) *= 1.0 + 1e-15;
+  roundOff[0](0, 0) *= 1.0 + 1.0e-15;
   ASSERT_EQ(roundOff[1](0, 4), 0.0) << "the pure normal ray (column N = 4) has no tangential force";
-  roundOff[1](0, 4) = -0.0;   // the sign of a zero entry
-  roundOff[0](1, 4) = 6e-17;  // a zero that a libm computed as cos(pi / 2)
+  roundOff[1](0, 4) = -0.0;     // the sign of a zero entry
+  roundOff[0](1, 4) = 6.0e-17;  // a zero that a libm computed as cos(pi / 2)
   EXPECT_EQ(basisContentHash(roundOff), basisContentHash(reference));
   feet_array_t<matrix_t> changed = reference;
-  changed[0](0, 0) += 1e-6;
+  changed[0](0, 0) += 1.0e-6;
   EXPECT_NE(basisContentHash(changed), basisContentHash(reference));
 }
 

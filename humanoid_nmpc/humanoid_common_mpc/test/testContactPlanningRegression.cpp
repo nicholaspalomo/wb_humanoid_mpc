@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -40,8 +44,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * and review the diff of the fixture files.
  */
 
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -53,19 +55,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <set>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
-
+#include "absl/base/nullability.h"
 #include "absl/log/log.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "gtest/gtest.h"
+
+#include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
 
 namespace ocs2::humanoid {
 
 namespace {
 
-constexpr const char* kFixtureDir = "humanoid_nmpc/humanoid_common_mpc/test/data/contact_planning";
+constexpr char kFixtureDir[] = "humanoid_nmpc/humanoid_common_mpc/test/data/contact_planning";
 
 ContactPlanningConfig makeConfig(bool heading) {
   ContactPlanningConfig config;
@@ -139,16 +145,16 @@ std::vector<std::pair<std::string, ContactPlannerInput>> corpus() {
 
 /*---------------------------------------------- hashing ----------------------------------------------*/
 
-constexpr scalar_t kQuantum = 1e-9;
+constexpr scalar_t kQuantum = 1.0e-9;
 
-std::int64_t quantize(scalar_t v) {
-  return static_cast<std::int64_t>(std::llround(v / kQuantum));
+int64_t quantize(scalar_t v) {
+  return static_cast<int64_t>(std::llround(v / kQuantum));
 }
 
 struct Fnv {
-  std::uint64_t h = 1469598103934665603ull;
-  void add(std::int64_t v) {
-    const std::uint64_t u = static_cast<std::uint64_t>(v);
+  uint64_t h = 1469598103934665603ull;
+  void add(int64_t v) {
+    const uint64_t u = static_cast<uint64_t>(v);
     for (int i = 0; i < 8; ++i) {
       h ^= (u >> (8 * i)) & 0xffu;
       h *= 1099511628211ull;
@@ -167,7 +173,7 @@ std::pair<int, std::string> hashMatrix(const matrix_t& m) {
   int nnz = 0;
   for (Eigen::Index i = 0; i < m.rows(); ++i) {
     for (Eigen::Index j = 0; j < m.cols(); ++j) {
-      const std::int64_t q = quantize(m(i, j));
+      const int64_t q = quantize(m(i, j));
       if (q == 0) continue;
       ++nnz;
       fnv.add(i);
@@ -194,18 +200,18 @@ std::string hashBounds(const OcpQpStage& s) {
 
 /** The general rows as a set: sorted records of coefficients, bounds, softness and penalty. */
 std::string hashRows(const OcpQpStage& s) {
-  std::vector<std::vector<std::int64_t>> records;
+  std::vector<std::vector<int64_t>> records;
   for (int i = 0; i < s.numGeneralConstraints(); ++i) {
-    std::vector<std::int64_t> record;
+    std::vector<int64_t> record;
     for (int j = 0; j < s.C.cols(); ++j) record.push_back(quantize(s.C(i, j)));
     for (int j = 0; j < s.D.cols(); ++j) record.push_back(quantize(s.D(i, j)));
-    record.push_back(quantize(std::max(s.lg(i), -1e7)));
-    record.push_back(quantize(std::min(s.ug(i), 1e7)));
+    record.push_back(quantize(std::max(s.lg(i), -1.0e7)));
+    record.push_back(quantize(std::min(s.ug(i), 1.0e7)));
     const std::vector<int>::const_iterator soft = std::find(s.softGeneralIndices.begin(), s.softGeneralIndices.end(), i);
     if (soft == s.softGeneralIndices.end()) {
       record.insert(record.end(), {0, 0, 0});
     } else {
-      const long k = soft - s.softGeneralIndices.begin();
+      const Eigen::Index k = soft - s.softGeneralIndices.begin();
       record.push_back(1);
       record.push_back(quantize(s.Zl(k)));
       record.push_back(quantize(s.zl(k)));
@@ -214,8 +220,8 @@ std::string hashRows(const OcpQpStage& s) {
   }
   std::sort(records.begin(), records.end());
   Fnv fnv;
-  for (const std::vector<std::int64_t>& record : records) {
-    for (const std::int64_t v : record) fnv.add(v);
+  for (const std::vector<int64_t>& record : records) {
+    for (const int64_t v : record) fnv.add(v);
   }
   return fnv.hex();
 }
@@ -243,17 +249,17 @@ Fixture readFixture(const std::string& file) {
   return fixture;
 }
 
-const char* regenerateDir() {
+const char* absl_nullable regenerateDir() {
   return std::getenv("REGENERATE_CONTACT_PLANNING_FIXTURES");
 }
 
-std::string fixturePath(const char* name) {
-  const char* dir = regenerateDir();
+std::string fixturePath(const char* absl_nonnull name) {
+  const char* absl_nullable dir = regenerateDir();
   return std::string(dir != nullptr ? dir : kFixtureDir) + "/" + name;
 }
 
 /** Writes the fixture when regenerating; otherwise compares it line by line with the recorded one. */
-void checkOrRecord(const char* name, const Fixture& fixture, const char* header) {
+void checkOrRecord(const char* absl_nonnull name, const Fixture& fixture, const char* absl_nonnull header) {
   const std::string path = fixturePath(name);
   if (regenerateDir() != nullptr) {
     std::ofstream out(path);
@@ -286,7 +292,7 @@ std::string formatNumbers(const std::vector<scalar_t>& values, int precision) {
 std::vector<scalar_t> parseNumbers(const std::string& text) {
   std::vector<scalar_t> values;
   std::istringstream in(text);
-  scalar_t v;
+  scalar_t v = 0.0;
   while (in >> v) values.push_back(v);
   return values;
 }
@@ -303,7 +309,7 @@ TEST(ContactPlanningRegression, AssembledProblemsMatchTheRecordedFormulation) {
       const std::string& name = named.first;
       const ContactPlannerInput& input = named.second;
       const std::string prefix = name + (heading ? ".heading" : ".lip");
-      const OcpQpProblem problem = planner->buildProblem(input);
+      const OcpQpProblem problem = planner->buildProblem(input).value();
       fixture.emplace_back(
           prefix + ".x0", formatNumbers(std::vector<scalar_t>(problem.x0.data(), problem.x0.data() + problem.x0.size()), /*precision=*/12));
       for (size_t k = 0; k < problem.stages.size(); ++k) {
@@ -312,10 +318,10 @@ TEST(ContactPlanningRegression, AssembledProblemsMatchTheRecordedFormulation) {
         std::ostringstream dims;
         dims << s.numStates() << " " << s.numInputs() << " " << s.numGeneralConstraints() << " " << s.softGeneralIndices.size();
         fixture.emplace_back(stage + ".dims", dims.str());
-        const std::function<void(const char*, const std::pair<int, std::string>&)> entry = [&](const char* what,
-                                                                                               const std::pair<int, std::string>& h) {
-          fixture.emplace_back(stage + "." + what, std::to_string(h.first) + " " + h.second);
-        };
+        const std::function<void(const char* absl_nonnull, const std::pair<int, std::string>&)> entry =
+            [&](const char* absl_nonnull what, const std::pair<int, std::string>& h) {
+              fixture.emplace_back(stage + "." + what, std::to_string(h.first) + " " + h.second);
+            };
         entry("Q", hashMatrix(s.Q));
         entry("R", hashMatrix(s.R));
         entry("S", hashMatrix(s.S));
@@ -371,7 +377,7 @@ TEST(ContactPlanningRegression, FeasibleAssignmentsMatchTheRecordedRules) {
   const std::vector<LogicCase> cases{{0.0, 0.0, true}, {0.0, 0.1, true}, {0.4, 0.1, true}, {0.4, 0.15, false}, {0.0, 0.0, false}};
   Fixture fixture;
   for (size_t c = 0; c < cases.size(); ++c) {
-    ContactPlanningConfig config = makeConfig(false);
+    ContactPlanningConfig config = makeConfig(/*heading=*/false);
     config.planner.numNodes = 6;
     config.shared.gaitLimits.maxContactDuration = cases[c].maxContactDuration;
     config.shared.gaitLimits.minDoubleSupportDuration = cases[c].minDoubleSupportDuration;
@@ -389,7 +395,7 @@ TEST(ContactPlanningRegression, FeasibleAssignmentsMatchTheRecordedRules) {
       unsigned digit = 0;
       for (int code = 0; code < (1 << numBinaries); ++code) {
         MiqpAssignment a(static_cast<size_t>(numBinaries));
-        for (int i = 0; i < numBinaries; ++i) a[static_cast<size_t>(i)] = static_cast<std::int8_t>((code >> i) & 1);
+        for (int i = 0; i < numBinaries; ++i) a[static_cast<size_t>(i)] = static_cast<int8_t>((code >> i) & 1);
         const bool ok = planner->propagate(input, a);
         if (ok) {
           ++numFeasible;
@@ -519,7 +525,7 @@ std::string describeAssignment(const MiqpAssignment& a) {
 
 bool agrees(const MiqpAssignment& partial, int code) {
   for (size_t i = 0; i < partial.size(); ++i) {
-    if (partial[i] != kMiqpFree && partial[i] != static_cast<std::int8_t>((code >> i) & 1)) return false;
+    if (partial[i] != kMiqpFree && partial[i] != static_cast<int8_t>((code >> i) & 1)) return false;
   }
   return true;
 }
@@ -568,7 +574,7 @@ SearchTreeAudit auditSearchTree(const LipContactPlanner& planner, const ContactP
   for (int code = 0; code < (1 << numBinaries); ++code) {
     if (!agrees(initial, code)) continue;
     MiqpAssignment complete(static_cast<size_t>(numBinaries));
-    for (int i = 0; i < numBinaries; ++i) complete[static_cast<size_t>(i)] = static_cast<std::int8_t>((code >> i) & 1);
+    for (int i = 0; i < numBinaries; ++i) complete[static_cast<size_t>(i)] = static_cast<int8_t>((code >> i) & 1);
     if (planner.propagate(input, complete)) feasible.push_back(code);
   }
   audit.numFeasibleCompletions = static_cast<int>(feasible.size());
@@ -586,7 +592,7 @@ SearchTreeAudit auditSearchTree(const LipContactPlanner& planner, const ContactP
     ++audit.numPartialAssignments;
     for (size_t i = 0; i < parent.size(); ++i) {
       if (parent[i] != kMiqpFree) continue;
-      for (const std::int8_t value : {std::int8_t(0), std::int8_t(1)}) {
+      for (const int8_t value : {static_cast<int8_t>(0), static_cast<int8_t>(1)}) {
         MiqpAssignment child = parent;
         child[i] = value;
         MiqpAssignment propagated = child;
@@ -602,10 +608,10 @@ SearchTreeAudit auditSearchTree(const LipContactPlanner& planner, const ContactP
 
 /** The audit of every case and input, computed once for both tests below. */
 const std::vector<std::pair<std::string, SearchTreeAudit>>& searchTreeAudits() {
-  static const std::vector<std::pair<std::string, SearchTreeAudit>> audits = [] {
+  static const std::vector<std::pair<std::string, SearchTreeAudit>> kAudits = [] {
     std::vector<std::pair<std::string, SearchTreeAudit>> result;
     for (const SoundnessCase& soundnessCase : soundnessCases()) {
-      ContactPlanningConfig config = makeConfig(false);
+      ContactPlanningConfig config = makeConfig(/*heading=*/false);
       config.planner.numNodes = 5;
       config.shared.gaitLimits.minSwingDuration = soundnessCase.minSwingDuration;
       config.shared.gaitLimits.maxSwingDuration = soundnessCase.maxSwingDuration;
@@ -623,7 +629,7 @@ const std::vector<std::pair<std::string, SearchTreeAudit>>& searchTreeAudits() {
     }
     return result;
   }();
-  return audits;
+  return kAudits;
 }
 
 }  // namespace
@@ -675,7 +681,7 @@ TEST(ContactPlanningRegression, RecedingHorizonPlansMatchTheRecordedWalks) {
       std::vector<scalar_t> trajectory;
       for (int k = 0; k <= plan.numIntervals(); ++k) {
         for (int axis = 0; axis < 2; ++axis) trajectory.push_back(plan.comPosition[k](axis));
-        for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+        for (size_t foot = 0; foot < kNumContacts; ++foot) {
           for (int axis = 0; axis < 2; ++axis) trajectory.push_back(plan.footholds[k][foot](axis));
         }
         if (heading) trajectory.push_back(plan.heading[k]);
@@ -685,7 +691,7 @@ TEST(ContactPlanningRegression, RecedingHorizonPlansMatchTheRecordedWalks) {
       // Advance one node along the plan (no commit window in this configuration).
       const scalar_t nextTime = input.time + config.planner.dt;
       const contact_flag_t contactsNext = plan.contactsAtTime(nextTime);
-      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      for (size_t foot = 0; foot < kNumContacts; ++foot) {
         input.phaseElapsedTime[foot] =
             (contactsNext[foot] == input.contacts[foot]) ? input.phaseElapsedTime[foot] + config.planner.dt : 0.0;
         if (input.contacts[foot] && !contactsNext[foot]) input.lastSwungFoot = static_cast<int>(foot);
@@ -719,14 +725,14 @@ TEST(ContactPlanningRegression, RecedingHorizonPlansMatchTheRecordedWalks) {
     const std::string& value = entry.second;
     const std::map<std::string, std::string>::const_iterator it = recordedByKey.find(key);
     ASSERT_NE(it, recordedByKey.end()) << "no recorded entry for " << key;
-    if (key.find(".contacts") != std::string::npos) {
+    if (absl::StrContains(key, ".contacts")) {
       EXPECT_EQ(it->second, value) << key << " changed";
     } else {
       const std::vector<scalar_t> expected = parseNumbers(it->second);
       const std::vector<scalar_t> actual = parseNumbers(value);
       ASSERT_EQ(expected.size(), actual.size()) << key;
       for (size_t i = 0; i < expected.size(); ++i) {
-        EXPECT_NEAR(actual[i], expected[i], 1e-6) << key << " entry " << i;
+        EXPECT_NEAR(actual[i], expected[i], 1.0e-6) << key << " entry " << i;
       }
     }
   }

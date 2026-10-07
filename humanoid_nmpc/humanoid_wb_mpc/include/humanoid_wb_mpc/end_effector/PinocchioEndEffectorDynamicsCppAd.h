@@ -31,17 +31,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
-#include <ocs2_core/Types.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-#include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
+#include "absl/base/nullability.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/automatic_differentiation/CppAdInterface.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "ocs2_pinocchio_interface/PinocchioStateInputMapping.h"
 
-#include <ocs2_core/automatic_differentiation/CppAdInterface.h>
-
-#include <humanoid_wb_mpc/common/WBAccelMpcRobotModel.h>
-#include <humanoid_wb_mpc/end_effector/EndEffectorDynamics.h>
+#include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
+#include "humanoid_wb_mpc/end_effector/EndEffectorDynamics.h"
 
 namespace ocs2::humanoid {
 
@@ -61,7 +62,7 @@ class PinocchioEndEffectorDynamicsCppAd final : public EndEffectorDynamics<scala
   using EndEffectorKinematics<scalar_t>::matrix6x_t;
   using EndEffectorKinematics<scalar_t>::quaternion_t;
   using EndEffectorKinematics<scalar_t>::vector_t;
-  using update_pinocchio_interface_callback =
+  using UpdatePinocchioInterfaceCallback =
       std::function<void(const ad_vector_t& state, PinocchioInterfaceTpl<ad_scalar_t>& pinocchioInterface)>;
 
   /** Constructor
@@ -97,14 +98,16 @@ class PinocchioEndEffectorDynamicsCppAd final : public EndEffectorDynamics<scala
   PinocchioEndEffectorDynamicsCppAd(const PinocchioInterface& pinocchioInterface,
                                     WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
                                     std::vector<std::string> endEffectorIds,
-                                    update_pinocchio_interface_callback updateCallback,
+                                    UpdatePinocchioInterfaceCallback updateCallback,
                                     const std::string& modelName,
                                     const std::string& modelFolder = "/tmp/ocs2",
                                     bool recompileLibraries = true,
                                     bool verbose = false);
 
   ~PinocchioEndEffectorDynamicsCppAd() override = default;
-  PinocchioEndEffectorDynamicsCppAd* clone() const override;
+  PinocchioEndEffectorDynamicsCppAd(PinocchioEndEffectorDynamicsCppAd&&) = delete;
+  PinocchioEndEffectorDynamicsCppAd& operator=(PinocchioEndEffectorDynamicsCppAd&&) = delete;
+  PinocchioEndEffectorDynamicsCppAd* absl_nonnull clone() const override;
   PinocchioEndEffectorDynamicsCppAd& operator=(const PinocchioEndEffectorDynamicsCppAd&) = delete;
 
   const std::vector<std::string>& getIds() const override;
@@ -170,7 +173,7 @@ class PinocchioEndEffectorDynamicsCppAd final : public EndEffectorDynamics<scala
   std::vector<size_t> endEffectorFrameIds_;
 
   PinocchioInterfaceCppAd pinocchioInterfaceCppAd_;
-  WBAccelMpcRobotModel<ad_scalar_t>* mappingPtr_;
+  WBAccelMpcRobotModel<ad_scalar_t>* absl_nonnull mappingPtr_;
 };
 
 }  // namespace ocs2::humanoid

@@ -29,6 +29,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include "humanoid_wb_mpc/constraint/SwingLegVerticalConstraintCppAd.h"
+
+#include <memory>
+#include <utility>
+
+#include "absl/memory/memory.h"
+#include "absl/status/statusor.h"
+
+#include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_wb_mpc/WBMpcPreComputation.h"
 
 namespace ocs2::humanoid {
@@ -37,12 +45,25 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
+absl::StatusOr<std::unique_ptr<SwingLegVerticalConstraintCppAd>> SwingLegVerticalConstraintCppAd::Create(
+    const SwitchedModelReferenceManager& referenceManager,
+    const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
+    size_t contactPointIndex) {
+  ASSIGN_OR_RETURN(std::unique_ptr<EndEffectorDynamicsLinearAccConstraint> eeLinearConstraint,
+                   EndEffectorDynamicsLinearAccConstraint::Create(endEffectorDynamics, /*numConstraints=*/1));
+  return absl::WrapUnique(new SwingLegVerticalConstraintCppAd(referenceManager, std::move(eeLinearConstraint), contactPointIndex));
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
 SwingLegVerticalConstraintCppAd::SwingLegVerticalConstraintCppAd(const SwitchedModelReferenceManager& referenceManager,
-                                                                 const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
+                                                                 std::unique_ptr<EndEffectorDynamicsLinearAccConstraint> eeLinearConstraint,
                                                                  size_t contactPointIndex)
     : StateInputConstraint(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
-      eeLinearConstraintPtr_(new EndEffectorDynamicsLinearAccConstraint(endEffectorDynamics, /*numConstraints=*/1)),
+      eeLinearConstraintPtr_(std::move(eeLinearConstraint)),
       contactPointIndex_(contactPointIndex) {}
 
 /******************************************************************************************************/

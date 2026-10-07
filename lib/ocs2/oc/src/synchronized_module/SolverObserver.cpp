@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_oc/synchronized_module/SolverObserver.h"
 
+#include "absl/base/nullability.h"
+
 #include "ocs2_oc/oc_problem/OptimalControlProblemHelperFunction.h"
 
 namespace ocs2 {
@@ -60,7 +62,7 @@ void SolverObserver::extractTermConstraint(const OptimalControlProblem& ocp, con
   bool termIsFound = true;
   switch (type_) {
     case Type::Final: {
-      const auto* termConstraintPtr = extractFinalTermConstraint(ocp, termName_, problemMetrics.final);
+      const vector_t* absl_nullable termConstraintPtr = extractFinalTermConstraint(ocp, termName_, problemMetrics.final);
       termIsFound = termConstraintPtr != nullptr;
       if (termIsFound) {
         const scalar_array_t timeArray{primalSolution.timeTrajectory_.back()};
@@ -110,7 +112,7 @@ void SolverObserver::extractTermLagrangianMetrics(const OptimalControlProblem& o
   bool termIsFound = true;
   switch (type_) {
     case Type::Final: {
-      const auto* lagrangianMetricsPtr = extractFinalTermLagrangianMetrics(ocp, termName_, problemMetrics.final);
+      const LagrangianMetrics* absl_nullable lagrangianMetricsPtr = extractFinalTermLagrangianMetrics(ocp, termName_, problemMetrics.final);
       termIsFound = lagrangianMetricsPtr != nullptr;
       if (termIsFound) {
         const scalar_array_t timeArray{primalSolution.timeTrajectory_.back()};
@@ -159,7 +161,7 @@ void SolverObserver::extractTermMultipliers(const OptimalControlProblem& ocp, co
   bool termIsFound = true;
   switch (type_) {
     case Type::Final: {
-      const auto* multiplierPtr = extractFinalTermMultiplier(ocp, termName_, dualSolution.final);
+      const Multiplier* absl_nullable multiplierPtr = extractFinalTermMultiplier(ocp, termName_, dualSolution.final);
       termIsFound = multiplierPtr != nullptr;
       if (termIsFound) {
         const scalar_array_t timeArray{dualSolution.timeTrajectory.back()};

@@ -31,8 +31,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <utility>
 
+#include <ocs2_oc/oc_data/StateTrajectoryInterpolation.h>
 #include <ocs2_oc/rollout/TimeTriggeredRollout.h>
 
+#include "absl/base/nullability.h"
 #include "absl/log/log.h"
 
 namespace ocs2 {
@@ -112,7 +114,7 @@ const PerformanceIndex& MRT_BASE::getPerformanceIndices() const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void MRT_BASE::initRollout(const RolloutBase* rolloutPtr) {
+void MRT_BASE::initRollout(const RolloutBase* absl_nonnull rolloutPtr) {
   rolloutPtr_.reset(rolloutPtr->clone());
 }
 
@@ -130,8 +132,8 @@ void MRT_BASE::evaluatePolicy(scalar_t currentTime, const vector_t& currentState
   }
 
   mpcInput = activePrimalSolutionPtr_->controllerPtr_->computeInput(currentTime, currentState);
-  mpcState =
-      LinearInterpolation::interpolate(currentTime, activePrimalSolutionPtr_->timeTrajectory_, activePrimalSolutionPtr_->stateTrajectory_);
+  mpcState = interpolateStateTrajectory(stateManifoldPtr_.get(), currentTime, activePrimalSolutionPtr_->timeTrajectory_,
+                                        activePrimalSolutionPtr_->stateTrajectory_);
 
   mode = activePrimalSolutionPtr_->modeSchedule_.modeAtTime(currentTime);
 }

@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/initialization/Initializer.h>
 #include <ocs2_core/integration/SensitivityIntegrator.h>
 #include <ocs2_core/misc/Benchmark.h>
@@ -65,7 +67,9 @@ class SqpSolver : public SolverBase {
 
   scalar_t getFinalTime() const override { return primalSolution_.timeTrajectory_.back(); };
 
-  void getPrimalSolution(scalar_t finalTime, PrimalSolution* primalSolutionPtr) const override { *primalSolutionPtr = primalSolution_; }
+  void getPrimalSolution(scalar_t finalTime, PrimalSolution* absl_nonnull primalSolutionPtr) const override {
+    *primalSolutionPtr = primalSolution_;
+  }
 
   const ProblemMetrics& getSolutionMetrics() const override { return problemMetrics_; }
 
@@ -97,6 +101,25 @@ class SqpSolver : public SolverBase {
   sqp::Settings& getSettings() { return settings_; }
   const sqp::Settings& getSettings() const { return settings_; }
 
+  /**
+   * The settings that may change between two solves, which a live retuning of the solver writes (the parameter updater
+   * of humanoid_nmpc). Every other setting was used at construction to build an object of the solver (the thread pool,
+   * HPIPM, the logger, the discretizers) and cannot follow a change, so it cannot be passed here.
+   */
+  struct LiveSettings {
+    size_t sqpIteration = 0;  // sqp::Settings::sqpIteration
+    scalar_t deltaTol = 0.0;  // sqp::Settings::deltaTol
+    scalar_t gMax = 0.0;      // sqp::Settings::g_max
+    scalar_t gMin = 0.0;      // sqp::Settings::g_min
+  };
+
+  /**
+   * Writes `liveSettings` into the settings and into the line search, which copied g_max and g_min at construction, so
+   * that the next solve runs exactly as a solver constructed with them would. Touches nothing else. Call it between two
+   * solves, from the thread that runs them; not thread-safe.
+   */
+  void setLiveSettings(const LiveSettings& liveSettings);
+
   /** All timings are expressed in milliseconds */
   struct Benchmarks {
     scalar_t linearQuadraticApproximationTime;
@@ -106,10 +129,22 @@ class SqpSolver : public SolverBase {
   };
   Benchmarks getBenchmarks() const;
 
+  /**
+   * delta_x0 of the first iteration of the last solve: the step from the warm-started node 0 (the previous solution after
+   * trajectorySpread, interpolated at the initial time, or the initial state when there is none) to the initial state,
+   * initState - x[0] on a flat state and difference(x[0], initState) on a manifold. This is the initial-state gap the QP
+   * eliminates, after a reset as well (then it is zero). Empty before the first solve and after reset(). Recorded only;
+   * nothing in the solve reads it.
+   */
+  const vector_t& getInitialStateGap() const { return initialStateGap_; }
+
  private:
   void runImpl(scalar_t initTime, const vector_t& initState, scalar_t finalTime) override;
 
-  void runImpl(scalar_t initTime, const vector_t& initState, scalar_t finalTime, const ControllerBase* externalControllerPtr) override {
+  void runImpl(scalar_t initTime,
+               const vector_t& initState,
+               scalar_t finalTime,
+               const ControllerBase* absl_nullable externalControllerPtr) override {
     if (externalControllerPtr == nullptr) {
       runImpl(initTime, initState, finalTime);
     } else {
@@ -163,6 +198,12 @@ class SqpSolver : public SolverBase {
   /** Determine convergence after a step */
   sqp::Convergence checkConvergence(int iteration, const PerformanceIndex& baseline, const sqp::StepInfo& stepInfo) const;
 
+  /** The state manifold of the problem, or nullptr for a flat state. */
+  const StateManifold* absl_nullable getStateManifold() const;
+
+  /** The number of QP state variables at a node: the size of x on a flat state, the tangent size on a manifold. */
+  static Eigen::Index qpStateDimension(const OptimalControlProblem& ocpDefinition, const vector_t& x);
+
   // Problem definition
   sqp::Settings settings_;
   DynamicsDiscretizer discretizer_;
@@ -199,6 +240,9 @@ class SqpSolver : public SolverBase {
 
   // The ProblemMetrics associated to primalSolution_
   ProblemMetrics problemMetrics_;
+
+  // delta_x0 of the first iteration of the last solve (getInitialStateGap())
+  vector_t initialStateGap_;
 
   // Benchmarking
   size_t numProblems_{0};

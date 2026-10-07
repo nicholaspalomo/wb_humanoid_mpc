@@ -21,6 +21,17 @@ services:
     user: "${CONTAINER_USER:-ubuntu}"
     privileged: true
 
+    # Host networking (Linux): the container's processes bind and connect on the host's own interfaces. The ZeroMQ bus
+    # then reaches the processes of other containers (the robot runtime's) and of other machines at the addresses of
+    # the network file (config/ipc/network.textproto), with no port to publish or remap, and the VNC desktop, Rerun and
+    # Jupyter answer on the host's ports directly. Docker Desktop (macOS, Windows) runs containers in a VM whose host
+    # network is not the computer's: there, add docker-compose.bridge.yaml, which publishes the ports instead
+    # (.devcontainer/README.md, "Ports"). Two containers with host networking share the host's ports: run one VNC
+    # desktop (5901, 6080) and one bus of each node name at a time.
+    # LINT.IfChange(network_mode)
+    network_mode: host
+    # LINT.ThenChange(//docker-compose.bridge.yaml:published_ports, //.devcontainer/README.md:ports)
+
     # Memory cap, and no swap beyond it, so an overcommitted build or simulation is ended by the OOM killer INSIDE the
     # container within seconds instead of pushing the host into swap until it has to be power-cycled. The value is
     # written to .env by tools/resource_limits/set_container_memory_limit.sh (85% of the host's RAM), which
@@ -32,8 +43,9 @@ services:
 
     # Run tini as PID 1 so that orphaned processes are reaped. Without it PID 1 is the `sleep infinity` below, which
     # never calls wait(), so every process orphaned into it (the Xvfb / x11vnc / websockify trio that `make start-vnc`
-    # restarts, ros2 nodes, bazel workers) stays in the process table as a zombie for the life of the container. A
-    # zombie cannot be killed, so no `make kill-*` target can clear them; only reaping or a container restart does.
+    # restarts, the launcher's processes, bazel workers) stays in the process table as a zombie for the life of the
+    # container. A zombie cannot be killed, so no `make kill-*` target can clear them; only reaping or a container
+    # restart does.
     init: true
     stdin_open: true
     tty: true
@@ -46,7 +58,11 @@ services:
       sleep infinity"
 
     volumes:
+      # The checkout's grandparent, so the checkout is /wb_humanoid_mpc_ws/<parent>/<checkout> inside, which the host's
+      # launch targets docker exec into (tools/deploy/in_dev_container.sh).
+      # LINT.IfChange(dev_container_mount)
       - ../..:/wb_humanoid_mpc_ws:delegated
+      # LINT.ThenChange(//tools/deploy/in_dev_container.sh:dev_container_mount)
       - ${HOME}/.gitconfig:/tmp/host.gitconfig:cached,ro
       - ${HOME}/.ssh:/tmp/host_ssh:cached,z
       # Shell init for tab completion (make, bazel, git) + auto-env setup
@@ -55,41 +71,20 @@ services:
     environment:
       # VNC display (start with `make start-vnc`, view at http://localhost:6080/vnc.html)
       DISPLAY: ":99"
-      QT_X11_NO_MITSHM: "1"
-      # Mesa software rendering (llvmpipe) for RViz2/OGRE inside Xvfb
+      # Mesa software rendering (llvmpipe) for the MuJoCo viewer (GLFW + GLEW) inside Xvfb
       LIBGL_ALWAYS_SOFTWARE: "1"
       MESA_LOADER_DRIVER_OVERRIDE: "llvmpipe"
       LIBGL_ALWAYS_INDIRECT: "0"
-      ROS_DOMAIN_ID: "0"
       GIT_USER_NAME: ${GIT_USER_NAME}
       GIT_USER_EMAIL: ${GIT_USER_EMAIL}
       # NVIDIA GPU environment for JAX / MJX acceleration
       NVIDIA_VISIBLE_DEVICES: "all"
       NVIDIA_DRIVER_CAPABILITIES: "all"
       # Every NON-interactive bash (Makefile recipes, `docker exec ... bash -c`, bash scripts) sources this file, which
-      # gives it the ROS 2 + Bazel environment; interactive shells get it from ~/.bashrc. Anything it runs therefore
-      # runs in every script: it loads tab completion (which calls `bazel`) in interactive shells only.
+      # gives it the Bazel environment of setup_env.sh; interactive shells get it from ~/.bashrc. Anything it runs
+      # therefore runs in every script: it loads tab completion (which calls `bazel`) in interactive shells only.
       BASH_ENV: /etc/profile.d/wb_humanoid_mpc.sh
       # LINT.IfChange(vnc_resolution)
       # VNC virtual framebuffer resolution (auto-detected from host or override)
       VNC_RESOLUTION: "${VNC_RESOLUTION:-1920x1080}"
       # LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_resolution, //Makefile:vnc_resolution)
-
-    ports:
-      - "7400:7400/udp"
-      - "7447:7447/udp"
-      - "7410:7410/udp"
-      # LINT.IfChange(vnc_ports)
-      # VNC and noVNC ports for GUI visualization on macOS (Display :99)
-      - "5901:5901"
-      - "6080:6080"
-      # Dedicated VNC and noVNC ports for PlotJuggler (Display :100)
-      - "5903:5903"
-      - "6082:6082"
-      # LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/README.md:vnc_ports, //Makefile:vnc_ports)
-      # Jupyter Notebook Dashboard port
-      - "8888:8888"
-
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1

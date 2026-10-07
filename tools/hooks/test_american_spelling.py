@@ -1,11 +1,36 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Tests for american_spelling.py: the repository is written in American English."""
 
-import os
-import sys
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import american_spelling  # noqa: E402
+from tools.hooks import american_spelling
+from tools.hooks import check_test_support
 
 
 def fixed(text):
@@ -70,11 +95,26 @@ class AmericanSpellingTest(unittest.TestCase):
         self.assertIn("write `center`", str(findings[0]))
 
     def test_the_linter_runs_it(self):
-        with open(
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "lint_code.py")
-        ) as f:
-            lint = f.read()
-        self.assertIn("american_spelling.check_files(", lint)
+        check_test_support.assert_check_behaves(
+            self, "american-spelling", "x = 1\n# the centre of mass\n", "src/a.py"
+        )
+        check_test_support.assert_check_behaves(
+            self, "american-spelling", "int x;\n// the centre of mass\n", "src/a.cpp"
+        )
+        check_test_support.assert_registered(self, "american-spelling")
+        # Robot model files are upstream data, and the checker's own word list is British on purpose.
+        self.assertEqual(
+            check_test_support.findings(
+                "american-spelling", "<centre/>\n", "robot_models/x.urdf"
+            ),
+            [],
+        )
+        self.assertEqual(
+            check_test_support.findings(
+                "american-spelling", "centre\n", "tools/hooks/american_spelling.py"
+            ),
+            [],
+        )
 
 
 if __name__ == "__main__":

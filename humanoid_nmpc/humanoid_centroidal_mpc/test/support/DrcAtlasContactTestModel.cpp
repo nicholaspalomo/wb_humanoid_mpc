@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -28,24 +32,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <array>
 #include <iterator>
+#include <memory>
+#include <string>
 #include <utility>
-
-#include <ocs2_centroidal_model/AccessHelperFunctions.h>
-#include <ocs2_centroidal_model/FactoryFunctions.h>
-#include <ocs2_centroidal_model/ModelHelperFunctions.h>
-#include <ocs2_core/misc/LoadData.h>
-#include <ocs2_core/reference/ModeSchedule.h>
-#include <ament_index_cpp/get_package_share_directory.hpp>
+#include <vector>
 
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_centroidal_model/AccessHelperFunctions.h"
+#include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "ocs2_core/reference/ModeSchedule.h"
+
+#include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
+#include "humanoid_common_mpc/config/swing/SwingTrajectoryFromConfig.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "support/TypedConfigFiles.h"
 
 namespace ocs2::humanoid {
 
@@ -55,27 +62,27 @@ constexpr scalar_t kBracketHalfWidth = 10.0;
 }  // namespace
 
 DrcAtlasContactTestModel::DrcAtlasContactTestModel(const std::string& modelNamePrefix) : modelNamePrefix_(modelNamePrefix) {
-  const std::string configDir = ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc");
-  const std::string descriptionDir = ament_index_cpp::get_package_share_directory("drc_atlas_description");
-  taskFile_ = configDir + "/config/mpc/task.yaml";
-  referenceFile_ = configDir + "/config/command/reference.yaml";
-  urdfFile_ = descriptionDir + "/urdf/atlas.urdf";
+  const CentroidalRobotFiles files = atlasFiles();
+  taskFile_ = files.taskFile;
+  referenceFile_ = files.referenceFile;
+  urdfFile_ = files.urdfFile;
+  absl::StatusOr<CentroidalMpcConfig> config = loadConfigOf(files);
+  CHECK(config.ok()) << config.status();
+  config_ = *std::move(config);
 
-  modelSettings_ = std::make_unique<ModelSettings>(taskFile_, urdfFile_, modelNamePrefix_, /*verbose=*/false);
+  modelSettings_ =
+      std::make_unique<ModelSettings>(ModelSettings::Create(config_.task, urdfFile_, modelNamePrefix_, /*verbose=*/false).value());
   modelSettings_->recompileLibrariesCppAd = false;
-  pinocchioInterface_ =
-      std::make_unique<PinocchioInterface>(createCustomPinocchioInterface(taskFile_, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false));
-  info_ = centroidal_model::createCentroidalModelInfo(
-      *pinocchioInterface_, centroidal_model::loadCentroidalType(taskFile_),
-      centroidal_model::loadDefaultJointState(pinocchioInterface_->getModel().nq - 6, referenceFile_), modelSettings_->contactNames3DoF,
-      modelSettings_->contactNames6DoF);
+  pinocchioInterface_ = std::make_unique<PinocchioInterface>(
+      loadCustomPinocchioInterface(config_.task, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false).value());
+  info_ = centroidalModelInfoOf(config_, *pinocchioInterface_, *modelSettings_).value();
   wrenchModel_ = std::make_unique<CentroidalMpcRobotModel<scalar_t>>(*modelSettings_, *pinocchioInterface_, info_);
   adWrenchModel_ = std::make_unique<CentroidalMpcRobotModel<ad_scalar_t>>(*modelSettings_, pinocchioInterface_->toCppAd(), info_.toCppAd());
 
-  // The basis-vector decorator, built through the loader CentroidalMpcInterface builds it with, so that a test sees the
-  // input parameterization - generator set and all - the shipped robot actually runs.
+  // The basis-vector decorator, built through the conversion CentroidalMpcInterface builds it with, so that a test sees
+  // the input parameterization - generator set and all - the shipped robot actually runs.
   const absl::StatusOr<feet_array_t<ContactWrenchConeBasisMatrix>> basisMatrices =
-      loadContactWrenchConeBases(taskFile_, *modelSettings_, /*verbose=*/false);
+      contactWrenchConeBasesFromConfig(config_.task.contacts, *modelSettings_);
   CHECK(basisMatrices.ok()) << basisMatrices.status();
   basisModel_ = std::make_unique<BasisInputsModelDecorator<scalar_t>>(std::unique_ptr<MpcRobotModelBase<scalar_t>>(wrenchModel_->clone()),
                                                                       *basisMatrices, *pinocchioInterface_);
@@ -84,13 +91,12 @@ DrcAtlasContactTestModel::DrcAtlasContactTestModel(const std::string& modelNameP
   mappingCppAd_ = std::make_unique<CentroidalModelPinocchioMappingCppAd>(infoCppAd);
 
   std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner(
-      new SwingTrajectoryPlanner(loadSwingTrajectorySettings(taskFile_, "swing_trajectory_config", /*verbose=*/false), N_CONTACTS));
+      new SwingTrajectoryPlanner(swingTrajectorySettingsFromConfig(config_.task.swing_trajectory_config).value(), kNumContacts));
   referenceManager_ =
-      std::make_unique<SwitchedModelReferenceManager>(GaitSchedule::loadGaitSchedule(referenceFile_, *modelSettings_, /*verbose=*/false),
+      std::make_unique<SwitchedModelReferenceManager>(GaitSchedule::Create(config_.reference, *modelSettings_, /*verbose=*/false).value(),
                                                       std::move(swingTrajectoryPlanner), *pinocchioInterface_, *wrenchModel_);
   // Loaded before the first setContactFlags(): that call drives preSolverRun(), which needs a valid state.
-  nominalState_.setZero(info_.stateDim);
-  loadData::loadEigenMatrix(taskFile_, "initialState", nominalState_);
+  nominalState_ = initialStateOf(config_.task, *modelSettings_).value();
   setStance();
 }
 
@@ -103,7 +109,7 @@ void DrcAtlasContactTestModel::setContactFlags(const contact_flag_t& contacts) {
   // exactly what was asked for, and they already cover the horizon preSolverRun() asks the gait schedule for, so
   // nothing is tiled from the gait template on top of them.
   const ModeSchedule schedule({-kBracketHalfWidth, kBracketHalfWidth},
-                              {ModeNumber::STANCE, stanceLeg2ModeNumber(contacts), ModeNumber::STANCE});
+                              {ModeNumber::kStance, stanceLeg2ModeNumber(contacts), ModeNumber::kStance});
   // It has to go through the GAIT schedule, not through ReferenceManager::setModeSchedule(): that setter only fills a
   // buffer, and SwitchedModelReferenceManager::modifyReferences() overwrites the whole mode schedule from the gait
   // schedule on every preSolverRun() anyway. Setting the buffer alone leaves the terms under test reading whatever the
@@ -147,22 +153,22 @@ std::unique_ptr<FootprintCornerHeights> DrcAtlasContactTestModel::makeCornerHeig
                                                   absl::StrCat(modelNamePrefix_, modelNameSuffix), *modelSettings_);
 }
 
-long DrcAtlasContactTestModel::anklePitchStateIndex(size_t contactIndex) const {
-  const std::string jointName = contactIndex == CONTACT_LEFT_INDEX ? "l_leg_aky" : "r_leg_aky";
+Eigen::Index DrcAtlasContactTestModel::anklePitchStateIndex(size_t contactIndex) const {
+  const std::string jointName = contactIndex == kContactLeftIndex ? "l_leg_aky" : "r_leg_aky";
   const std::vector<std::string>& jointNames = modelSettings_->mpcModelJointNames;
   const std::vector<std::string>::const_iterator found = std::find(jointNames.begin(), jointNames.end(), jointName);
   CHECK(found != jointNames.end()) << "[DrcAtlasContactTestModel] no joint named " << jointName << " in the MPC model";
-  return static_cast<long>(wrenchModel_->getJointStartindex() + static_cast<size_t>(std::distance(jointNames.begin(), found)));
+  return static_cast<Eigen::Index>(wrenchModel_->getJointStartindex() + static_cast<size_t>(std::distance(jointNames.begin(), found)));
 }
 
 ContactRectangle DrcAtlasContactTestModel::contactRectangle(size_t contactIndex) const {
-  return ContactRectangle::loadContactRectangle(taskFile_, *modelSettings_, static_cast<int>(contactIndex), /*verbose=*/false);
+  return contactRectangleFromConfig(config_.task.contacts, *modelSettings_, static_cast<int>(contactIndex)).value();
 }
 
 vector_t DrcAtlasContactTestModel::makeInput(const MpcRobotModelBase<scalar_t>& model, size_t loadedFoot, scalar_t normalForce) const {
   vector_t input = vector_t::Zero(model.getInputDim());
   vector6_t wrench = vector6_t::Zero();
-  wrench(WRENCH_FORCE_Z_INDEX) = normalForce;
+  wrench(kWrenchForceZIndex) = normalForce;
   model.setContactWrench(input, wrench, loadedFoot);
   for (size_t index = 0; index < model.getJointDim(); ++index) {
     input(model.getJointVelocitiesStartindex() + index) = 0.05 * static_cast<scalar_t>(index % 5) - 0.1;

@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cassert>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/penalties/MultidimensionalPenalty.h>
 
 namespace ocs2 {
@@ -42,7 +44,7 @@ class PenaltyBaseWrapper final : public augmented::AugmentedPenaltyBase {
   PenaltyBaseWrapper(std::unique_ptr<PenaltyBase> penaltyPtr) : penaltyPtr_(std::move(penaltyPtr)) {}
 
   ~PenaltyBaseWrapper() override = default;
-  PenaltyBaseWrapper* clone() const override { return new PenaltyBaseWrapper(*this); }
+  PenaltyBaseWrapper* absl_nonnull clone() const override { return new PenaltyBaseWrapper(*this); }
   std::string name() const override { return penaltyPtr_->name(); }
 
   scalar_t getValue(scalar_t t, scalar_t l, scalar_t h) const override { return penaltyPtr_->getValue(t, h); }
@@ -69,7 +71,7 @@ std::unique_ptr<PenaltyBaseWrapper> createWrapper(std::unique_ptr<PenaltyBase> p
   return std::make_unique<PenaltyBaseWrapper>(std::move(penaltyPtr));
 }
 
-scalar_t getMultiplier(const vector_t* l, size_t ind) {
+scalar_t getMultiplier(const vector_t* absl_nullable l, size_t ind) {
   return (l == nullptr) ? 0.0 : (*l)(ind);
 }
 
@@ -124,7 +126,7 @@ MultidimensionalPenalty::MultidimensionalPenalty(const MultidimensionalPenalty& 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-scalar_t MultidimensionalPenalty::getValue(scalar_t t, const vector_t& h, const vector_t* l) const {
+scalar_t MultidimensionalPenalty::getValue(scalar_t t, const vector_t& h, const vector_t* absl_nullable l) const {
   const auto numConstraints = h.rows();
   assert(penaltyPtrArray_.size() == 1 || penaltyPtrArray_.size() == numConstraints);
 
@@ -142,7 +144,7 @@ scalar_t MultidimensionalPenalty::getValue(scalar_t t, const vector_t& h, const 
 /******************************************************************************************************/
 ScalarFunctionQuadraticApproximation MultidimensionalPenalty::getQuadraticApproximation(scalar_t t,
                                                                                         const VectorFunctionLinearApproximation& h,
-                                                                                        const vector_t* l) const {
+                                                                                        const vector_t* absl_nullable l) const {
   const auto stateDim = h.dfdx.cols();
   const auto inputDim = h.dfdu.cols();
 
@@ -171,7 +173,7 @@ ScalarFunctionQuadraticApproximation MultidimensionalPenalty::getQuadraticApprox
 /******************************************************************************************************/
 ScalarFunctionQuadraticApproximation MultidimensionalPenalty::getQuadraticApproximation(scalar_t t,
                                                                                         const VectorFunctionQuadraticApproximation& h,
-                                                                                        const vector_t* l) const {
+                                                                                        const vector_t* absl_nullable l) const {
   const auto stateDim = h.dfdx.cols();
   const auto inputDim = h.dfdu.cols();
   const auto numConstraints = h.f.rows();
@@ -207,8 +209,9 @@ ScalarFunctionQuadraticApproximation MultidimensionalPenalty::getQuadraticApprox
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-std::tuple<scalar_t, vector_t, vector_t> MultidimensionalPenalty::getPenaltyValue1stDev2ndDev(scalar_t t, const vector_t& h,
-                                                                                              const vector_t* l) const {
+std::tuple<scalar_t, vector_t, vector_t> MultidimensionalPenalty::getPenaltyValue1stDev2ndDev(scalar_t t,
+                                                                                              const vector_t& h,
+                                                                                              const vector_t* absl_nullable l) const {
   const auto numConstraints = h.rows();
   assert(penaltyPtrArray_.size() == 1 || penaltyPtrArray_.size() == numConstraints);
 

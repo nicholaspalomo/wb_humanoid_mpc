@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package nproto_test;
+
+import "nproto/options.proto";
+import "nproto_test/other/point.proto";
+import "nproto_test/other/unit.proto";
+
+// Types of another proto package, in another Bazel package (other/), whose structs live in another namespace.
+// Next ID: 8
+message Imports {
+  option (nproto.generate_struct) = "nproto::test::Imports";
+
+  reserved 8 to max;
+
+  nproto_test.other.Point point = 1;
+  repeated nproto_test.other.Point points = 2;
+  nproto_test.other.Unit unit = 3;
+  repeated nproto_test.other.Unit units = 4;
+  map<string, nproto_test.other.Point> point_by_name = 5;
+  optional nproto_test.other.Point maybe_point = 6;
+  nproto_test.other.Point.Frame frame = 7;
+}

@@ -27,9 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <array>
 #include <cmath>
@@ -39,13 +37,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <pinocchio/algorithm/crba.hpp>
-#include <pinocchio/algorithm/frames.hpp>
-#include <pinocchio/algorithm/rnea.hpp>
-
-#include <ocs2_core/automatic_differentiation/Types.h>
-
+#include "absl/base/nullability.h"
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
+#include "pinocchio/algorithm/crba.hpp"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/rnea.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
@@ -72,7 +70,7 @@ using ad_fun_t = CppAD::ADFun<ad_base_t>;
 
 std::string runfilePath(absl::string_view relativePath) {
   std::vector<std::filesystem::path> roots;
-  if (const char* srcDir = std::getenv("TEST_SRCDIR")) {
+  if (const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR")) {
     roots.emplace_back(std::filesystem::path(srcDir) / "_main");
   }
   roots.emplace_back(std::filesystem::current_path());
@@ -177,7 +175,7 @@ TEST(FloatingBaseDynamicsTest, theBaseAccelerationSolvesACoupledBaseMassMatrixEx
   const vector6_t baseAcceleration = computeBaseAcceleration<scalar_t>(M, nle, qddJoints, generalizedForce);
   const vector6_t residual =
       M.topLeftCorner(6, 6) * baseAcceleration + M.block(0, 6, 6, kNumJoints) * qddJoints + nle.head(6) - generalizedForce.head(6);
-  EXPECT_LT(residual.norm(), 1e-9) << residual.transpose();
+  EXPECT_LT(residual.norm(), 1.0e-9) << residual.transpose();
 }
 
 TEST(FloatingBaseDynamicsTest, theBaseAccelerationTapesWithoutAComparisonBetweenVariables) {
@@ -192,11 +190,11 @@ TEST(FloatingBaseDynamicsTest, theBaseAccelerationTapesWithoutAComparisonBetween
 class FloatingBaseInverseDynamicsTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    const std::string taskFile = runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml");
+    const std::string taskFile = runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto");
     const std::string urdfFile = runfilePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf");
     ASSERT_FALSE(taskFile.empty() || urdfFile.empty()) << "the G1 whole-body files are not in the runfiles";
-    settings_ = std::make_unique<ModelSettings>(taskFile, urdfFile, "wb_mpc_", /*verbose=*/false);
-    pinocchioInterface_ = std::make_unique<PinocchioInterface>(createCustomPinocchioInterface(taskFile, urdfFile, *settings_));
+    settings_ = std::make_unique<ModelSettings>(ModelSettings::Create(taskFile, urdfFile, "wb_mpc_", /*verbose=*/false).value());
+    pinocchioInterface_ = std::make_unique<PinocchioInterface>(loadCustomPinocchioInterface(taskFile, urdfFile, *settings_).value());
     const pinocchio::Model& model = pinocchioInterface_->getModel();
     q_ = vector_t(model.nq);
     v_ = vector_t(model.nv);
@@ -251,9 +249,9 @@ TEST_F(FloatingBaseInverseDynamicsTest, rneaBalancesTheBaseAtTheSolvedAccelerati
 
   // Positive control: the premise that the base block is coupled on the real model.
   const scalar_t couplingNorm = data.M.block<3, 3>(0, 3).norm();
-  EXPECT_GT(couplingNorm, 1e-3);
+  EXPECT_GT(couplingNorm, 1.0e-3);
   // The base is unactuated: at the solved acceleration the contact forces alone balance its rows.
-  EXPECT_LT((tau.head(6) - generalizedForce.head(6)).norm(), 1e-6 * generalizedForce.head(6).norm())
+  EXPECT_LT((tau.head(6) - generalizedForce.head(6)).norm(), 1.0e-6 * generalizedForce.head(6).norm())
       << "base rows: " << (tau.head(6) - generalizedForce.head(6)).transpose();
 }
 

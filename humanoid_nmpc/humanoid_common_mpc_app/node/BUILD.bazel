@@ -1,0 +1,251 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+
+# humanoid_common_mpc_app/node - the formulation-independent parts of the laptop-side binaries of the distributed
+# runtime (humanoid_nmpc/docs/distributed_runtime/README.md): the MPC node's runtime on the bus, the dummy simulator's
+# loop over the remote MPC link, and the process plumbing they share with the keyboard teleoperation. The binaries
+# themselves are in humanoid_centroidal_mpc_app and humanoid_wb_mpc_app. See README.md.
+
+package(default_visibility = ["//visibility:public"])
+
+# What every laptop-side binary needs: the shutdown on SIGINT / SIGTERM, its bus from --network_config / --ipc_node, and
+# the robot's files.
+cc_library(
+    name = "node_process",
+    srcs = [
+        "src/MpcFiles.cpp",
+        "src/NodeBus.cpp",
+        "src/ShutdownSignal.cpp",
+    ],
+    hdrs = [
+        "include/humanoid_common_mpc_app/node/MpcFiles.h",
+        "include/humanoid_common_mpc_app/node/NodeBus.h",
+        "include/humanoid_common_mpc_app/node/ShutdownSignal.h",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/time",
+    ],
+)
+
+# The flags the MPC nodes and the dummy simulators share (MpcAppFlags.h). Defines them: for binaries only.
+cc_library(
+    name = "mpc_app_flags",
+    srcs = ["src/MpcAppFlags.cpp"],
+    hdrs = ["include/humanoid_common_mpc_app/node/MpcAppFlags.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":node_process",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/flags:flag",
+    ],
+)
+
+# The operator's walking command from its bus message: the ranges, the clamp and the refusal of a value that is not
+# finite (WalkingVelocityCommandConversions.h). A target of its own, without the MPC, because the lockstep closed loop's
+# scenarios (//humanoid_nmpc/humanoid_mpc_validation:closed_loop_metrics) clamp the GUI's messages with it.
+cc_library(
+    name = "walking_velocity_command_conversions",
+    srcs = ["src/WalkingVelocityCommandConversions.cpp"],
+    hdrs = ["include/humanoid_common_mpc_app/node/WalkingVelocityCommandConversions.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc:walking_velocity_command",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+    ],
+)
+
+# The MPC node's runtime (MpcNodeRuntime.h), the dummy simulator's loop (DummySimLoop.h) and the messages they convert.
+cc_library(
+    name = "mpc_node",
+    srcs = [
+        "src/DummySimLoop.cpp",
+        "src/MpcNodeRuntime.cpp",
+        "src/ViewerAnnotations.cpp",
+    ],
+    hdrs = [
+        "include/humanoid_common_mpc_app/node/DummySimLoop.h",
+        "include/humanoid_common_mpc_app/node/MpcNodeRuntime.h",
+        "include/humanoid_common_mpc_app/node/ViewerAnnotations.h",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":node_process",
+        ":walking_velocity_command_conversions",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:contact_planning_core",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_common_mpc:mpc_reset_supervisor",
+        "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//humanoid_nmpc/humanoid_mpc_ipc",
+        "//humanoid_nmpc/humanoid_mpc_ipc:mpc_server",
+        "//humanoid_nmpc/humanoid_mpc_ipc:remote_mpc_link",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "//robot_runtime/robot_ipc",
+        "//robot_runtime/robot_realtime",
+        "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        "@eigen",
+    ],
+)
+
+# ==============================================================================
+# Tests
+# ==============================================================================
+
+# The robot process and the operator GUI as the MPC node tests script them, on loopback buses (test/ScriptedRobot.h).
+cc_library(
+    name = "scripted_robot",
+    testonly = True,
+    srcs = ["test/ScriptedRobot.cpp"],
+    hdrs = ["test/ScriptedRobot.h"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_mpc_ipc",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//lib/ocs2:ocs2_mpc",
+        "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        "@protobuf",
+    ],
+)
+
+# The operator's velocity command clamped and refused when not finite; the annotations of a policy.
+cc_test(
+    name = "test_node_messages",
+    size = "small",
+    srcs = ["test/testNodeMessages.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":mpc_node",
+        ":walking_velocity_command_conversions",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:contact_planning_core",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# SIGTERM asks for the shutdown; the network of an empty --network_config is the shipped one; an unknown node is refused.
+cc_test(
+    name = "test_node_process",
+    size = "small",
+    srcs = ["test/testNodeProcess.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = ["//config/ipc:network.textproto"],
+    deps = [
+        ":node_process",
+        "//robot_runtime/robot_core:resource_paths",
+        "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The MPC node's runtime against a scripted robot and operator over loopback buses, around the DRC Atlas references and
+# motion manager with OCS2's scripted MPC (no CppAD): observation in, policy out, the reset handshake through the
+# observation's counters, the velocity command reaching the motion manager, the parameter updates reaching the solver
+# before the next solve, the annotations and the visualization seam.
+cc_test(
+    name = "test_mpc_node_runtime",
+    size = "small",
+    srcs = ["test/testMpcNodeRuntime.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":mpc_node",
+        ":scripted_robot",
+        "//humanoid_nmpc/humanoid_centroidal_mpc:reference_stack_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//humanoid_nmpc/humanoid_mpc_ipc",
+        "//humanoid_nmpc/humanoid_mpc_ipc:mpc_link_test_support",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The dummy simulator's loop against an MPC server with OCS2's scripted MPC over loopback: synchronized with the MPC (one
+# policy per update, solved from the observation sent for it) and in real time, with no reset after the first; a plant
+# whose rollout throws ends the loop with an error.
+cc_test(
+    name = "test_dummy_sim_loop",
+    size = "small",
+    srcs = ["test/testDummySimLoop.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":mpc_node",
+        "//humanoid_nmpc/humanoid_mpc_ipc",
+        "//humanoid_nmpc/humanoid_mpc_ipc:mpc_link_test_support",
+        "//humanoid_nmpc/humanoid_mpc_ipc:mpc_server",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/time",
+        "@googletest//:gtest_main",
+    ],
+)

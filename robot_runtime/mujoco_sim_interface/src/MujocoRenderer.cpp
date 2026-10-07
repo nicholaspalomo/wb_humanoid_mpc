@@ -29,28 +29,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "mujoco_sim_interface/MujocoRenderer.h"
 
-#include <GLFW/glfw3.h>  // for creating the OpenGL context
-#include <mujoco/mujoco.h>
-
 #include <array>
 #include <cctype>
 #include <chrono>
-#include <iostream>
+#include <memory>
 #include <string>
 #include <thread>
+#include <vector>
+
+#include "GLFW/glfw3.h"  // for creating the OpenGL context
+#include "absl/base/nullability.h"
+#include "absl/log/log.h"
+#include "absl/status/status.h"
+#include "mujoco/mujoco.h"
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/visualization/VisualizationRegistry.h"
-
-#include "absl/log/log.h"
 
 namespace robot::mujoco_sim_interface {
 
 /// GLFW callbacks
 
 // keyboard callback
-void MujocoRenderer::keyboard(GLFWwindow* window, int key, int, int act, int) {
-  MujocoRenderer* renderer = static_cast<MujocoRenderer*>(glfwGetWindowUserPointer(window));
+void MujocoRenderer::keyboard(GLFWwindow* absl_nonnull window, int key, int /*unused*/, int act, int /*unused*/) {
+  MujocoRenderer* absl_nonnull renderer = static_cast<MujocoRenderer*>(glfwGetWindowUserPointer(window));
   if (act != GLFW_PRESS) return;
 
   // Number keys '0'-'5': toggle geom groups
@@ -77,52 +79,52 @@ void MujocoRenderer::keyboard(GLFWwindow* window, int key, int, int act, int) {
 }
 
 // mouse button callback
-void MujocoRenderer::mouse_button(GLFWwindow* window, int, int, int) {
-  MujocoRenderer* renderer = static_cast<MujocoRenderer*>(glfwGetWindowUserPointer(window));
+void MujocoRenderer::mouse_button(GLFWwindow* absl_nonnull window, int /*unused*/, int /*unused*/, int /*unused*/) {
+  MujocoRenderer* absl_nonnull renderer = static_cast<MujocoRenderer*>(glfwGetWindowUserPointer(window));
   // update button state
-  renderer->button_left = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS);
-  renderer->button_middle = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS);
-  renderer->button_right = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS);
+  renderer->button_left_ = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS);
+  renderer->button_middle_ = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS);
+  renderer->button_right_ = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS);
 
   // update mouse position
-  glfwGetCursorPos(window, &(renderer->lastx), &(renderer->lasty));
+  glfwGetCursorPos(window, &(renderer->lastx_), &(renderer->lasty_));
 }
 
 // mouse move callback
-void MujocoRenderer::mouse_move(GLFWwindow* window, double xpos, double ypos) {
-  MujocoRenderer* renderer = static_cast<MujocoRenderer*>(glfwGetWindowUserPointer(window));
+void MujocoRenderer::mouse_move(GLFWwindow* absl_nonnull window, double xpos, double ypos) {
+  MujocoRenderer* absl_nonnull renderer = static_cast<MujocoRenderer*>(glfwGetWindowUserPointer(window));
   // no buttons down: nothing to do
-  if (!renderer->button_left && !renderer->button_middle && !renderer->button_right) return;
+  if (!renderer->button_left_ && !renderer->button_middle_ && !renderer->button_right_) return;
 
   // compute mouse displacement, save
-  double dx = xpos - renderer->lastx;
-  double dy = ypos - renderer->lasty;
-  renderer->lastx = xpos;
-  renderer->lasty = ypos;
+  double dx = xpos - renderer->lastx_;
+  double dy = ypos - renderer->lasty_;
+  renderer->lastx_ = xpos;
+  renderer->lasty_ = ypos;
 
   // get current window size
-  int width, height;
+  int width = 0;
+  int height = 0;
   glfwGetWindowSize(window, &width, &height);
 
   // get shift key state
-  bool mod_shift = (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS);
+  const bool mod_shift = (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS);
 
-  // determine action based on mouse button
-  mjtMouse action;
-  if (renderer->button_right)
+  // determine action based on mouse button: the middle one zooms
+  mjtMouse action = mjMOUSE_ZOOM;
+  if (renderer->button_right_) {
     action = mod_shift ? mjMOUSE_MOVE_H : mjMOUSE_MOVE_V;
-  else if (renderer->button_left)
+  } else if (renderer->button_left_) {
     action = mod_shift ? mjMOUSE_ROTATE_H : mjMOUSE_ROTATE_V;
-  else
-    action = mjMOUSE_ZOOM;
+  }
 
   // move camera
   mjv_moveCamera(renderer->simInterface_->getModel(), action, dx / width, dy / height, &renderer->mujocoScene_, &renderer->mujocoCam_);
 }
 
 // scroll callback
-void MujocoRenderer::scroll(GLFWwindow* window, double, double yoffset) {
-  MujocoRenderer* renderer = static_cast<MujocoRenderer*>(glfwGetWindowUserPointer(window));
+void MujocoRenderer::scroll(GLFWwindow* absl_nonnull window, double /*unused*/, double yoffset) {
+  MujocoRenderer* absl_nonnull renderer = static_cast<MujocoRenderer*>(glfwGetWindowUserPointer(window));
   // emulate vertical mouse motion = 5% of window height
   mjv_moveCamera(renderer->simInterface_->getModel(), mjMOUSE_ZOOM, /*reldx=*/0, -0.05 * yoffset, &renderer->mujocoScene_,
                  &renderer->mujocoCam_);
@@ -130,26 +132,24 @@ void MujocoRenderer::scroll(GLFWwindow* window, double, double yoffset) {
 
 //// Public
 
-MujocoRenderer::MujocoRenderer(const MujocoSimInterface* simInterface)
+MujocoRenderer::MujocoRenderer(const MujocoSimInterface* absl_nonnull simInterface)
     : simInterface_(simInterface),
       simState_(simInterface_->getModel()),
-      timeStepMicro_(1e6 / simInterface_->getConfig().renderFrequencyHz) {
+      timeStepMicro_(static_cast<size_t>(1.0e6 / simInterface_->getConfig().renderFrequencyHz)) {
   mujocoScene_.flags[mjRND_SHADOW] = 1;
   mujocoScene_.flags[mjRND_REFLECTION] = 1;
 
   std::vector<std::string> errors;
   visualizations_ = createVisualizations(simInterface_->getConfig().visualizations, &errors);
   for (const std::string& error : errors) {
-    LOG(INFO) << "[MujocoRenderer] simVisualizations: " << error;
+    LOG(INFO) << "[MujocoRenderer] sim_visualizations: " << error;
   }
 }
 
 MujocoRenderer::~MujocoRenderer() {
   LOG(INFO) << "Cleaning up renderer ...";
-  if (render_thread_.joinable()) {
-    glfwSetWindowShouldClose(window_, GLFW_TRUE);
-    render_thread_.join();
-  }
+  stopRequested_.store(true);
+  if (render_thread_.joinable()) render_thread_.join();
 }
 
 bool MujocoRenderer::ok() const {
@@ -173,7 +173,7 @@ void MujocoRenderer::printHotkeys() const {
             << "  k   => toggle camera tracking mode (mjCAMERA_TRACKING vs mjCAMERA_FREE)\n"
             << "  p   => print this hotkey cheatsheet\n"
             << "-----------------------------------------------------------\n"
-            << "Visualizations (task file simVisualizations; [x] on, [ ] off):\n";
+            << "Visualizations (task file sim_visualizations; [x] on, [ ] off):\n";
   for (const std::unique_ptr<MujocoVisualization>& visualization : visualizations_) {
     const char hotkey = visualization->hotkey();
     LOG(INFO) << "  " << (hotkey != 0 ? hotkey : ' ') << "   " << (visualization->enabled() ? "[x] " : "[ ] ") << visualization->name()
@@ -196,12 +196,18 @@ void MujocoRenderer::printHotkeys() const {
 }
 
 void MujocoRenderer::renderLoop() {
-  initialize();
+  const absl::Status initialized = initialize();
+  if (!initialized.ok()) {
+    LOG(ERROR) << "[MujocoRenderer] the viewer did not start, so the simulation runs without it: " << initialized;
+    window_closed_.store(true);
+    init_complete_.store(true);
+    return;
+  }
   init_complete_.store(true);
 
   const std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
 
-  while (!glfwWindowShouldClose(window_)) {
+  while (!glfwWindowShouldClose(window_) && !stopRequested_.load()) {
     const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
 
     glfwGetFramebufferSize(window_, &viewport_.width, &viewport_.height);
@@ -272,11 +278,11 @@ void MujocoRenderer::setupCamera() {
   // The body the camera follows, by the names the robots of this repository give their floating base. Body 1 is the
   // fallback: it is the first child of the world and therefore the floating base of every model here, which is what
   // a robot naming its base something else entirely still gets.
-  static const std::array<const char*, 4> kFloatingBaseCandidates = {"pelvis", "pelvis_link", "torso", "base_link"};
+  static const std::array<const char* absl_nonnull, 4> kFloatingBaseCandidates = {"pelvis", "pelvis_link", "torso", "base_link"};
   int trackbodyid = 1;
-  const mjModel* m = simInterface_->getModel();
-  if (m && m->nbody > 1) {
-    for (const char* candidate : kFloatingBaseCandidates) {
+  const mjModel* absl_nonnull m = simInterface_->getModel();
+  if (m->nbody > 1) {
+    for (const char* absl_nonnull candidate : kFloatingBaseCandidates) {
       const int bodyId = mj_name2id(m, mjOBJ_BODY, candidate);
       if (bodyId > 0) {
         trackbodyid = bodyId;
@@ -296,18 +302,24 @@ void MujocoRenderer::setupCamera() {
   mujocoCam_.lookat[2] = arr_view[5];
 }
 
-void MujocoRenderer::initialize() {
+absl::Status MujocoRenderer::initialize() {
   // init GLFW
-  if (!glfwInit()) mju_error("Could not initialize GLFW");
+  if (glfwInit() != GLFW_TRUE) return absl::UnavailableError("GLFW could not initialize (is there a display?)");
 
   // create window, make OpenGL context current, request v-sync
-  window_ = glfwCreateWindow(viewportWidth, viewportHeight, "Mujoco Robot Sim", /*monitor=*/nullptr, /*share=*/nullptr);
+  window_ = glfwCreateWindow(viewportWidth_, viewportHeight_, "Mujoco Robot Sim", /*monitor=*/nullptr, /*share=*/nullptr);
+  if (window_ == nullptr) {
+    glfwTerminate();
+    return absl::UnavailableError("GLFW could not create the viewer's window");
+  }
   glfwMakeContextCurrent(window_);
 
   // init glew
   if (glewInit() != GLEW_OK) {
-    LOG(ERROR) << "Failed to initialize GLEW";
-    return;
+    glfwDestroyWindow(window_);
+    window_ = nullptr;
+    glfwTerminate();
+    return absl::UnavailableError("GLEW could not initialize the viewer's OpenGL context");
   }
 
   glfwSwapInterval(1);
@@ -352,6 +364,7 @@ void MujocoRenderer::initialize() {
   glfwPollEvents();
 
   printHotkeys();
+  return absl::OkStatus();
 }
 
 void MujocoRenderer::cleanup() {

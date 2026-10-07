@@ -30,61 +30,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <atomic>
-#include <memory>
+#include "ocs2_core/Types.h"
 
-#include <ocs2_core/Types.h>
-#include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
-
-#include <humanoid_common_mpc/gait/GaitSchedule.h>
-#include <humanoid_common_mpc/gait/ModeSequenceTemplate.h>
-#include <humanoid_common_mpc/gait/MotionPhaseDefinition.h>
+#include "humanoid_common_mpc/gait/GaitSchedule.h"
+#include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
 
 namespace ocs2::humanoid {
 
 /**
- * Inserts a gait received from outside the solver (updateModeSequence) into the gait schedule before the next solve.
- *
- * The "a gait is waiting" flag is the one flag of this class and its subclasses, atomic, so that a subscriber thread
- * may set it while the solver thread consumes it in preSolverRun() and clears it in reset(). The received template
- * itself is not atomic: a subclass that receives on another thread serializes it with getReceivedGait()
- * (GaitScheduleUpdaterRos2 does, with a mutex).
+ * Inserts `updatedGait` into `gaitSchedule` at the first event after 70% of the horizon [initTime, finalTime] (or where
+ * the left swing that ends there starts), tiled up to the absolute time initTime + 1.5 * (finalTime - initTime). The
+ * reference manager calls it on the solver thread before a solve, when the commanded gait changes.
  */
-class GaitScheduleUpdater : public SolverSynchronizedModule {
- public:
-  explicit GaitScheduleUpdater(std::shared_ptr<GaitSchedule> gaitSchedulePtr);
-
-  /** Inserts the gait received since the last solve, if any, through getReceivedGait() (updateGaitSchedule). */
-  void preSolverRun(scalar_t initTime,
-                    scalar_t finalTime,
-                    const vector_t& currentState,
-                    const ReferenceManagerInterface& referenceManager) override;
-
-  void postSolverRun(const PrimalSolution&) override {};
-
-  /** Drops a gait received but not yet inserted. The gait schedule itself is reset by the reference manager. */
-  void reset() override;
-
-  // Override this function in case you need to e.g. access the received gait in a mutex protected way.
-  virtual ModeSequenceTemplate getReceivedGait() { return receivedGait_; }
-
-  /** Stores `modeSequenceTemplate` and marks it for insertion by the next preSolverRun(). */
-  void updateModeSequence(const ModeSequenceTemplate& modeSequenceTemplate);
-
-  /**
-   * Inserts `updatedGait` into the schedule at the first event after 70% of the horizon [initTime, finalTime] (or where
-   * the left swing that ends there starts), tiled up to the absolute time initTime + 1.5 * (finalTime - initTime).
-   */
-  static void updateGaitSchedule(std::shared_ptr<GaitSchedule>& gaitSchedulePtr,
-                                 const ModeSequenceTemplate& updatedGait,
-                                 scalar_t initTime,
-                                 scalar_t finalTime);
-
- protected:
-  std::shared_ptr<GaitSchedule> gaitSchedulePtr_;
-  // Set by updateModeSequence() on any thread; consumed by preSolverRun() and cleared by reset() on the solver thread.
-  std::atomic<bool> gaitUpdated_{false};
-  ModeSequenceTemplate receivedGait_;
-};
+void updateGaitSchedule(GaitSchedule& gaitSchedule, const ModeSequenceTemplate& updatedGait, scalar_t initTime, scalar_t finalTime);
 
 }  // namespace ocs2::humanoid

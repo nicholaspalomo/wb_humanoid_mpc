@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ostream>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 #include <ocs2_core/control/ControllerBase.h>
 #include <ocs2_core/misc/LinearInterpolation.h>
@@ -62,7 +64,9 @@ class FeedforwardController final : public ControllerBase {
    * @param [in] stateTrajectory the states for the rollout
    * @param [in] controller the controller to extract the feedforward controls from during a rollout
    */
-  FeedforwardController(const scalar_array_t& controllerTime, const vector_array_t& stateTrajectory, ControllerBase* controller);
+  FeedforwardController(const scalar_array_t& controllerTime,
+                        const vector_array_t& stateTrajectory,
+                        ControllerBase* absl_nonnull controller);
 
   /** Copy constructor */
   FeedforwardController(const FeedforwardController& other);
@@ -85,7 +89,7 @@ class FeedforwardController final : public ControllerBase {
 
   vector_t computeInput(scalar_t t, const vector_t& x) override;
 
-  void concatenate(const ControllerBase* nextController, int index, int length) override;
+  void concatenate(const ControllerBase* absl_nonnull nextController, int index, int length) override;
 
   int size() const override;
 
@@ -95,13 +99,14 @@ class FeedforwardController final : public ControllerBase {
 
   bool empty() const override;
 
-  FeedforwardController* clone() const override;
+  FeedforwardController* absl_nonnull clone() const override;
 
   void display() const override;
 
-  void flatten(const scalar_array_t& timeArray, const std::vector<std::vector<double>*>& flatArray2) const override;
+  void flatten(const scalar_array_t& timeArray, const std::vector<std::vector<double>* absl_nonnull>& flatArray2) const override;
 
-  static FeedforwardController unFlatten(const scalar_array_t& timeArray, const std::vector<std::vector<double> const*>& flatArray2);
+  static FeedforwardController unFlatten(const scalar_array_t& timeArray,
+                                         const std::vector<const std::vector<double>* absl_nonnull>& flatArray2);
 
  private:
   void flattenSingle(scalar_t time, std::vector<double>& flatArray) const;

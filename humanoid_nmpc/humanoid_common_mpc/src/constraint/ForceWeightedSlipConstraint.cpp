@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -26,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/ForceWeightedSlipConstraint.h"
 
 #include "absl/log/check.h"
+
 #include "humanoid_common_mpc/contact/ContactInputJacobian.h"
 
 namespace ocs2::humanoid {
@@ -49,8 +54,8 @@ ForceWeightedSlipConstraint::ForceWeightedSlipConstraint(const EndEffectorKinema
   // reference is not a task-file key at all.
   CHECK_GT(forceReference, 0.0) << "[ForceWeightedSlipConstraint] the force reference must be positive; it is the robot's weight, "
                                    "robotMass * g, taken from the URDF rather than configured";
-  CHECK_GT(velocityReference, 0.0) << "[ForceWeightedSlipConstraint] contact_implicit.velocityReference must be positive";
-  CHECK_GT(angularVelocityReference, 0.0) << "[ForceWeightedSlipConstraint] contact_implicit.angularVelocityReference must be positive";
+  CHECK_GT(velocityReference, 0.0) << "[ForceWeightedSlipConstraint] contact_implicit.velocity_reference must be positive";
+  CHECK_GT(angularVelocityReference, 0.0) << "[ForceWeightedSlipConstraint] contact_implicit.angular_velocity_reference must be positive";
 }
 
 ForceWeightedSlipConstraint::ForceWeightedSlipConstraint(const ForceWeightedSlipConstraint& rhs)
@@ -61,10 +66,10 @@ ForceWeightedSlipConstraint::ForceWeightedSlipConstraint(const ForceWeightedSlip
       inverseTwistReference_(rhs.inverseTwistReference_),
       normalForceRow_(rhs.normalForceRow_) {}
 
-vector_t ForceWeightedSlipConstraint::getValue(scalar_t time,
+vector_t ForceWeightedSlipConstraint::getValue(scalar_t /*time*/,
                                                const vector_t& state,
                                                const vector_t& input,
-                                               const PreComputation& preComp) const {
+                                               const PreComputation& /*preComp*/) const {
   const vector3_t velocity = endEffectorKinematicsPtr_->getVelocity(state, input).front();
   const vector3_t angularVelocity = endEffectorKinematicsPtr_->getAngularVelocity(state, input).front();
   const scalar_t normalForce = normalForceRow_.dot(input) * inverseForceReference_;
@@ -73,10 +78,10 @@ vector_t ForceWeightedSlipConstraint::getValue(scalar_t time,
   return vector_t(normalForce * twist.cwiseProduct(inverseTwistReference_));
 }
 
-VectorFunctionLinearApproximation ForceWeightedSlipConstraint::getLinearApproximation(scalar_t time,
+VectorFunctionLinearApproximation ForceWeightedSlipConstraint::getLinearApproximation(scalar_t /*time*/,
                                                                                       const vector_t& state,
                                                                                       const vector_t& input,
-                                                                                      const PreComputation& preComp) const {
+                                                                                      const PreComputation& /*preComp*/) const {
   const VectorFunctionLinearApproximation velocity = endEffectorKinematicsPtr_->getVelocityLinearApproximation(state, input).front();
   const VectorFunctionLinearApproximation angularVelocity =
       endEffectorKinematicsPtr_->getAngularVelocityLinearApproximation(state, input).front();

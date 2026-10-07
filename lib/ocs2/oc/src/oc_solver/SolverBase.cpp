@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <iostream>
 #include <mutex>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/misc/LinearAlgebra.h>
 #include <ocs2_core/misc/Numerics.h>
 
@@ -55,8 +57,11 @@ void SolverBase::run(scalar_t initTime, const vector_t& initState, size_t initMo
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void SolverBase::run(
-    scalar_t initTime, const vector_t& initState, size_t initMode, scalar_t finalTime, const ControllerBase* externalControllerPtr) {
+void SolverBase::run(scalar_t initTime,
+                     const vector_t& initState,
+                     size_t initMode,
+                     scalar_t finalTime,
+                     const ControllerBase* absl_nullable externalControllerPtr) {
   preRun(initTime, initState, initMode, finalTime);
   runImpl(initTime, initState, finalTime, externalControllerPtr);
   postRun();

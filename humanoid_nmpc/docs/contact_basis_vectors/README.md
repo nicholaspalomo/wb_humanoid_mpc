@@ -1,6 +1,6 @@
 # Basis-Vector Contact Inputs
 
-With `contactInputParameterization: basis_vectors` in a robot's `config/mpc/task.yaml`, the centroidal NMPC no longer
+With `contact_input_parameterization: "basis_vectors"` in a robot's `config/mpc/task.textproto`, the centroidal NMPC no longer
 optimizes each foot's contact wrench $W = (F, \tau) \in \mathbb{R}^6$ directly. It optimizes non-negative scalings
 $\lambda$ of a fixed set of wrench generators instead,
 
@@ -14,11 +14,11 @@ for every contact, whatever the soft-constraint lists say (section 7).
 This document covers the three choices that formulation involves, each made by name in the task file, and one fix to
 how a wrench is written into the input:
 
-| Choice | Task-file key | Names | Default |
+| Choice | Task-file field | Names | Default |
 | --- | --- | --- | --- |
-| How the contact inputs are parameterized | `contactInputParameterization` | `wrench`, `basis_vectors` | `wrench` |
-| Which generators make up $B$ | `contacts.basisGeneratorSet` | `conservative_inner_approximation`, `exact_wrench_cone` | `conservative_inner_approximation` |
-| How the singular input cost is regularized | `contacts.basisRegularization` | `full_diagonal`, `null_space` | `full_diagonal` |
+| How the contact inputs are parameterized | `contact_input_parameterization` | `wrench`, `basis_vectors` | `wrench` |
+| Which generators make up $B$ | `contacts.basis_generator_set` | `conservative_inner_approximation`, `exact_wrench_cone` | `conservative_inner_approximation` |
+| How the singular input cost is regularized | `contacts.basis_regularization` | `full_diagonal`, `null_space` | `full_diagonal` |
 
 The DRC Atlas and the EngineAI SA01 ship `basis_vectors`, the Unitree G1 and R1 `wrench`. **The generator set and the
 regularization every robot ships are the defaults, which is what has always run.** Their alternatives change the closed
@@ -30,18 +30,18 @@ select them.
 ## 1. Block diagram
 
 ```
- task.yaml                                          humanoid_common_mpc / humanoid_centroidal_mpc
- ---------                                          ---------------------------------------------
+ task.textproto                                     humanoid_common_mpc / humanoid_centroidal_mpc
+ --------------                                     ---------------------------------------------
 
- contactInputParameterization: basis_vectors ----> loadContactInputParameterization (registry: wrench | basis_vectors)
+ contact_input_parameterization: "basis_vectors" -> contactInputParameterizationFromConfig (registry: wrench | basis_vectors)
                                                           | CentroidalMpcInterface::setupContactInputParameterization
                                                           v
- contacts.contactWrenchConeSoftConstraint  --+     loadContactWrenchConeBases(taskFile, modelSettings)
-   frictionCoefficient (mu)                  |       ContactWrenchConeConstraint::loadConfig (every key required)
-   torsionalFrictionCoefficient (mu_t)       +-->  ContactWrenchConeBasisMatrix::Create(config, footprint, set)
-   numBasisVectors (N)                       |       registry: getBasisGeneratorSetBuilder(set)
- contacts.contact_rectangle                --+         conservative_inner_approximation  -> N + 7 columns
- contacts.basisGeneratorSet ----------------+          exact_wrench_cone                 -> 8N columns
+ contacts.contact_wrench_cone_soft_constraint --+  contactWrenchConeBasesFromConfig(contacts, modelSettings)
+   friction_coefficient (mu)                    |    contactWrenchConeConfigFromConfig (every field required)
+   torsional_friction_coefficient (mu_t)        +-> ContactWrenchConeBasisMatrix::Create(config, footprint, set)
+   num_basis_vectors (N)                        |    registry: getBasisGeneratorSetBuilder(set)
+ contacts.contact_rectangle                   --+      conservative_inner_approximation  -> N + 7 columns
+ contacts.basis_generator_set ------------------+      exact_wrench_cone                 -> 8N columns
                                                      checks every column against buildLocalWrenchConeRows
                                                           |
                                                           v
@@ -65,7 +65,7 @@ each $B_i \lambda_i$ into the world frame inside the CppAD tape, so they do not 
 ## 2. The cone wrench mode enforces (H-representation)
 
 `buildLocalWrenchConeRows` builds the rows `ContactWrenchConeConstraint` enforces in wrench mode, and it is the single
-definition both formulations are checked against. Dropping the affine offsets (`minNormalForce`, `gripperForce`), a
+definition both formulations are checked against. Dropping the affine offsets (`min_normal_force`, `gripper_force`), a
 local wrench $W = (F_x, F_y, F_z, \tau_x, \tau_y, \tau_z)$ is admissible when
 
 $$
@@ -130,7 +130,7 @@ wrenches (`testContactWrenchConeBasisMatrix` logs the figure for every geometry 
 recovery all want tangential force with the center of pressure near an edge of the foot, which is exactly what this
 set cannot express - so basis mode with this set plans with a much smaller contact-wrench set than wrench mode does.
 
-**What no generator set can represent.** `minNormalForce` and `gripperForce` are affine offsets of the cone, and a
+**What no generator set can represent.** `min_normal_force` and `gripper_force` are affine offsets of the cone, and a
 conic combination is homogeneous ($\lambda = 0$ always gives $W = 0$). Neither is enforced in basis mode, and
 `CentroidalMpcInterface` warns when either is configured.
 
@@ -147,7 +147,7 @@ The task file writes the input weight $R$ in wrench space. In basis mode it beco
 
 $$R_{\text{basis}} = M^\top R\, M + \text{reg} \cdot \operatorname{blkdiag}(S, 0_{\text{joints}}),$$
 
-with `reg` = `contacts.basisScalingRegularization`. Each $B_i$ has more columns than rows, so $M^\top R M$ is singular
+with `reg` = `contacts.basis_scaling_regularization`. Each $B_i$ has more columns than rows, so $M^\top R M$ is singular
 on $\operatorname{null}(B_i)$: the scalings that produce no wrench. $S$ removes that singularity, and how it does so
 decides what the optimizer actually sees on the wrench. Minimizing $u^\top R_{\text{basis}} u$ over the inputs that
 produce a given wrench leaves $W^\top G\, W$ with
@@ -169,7 +169,7 @@ the regularization vanishes on $\operatorname{range}(B^\top)$, the minimum over 
 at $\lambda_n = 0$, and $G = R$ **exactly**. $R_{\text{basis}}$ is still positive definite on the scalings as long as
 $\text{reg} > 0$ and $R$ gives every contact force and moment a positive weight: $B^\top R B$ is positive definite on
 $\operatorname{range}(B^\top)$ and the projector on $\operatorname{null}(B)$. `checkLambdaBlockPositiveDefinite` reports
-the case where it is not, naming the keys to change.
+the case where it is not, naming the fields to change.
 
 <!-- LINT.IfChange(regularization_names) -->
 | Regularization | $S$ per foot | Metric on the wrench |
@@ -180,9 +180,10 @@ the case where it is not, naming the keys to change.
 
 Both are built by `transformWrenchInputCostToBasisSpace(R, config)` from one `BasisInputsCostTransformConfig`
 (`CentroidalMpcInterface::getBasisInputsCostTransformConfig`), whose `regularization` names $S$ and which the OCP
-factory (`HumanoidCostConstraintFactory::setBasisInputsCostTransform`) and the online parameter updater share, so a hot
+factory (`HumanoidCostConstraintFactory::setBasisInputsCostTransform`) and the online parameter updater (its centroidal
+`BasisInputsCostApplier`, `humanoid_centroidal_mpc/parameter_update/`) share, so a hot
 reload applies the same regularization as the start-up. Start-up refuses a configuration whose $\lambda$ block is not
-positive definite (a zero `reg`, or `null_space` with a contact wrench direction $R$ does not weigh), naming the key;
+positive definite (a zero `reg`, or `null_space` with a contact wrench direction $R$ does not weigh), naming the field;
 the updater refuses such a reload and keeps the running $R$.
 
 ## 6. Writing a wrench into the input
@@ -200,34 +201,35 @@ cannot tape an active-set solve and keeps the clamp; no taped path calls a sette
 ## 7. Selecting each choice
 
 The registries are the single place a parameterization, a generator set or a regularization is added, and each rejects
-an unknown name with a message that names its key and lists the valid names:
+an unknown name with a message that names its field and lists the valid names:
 
 * `contactInputParameterizationNames()` / `contactInputParameterizationFromName(name)` in
-  `common/ContactInputParameterization.h`, read by `loadContactInputParameterization(taskFile)`;
+  `common/ContactInputParameterization.h`, read by `contactInputParameterizationFromConfig(task)`;
 * `getBasisGeneratorSetBuilder(name)` / `basisGeneratorSetNames()` in `ContactWrenchConeBasisMatrix.h`, used by
-  `ContactWrenchConeBasisMatrix::Create(config, footprint, name)` and read by `loadContactWrenchConeBases`;
+  `ContactWrenchConeBasisMatrix::Create(config, footprint, name)` and read by `contactWrenchConeBasesFromConfig`;
 * `getBasisRegularizationBuilder(name)` / `basisRegularizationNames()` in `BasisInputsCostTransform.h`, used through
   `BasisInputsCostTransformConfig::regularization`.
 
 <!-- LINT.IfChange(contact_input_parameterization_names) -->
-| Key | Where | Read | Values |
+| Field | Where | Read | Values |
 | --- | --- | --- | --- |
-| `contactInputParameterization` | top level of `task.yaml` | at start-up | `wrench` (default when absent), `basis_vectors` |
-| `contacts.basisGeneratorSet` | `contacts` | at start-up | section 4 |
-| `contacts.basisRegularization` | `contacts` | at start-up and on every hot reload | section 5 |
-| `contacts.basisScalingRegularization` | `contacts` | at start-up and on every hot reload | `reg` of section 5, $\ge 0$ |
-| `contacts.basisNonNegativityBarrier.mu`, `.delta` | `contacts` | at start-up and on every hot reload | the barrier below |
+| `contact_input_parameterization` | top level of `task.textproto` | at start-up | `wrench` (default when absent), `basis_vectors` |
+| `contacts.basis_generator_set` | `contacts` | at start-up | section 4 |
+| `contacts.basis_regularization` | `contacts` | at start-up and on every hot reload | section 5 |
+| `contacts.basis_scaling_regularization` | `contacts` | at start-up and on every hot reload | `reg` of section 5, $\ge 0$ |
+| `contacts.basis_non_negativity_barrier.mu`, `.delta` | `contacts` | at start-up and on every hot reload | the barrier below |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/ContactInputParameterization.h:contact_input_parameterization_names) -->
 
 The parameterization and the generator set fix the input dimension, so they take effect at the next start; a hot
 reload that changes the parameterization is reported by the parameter updater rather than applied. The tuning GUI
 labels the `contacts` sliders to match: the geometry of the cone and of the footprint `(restart)`, and the barrier of a
 block the selected parameterization does not read - the soft wrench cone's under `basis_vectors`, the basis blocks
-under `wrench` - `(not applicable: ...)`. The `useContactBasisVectorInputs` boolean that used to select the
-parameterization is refused at start-up, whatever its value, with a message naming its replacement, by both MPCs. The
-whole-body MPC implements the wrench parameterization only and refuses `basis_vectors`. A value of any of these keys
-that is not a number or a name is refused by its key, at start-up before any CppAD model is built, and on a hot reload
-by keeping the running value.
+under `wrench` - `(not applicable: ...)`. The `use_contact_basis_vector_inputs` boolean that used to select the
+parameterization is a retired field of the task file: a file that carries it is refused when it is read, whatever its
+value, with a message naming its replacement. The
+whole-body MPC implements the wrench parameterization only and refuses `basis_vectors`. A value of any of these fields
+that is out of range or an unknown name is refused by its field, at start-up before any CppAD model is built, and on a
+hot reload by keeping the running value.
 
 **The barrier.** Under `basis_vectors` the bound $\lambda \ge 0$ is the contact wrench cone: nothing else in the
 problem bounds the individual scalings (`friction_force_cone` bounds only the assembled force). So
@@ -235,10 +237,10 @@ problem bounds the individual scalings (`friction_force_cone` bounds only the as
 exactly when `zero_wrench` is, whatever the soft-constraint lists say; a listed `contact_wrench_cone` builds nothing
 more. It used to be built only when `contact_wrench_cone` was listed, so dropping that entry silently removed the cone.
 
-**The ground.** `contacts.contactWrenchConeSoftConstraint` is read by one loader,
-`ContactWrenchConeConstraint::loadConfig`, for the wrench cone, for these generators and for the online contact
-planner's friction and torsion bounds. Every one of its five geometry keys is required: a missing key used to leave the
-library default of the config (mu 0.7, 5 N) in place without a word.
+**The ground.** `contacts.contact_wrench_cone_soft_constraint` is read by one conversion,
+`contactWrenchConeConfigFromConfig`, for the wrench cone, for these generators and for the online contact
+planner's friction and torsion bounds. Every one of its five geometry fields is required: a missing field used to leave
+the library default of the config (mu 0.7, 5 N) in place without a word.
 
 ## 8. CppAD libraries
 
@@ -250,9 +252,10 @@ library carries the key in its name (`dynamics_basis11_...`), and `CentroidalMpc
 parameterization to the CppAD model folder before any term is built -
 `cppad_code_gen/cppad_centroidal_mpc_<robot>/wrench_inputs` or `.../basis11_<hash>` - so every taped term is keyed
 by it. OCS2 loads a cached library by name without checking its domain, and every robot ships
-`recompileLibrariesCppAd: false`, so without that key switching the parameterization or the basis loaded a library
-built for another input dimension and the process exited on its first evaluation. The first start of a centroidal
-robot with a parameterization or a basis it has not run before compiles every library once, into that key's folder.
+`model_settings.recompile_libraries_cpp_ad: false`, so without that key switching the parameterization or the basis
+loaded a library built for another input dimension and the process exited on its first evaluation. The first start of
+a centroidal robot with a parameterization or a basis it has not run before compiles every library once, into that
+key's folder.
 
 ## 9. Tests
 
@@ -262,7 +265,7 @@ robot with a parameterization or a basis it has not run before compiles every li
 | `//humanoid_nmpc/humanoid_common_mpc:testBasisInputsCostTransform` | `null_space` leaves the wrench metric exactly $R$ and the regularization vanishes on $\operatorname{range}(M^\top)$; `full_diagonal` is the old transform bit for bit and distorts the metric by $\text{reg}\,(BB^\top)^{-1}$; positive definiteness and when it fails |
 | `//humanoid_nmpc/humanoid_centroidal_mpc:testBasisInputsModelDecorator` | wrenches whose minimum-norm scalings are negative, and the weight seen from a pitched foot, round-trip exactly; the exact set decorates the same model |
 | `//humanoid_nmpc/humanoid_centroidal_mpc_test:test_basis_inputs_formulation` | the full Atlas interface in both modes: dimensions, dynamics, the input cost, and that the shipped defaults are unchanged; the CppAD folder keyed by the parameterization and the basis; the barrier built without `contact_wrench_cone`; `null_space` reaching the start-up input cost |
-| `//humanoid_nmpc/humanoid_common_mpc:testContactInputParameterization` | the parameterization registry, its loader and the refusal of the retired boolean; the shipped robots select what they ran before; every key of the wrench-cone block required by name; the bases a task file's `basisGeneratorSet` builds |
-| `//humanoid_nmpc/humanoid_centroidal_mpc:testContactInputParameterizationWiring` | `CentroidalMpcInterface::Create` refuses, by key and before any CppAD model is built, the retired boolean, an unknown parameterization, generator set or regularization, a negative, zero or unparsable `basisScalingRegularization`, an unparsable barrier `mu` or `delta`, and a wrench-cone block missing a key (for the basis and for the contact planner) |
-| `//humanoid_nmpc/humanoid_centroidal_mpc:testMpcParameterUpdaterModule` | on the shipped Atlas: a hot reload reproduces the factory's basis-space $R$, applies a named `basisRegularization`, refuses an unknown shape, an unparsable weight or an indefinite $\lambda$ block and keeps the running $R$, keeps the running barrier when its `mu` is not a number, reports a changed parameterization as structural, and logs no failure for cone terms the problem does not carry |
+| `//humanoid_nmpc/humanoid_common_mpc:testContactInputParameterization` | the parameterization registry, its conversion and the refusal of the retired boolean; the shipped robots select what they ran before; every field of the wrench-cone block required by name; the bases a task file's `basis_generator_set` builds |
+| `//humanoid_nmpc/humanoid_centroidal_mpc:testContactInputParameterizationWiring` | `CentroidalMpcInterface::Create` refuses, by field and before any CppAD model is built, the retired boolean, an unknown parameterization, generator set or regularization, a negative, zero or unparsable `basis_scaling_regularization`, an unparsable barrier `mu` or `delta`, and a wrench-cone block missing a field (for the basis and for the contact planner) |
+| `//humanoid_nmpc/humanoid_centroidal_mpc:testMpcParameterUpdaterModule` | on the shipped Atlas: a hot reload reproduces the factory's basis-space $R$, applies a named `basis_regularization`, refuses an unknown shape, an unparsable weight or an indefinite $\lambda$ block and keeps the running $R$, keeps the running barrier when its `mu` is not a number, reports a changed parameterization as structural, and logs no failure for cone terms the problem does not carry |
 | `//humanoid_nmpc/humanoid_wb_mpc:testWBMpcFormulation` | the whole-body MPC refuses `basis_vectors`, the retired boolean and the contact planner by name |

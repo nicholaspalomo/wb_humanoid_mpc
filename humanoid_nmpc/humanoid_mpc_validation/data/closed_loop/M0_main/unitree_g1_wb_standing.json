@@ -1,0 +1,124 @@
+{
+  "schema": "humanoid_mpc_validation.closed_loop_metrics.v1",
+  "label": "M0_main",
+  "robot": "unitree_g1_wb",
+  "formulation": "whole_body",
+  "scenario": "standing",
+  "provenance": {
+    "git_commit": "b41650f060e24cee9b29dec4561a6dc957bc57f1",
+    "worktree_state": "2 changed paths, diff sha256 ff8d903eadc63349",
+    "machine": "Intel(R) Core(TM) Ultra 7 265K, 20 logical cores, 30.2 GiB",
+    "configuration_sha256": {
+      "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto": "629d804db28b388cb9df41d0004808e7048d6b5caa46a1450d604dc1e96df6ca",
+      "robot_models/unitree_g1/g1_wb_mpc/config/command/reference.textproto": "7a86207ade3e080dc1575d7a6cdc736dce4b92e8e413c62d21137f87b6b31932",
+      "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto": "656f852101595179bec1c5959eabb12e25407cac2b2ed0bb0fed4fdfa3acca47",
+      "robot_models/unitree_g1/g1_wb_mpc/config/controller/joint_pd_gains.textproto": "40b1c447c3ccb22f590db41f11c8b2b25e6dcfdb001027e466421c12db49154a",
+      "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf": "7696e17b07ade3d024dc267073826b75aa74019781c95f9ac44897be1de2305c",
+      "robot_models/unitree_g1/g1_description/urdf/g1_29dof.xml": "8ad960baa9c52315811e5151b00d91b8f817dd1f5f102ff623ed6034a83d35ff"
+    }
+  },
+  "settings": {
+    "mpc_frequency_hz": 60,
+    "mrt_frequency_hz": 500,
+    "simulation_time_step_s": 0.0005,
+    "control_period_s": 0.002,
+    "solver_threads": 4,
+    "solve_latency": "none: a solve's policy is in use from the next control cycle",
+    "joint_pd_settle_time_s": 1,
+    "entry_end_time_s": 1.0199999999999432,
+    "gantry_release_time_s": 1.519999999999888,
+    "standing_time_s": 2,
+    "command_start_time_s": 3.520000000000343,
+    "command_duration_s": 10,
+    "command_limits": [2, 1.2, 1],
+    "command_saturated": false,
+    "scenario_description": "at rest for 10 s"
+  },
+  "evaluation": {
+    "start_time_s": 3.520500000000343,
+    "end_time_s": 13.51850000000503,
+    "control_cycles": 5000,
+    "solves": 600
+  },
+  "survival": {
+    "survived": true,
+    "fall_time_s": null,
+    "fall_reason": ""
+  },
+  "base_height": {
+    "mean_m": 0.7908754317286227,
+    "std_m": 0.00014213281994055848,
+    "rms_error_m": 0.00026576803388831825
+  },
+  "tilt": {
+    "rms_rad": 0.002763904424460093,
+    "max_rad": 0.008517886129283959
+  },
+  "velocity": {
+    "rms_error_mps": 0.0006626326252334431
+  },
+  "yaw_rate": {
+    "rms_error_radps": 1.7610684732860833e-06
+  },
+  "heading": {
+    "cumulative_final_rad": 1.633442354373506e-05,
+    "cumulative_max_rad": 1.633442354373506e-05,
+    "cumulative_min_rad": 0
+  },
+  "stance_foot_slip": {
+    "max_m": 2.713776532712039e-07,
+    "rms_m": 2.623575695085377e-07,
+    "stance_phases": 2
+  },
+  "joint_torque": {
+    "rms_nm": 2.3666945997583477
+  },
+  "initial_state_gap": {
+    "max_rotation_rad": 0.0006032223571276344,
+    "max_rotation_time_s": 4.000500000000502,
+    "max_norm": 0.1114578755880868
+  },
+  "quaternion_norm": {
+    "max_deviation": null
+  },
+  "non_finite_values": 0,
+  "solve_time_ms": {
+    "total": {
+      "mean": 8.10841770666666,
+      "p50": 8.038054,
+      "p99": 8.978594,
+      "max": 9.800752
+    },
+    "lq_approximation": {
+      "mean": 4.064144281666662,
+      "p50": 3.981907,
+      "p99": 4.600048,
+      "max": 5.138488
+    },
+    "solve_qp": {
+      "mean": 3.7036081616666645,
+      "p50": 3.68175,
+      "p99": 4.174773,
+      "max": 4.448844
+    },
+    "linesearch": {
+      "mean": 0.286891548333333,
+      "p50": 0.300972,
+      "p99": 0.353194,
+      "max": 0.403863
+    },
+    "compute_controller": {
+      "mean": 0.017321893333333338,
+      "p50": 0.017097,
+      "p99": 0.025748,
+      "max": 0.060338
+    }
+  },
+  "failures": {
+    "failed_solves": 0,
+    "resets_served": 0,
+    "full_resets_served": 0,
+    "simulator_resets": 0,
+    "unhealthy_cycles": 0
+  }
+}

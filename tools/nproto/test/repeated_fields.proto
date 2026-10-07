@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package nproto_test;
+
+import "nproto/options.proto";
+import "tools/nproto/test/outer.proto";
+import "tools/nproto/test/scalars.proto";
+import "tools/nproto/test/severity.proto";
+
+// Every kind of repeated field: Eigen vectors for double and float, std::vector for the rest.
+// Next ID: 20
+message RepeatedFields {
+  option (nproto.generate_struct) = "nproto::test::RepeatedFields";
+
+  reserved 20 to max;
+
+  repeated double doubles = 1;
+  repeated float floats = 2;
+  repeated int32 int32s = 3;
+  repeated int64 int64s = 4;
+  repeated uint32 uint32s = 5;
+  repeated uint64 uint64s = 6;
+  repeated sint32 sint32s = 7;
+  repeated sint64 sint64s = 8;
+  repeated fixed32 fixed32s = 9;
+  repeated fixed64 fixed64s = 10;
+  repeated sfixed32 sfixed32s = 11;
+  repeated sfixed64 sfixed64s = 12;
+  repeated bool bools = 13;
+  repeated string strings = 14;
+  repeated bytes blobs = 15;
+  repeated Severity severities = 16;
+  repeated Outer.Kind kinds = 17;
+  repeated Scalars scalars = 18;
+  repeated Outer.Inner inners = 19;
+}

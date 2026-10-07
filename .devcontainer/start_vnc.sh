@@ -1,20 +1,20 @@
 #!/bin/bash
 # ------------------------------------------------------------------
-# start_vnc.sh – Start VNC + noVNC sessions inside the container
-# so GUI apps (RViz, PlotJuggler, etc.) can be viewed in browser windows.
+# start_vnc.sh – Start the VNC + noVNC session inside the container
+# so GUI apps can be viewed in a browser window.
 #
-# Primary Display (:99, port 6080): RViz2, MuJoCo, Joystick GUI
-# Secondary Display (:100, port 6082): PlotJuggler (dedicated window)
+# Display :99 (noVNC on port 6080): the MuJoCo viewer, the Tk operator GUI and, when it runs inside the container, the
+# native Rerun viewer. The plots and the 3D scene are in Rerun, which normally runs on the host or as a web viewer
+# (.devcontainer/README.md).
 #
 # Usage:
-#   ./start_vnc.sh              # start both displays (auto-detect resolution)
-#   ./start_vnc.sh 2560x1440   # custom resolution override
-#   ./start_vnc.sh plotjuggler  # start only PlotJuggler display (:100)
+#   ./start_vnc.sh              # start the display (auto-detect resolution)
+#   ./start_vnc.sh 2560x1440    # custom resolution override
 #   ./start_vnc.sh stop         # tear down all VNC services
 # ------------------------------------------------------------------
 set -euo pipefail
 
-MODE="all"
+MODE="start"
 # Resolution priority: CLI arg > VNC_RESOLUTION env var > host monitor auto-detect > 1920x1080
 # LINT.IfChange(vnc_resolution)
 if [ -n "${VNC_RESOLUTION:-}" ]; then
@@ -29,28 +29,22 @@ RESOLUTION="${DEFAULT_RESOLUTION}"
 
 if [ "${1:-}" = "stop" ]; then
     MODE="stop"
-elif [ "${1:-}" = "plotjuggler" ]; then
-    MODE="plotjuggler"
-    RESOLUTION="${2:-${DEFAULT_RESOLUTION}}"
-elif [ "${1:-}" = "main" ]; then
-    MODE="main"
-    RESOLUTION="${2:-${DEFAULT_RESOLUTION}}"
 elif [ -n "${1:-}" ]; then
+    # Anything else must be a resolution: there is a single display, and a stale call naming a display mode is refused
+    # instead of starting an X server of that geometry.
+    if [[ ! "$1" =~ ^[0-9]+x[0-9]+$ ]]; then
+        echo "usage: $0 [WIDTHxHEIGHT | stop]  (got '$1'; there is a single display, ${VNC_DISPLAY:-:99})" >&2
+        exit 2
+    fi
     RESOLUTION="$1"
 fi
 
 # LINT.IfChange(vnc_ports)
-# Primary display config (RViz + MuJoCo)
 VNC_PORT="${VNC_PORT:-5901}"
 NOVNC_PORT="${NOVNC_PORT:-6080}"
 VNC_DEPTH="${VNC_DEPTH:-24}"
 VNC_DISPLAY="${VNC_DISPLAY:-:99}"
-
-# Secondary display config (PlotJuggler)
-PJ_VNC_PORT="${PJ_VNC_PORT:-5903}"
-PJ_NOVNC_PORT="${PJ_NOVNC_PORT:-6082}"
-PJ_DISPLAY="${PJ_DISPLAY:-:100}"
-# LINT.ThenChange(//docker-compose.yaml:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/README.md:vnc_ports, //Makefile:vnc_ports)
+# LINT.ThenChange(//docker-compose.bridge.yaml:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/README.md:vnc_ports, //Makefile:vnc_ports)
 
 # Derive noVNC web root – works on Ubuntu 22.04+ (may be /usr/share/novnc)
 NOVNC_DIR="/usr/share/novnc"
@@ -65,17 +59,12 @@ fi
 
 cleanup() {
     echo "Stopping VNC services..."
-    pkill -9 -f "Xvfb.*:99" 2>/dev/null || true
-    pkill -9 -f "Xvfb.*:100" 2>/dev/null || true
+    pkill -9 -f "Xvfb.*${VNC_DISPLAY}" 2>/dev/null || true
     pkill -9 -f "x11vnc.*${VNC_PORT}" 2>/dev/null || true
-    pkill -9 -f "x11vnc.*${PJ_VNC_PORT}" 2>/dev/null || true
     pkill -9 -f "websockify.*${NOVNC_PORT}" 2>/dev/null || true
-    pkill -9 -f "websockify.*${PJ_NOVNC_PORT}" 2>/dev/null || true
     pkill -9 -x openbox 2>/dev/null || true
     fuser -k -9 ${NOVNC_PORT}/tcp 2>/dev/null || true
-    fuser -k -9 ${PJ_NOVNC_PORT}/tcp 2>/dev/null || true
     fuser -k -9 ${VNC_PORT}/tcp 2>/dev/null || true
-    fuser -k -9 ${PJ_VNC_PORT}/tcp 2>/dev/null || true
     sudo -n rm -f /tmp/.X*-lock /tmp/.X11-unix/X* 2>/dev/null || true
     rm -f /tmp/.X*-lock /tmp/.X11-unix/X* 2>/dev/null || true
     echo "VNC services stopped."
@@ -113,8 +102,8 @@ wm_running() {
 # The geometry of an already-running X server, as WIDTHxHEIGHT.
 #
 # The layout rules below are a single shared file, so sizing them from whatever resolution this particular invocation
-# was asked for silently mis-places every window whenever the two disagree -- a one-off `start_vnc.sh main 1280x720`
-# would rewrite the rules of a 1920x1080 desktop that is already up. The running display's real size wins.
+# was asked for silently mis-places every window whenever the two disagree -- a one-off `start_vnc.sh 1280x720` would
+# rewrite the rules of a 1920x1080 desktop that is already up. The running display's real size wins.
 running_resolution() {
     local line
     line=$(pgrep -af "Xvfb $1 " 2>/dev/null) || return 1
@@ -126,57 +115,48 @@ running_resolution() {
     return 1
 }
 
-# Tell every live openbox to re-read the rules that were just written.
+# Tell the live openbox to re-read the rules that were just written.
 reconfigure_wm() {
-    local display
-    for display in "${VNC_DISPLAY}" "${PJ_DISPLAY}"; do
-        if wm_running "${display}"; then
-            DISPLAY=${display} openbox --reconfigure 2>/dev/null || true
-        fi
-    done
+    if wm_running "${VNC_DISPLAY}"; then
+        DISPLAY=${VNC_DISPLAY} openbox --reconfigure 2>/dev/null || true
+    fi
 }
 
-is_main_running() {
+is_running() {
     pgrep -f "Xvfb.*${VNC_DISPLAY}" >/dev/null 2>&1 && \
     pgrep -f "x11vnc.*${VNC_PORT}" >/dev/null 2>&1 && \
     pgrep -f "websockify.*${NOVNC_PORT}" >/dev/null 2>&1 && \
     wm_running "${VNC_DISPLAY}"
 }
 
-is_pj_running() {
-    pgrep -f "Xvfb.*${PJ_DISPLAY}" >/dev/null 2>&1 && \
-    pgrep -f "x11vnc.*${PJ_VNC_PORT}" >/dev/null 2>&1 && \
-    pgrep -f "websockify.*${PJ_NOVNC_PORT}" >/dev/null 2>&1 && \
-    wm_running "${PJ_DISPLAY}"
-}
-
-# Brings up one display, starting only the services that are actually missing. Starting them as a group meant that one
+# Brings up the display, starting only the services that are actually missing. Starting them as a group meant that one
 # dead service restarted all of them, which is where the duplicate websockify processes bound to the same port came
 # from; it also meant the window manager could only ever be started at the same time as its X server.
 start_display() {
-    local display="$1" vnc_port="$2" novnc_port="$3" log="$4" root_color="$5" label="$6"
+    local display="$1" vnc_port="$2" novnc_port="$3" log="$4" root_color="$5"
 
     if ! pgrep -f "Xvfb.*${display}" >/dev/null 2>&1; then
-        echo "Starting Xvfb on display ${display} ${label}..."
-        detached Xvfb ${display} -screen 0 "${RESOLUTION}x${VNC_DEPTH}" +iglx
+        echo "Starting Xvfb on display ${display}..."
+        detached Xvfb ${display} -screen 0 "${RESOLUTION}x${VNC_DEPTH}" +iglx -extension MIT-SHM
         sleep 1
     fi
 
     if ! pgrep -f "x11vnc.*${vnc_port}" >/dev/null 2>&1; then
-        echo "Starting x11vnc on port ${vnc_port} ${label}..."
+        echo "Starting x11vnc on port ${vnc_port}..."
         detached x11vnc -display ${display} \
             -rfbport "${vnc_port}" \
             -nopw \
             -shared \
             -forever \
             -noxdamage \
+            -noshm \
             -o "${log}"
         sleep 0.5
     fi
 
     if ! wm_running "${display}"; then
         if command -v openbox >/dev/null 2>&1; then
-            echo "Starting openbox on display ${display} ${label}..."
+            echo "Starting openbox on display ${display}..."
             DISPLAY=${display} detached openbox
             sleep 0.5
         else
@@ -190,7 +170,7 @@ start_display() {
     fi
 
     if ! pgrep -f "websockify.*${novnc_port}" >/dev/null 2>&1; then
-        echo "Starting noVNC websockify on port ${novnc_port} ${label}..."
+        echo "Starting noVNC websockify on port ${novnc_port}..."
         detached websockify --web="${NOVNC_DIR}" ${novnc_port} localhost:${vnc_port}
         sleep 0.5
     fi
@@ -205,11 +185,8 @@ fi
 # Written before the early exit below, so that a healthy session still picks up changed rules instead of keeping
 # whatever was generated the first time it came up.
 #
-# Three windows share this display: RViz, the MuJoCo viewer, and the Tkinter "Robot Base Controller & Tuning" GUI.
-# The GUI used to have no rule at all, so it landed where it asks (960x700 at +30+50) while RViz was placed across the
-# whole left pane, covering all but a ~10 px strip of it. The GUI's own `-topmost` holds for only 1.5 s, which RViz
-# beats every time under software GL, so it ended up buried with nothing left to click. The left pane is now split
-# between RViz and the GUI so that no window ever covers another.
+# Three windows share this display: the Rerun viewer, the MuJoCo viewer, and the Tkinter "Robot Base Controller &
+# Tuning" GUI. openbox_layout.py tiles them so that no window ever covers another (it says why that matters).
 mkdir -p "${HOME}/.config/openbox"
 if [ -f "/etc/xdg/openbox/rc.xml" ]; then
     cp /etc/xdg/openbox/rc.xml "${HOME}/.config/openbox/rc.xml"
@@ -218,17 +195,10 @@ if [ -f "/etc/xdg/openbox/rc.xml" ]; then
 fi
 reconfigure_wm
 
-# If requested services are already running healthy, keep them active
-if [ "$MODE" = "all" ] && is_main_running && is_pj_running; then
-    echo "✅ All VNC servers are already running (${VNC_DISPLAY} on ${NOVNC_PORT}, ${PJ_DISPLAY} on ${PJ_NOVNC_PORT})"
-    echo "   🎮 Simulation & RViz : http://localhost:${NOVNC_PORT}/vnc.html"
-    echo "   📊 PlotJuggler       : http://localhost:${PJ_NOVNC_PORT}/vnc.html"
-    exit 0
-elif [ "$MODE" = "main" ] && is_main_running; then
-    echo "✅ Main VNC server is already running on ${VNC_DISPLAY}: http://localhost:${NOVNC_PORT}/vnc.html"
-    exit 0
-elif [ "$MODE" = "plotjuggler" ] && is_pj_running; then
-    echo "✅ PlotJuggler VNC server is already running on ${PJ_DISPLAY}: http://localhost:${PJ_NOVNC_PORT}/vnc.html"
+# If the services are already running healthy, keep them active
+if is_running; then
+    echo "✅ VNC server is already running on ${VNC_DISPLAY}: http://localhost:${NOVNC_PORT}/vnc.html"
+    echo "🌐 Rerun web viewer: http://localhost:9090/?url=rerun+http://localhost:9876/proxy"
     exit 0
 fi
 
@@ -240,7 +210,7 @@ detached() {
     setsid -f "$@" >/dev/null 2>&1 </dev/null
 }
 
-# Clean up stale sockets/locks, but only for a display whose X server is actually gone. These commands kill whatever
+# Clean up stale sockets/locks, but only when the display's X server is actually gone. These commands kill whatever
 # holds the VNC and noVNC ports and delete the X socket, so running them unconditionally would tear down a healthy
 # session that is only missing its window manager -- and leave an orphaned Xvfb that nothing can connect to, because
 # its socket was removed while it kept running.
@@ -256,68 +226,41 @@ clear_stale_locks() {
     rm -f "/tmp/.X${num}-lock" "/tmp/.X11-unix/X${num}" 2>/dev/null || true
 }
 
-if [ "$MODE" = "all" ] || [ "$MODE" = "main" ]; then
-    clear_stale_locks "${VNC_DISPLAY}" "${VNC_PORT}" "${NOVNC_PORT}"
-fi
-if [ "$MODE" = "all" ] || [ "$MODE" = "plotjuggler" ]; then
-    clear_stale_locks "${PJ_DISPLAY}" "${PJ_VNC_PORT}" "${PJ_NOVNC_PORT}"
-fi
+clear_stale_locks "${VNC_DISPLAY}" "${VNC_PORT}" "${NOVNC_PORT}"
 sleep 0.5
 
 echo "============================================="
-echo "  Starting VNC + noVNC visualization server(s)"
+echo "  Starting VNC + noVNC visualization server"
 echo "  Resolution : ${RESOLUTION}x${VNC_DEPTH}"
-if [ "$MODE" = "all" ] || [ "$MODE" = "main" ]; then
-    echo "  Main VNC   : port ${VNC_PORT} -> noVNC ${NOVNC_PORT} (display ${VNC_DISPLAY})"
-fi
-if [ "$MODE" = "all" ] || [ "$MODE" = "plotjuggler" ]; then
-    echo "  PlotJuggler: port ${PJ_VNC_PORT} -> noVNC ${PJ_NOVNC_PORT} (display ${PJ_DISPLAY})"
-fi
+echo "  VNC        : port ${VNC_PORT} -> noVNC ${NOVNC_PORT} (display ${VNC_DISPLAY})"
 echo "============================================="
 
-# --- Configure Mesa for software rendering (required for RViz2/OGRE in VNC) ---
+# --- Configure Mesa for software rendering (the MuJoCo viewer's GLFW + GLEW context in Xvfb) ---
 export LIBGL_ALWAYS_SOFTWARE=1
 export LIBGL_ALWAYS_INDIRECT=0
 export GALLIUM_DRIVER=llvmpipe
 export MESA_GL_VERSION_OVERRIDE=3.3
 export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
 
-
-# --- Start Main Display (:99) ---
-if [ "$MODE" = "all" ] || [ "$MODE" = "main" ]; then
-    start_display "${VNC_DISPLAY}" "${VNC_PORT}" "${NOVNC_PORT}" /tmp/x11vnc.log "#1e222d" ""
-fi
-
-# --- Start PlotJuggler Dedicated Display (:100) ---
-if [ "$MODE" = "all" ] || [ "$MODE" = "plotjuggler" ]; then
-    start_display "${PJ_DISPLAY}" "${PJ_VNC_PORT}" "${PJ_NOVNC_PORT}" /tmp/x11vnc_pj.log "#1a1e29" "(PlotJuggler) "
-fi
+start_display "${VNC_DISPLAY}" "${VNC_PORT}" "${NOVNC_PORT}" /tmp/x11vnc.log "#1e222d"
 
 # Discover host/LAN IPs for easy browser access from remote laptops
 LAN_IPS=$(ip -4 addr show 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -vE '^(127\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)' || true)
 
 echo ""
 echo "============================================="
-echo "  VNC visualization servers are ready!"
+echo "  VNC visualization server is ready!"
 echo ""
 echo "  Open in your browser:"
-if [ "$MODE" = "all" ] || [ "$MODE" = "main" ]; then
-    echo "    🎮 Simulation & RViz : http://localhost:${NOVNC_PORT}/vnc.html"
-fi
-if [ "$MODE" = "all" ] || [ "$MODE" = "plotjuggler" ]; then
-    echo "    📊 PlotJuggler       : http://localhost:${PJ_NOVNC_PORT}/vnc.html"
-fi
+echo "    🎮 MuJoCo viewer & operator GUI : http://localhost:${NOVNC_PORT}/vnc.html"
+echo "    🌐 Rerun web viewer             : http://localhost:9090/?url=rerun+http://localhost:9876/proxy"
 
 if [ -n "${LAN_IPS}" ]; then
     echo ""
     echo "  LAN access:"
     for ip in ${LAN_IPS}; do
-        if [ "$MODE" = "all" ] || [ "$MODE" = "main" ]; then
-            echo "    🎮 Simulation & RViz : http://${ip}:${NOVNC_PORT}/vnc.html"
-        fi
-        if [ "$MODE" = "all" ] || [ "$MODE" = "plotjuggler" ]; then
-            echo "    📊 PlotJuggler       : http://${ip}:${PJ_NOVNC_PORT}/vnc.html"
-        fi
+        echo "    🎮 MuJoCo viewer & operator GUI : http://${ip}:${NOVNC_PORT}/vnc.html"
+        echo "    🌐 Rerun web viewer             : http://${ip}:9090/?url=rerun+http://${ip}:9876/proxy"
     done
 fi
 
@@ -327,5 +270,3 @@ echo "============================================="
 
 # Export DISPLAY so subsequent commands in this shell use VNC
 export DISPLAY=${VNC_DISPLAY}
-export PLOTJUGGLER_DISPLAY=${PJ_DISPLAY}
-

@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -26,14 +30,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 
-#include <ocs2_core/automatic_differentiation/CppAdInterface.h>
-#include <ocs2_core/cost/StateCost.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/automatic_differentiation/CppAdInterface.h"
+#include "ocs2_core/cost/StateCost.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -54,53 +59,61 @@ namespace ocs2::humanoid {
  * Under an active reduced-order plan the reference is the plan's own DCM instead, and both DCMs are then taken on the
  * plan's pendulum (getParameters).
  *
- * THE PENDULUM. comHeight is the robot's own by default: a `dcm_terminal_cost.comHeight` of 0 means the model's
- * center of mass above its feet at the task file's initialState (computeComHeightAboveFeet, the length every LIP
- * consumer shares), which the cost is given at construction and resolves on every setConfig(), so a hot reload of the
- * block keeps meaning the same thing. A positive value is an explicit override.
+ * THE PENDULUM. comHeight is the robot's own by default: a `dcm_terminal_cost` block without `com_height` (a comHeight
+ * of nullopt here) means the model's center of mass above its feet at the task file's initial_state
+ * (computeComHeightAboveFeet, the length every LIP consumer shares), which the cost is given at construction and
+ * resolves on every setConfig(), so a hot reload of the block keeps meaning the same thing. A value is an explicit
+ * override.
  *
  * The cost is 0.5 ||W^(1/2) (xi - xi_ref)||^2 with a Gauss-Newton Hessian, so it stays positive semi-definite for every
- * configuration. It replaces the quadratic Q_final terminal cost on the full state, whose base pose entries are meaningless
+ * configuration. It replaces the quadratic final_state_weights terminal cost on the full state, whose base pose entries are meaningless
  * for varying gait cadences.
  */
 class DcmTerminalCost final : public StateCost {
  public:
-  /** The key prefix of the block in the task file. */
-  static constexpr const char* kConfigPrefix = "dcm_terminal_cost.";
+  /** The field path prefix of the block in the task file. */
+  static constexpr char kConfigPrefix[] = "dcm_terminal_cost.";
   /** The name the interface adds the cost under to the final costs, and the parameter updater looks it up by. */
-  static constexpr const char* kTermName = "dcmTerminalCost";
+  static constexpr char kTermName[] = "dcmTerminalCost";
+  /**
+   * The name the interface builds the cost's CppAD library under (the library is "<it>_p<parameters>"). The same string
+   * as kTermName today, defined apart on purpose: a rename of the term must not rename, and regenerate, the library
+   * (testCostTermAndLibraryNames).
+   */
+  static constexpr char kLibraryName[] = "dcmTerminalCost";
 
   struct Config {
-    // [m] pendulum height for omega. 0: the model's (resolved by resolveConfig()); positive: an explicit override.
-    scalar_t comHeight = 0.0;
+    // [m] pendulum height for omega. nullopt: the model's (resolveConfig() fills it in), what a file without
+    // dcm_terminal_cost.com_height converts to; a value: an explicit override, positive.
+    std::optional<scalar_t> comHeight;
     scalar_t gravity = 9.81;              // [m/s^2]
     vector2_t weights{100.0, 100.0};      // [x, y] weights on the DCM error
     scalar_t velocityOffsetFactor = 1.0;  // scales the v_cmd / omega offset of the DCM reference
     scalar_t supportBlendTime = 0.1;      // [s] a foot's support weight ramps 0->1 after touch-down and 1->0 before lift-off
 
-    /** sqrt(gravity / comHeight); meaningful once comHeight is resolved. */
+    /** sqrt(gravity / comHeight); NaN while comHeight is not resolved (resolveConfig()). */
     scalar_t omega() const;
 
     /**
-     * OK, or InvalidArgument naming the dcm_terminal_cost key to change: a negative or non-finite comHeight (0 is
-     * allowed and means "the model's"), a gravity that is not positive, a negative weight or blend time.
+     * OK, or InvalidArgument naming the dcm_terminal_cost field to change: a com_height that is given and is not a
+     * positive number, a gravity that is not positive, a negative weight or blend time.
      */
     absl::Status validate() const;
   };
 
   /**
-   * `config` with a comHeight of 0 replaced by `modelComHeight`, the pendulum length of the robot's model, and validated.
-   * InvalidArgument naming dcm_terminal_cost.comHeight when neither the file nor the model gives a positive height.
+   * `config` with an unset comHeight set to `modelComHeight`, the pendulum length of the robot's model, and validated.
+   * InvalidArgument naming dcm_terminal_cost.com_height when neither the file nor the model gives a positive height.
    */
   static absl::StatusOr<Config> resolveConfig(Config config, scalar_t modelComHeight);
 
   /**
    * Builds the cost with `config` resolved against `modelComHeight` (resolveConfig), or returns the InvalidArgument that
-   * names the key to change.
+   * names the field to change.
    *
    * @param modelComHeight [m] the model's pendulum length at the nominal state
-   *                       (CentroidalMpcInterface::getNominalComHeight()); what a comHeight of 0 stands for, now and on
-   *                       every later setConfig().
+   *                       (CentroidalMpcInterface::getNominalComHeight()); what an unset comHeight stands for, now and
+   *                       on every later setConfig().
    */
   static absl::StatusOr<std::unique_ptr<DcmTerminalCost>> Create(const SwitchedModelReferenceManager& referenceManager,
                                                                  const Config& config,
@@ -111,7 +124,11 @@ class DcmTerminalCost final : public StateCost {
                                                                  const ModelSettings& modelSettings);
 
   ~DcmTerminalCost() override = default;
-  DcmTerminalCost* clone() const override { return new DcmTerminalCost(*this); }
+  DcmTerminalCost* absl_nonnull clone() const override { return new DcmTerminalCost(*this); }
+  // Copied only by clone(), whose copy constructor is private; never assigned or moved.
+  DcmTerminalCost& operator=(const DcmTerminalCost&) = delete;
+  DcmTerminalCost(DcmTerminalCost&&) = delete;
+  DcmTerminalCost& operator=(DcmTerminalCost&&) = delete;
 
   bool isActive(scalar_t /*time*/) const override { return isActive_; }
   void setActive(bool active) { isActive_ = active; }
@@ -126,23 +143,15 @@ class DcmTerminalCost final : public StateCost {
                                                                  const PreComputation& preComputation) const override;
 
   /**
-   * Live update of weights / height; the CppAD model is parameterized so no recompilation is needed. A comHeight of 0 is
-   * resolved to the model's height the cost was built with. A configuration that does not validate is refused with
-   * the InvalidArgument naming its key, and the running one is kept.
+   * Live update of weights / height; the CppAD model is parameterized so no recompilation is needed. An unset comHeight
+   * is resolved to the model's height the cost was built with. A configuration that does not validate is refused with
+   * the InvalidArgument naming its field, and the running one is kept.
    */
   absl::Status setConfig(const Config& config);
   /** The running configuration, comHeight resolved. */
   const Config& getConfig() const { return config_; }
-  /** [m] the model's pendulum length a comHeight of 0 resolves to. */
+  /** [m] the model's pendulum length an unset comHeight resolves to. */
   scalar_t getModelComHeight() const { return modelComHeight_; }
-
-  /**
-   * Loads the config from the `dcm_terminal_cost` section of the task file (missing keys keep their defaults, so a
-   * missing comHeight is the model's). comHeight is left as the file writes it: 0 is resolved by resolveConfig() or
-   * setConfig(). An unreadable file, a value that is not a number and every rejection of Config::validate() are an
-   * InvalidArgument naming the key.
-   */
-  static absl::StatusOr<Config> loadConfig(const std::string& taskFile, const std::string& prefix = kConfigPrefix, bool verbose = false);
 
   /**
    * Parameter vector [w_left, w_right, omega, v_cmd_x, v_cmd_y, offsetFactor, sqrtW_x, sqrtW_y, plannedWeight,
@@ -172,7 +181,7 @@ class DcmTerminalCost final : public StateCost {
   DcmTerminalCost(const DcmTerminalCost& other);
   ad_vector_t residual(const ad_vector_t& state, const ad_vector_t& parameters);
 
-  const SwitchedModelReferenceManager* referenceManagerPtr_;
+  const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
   Config config_;
   scalar_t modelComHeight_;
   bool isActive_ = true;

@@ -1,0 +1,179 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+
+# humanoid_wb_mpc_app - the processes of the distributed runtime (humanoid_nmpc/docs/distributed_runtime/README.md) that
+# run the whole-body MPC. See README.md.
+
+package(default_visibility = ["//visibility:public"])
+
+# ==============================================================================
+# The MPC node and the dummy simulator (laptop side)
+# ==============================================================================
+
+# The whole-body MPC served on the bus (WBMpcNode.h).
+cc_library(
+    name = "wb_mpc_node",
+    srcs = ["src/WBMpcNode.cpp"],
+    hdrs = ["include/humanoid_wb_mpc_app/WBMpcNode.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        "//humanoid_nmpc/humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:mpc_node",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:node_process",
+        "//humanoid_nmpc/humanoid_common_mpc_app/visualization",
+        "//humanoid_nmpc/humanoid_mpc_ipc",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_sqp",
+        "//robot_runtime/robot_ipc",
+        "//robot_runtime/robot_realtime",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@pinocchio",
+    ],
+)
+
+# LINT.IfChange(laptop_binaries)
+# bazel run //humanoid_nmpc/humanoid_wb_mpc_app:humanoid_wb_mpc_node -- --robot_name=... --task_file=...
+cc_binary(
+    name = "humanoid_wb_mpc_node",
+    srcs = ["src/WBMpcNodeMain.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":wb_mpc_node",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:mpc_app_flags",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:mpc_node",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:node_process",
+        "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/flags:flag",
+        "@abseil-cpp//absl/flags:parse",
+        "@abseil-cpp//absl/flags:usage",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/log:globals",
+        "@abseil-cpp//absl/log:initialize",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+    ],
+)
+
+# The robot played by the MPC model's rollout, over the bus: bazel run ...:humanoid_wb_mpc_dummy_sim -- --task_file=...
+cc_binary(
+    name = "humanoid_wb_mpc_dummy_sim",
+    srcs = ["src/WBMpcDummySimMain.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        "//humanoid_nmpc/humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:mpc_app_flags",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:mpc_node",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:node_process",
+        "//lib/ocs2:ocs2_mpc",
+        "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/flags:flag",
+        "@abseil-cpp//absl/flags:parse",
+        "@abseil-cpp//absl/flags:usage",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/log:globals",
+        "@abseil-cpp//absl/log:initialize",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@pinocchio",
+    ],
+)
+# LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc_app/README.md:laptop_binaries, //humanoid_nmpc/docs/distributed_runtime/README.md:process_table)
+
+# The node on the Unitree G1 whole-body task file with the real SQP solver, over loopback buses: a scripted robot and
+# operator (observation in, policy out, resets through the observation's counters, the velocity command reaching the
+# motion manager, an MPC parameter update applied before the next solve and one of another configuration refused, the
+# updater applying the whole-body hot fields), the reset target the controller hands its in-process link, and the dummy
+# simulator standing on the node's policies for a few seconds without a reset. Large: it builds the G1 whole-body MPC's CppAD libraries on a cold
+# cache. That took 520-575 s of the 900 s a large test gets on a 20-core workstation, and CI's 4-vCPU runner starts with
+# no CppAD cache at all: the timeout is the longest Bazel has (3600 s), not the size's.
+cc_test(
+    name = "test_wb_mpc_node",
+    size = "large",
+    timeout = "eternal",
+    srcs = ["test/testWBMpcNode.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        "//robot_models/unitree_g1/g1_description",
+        # The centroidal G1's task file: the same robot, another configuration, whose update the node refuses.
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    deps = [
+        ":wb_mpc_node",
+        "//humanoid_nmpc/humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:mpc_node",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:node_process",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:scripted_robot",
+        "//humanoid_nmpc/humanoid_common_mpc_app/visualization",
+        "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//humanoid_nmpc/humanoid_mpc_ipc",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_mpc_test_support",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_sqp",
+        "//robot_runtime/robot_core:resource_paths",
+        "//robot_runtime/robot_ipc",
+        "//robot_runtime/robot_model",
+        "//tools/nproto:nproto_runtime",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/time",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# ==============================================================================
+# The robot process (robot side)
+# ==============================================================================
+
+# LINT.IfChange(robot_binaries)
+# The robot process: bazel run //humanoid_nmpc/humanoid_wb_mpc_app:humanoid_wb_mpc_robot -- --robot_name=...
+# --task_file=... --reference_file=... --urdf_file=... --mjcf_file=... (humanoid_common_mpc_app/robot/README.md).
+cc_binary(
+    name = "humanoid_wb_mpc_robot",
+    srcs = ["src/WBMpcRobotMain.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:mpc_node",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:node_process",
+        "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_app_flags",
+        "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_process",
+        "//humanoid_nmpc/humanoid_mpc_ipc",
+        "//humanoid_nmpc/humanoid_mpc_ipc:remote_mpc_link",
+        "//humanoid_nmpc/humanoid_wb_mpc",
+        "//robot_runtime/robot_ipc",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/flags:parse",
+        "@abseil-cpp//absl/flags:usage",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/log:globals",
+        "@abseil-cpp//absl/log:initialize",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@pinocchio",
+    ],
+)
+# LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc_app/README.md:robot_binaries, //humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:robot_binaries)

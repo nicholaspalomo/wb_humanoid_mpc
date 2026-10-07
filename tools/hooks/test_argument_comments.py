@@ -1,11 +1,41 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Tests for argument_comments.py, the lint check for literal arguments without a Google-style argument comment."""
 
+import contextlib
+import io
 import os
-import sys
+import subprocess
+import tempfile
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import argument_comments  # noqa: E402
+from tools.hooks import argument_comments
+from tools.hooks import check_test_support
 
 
 def flagged(source):
@@ -51,6 +81,20 @@ class FlagsBareLiteralsTest(unittest.TestCase):
             with self.subTest(literal=literal):
                 self.assertEqual(flagged("f(a, %s);" % literal), [("f", expected, 2)])
 
+    def test_empty_values_and_characters(self):
+        for literal in ["{}", '""', "std::nullopt", "'c'", "'\\n'"]:
+            with self.subTest(literal=literal):
+                self.assertEqual(
+                    flagged("load(file, %s);" % literal), [("load", literal, 2)]
+                )
+                self.assertEqual(flagged("load(file, /*defaults=*/%s);" % literal), [])
+        # A non-empty braced list or string says what it holds.
+        self.assertEqual(flagged('load(file, {"a"}); load(file, "a");'), [])
+        # Two numbers are coordinates; an empty value beside a number is not, and both are reported.
+        self.assertEqual(
+            flagged("addHard({}, 1.0);"), [("addHard", "{}", 1), ("addHard", "1.0", 2)]
+        )
+
     def test_each_literal_of_a_call_is_reported_with_its_position(self):
         self.assertEqual(
             flagged("f(x, 0, y, false);"), [("f", "0", 2), ("f", "false", 4)]
@@ -90,6 +134,25 @@ class ExemptionsTest(unittest.TestCase):
 
     def test_one_argument_calls(self):
         self.assertEqual(flagged("setVerbose(true); v.resize(3); wait(0.5);"), [])
+        # A bool or null is the exception: the name of a one-argument call rarely says what it switches.
+        self.assertEqual(flagged("reset(true);"), [("reset", "true", 1)])
+        self.assertEqual(flagged("runner.start(nullptr);"), [("start", "nullptr", 1)])
+        self.assertEqual(flagged("reset(/*hard=*/true);"), [])
+        # Unless it is a setter, a protobuf adder, a member or variable being initialized, or conventional.
+        for source in [
+            "enableLogging(false);",
+            "disableTorque(true);",
+            "message.set_ready(true);",
+            "message.add_contact_flags(true);",
+            "Foo::Foo() : stopped_(false) {}",
+            "std::atomic<bool> stopped(false);",
+            "flag.store(true);",
+            "srand(time(nullptr));",
+            "const feet_array_t<bool> all = makeFeetArray(true);",
+            "EXPECT_EQ(kind, std::optional<bool>(true));",
+        ]:
+            with self.subTest(source=source):
+                self.assertEqual(flagged(source), [])
 
     def test_conventional_callees(self):
         for source in [
@@ -106,6 +169,10 @@ class ExemptionsTest(unittest.TestCase):
             "vector_t::Constant(n, 1.0);",
             "Eigen::Quaterniond(w, 0.0, 0.0, 1.0);",
             "vector3_t(x, 0.0, 1.0);",
+            "absl::StrSplit(text, ',');",
+            'absl::StrContains(text, "");',
+            "text.find_first_not_of(' ');",
+            'ABSL_FLAG(bool, gui, false, "Open the viewer.");',
             # glibc leaves memset's fill byte unnamed, so no argument comment could name it.
             "memset(&state, 0, sizeof(State));",
         ]:
@@ -155,8 +222,8 @@ class ExemptionsTest(unittest.TestCase):
         # `array < 3` is a comparison: the closing parenthesis still ends the call, and the next call is checked.
         self.assertEqual(flagged("f(array < 3, x); g(a, 0);"), [("g", "0", 2)])
 
-    def test_strings_characters_and_user_defined_literals(self):
-        self.assertEqual(flagged("f(a, \"text\"); g(a, 'c'); sleep(clock, 100ms);"), [])
+    def test_strings_and_user_defined_literals(self):
+        self.assertEqual(flagged('f(a, "text"); sleep(clock, 100ms);'), [])
 
     def test_not_calls(self):
         for source in [
@@ -199,14 +266,9 @@ class StagedModeTest(unittest.TestCase):
     """The pre-commit hook's mode: the index of a real git repository, not its working tree."""
 
     def setUp(self):
-        import subprocess
-        import tempfile
-
+        # pylint: disable-next=consider-using-with  # tearDown() deletes it.
         self.directory = tempfile.TemporaryDirectory()
         self.root = self.directory.name
-        self.run_git = lambda *args: subprocess.run(
-            ["git", "-C", self.root, *args], check=True, capture_output=True, text=True
-        )
         self.run_git("init", "-q")
         self.run_git("config", "user.email", "test@example.com")
         self.run_git("config", "user.name", "test")
@@ -214,10 +276,15 @@ class StagedModeTest(unittest.TestCase):
     def tearDown(self):
         self.directory.cleanup()
 
+    def run_git(self, *args):
+        return subprocess.run(
+            ["git", "-C", self.root, *args], check=True, capture_output=True, text=True
+        )
+
     def write(self, path, text):
         full = os.path.join(self.root, path)
         os.makedirs(os.path.dirname(full), exist_ok=True)
-        with open(full, "w") as f:
+        with open(full, "w", encoding="utf-8") as f:
             f.write(text)
 
     def staged(self):
@@ -263,34 +330,28 @@ class StagedModeTest(unittest.TestCase):
 
 class PreCommitHookTest(unittest.TestCase):
     def test_the_hook_runs_the_staged_check_after_formatting_and_fails_on_it(self):
-        hook_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "pre-commit"
+        # The hook runs the registry's checks on the staged files, after the formatter's changes are staged.
+        check_test_support.assert_hook_runs_the_linter(self)
+        check_test_support.assert_check_behaves(
+            self,
+            "argument-comment",
+            "void g() {\n  f(a, 0);\n}\n",
+            "src/a.cpp",
+            clean="void g() {\n  f(a, /*index=*/0);\n}\n",
         )
-        with open(hook_path) as f:
-            hook = f.read()
-        check = "python3 tools/hooks/argument_comments.py --git-staged"
-        self.assertIn("if ! " + check + "; then", hook)
-        # After the formatter's changes are staged, so the check sees what is committed.
-        self.assertLess(hook.index('git add "$file"'), hook.index(check))
-        after = hook[hook.index(check) :]
-        self.assertLess(after.index("exit 1"), after.index("completed successfully"))
 
 
 class CommandLineTest(unittest.TestCase):
     def test_exit_status_and_report(self):
-        import io
-        import tempfile
-        from contextlib import redirect_stdout
-
         with tempfile.TemporaryDirectory() as directory:
             bad = os.path.join(directory, "bad.cpp")
             good = os.path.join(directory, "good.cpp")
-            with open(bad, "w") as f:
+            with open(bad, "w", encoding="utf-8") as f:
                 f.write("void g() { f(a, 0); }\n")
-            with open(good, "w") as f:
+            with open(good, "w", encoding="utf-8") as f:
                 f.write("void g() { f(a, /*index=*/0); }\n")
             output = io.StringIO()
-            with redirect_stdout(output):
+            with contextlib.redirect_stdout(output):
                 self.assertEqual(argument_comments.main([good]), 0)
                 self.assertEqual(argument_comments.main([bad]), 1)
             self.assertIn(

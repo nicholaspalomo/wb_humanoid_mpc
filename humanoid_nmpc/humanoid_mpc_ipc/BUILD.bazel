@@ -1,0 +1,380 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+
+# humanoid_mpc_ipc - the MPC link's side of the IPC bus (humanoid_nmpc/docs/distributed_runtime/README.md): the topic
+# names in C++ and Python, the lossless conversions between OCS2 types and the humanoid_mpc_msgs messages, and the two
+# ends of the network MPC link (:remote_mpc_link on the robot, :mpc_server on the MPC machine). Builds on OCS2, the
+# messages, the bus and the reset supervisor alone: no Pinocchio, no robot model, no ROS.
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "humanoid_mpc_ipc",
+    srcs = [
+        "src/MpcMessageConversions.cpp",
+        "src/PolicyControllers.cpp",
+        "src/SolutionTimeWindow.cpp",
+    ],
+    hdrs = [
+        "include/humanoid_mpc_ipc/MpcMessageConversions.h",
+        "include/humanoid_mpc_ipc/PolicyControllers.h",
+        "include/humanoid_mpc_ipc/SolutionTimeWindow.h",
+        "include/humanoid_mpc_ipc/Topics.h",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@eigen",
+    ],
+)
+
+# The robot side of the network MPC link: an ocs2::MRT_BASE whose solver is an MpcServer on the bus.
+cc_library(
+    name = "remote_mpc_link",
+    srcs = ["src/RemoteMpcLink.cpp"],
+    hdrs = ["include/humanoid_mpc_ipc/RemoteMpcLink.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":humanoid_mpc_ipc",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_common_mpc:mpc_reset_supervisor",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "//robot_runtime/robot_core",
+        "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        "@eigen",
+    ],
+)
+
+# Evaluates the policy in use on the realtime thread as MRT_BASE::evaluatePolicy() does, without allocating or logging.
+cc_library(
+    name = "realtime_policy_evaluator",
+    srcs = ["src/RealtimePolicyEvaluator.cpp"],
+    hdrs = ["include/humanoid_mpc_ipc/RealtimePolicyEvaluator.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":humanoid_mpc_ipc",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
+        "@eigen",
+    ],
+)
+
+# The MPC side of the network MPC link: the solve loop, driven by the observations on the bus.
+cc_library(
+    name = "mpc_server",
+    srcs = ["src/MpcServer.cpp"],
+    hdrs = ["include/humanoid_mpc_ipc/MpcServer.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":humanoid_mpc_ipc",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_common_mpc:mpc_reset_supervisor",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "//robot_runtime/robot_ipc",
+        "//robot_runtime/robot_realtime",
+        "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/functional:function_ref",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        "@eigen",
+    ],
+)
+
+# The topic names of the Python operator tools, the twin of include/humanoid_mpc_ipc/Topics.h.
+py_library(
+    name = "topics_py",
+    srcs = [
+        "python/humanoid_mpc_ipc/__init__.py",
+        "python/humanoid_mpc_ipc/topics.py",
+    ],
+    imports = ["python"],
+)
+
+# Random OCS2 policies shaped like those of the multiple-shooting solvers, for the conversion tests.
+cc_library(
+    name = "policy_test_data",
+    testonly = True,
+    srcs = ["test/PolicyTestData.cpp"],
+    hdrs = ["test/PolicyTestData.h"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
+        "@eigen",
+    ],
+)
+
+cc_test(
+    name = "test_topics",
+    size = "small",
+    srcs = ["test/testTopics.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_mpc_ipc",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The Python constants equal the C++ ones; the header is data, read as text.
+py_test(
+    name = "test_topics_py",
+    size = "small",
+    srcs = ["test/test_topics.py"],
+    data = ["include/humanoid_mpc_ipc/Topics.h"],
+    main = "test/test_topics.py",
+    deps = [":topics_py"],
+)
+
+cc_test(
+    name = "test_mpc_message_conversions",
+    size = "small",
+    srcs = ["test/testMpcMessageConversions.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_mpc_ipc",
+        ":policy_test_data",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# Encoding into a message that already has the capacity makes no heap allocation. A target of its own, because the
+# allocation counter replaces malloc for the whole binary.
+cc_test(
+    name = "test_mpc_message_conversions_allocations",
+    size = "small",
+    srcs = ["test/testMpcMessageConversionsAllocations.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    linkstatic = True,
+    deps = [
+        ":humanoid_mpc_ipc",
+        ":policy_test_data",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//humanoid_state_estimation/humanoid_state_estimator:allocation_counter",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# What the tests of the network MPC link share: the scripted MPC, loopback buses, a gate that holds a policy in flight.
+cc_library(
+    name = "mpc_link_test_support",
+    testonly = True,
+    srcs = ["test/MpcLinkTestSupport.cpp"],
+    hdrs = ["test/MpcLinkTestSupport.h"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_mpc_ipc",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_mpc_test_support",
+        "//lib/ocs2:ocs2_oc",
+        "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        "@eigen",
+    ],
+)
+
+_MPC_LINK_TEST_DEPS = [
+    ":humanoid_mpc_ipc",
+    ":mpc_link_test_support",
+    ":mpc_server",
+    ":remote_mpc_link",
+    "//humanoid_nmpc/humanoid_common_mpc:mpc_reset_supervisor",
+    "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+    "//lib/ocs2:ocs2_core",
+    "//lib/ocs2:ocs2_mpc",
+    "//lib/ocs2:ocs2_mpc_test_support",
+    "//lib/ocs2:ocs2_oc",
+    "//robot_runtime/robot_ipc",
+    "@abseil-cpp//absl/base:core_headers",
+    "@abseil-cpp//absl/base:nullability",
+    "@abseil-cpp//absl/log:check",
+    "@abseil-cpp//absl/status",
+    "@abseil-cpp//absl/status:statusor",
+    "@abseil-cpp//absl/strings",
+    "@abseil-cpp//absl/synchronization",
+    "@abseil-cpp//absl/time",
+    "@eigen",
+    "@googletest//:gtest_main",
+]
+
+# Upstream OCS2 GaussNewtonDDP's solution window, which the MPC node applies to every policy.
+cc_test(
+    name = "test_solution_time_window",
+    size = "small",
+    srcs = ["test/testSolutionTimeWindow.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_mpc_ipc",
+        ":policy_test_data",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The two controller types the link carries are told apart by their exact type, not by ControllerBase::getType().
+cc_test(
+    name = "test_policy_controllers",
+    size = "small",
+    srcs = ["test/testPolicyControllers.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_mpc_ipc",
+        ":policy_test_data",
+        ":realtime_policy_evaluator",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The robot side against an MPC node the test scripts: which policies it takes, the reset handshake, health, link loss.
+cc_test(
+    name = "test_remote_mpc_link_protocol",
+    size = "small",
+    srcs = ["test/testRemoteMpcLinkProtocol.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = _MPC_LINK_TEST_DEPS,
+)
+
+# The MPC side against a robot the test scripts: resets, stamps, statuses, solution window, hooks, pacing, back-off.
+cc_test(
+    name = "test_mpc_server",
+    size = "small",
+    srcs = ["test/testMpcServer.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = _MPC_LINK_TEST_DEPS,
+)
+
+# The link end to end over loopback: first policy, resets with a policy in flight, lost observations, solver failures,
+# the policy timeout.
+cc_test(
+    name = "test_remote_mpc_link",
+    size = "small",
+    srcs = ["test/testRemoteMpcLink.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = _MPC_LINK_TEST_DEPS,
+)
+
+# The same script through MPC_MRT_Interface in process and through the network link: the same policies, cycle by cycle.
+cc_test(
+    name = "test_remote_mpc_link_parity",
+    size = "small",
+    srcs = ["test/testRemoteMpcLinkParity.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = _MPC_LINK_TEST_DEPS,
+)
+
+# The realtime thread's calls on the link, and its evaluation of the policy in use, allocate nothing once warmed up;
+# OCS2's evaluatePolicy() is measured. A binary of its own, because the allocation counter replaces malloc for the whole
+# process.
+cc_test(
+    name = "test_remote_mpc_link_allocations",
+    size = "small",
+    srcs = ["test/testRemoteMpcLinkAllocations.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    linkstatic = True,
+    deps = _MPC_LINK_TEST_DEPS + [
+        ":policy_test_data",
+        ":realtime_policy_evaluator",
+        "//robot_runtime/robot_realtime:allocation_counter",
+    ],
+)
+
+# RealtimePolicyEvaluator computes the doubles OCS2's MRT_BASE::evaluatePolicy() computes, and refuses what it cannot
+# evaluate without touching its outputs.
+cc_test(
+    name = "test_realtime_policy_evaluator",
+    size = "small",
+    srcs = ["test/testRealtimePolicyEvaluator.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_mpc_ipc",
+        ":policy_test_data",
+        ":realtime_policy_evaluator",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/base:nullability",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The viewer annotations of the accepted policies reach the robot process's consumer, the newest once each.
+cc_test(
+    name = "test_remote_mpc_link_annotations",
+    size = "small",
+    srcs = ["test/testRemoteMpcLinkAnnotations.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = _MPC_LINK_TEST_DEPS + ["//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto"],
+)

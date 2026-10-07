@@ -20,12 +20,35 @@ exports_files([
 # The environment script every shell, CI build and launch sources; //tools/setup_env:test_setup_env pins it.
 exports_files(["setup_env.sh"])
 
-# The dev image and the system packages CI and the image install; //tools/hooks:test_include_style checks that neither
-# brings a system Abseil, and //tools/hooks:test_ci_formatter_versions that CI's format check uses the image's formatters.
+# The Makefile, whose clang-tidy targets //tools/clang_tidy:test_lint_tidy_targets runs with stand-ins for Bazel.
+exports_files(["Makefile"])
+
+# The issue templates, which //tools/dev_container:test_dev_container keeps free of ROS.
+exports_files([
+    ".github/ISSUE_TEMPLATE/bug_report.md",
+    ".github/ISSUE_TEMPLATE/feature_request.md",
+])
+
+# The dev image and the system packages CI and the image install; //tools/hooks:test_include_style checks that none of
+# them brings a system Abseil, Protocol Buffers, ZeroMQ or googletest, and //tools/hooks:test_ci_formatter_versions that
+# CI's format check uses the image's formatters.
 exports_files([
     ".github/workflows/format_test.yml",
     "dependencies.txt",
     "docker/Dockerfile",
+    "docker/install_robotpkg.sh",
+])
+
+# The rest of the dev container: //tools/dev_container:test_dev_container checks that it, the image and CI carry no ROS,
+# install the same Pinocchio, use one VNC display and publish the ports of the bus and of Rerun.
+exports_files([
+    ".devcontainer/openbox_layout.py",
+    ".devcontainer/post_create.sh",
+    ".devcontainer/start_vnc.sh",
+    "docker-compose.bridge.yaml",
+    "docker-compose.gpu.yaml",
+    "docker/image_build.bash",
+    "docker/launch_wb_mpc.bash",
 ])
 
 # The Bazelisk wrapper that serializes the builds of every container on this machine, and the container shell setup that
@@ -33,4 +56,45 @@ exports_files([
 exports_files([
     ".devcontainer/shell_init.sh",
     "tools/bazel",
+])
+
+# The C++ style the generated code of //tools/nproto must keep; //tools/nproto/test:test_generated_code checks it.
+exports_files([".clang-format"])
+
+# The repository's license, whose text every file's license block repeats; //tools/hooks:test_license_header checks
+# tools/hooks/license_header.py against it.
+exports_files(["LICENCE.txt"])  # NOLINT(american-spelling): the license file's name.
+
+# The enforced clang-tidy checks, which the aspect of //tools/clang_tidy reads (and fixes are formatted with
+# .clang-format), and the script that installs clang-tidy; //tools/clang_tidy and //tools/hooks:test_lint_tool_versions
+# test them.
+exports_files([
+    ".clang-tidy",
+    "docker/install_llvm_tools.sh",
+])
+
+# The lint tools' configurations, which //tools/hooks:test_lint_tool_configs runs the real tools with, and the module
+# file whose @lint_deps hub //tools/hooks:test_lint_tool_versions checks.
+exports_files([
+    ".isort.cfg",
+    ".pylintrc",
+    "CPPLINT.cfg",
+    "MODULE.bazel",
+    "mypy.ini",
+])
+
+# The agent rules, whose style sections //tools/hooks:test_agents_style_sections checks against the registry and the
+# configurations.
+exports_files(["AGENTS.md"])
+
+# The robot deployment: the robot's compose files, the build of the robot images, the Pinocchio source build of their
+# arm64 stage, and the Makefile and dev container README that list the launch targets; //tools/deploy:test_deploy_files
+# checks them.
+exports_files([
+    ".devcontainer/README.md",
+    "Makefile",
+    "docker-compose.robot.netem.yaml",
+    "docker-compose.robot.sim.yaml",
+    "docker-compose.robot.yaml",
+    "docker/build_pinocchio_from_source.sh",
 ])

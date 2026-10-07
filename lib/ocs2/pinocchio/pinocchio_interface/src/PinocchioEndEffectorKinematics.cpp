@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <pinocchio/fwd.hpp>
 
+#include "absl/base/nullability.h"
+
 #include <pinocchio/algorithm/frames-derivatives.hpp>
 #include <pinocchio/algorithm/frames.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
@@ -66,7 +68,7 @@ PinocchioEndEffectorKinematics::PinocchioEndEffectorKinematics(const PinocchioEn
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-PinocchioEndEffectorKinematics* PinocchioEndEffectorKinematics::clone() const {
+PinocchioEndEffectorKinematics* absl_nonnull PinocchioEndEffectorKinematics::clone() const {
   return new PinocchioEndEffectorKinematics(*this);
 }
 
@@ -132,7 +134,7 @@ std::vector<VectorFunctionLinearApproximation> PinocchioEndEffectorKinematics::g
   std::vector<VectorFunctionLinearApproximation> positions;
   positions.reserve(endEffectorFrameIds_.size());
   for (const auto& frameId : endEffectorFrameIds_) {
-    matrix_t J = matrix_t::Zero(6, model.nq);
+    matrix_t J = matrix_t::Zero(6, model.nv);
     pinocchio::getFrameJacobian(model, data, frameId, rf, J);
 
     VectorFunctionLinearApproximation pos;
@@ -307,7 +309,7 @@ std::vector<VectorFunctionLinearApproximation> PinocchioEndEffectorKinematics::g
     const size_t frameId = endEffectorFrameIds_[i];
     const quaternion_t q = matrixToQuaternion(data.oMf[frameId].rotation());
     err.f = quaternionDistance(q, referenceOrientations[i]);
-    matrix_t J = matrix_t::Zero(6, model.nq);
+    matrix_t J = matrix_t::Zero(6, model.nv);
     pinocchio::getFrameJacobian(model, data, frameId, rf, J);
     const matrix_t Jqdist =
         (quaternionDistanceJacobian(q, referenceOrientations[i]) * angularVelocityToQuaternionTimeDerivative(q)) * J.bottomRows<3>();
@@ -345,7 +347,7 @@ std::vector<VectorFunctionLinearApproximation> PinocchioEndEffectorKinematics::g
 
     VectorFunctionLinearApproximation err;
     err.f = quaternionDistance(q_frame, q_reference);
-    matrix_t J = matrix_t::Zero(6, model.nq);
+    matrix_t J = matrix_t::Zero(6, model.nv);
     pinocchio::getFrameJacobian(model, data, frameId, rf, J);
     const matrix_t Jqdist =
         (quaternionDistanceJacobian(q_frame, q_reference) * angularVelocityToQuaternionTimeDerivative(q_frame)) * J.bottomRows<3>();

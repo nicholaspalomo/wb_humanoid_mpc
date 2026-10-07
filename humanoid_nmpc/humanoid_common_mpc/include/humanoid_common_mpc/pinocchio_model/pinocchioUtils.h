@@ -31,14 +31,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 // Pinocchio forward declarations must be included first
-#include <pinocchio/fwd.hpp>
+#include "pinocchio/fwd.hpp"
+
+#include <utility>
 
 #include "absl/status/status.h"
+#include "ocs2_pinocchio_interface/urdf.h"
+#include "pinocchio/multibody/model.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
-
-#include <ocs2_pinocchio_interface/urdf.h>
-#include <pinocchio/multibody/model.hpp>
 
 namespace ocs2::humanoid {
 
@@ -51,7 +52,7 @@ namespace ocs2::humanoid {
 /// \param[in] pinocchioInterface: The Pinocchio interface of the MPC model.
 /// \param[in] modelSettings: The model settings whose mpcModelJointNames the model must match.
 /// \return InvalidArgument naming the first MPC joint that differs (or that has no counterpart), and the
-///         model_settings.fixedJointNames it is derived with; OkStatus otherwise.
+///         model_settings.fixed_joint_names it is derived with; OkStatus otherwise.
 ///
 
 [[nodiscard]] absl::Status checkPinocchioJointNaming(const PinocchioInterface& pinocchioInterface,

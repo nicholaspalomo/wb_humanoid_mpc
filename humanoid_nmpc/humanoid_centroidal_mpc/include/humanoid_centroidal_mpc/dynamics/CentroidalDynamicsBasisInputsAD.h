@@ -29,20 +29,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <array>
 #include <memory>
 #include <string>
 
-#include <pinocchio/multibody/fwd.hpp>
-
-#include <ocs2_centroidal_model/CentroidalModelInfo.h>
-#include <ocs2_core/dynamics/SystemDynamicsBaseAD.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_core/dynamics/SystemDynamicsBaseAD.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -89,27 +88,30 @@ class CentroidalDynamicsBasisInputsAD final : public SystemDynamicsBaseAD {
       const CentroidalModelInfo& info,
       const std::string& modelName,
       const ModelSettings& modelSettings,
-      const std::array<matrix_t, N_CONTACTS>& localBasisMatrices);
+      const std::array<matrix_t, kNumContacts>& localBasisMatrices);
 
   /** The checks Create() runs before it builds anything. */
   static absl::Status validate(const PinocchioInterface& pinocchioInterface,
                                const CentroidalModelInfo& info,
                                const ModelSettings& modelSettings,
-                               const std::array<matrix_t, N_CONTACTS>& localBasisMatrices);
+                               const std::array<matrix_t, kNumContacts>& localBasisMatrices);
 
   ~CentroidalDynamicsBasisInputsAD() override = default;
-  CentroidalDynamicsBasisInputsAD* clone() const override { return new CentroidalDynamicsBasisInputsAD(*this); }
+  CentroidalDynamicsBasisInputsAD* absl_nonnull clone() const override { return new CentroidalDynamicsBasisInputsAD(*this); }
+  // Copied only by clone(), whose copy constructor is private; never assigned or moved.
+  CentroidalDynamicsBasisInputsAD& operator=(const CentroidalDynamicsBasisInputsAD&) = delete;
+  CentroidalDynamicsBasisInputsAD(CentroidalDynamicsBasisInputsAD&&) = delete;
+  CentroidalDynamicsBasisInputsAD& operator=(CentroidalDynamicsBasisInputsAD&&) = delete;
 
   size_t getBasisInputDim() const { return basisInputDim_; }
   size_t getNumBasisPerFoot() const { return numBasisPerFoot_; }
-  const std::array<matrix_t, N_CONTACTS>& getLocalBasisMatrices() const { return B_local_; }
 
   /**
    * Name of the generated CppAD model: modelName + "_" + basisInputsLibraryKey(localBasisMatrices), i.e.
    * modelName + "_basis<numBasisPerFoot>_<16 hex digits of the basis content hash>". Two different bases (generator
    * set, dimension, friction coefficient, footprint, ...) therefore never share a cached dynamics library.
    */
-  static std::string uniqueModelName(const std::string& modelName, const std::array<matrix_t, N_CONTACTS>& localBasisMatrices);
+  static std::string uniqueModelName(const std::string& modelName, const std::array<matrix_t, kNumContacts>& localBasisMatrices);
 
   /**
    * Converts a basis-vector input into the wrench-space input of the underlying centroidal model with all
@@ -134,15 +136,15 @@ class CentroidalDynamicsBasisInputsAD final : public SystemDynamicsBaseAD {
                                   const CentroidalModelInfo& info,
                                   const std::string& modelName,
                                   const ModelSettings& modelSettings,
-                                  const std::array<matrix_t, N_CONTACTS>& localBasisMatrices);
+                                  const std::array<matrix_t, kNumContacts>& localBasisMatrices);
 
   CentroidalDynamicsBasisInputsAD(const CentroidalDynamicsBasisInputsAD& rhs);
 
   PinocchioInterfaceCppAd pinocchioInterfaceCppAd_;
   CentroidalModelInfoCppAd infoCppAd_;
 
-  std::array<matrix_t, N_CONTACTS> B_local_;
-  std::array<pinocchio::FrameIndex, N_CONTACTS> contactFrameIndices_;
+  std::array<matrix_t, kNumContacts> B_local_;
+  std::array<pinocchio::FrameIndex, kNumContacts> contactFrameIndices_;
   size_t numBasisPerFoot_;
   size_t jointDim_;
   size_t basisInputDim_;

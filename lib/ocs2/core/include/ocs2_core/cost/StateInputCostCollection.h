@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 #include <ocs2_core/misc/Collection.h>
 #include <ocs2_core/reference/TargetTrajectories.h>
@@ -48,7 +50,7 @@ class StateInputCostCollection : public Collection<StateInputCost> {
  public:
   StateInputCostCollection() = default;
   ~StateInputCostCollection() override = default;
-  StateInputCostCollection* clone() const override;
+  StateInputCostCollection* absl_nonnull clone() const override;
 
   /** Get state-input cost value */
   virtual scalar_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const TargetTrajectories& targetTrajectories,

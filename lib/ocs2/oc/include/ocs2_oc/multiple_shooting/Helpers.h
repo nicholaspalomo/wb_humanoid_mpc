@@ -29,7 +29,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <memory>
+
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
+#include <ocs2_core/manifold/StateManifold.h>
 
 #include "ocs2_oc/oc_data/PerformanceIndex.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
@@ -62,6 +67,28 @@ void incrementTrajectory(const std::vector<Type>& v, const std::vector<Type>& dv
     } else {
       vNew[i] = Type();
     }
+  }
+}
+
+/**
+ * Steps a state trajectory along the manifold: xNew[i] = x[i] (+) alpha * dx[i]. With a nullptr manifold this is
+ * incrementTrajectory(x, dx, alpha, xNew), bit for bit. It assumes that xNew is already resized to the size of x.
+ */
+inline void retractTrajectory(const StateManifold* absl_nullable stateManifold,
+                              const vector_array_t& x,
+                              const vector_array_t& dx,
+                              const scalar_t alpha,
+                              vector_array_t& xNew) {
+  if (stateManifold == nullptr) {
+    incrementTrajectory(x, dx, alpha, xNew);
+    return;
+  }
+  assert(x.size() == dx.size());
+  if (x.size() != xNew.size()) {
+    throw std::runtime_error("[retractTrajectory] Resize xNew to the size of x!");
+  }
+  for (size_t i = 0; i < x.size(); i++) {
+    stateManifold->retract(x[i], dx[i], alpha, xNew[i]);
   }
 }
 
@@ -101,6 +128,22 @@ PrimalSolution toPrimalSolution(const std::vector<AnnotatedTime>& time, ModeSche
  */
 PrimalSolution toPrimalSolution(const std::vector<AnnotatedTime>& time, ModeSchedule&& modeSchedule, vector_array_t&& x, vector_array_t&& u,
                                 matrix_array_t&& KMatrices);
+
+/**
+ * Constructs a primal solution with a ManifoldLinearController, u = u*_k + K_k (x (-) x_k), from the LQ subproblem
+ * solution of a problem on a state manifold. Pre-event nodes take the anchor state, input and gain of the node before
+ * them, as the flat version copies its feedforward term and gain.
+ *
+ * @param [in] time : The annotated time trajectory
+ * @param [in] modeSchedule: The mode schedule.
+ * @param [in] x: The state trajectory of the QP subproblem solution.
+ * @param [in] u: The input trajectory of the QP subproblem solution.
+ * @param [in] KMatrices: The LQR gain trajectory of the QP subproblem solution (inputs x tangent).
+ * @param [in] stateManifold: The manifold the state lives on; not null.
+ * @return The primal solution.
+ */
+PrimalSolution toPrimalSolution(const std::vector<AnnotatedTime>& time, ModeSchedule&& modeSchedule, vector_array_t&& x, vector_array_t&& u,
+                                matrix_array_t&& KMatrices, std::shared_ptr<const StateManifold> stateManifold);
 
 /**
  * Constructs a ProblemMetrics from an array of metrics.

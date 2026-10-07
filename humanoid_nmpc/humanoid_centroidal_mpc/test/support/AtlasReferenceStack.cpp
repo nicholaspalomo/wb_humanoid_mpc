@@ -27,23 +27,31 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include "support/AtlasReferenceStack.h"
 
 #include <cstdlib>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <ocs2_centroidal_model/AccessHelperFunctions.h>
-#include <ocs2_centroidal_model/FactoryFunctions.h>
-#include <ocs2_core/misc/LoadData.h>
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
-
+#include "absl/base/nullability.h"
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
+#include "ocs2_centroidal_model/AccessHelperFunctions.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
+
+#include "humanoid_centroidal_mpc/mrt/CentroidalMpcResetTarget.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/config/contact_planning/ContactPlanningFromConfig.h"
+#include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
+#include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
+#include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
+#include "humanoid_common_mpc/config/solver/SolverSettingsFromConfig.h"
+#include "humanoid_common_mpc/config/swing/SwingTrajectoryFromConfig.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
@@ -52,12 +60,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "humanoid_mpc_config/gait_file.nproto.h"
+#include "support/TypedConfigFiles.h"
 
 namespace ocs2::humanoid {
 
 std::string atlasRunfilePath(absl::string_view relativePath) {
   std::vector<std::filesystem::path> roots;
-  if (const char* srcDir = std::getenv("TEST_SRCDIR")) roots.emplace_back(std::filesystem::path(srcDir) / "_main");
+  if (const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR")) roots.emplace_back(std::filesystem::path(srcDir) / "_main");
   roots.emplace_back(std::filesystem::current_path());
   for (const std::filesystem::path& root : roots) {
     const std::filesystem::path candidate = root / std::string(relativePath);
@@ -67,84 +77,91 @@ std::string atlasRunfilePath(absl::string_view relativePath) {
 }
 
 AtlasReferenceStack::AtlasReferenceStack(ScheduleSource scheduleSource, absl::string_view plannerType) {
-  taskFile_ = atlasRunfilePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml");
-  referenceFile_ = atlasRunfilePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml");
+  taskFile_ = atlasRunfilePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto");
+  referenceFile_ = atlasRunfilePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.textproto");
   urdfFile_ = atlasRunfilePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf");
-  gaitFile_ = atlasRunfilePath("humanoid_nmpc/humanoid_common_mpc/config/command/gait.yaml");
+  gaitFile_ = atlasRunfilePath("humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto");
   CHECK(!taskFile_.empty() && !referenceFile_.empty() && !urdfFile_.empty() && !gaitFile_.empty())
       << "[AtlasReferenceStack] the DRC Atlas files or the gait file are not in the runfiles";
 
-  mpcSettings_ = mpc::loadSettings(taskFile_, "mpc", /*verbose=*/false);
-  modelSettings_ = std::make_unique<ModelSettings>(taskFile_, urdfFile_, "centroidal_mpc_", /*verbose=*/false);
-  pinocchioInterface_ =
-      std::make_unique<PinocchioInterface>(createCustomPinocchioInterface(taskFile_, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false));
-  info_ = centroidal_model::createCentroidalModelInfo(
-      *pinocchioInterface_, centroidal_model::loadCentroidalType(taskFile_),
-      centroidal_model::loadDefaultJointState(pinocchioInterface_->getModel().nq - 6, referenceFile_), modelSettings_->contactNames3DoF,
-      modelSettings_->contactNames6DoF);
+  // The typed files, converted as CentroidalMpcInterface converts them.
+  absl::StatusOr<CentroidalMpcConfig> config = loadCentroidalMpcConfig(taskFile_, referenceFile_);
+  CHECK(config.ok()) << config.status();
+  config_ = *std::move(config);
+  const absl::StatusOr<mpc_config::GaitFile> gaits = loadGaitFile(gaitFile_);
+  CHECK(gaits.ok()) << gaits.status();
+  const absl::StatusOr<ReferenceSettings> referenceSettings = referenceSettingsFromConfig(config_.reference);
+  CHECK(referenceSettings.ok()) << referenceSettings.status();
+
+  mpcSettings_ = toMpcSettings(config_.task.mpc);
+  modelSettings_ =
+      std::make_unique<ModelSettings>(ModelSettings::Create(config_.task, urdfFile_, "centroidal_mpc_", /*verbose=*/false).value());
+  pinocchioInterface_ = std::make_unique<PinocchioInterface>(
+      loadCustomPinocchioInterface(config_.task, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false).value());
+  info_ = centroidalModelInfoOf(config_, *pinocchioInterface_, *modelSettings_).value();
   model_ = std::make_unique<CentroidalMpcRobotModel<scalar_t>>(*modelSettings_, *pinocchioInterface_, info_);
-  initialState_.setZero(info_.stateDim);
-  loadData::loadEigenMatrix(taskFile_, "initialState", initialState_);
+  initialState_ = initialStateOf(config_.task, *modelSettings_).value();
 
   std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner(
-      new SwingTrajectoryPlanner(loadSwingTrajectorySettings(taskFile_, "swing_trajectory_config", /*verbose=*/false), N_CONTACTS));
+      new SwingTrajectoryPlanner(swingTrajectorySettingsFromConfig(config_.task.swing_trajectory_config).value(), kNumContacts));
   if (scheduleSource == ScheduleSource::kGaitSchedule) {
     referenceManager_ =
-        std::make_shared<SwitchedModelReferenceManager>(GaitSchedule::loadGaitSchedule(referenceFile_, *modelSettings_, /*verbose=*/false),
+        std::make_shared<SwitchedModelReferenceManager>(GaitSchedule::Create(config_.reference, *modelSettings_, /*verbose=*/false).value(),
                                                         std::move(swingTrajectoryPlanner), *pinocchioInterface_, *model_);
   } else {
     // As CentroidalMpcInterface::setupReferenceManager() builds it, synchronous so that every plan is deterministic.
-    absl::StatusOr<ContactPlanningConfig> config = loadContactPlanningConfigStatus(
-        resolveContactPlanningConfigFile(taskFile_), "contact_planning.", /*verbose=*/false, /*validate=*/false);
-    CHECK(config.ok()) << config.status();
-    config->planner.runInBackgroundThread = false;
-    if (!plannerType.empty() && plannerType != config->planner.type) {
-      config->planner.type = std::string(plannerType);
-      config->planner.dt = 0.1;
-      config->planner.numNodes = 12;
-      config->planner.commitTime = 0.3;
-      config->shared.gaitLimits.minSwingDuration = 0.4;
-      config->shared.gaitLimits.maxSwingDuration = 0.5;
-      config->planner.maxSolveTime = 1.0e3;
-      config->eventShiftLocalSearch.maxTime = 1.0e3;
+    absl::StatusOr<ContactPlanningConfig> planningConfig =
+        contactPlanningConfigFromOptionalFile(config_.contactPlanning.has_value() ? &*config_.contactPlanning : nullptr,
+                                              ContactPlanningValidation::kDeferUntilModelParametersApplied);
+    CHECK(planningConfig.ok()) << planningConfig.status();
+    planningConfig->planner.runInBackgroundThread = false;
+    if (!plannerType.empty() && plannerType != planningConfig->planner.type) {
+      planningConfig->planner.type = std::string(plannerType);
+      planningConfig->planner.dt = 0.1;
+      planningConfig->planner.numNodes = 12;
+      planningConfig->planner.commitTime = 0.3;
+      planningConfig->shared.gaitLimits.minSwingDuration = 0.4;
+      planningConfig->shared.gaitLimits.maxSwingDuration = 0.5;
+      planningConfig->planner.maxSolveTime = 1.0e3;
+      planningConfig->eventShiftLocalSearch.maxTime = 1.0e3;
     }
-    const absl::StatusOr<ContactWrenchConeConstraint::Config> coneConfig =
-        ContactWrenchConeConstraint::loadConfig(taskFile_, /*verbose=*/false);
+    const absl::StatusOr<ContactWrenchConeConstraint::Config> coneConfig = contactWrenchConeConfigFromConfig(config_.task.contacts);
     CHECK(coneConfig.ok()) << coneConfig.status();
     ContactPlanningGroundParameters ground;
     ground.frictionCoefficient = coneConfig->frictionCoefficient;
     ground.torsionalFrictionCoefficient = coneConfig->torsionalFrictionCoefficient;
-    const ContactRectangle footprint =
-        ContactRectangle::loadContactRectangle(taskFile_, *modelSettings_, /*contactIndex=*/0, /*verbose=*/false);
+    const ContactRectangle footprint = contactRectangleFromConfig(config_.task.contacts, *modelSettings_, /*contactIndex=*/0).value();
     ground.footprintHalfLengthX = 0.5 * (footprint.getBounds().x_max - footprint.getBounds().x_min);
     ground.footprintHalfWidthY = 0.5 * (footprint.getBounds().y_max - footprint.getBounds().y_min);
     const ContactPlanningModelParameters modelParameters =
         deriveContactPlanningModelParameters(*pinocchioInterface_, *model_, initialState_, modelSettings_->contactParentJointNames, ground,
-                                             config->shared.gravity, config->stepWidth.nominalStepWidth);
-    modelParameters.applyTo(*config);
-    CHECK(config->validateStatus().ok()) << config->validateStatus();
+                                             planningConfig->shared.gravity, planningConfig->stepWidth.nominalStepWidth);
+    modelParameters.applyTo(*planningConfig);
+    CHECK(planningConfig->validateStatus().ok()) << planningConfig->validateStatus();
     absl::StatusOr<std::shared_ptr<ContactPlanningReferenceManager>> manager =
-        ContactPlanningReferenceManager::Create(GaitSchedule::loadGaitSchedule(referenceFile_, *modelSettings_, /*verbose=*/false),
-                                                std::move(swingTrajectoryPlanner), *pinocchioInterface_, *model_, *config);
+        ContactPlanningReferenceManager::Create(GaitSchedule::Create(config_.reference, *modelSettings_, /*verbose=*/false).value(),
+                                                std::move(swingTrajectoryPlanner), *pinocchioInterface_, *model_, *planningConfig);
     CHECK(manager.ok()) << manager.status();
     planningReferenceManager_ = *std::move(manager);
     absl::StatusOr<std::shared_ptr<ContactPlannerModule>> module =
-        ContactPlannerModule::Create(planningReferenceManager_, *config, modelParameters);
+        ContactPlannerModule::Create(planningReferenceManager_, *planningConfig, modelParameters);
     CHECK(module.ok()) << module.status();
     contactPlannerModule_ = *std::move(module);
     referenceManager_ = planningReferenceManager_;
   }
 
-  targetCalculator_ = std::make_unique<CentroidalMpcTargetTrajectoriesCalculator>(referenceFile_, *model_, *pinocchioInterface_, info_,
-                                                                                  mpcSettings_.timeHorizon_);
+  targetCalculator_ =
+      CentroidalMpcTargetTrajectoriesCalculator::Create(config_.reference, *model_, *pinocchioInterface_, info_, mpcSettings_.timeHorizon_)
+          .value();
   targetCalculator_->setTerrainHeightSource(
       [referenceManager = referenceManager_]() { return referenceManager->getAppliedTerrainHeight(); });
-  CentroidalMpcTargetTrajectoriesCalculator* calculator = targetCalculator_.get();
-  motionManager_ = std::make_shared<ProceduralMpcMotionManager>(
-      gaitFile_, referenceFile_, referenceManager_, *model_,
-      [calculator](const vector4_t& velocityTarget, scalar_t initTime, scalar_t /*finalTime*/, const vector_t& initState) {
-        return calculator->commandedVelocityToTargetTrajectories(velocityTarget, initTime, initState);
-      });
+  CentroidalMpcTargetTrajectoriesCalculator* absl_nonnull calculator = targetCalculator_.get();
+  motionManager_ = ProceduralMpcMotionManager::Create(
+                       *gaits, *referenceSettings, referenceManager_, *model_,
+                       [calculator](const vector4_t& velocityTarget, scalar_t initTime, scalar_t /*finalTime*/, const vector_t& initState) {
+                         return calculator->commandedVelocityToTargetTrajectories(velocityTarget, initTime, initState);
+                       })
+                       .value();
   motionManager_->setResetHook([calculator]() { calculator->reset(); });
 
   mpc_ = std::make_unique<mpc_test::ScriptedMpc>(mpcSettings_, model_->getInputDim());
@@ -160,13 +177,10 @@ void AtlasReferenceStack::command(scalar_t forward, scalar_t lateral, scalar_t y
 }
 
 TargetTrajectories AtlasReferenceStack::resetTarget(scalar_t time, const vector_t& state) const {
-  vector_t target = state;
-  centroidal_model::getNormalizedMomentum(target, info_).setZero();
-  target(10) = 0.0;
-  target(11) = 0.0;
-  PinocchioInterface pinocchioInterface = *pinocchioInterface_;
-  const vector_t input = weightCompensatingInput(pinocchioInterface, {true, true}, *model_, target);
-  return TargetTrajectories({time, time + 2.0}, {target, target}, {input, input});
+  SystemObservation observation;
+  observation.time = time;
+  observation.state = state;
+  return centroidalMpcResetTargetTrajectories(observation, info_, *model_, *pinocchioInterface_);
 }
 
 vector_t AtlasReferenceStack::standingAt(const vector_t& state, scalar_t x, scalar_t y, scalar_t yaw) const {

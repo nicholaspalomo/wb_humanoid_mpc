@@ -184,14 +184,14 @@ TEST(test_sensitivity_integrator, rk4Sensitivity) {
   ASSERT_TRUE(rk4LinearizedDynamics.dfdu.isApprox(rk4dynamics_check.dfdu));
 }
 
-TEST(test_sensitivity_integrator, vsBoostRK4) {
+TEST(test_sensitivity_integrator, vsIntegratorRK4) {
   auto system = getSystem();
   ocs2::scalar_t t = 0.5;
   ocs2::vector_t x = ocs2::vector_t::Random(2);
   ocs2::vector_t u = ocs2::vector_t::Random(1);
   ocs2::scalar_t dt = 0.1;
 
-  // Boost version
+  // IntegratorRK4 version
   auto integrator = newIntegrator(ocs2::IntegratorType::RK4);
   ocs2::scalar_array_t timeTrajectory;
   ocs2::vector_array_t stateTrajectory;
@@ -200,7 +200,7 @@ TEST(test_sensitivity_integrator, vsBoostRK4) {
   system->setController(&controller);
   int maxNumSteps = 4;
   integrator->integrateConst(*system, observer, x, t, t + dt, dt, maxNumSteps);
-  const auto boostRk4ForwardDynamics = stateTrajectory.back();
+  const ocs2::vector_t integratorRk4ForwardDynamics = stateTrajectory.back();
 
   // This version
   auto type = ocs2::SensitivityIntegratorType::RK4;
@@ -208,5 +208,5 @@ TEST(test_sensitivity_integrator, vsBoostRK4) {
   const auto rk4ForwardDynamics = rk4Discretization(*system, t, x, u, dt);
 
   // Check
-  ASSERT_TRUE(rk4ForwardDynamics.isApprox(boostRk4ForwardDynamics));
+  ASSERT_TRUE(rk4ForwardDynamics.isApprox(integratorRk4ForwardDynamics));
 }

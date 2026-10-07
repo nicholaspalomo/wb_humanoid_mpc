@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/penalties/penalties/PenaltyBase.h>
 
 namespace ocs2 {
@@ -68,7 +70,7 @@ class SquaredHingePenalty final : public PenaltyBase {
   explicit SquaredHingePenalty(Config config) : config_(std::move(config)) {}
 
   ~SquaredHingePenalty() override = default;
-  SquaredHingePenalty* clone() const override { return new SquaredHingePenalty(*this); }
+  SquaredHingePenalty* absl_nonnull clone() const override { return new SquaredHingePenalty(*this); }
   std::string name() const override { return "SquaredHingePenalty"; }
 
   scalar_t getValue(scalar_t t, scalar_t h) const override;

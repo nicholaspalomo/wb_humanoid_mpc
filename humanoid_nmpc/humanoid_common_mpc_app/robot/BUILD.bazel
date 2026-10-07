@@ -1,0 +1,633 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+
+# humanoid_common_mpc_app/robot - the robot process of the distributed runtime (humanoid_nmpc/docs/distributed_runtime/
+# README.md): the realtime loop that runs on the robot's realtime computer (and, with the MuJoCo backend, in simulation)
+# over a robot backend selected by name and an MRT joint controller of either formulation, and the mailboxes, telemetry
+# and FSM around it on the bus. The binaries are humanoid_centroidal_mpc_app:humanoid_centroidal_mpc_robot and
+# humanoid_wb_mpc_app:humanoid_wb_mpc_robot. See README.md.
+
+package(default_visibility = ["//visibility:public"])
+
+# The realtime thread's own building blocks: the loop runner (absolute-deadline pacing, loop timing through a triple
+# buffer) and the event log that replaces its log lines. Abseil and robot_runtime only.
+cc_library(
+    name = "realtime_loop",
+    srcs = [
+        "src/FallRecoveryTypes.cpp",
+        "src/RealtimeEventLog.cpp",
+        "src/RealtimeLoopRunner.cpp",
+    ],
+    hdrs = [
+        "include/humanoid_common_mpc_app/robot/FallRecoveryTypes.h",
+        "include/humanoid_common_mpc_app/robot/RealtimeEventLog.h",
+        "include/humanoid_common_mpc_app/robot/RealtimeLoopRunner.h",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc:controller_event",
+        "//robot_runtime/robot_core",
+        "//robot_runtime/robot_realtime",
+        "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/synchronization",
+    ],
+)
+
+# The robot process (RobotProcess.h) and its parts: the backend registry, the operator's mailboxes, the FSM bridge and
+# the fall recovery of the simulator, the telemetry sampler and sinks, the task file's settings (from the typed task
+# file, src/config/robot/), the MpcLink over the remote MPC link, and the configuration store (the persistent copies
+# the GUI's Save writes, RobotConfigDirectory.h, ConfigFileStore.h) with the start-up the robot binaries share
+# (RobotStartup.h).
+cc_library(
+    name = "robot_process",
+    srcs = [
+        "src/AtomicFileWrite.cpp",
+        "src/BusTelemetrySink.cpp",
+        "src/ConfigFileStore.cpp",
+        "src/FsmCommand.cpp",
+        "src/FsmStateMailbox.cpp",
+        "src/InitialSimState.cpp",
+        "src/JointNamesByIndex.cpp",
+        "src/MujocoRobotBackend.cpp",
+        "src/MujocoViewerAnnotator.cpp",
+        "src/OperatorCommandMailbox.cpp",
+        "src/RemoteMpcLinkAdapter.cpp",
+        "src/RobotAppOptions.cpp",
+        "src/RobotBackendRegistry.cpp",
+        "src/RobotConfigDirectory.cpp",
+        "src/RobotConfigurationCheck.cpp",
+        "src/RobotController.cpp",
+        "src/RobotProcess.cpp",
+        "src/RobotProcessSettings.cpp",
+        "src/RobotSetUpSteps.cpp",
+        "src/RobotStartup.cpp",
+        "src/SimFallRecovery.cpp",
+        "src/SimFsmBridge.cpp",
+        "src/StoredConfigFileKinds.cpp",
+        "src/TaskFileWatcher.cpp",
+        "src/TelemetrySampler.cpp",
+        "src/TelemetrySinkRegistry.cpp",
+        "src/config/robot/DodgeballThrowFromMessage.cpp",
+        "src/config/robot/RobotProcessSettingsFromConfig.cpp",
+    ],
+    hdrs = [
+        "include/humanoid_common_mpc_app/robot/AtomicFileWrite.h",
+        "include/humanoid_common_mpc_app/robot/BusTelemetrySink.h",
+        "include/humanoid_common_mpc_app/robot/ConfigFileStore.h",
+        "include/humanoid_common_mpc_app/robot/FsmCommand.h",
+        "include/humanoid_common_mpc_app/robot/FsmStateMailbox.h",
+        "include/humanoid_common_mpc_app/robot/InitialSimState.h",
+        "include/humanoid_common_mpc_app/robot/JointNamesByIndex.h",
+        "include/humanoid_common_mpc_app/robot/MrtRobotController.h",
+        "include/humanoid_common_mpc_app/robot/MujocoRobotBackend.h",
+        "include/humanoid_common_mpc_app/robot/MujocoViewerAnnotator.h",
+        "include/humanoid_common_mpc_app/robot/OperatorCommandMailbox.h",
+        "include/humanoid_common_mpc_app/robot/RemoteMpcLinkAdapter.h",
+        "include/humanoid_common_mpc_app/robot/RobotAppOptions.h",
+        "include/humanoid_common_mpc_app/robot/RobotBackend.h",
+        "include/humanoid_common_mpc_app/robot/RobotBackendRegistry.h",
+        "include/humanoid_common_mpc_app/robot/RobotConfigDirectory.h",
+        "include/humanoid_common_mpc_app/robot/RobotConfigurationCheck.h",
+        "include/humanoid_common_mpc_app/robot/RobotController.h",
+        "include/humanoid_common_mpc_app/robot/RobotProcess.h",
+        "include/humanoid_common_mpc_app/robot/RobotProcessSettings.h",
+        "include/humanoid_common_mpc_app/robot/RobotSetUpSteps.h",
+        "include/humanoid_common_mpc_app/robot/RobotStack.h",
+        "include/humanoid_common_mpc_app/robot/RobotStartup.h",
+        "include/humanoid_common_mpc_app/robot/SimFallRecovery.h",
+        "include/humanoid_common_mpc_app/robot/SimFsmBridge.h",
+        "include/humanoid_common_mpc_app/robot/StoredConfigFileKinds.h",
+        "include/humanoid_common_mpc_app/robot/TaskFileWatcher.h",
+        "include/humanoid_common_mpc_app/robot/TelemetrySampler.h",
+        "include/humanoid_common_mpc_app/robot/TelemetrySink.h",
+        "include/humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h",
+        "include/humanoid_common_mpc_app/robot/config/robot/DodgeballThrowFromMessage.h",
+        "include/humanoid_common_mpc_app/robot/config/robot/RobotProcessSettingsFromConfig.h",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":realtime_loop",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:contact_planning_core",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:node_process",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_common_mpc:mpc_reset_supervisor",
+        "//humanoid_nmpc/humanoid_common_mpc:mrt_control_thread",
+        "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//humanoid_nmpc/humanoid_mpc_ipc",
+        "//humanoid_nmpc/humanoid_mpc_ipc:remote_mpc_link",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_robotic_tools",
+        "//robot_runtime/mujoco_sim_interface",
+        "//robot_runtime/robot_core",
+        "//robot_runtime/robot_ipc",
+        "//robot_runtime/robot_model",
+        "//robot_runtime/robot_realtime",
+        "//tools/nproto:nproto_runtime",
+        "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        "@eigen",
+    ],
+)
+
+# The flags of the robot binaries (RobotAppFlags.h), besides those they share with the MPC node. Defines them: for
+# binaries only.
+cc_library(
+    name = "robot_app_flags",
+    srcs = ["src/RobotAppFlags.cpp"],
+    hdrs = ["include/humanoid_common_mpc_app/robot/RobotAppFlags.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        ":robot_process",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:mpc_app_flags",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:node_process",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/flags:flag",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+    ],
+)
+
+# ==============================================================================
+# Tests
+# ==============================================================================
+
+_ATLAS_DATA = [
+    "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+    "//robot_models/drc_atlas/drc_atlas_description",
+]
+
+# Every shipped robot's task file, for the settings test.
+# LINT.IfChange(shipped_task_files)
+_SHIPPED_TASK_FILES = [
+    "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+    "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+    "//robot_models/unitree_g1/g1_centroidal_mpc",
+    "//robot_models/unitree_g1/g1_wb_mpc",
+    "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+]
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/test/testRobotProcessSettings.cpp:shipped_task_files)
+
+# What the tests of the robot process share: the Atlas files, headless simulators, loopback buses and a scripted
+# controller (test/RobotTestSupport.h).
+cc_library(
+    name = "robot_test_support",
+    testonly = True,
+    srcs = ["test/RobotTestSupport.cpp"],
+    hdrs = ["test/RobotTestSupport.h"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":robot_process",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//robot_runtime/mujoco_sim_interface",
+        "//robot_runtime/robot_ipc",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        "@googletest//:gtest",
+    ],
+)
+
+# What the end-to-end tests of the robot binaries share: the binaries started as processes, a loopback network file,
+# and the operator they script (test/ChildProcess.h, test/LoopbackNetwork.h, test/ScriptedOperator.h).
+cc_library(
+    name = "end_to_end_test_support",
+    testonly = True,
+    srcs = [
+        "test/ChildProcess.cpp",
+        "test/LoopbackNetwork.cpp",
+        "test/ScriptedOperator.cpp",
+    ],
+    hdrs = [
+        "test/ChildProcess.h",
+        "test/LoopbackNetwork.h",
+        "test/ScriptedOperator.h",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        "//humanoid_nmpc/humanoid_mpc_ipc",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+    ],
+)
+
+# The loop runner paces on absolute deadlines, counts overruns, hands the timing over once per window and stops cleanly.
+cc_test(
+    name = "test_realtime_loop_runner",
+    size = "small",
+    srcs = ["test/testRealtimeLoopRunner.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":realtime_loop",
+        "//robot_runtime/robot_realtime",
+        "@abseil-cpp//absl/base:nullability",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The event log's reports, their order, the lines they make and the drops of a full queue.
+cc_test(
+    name = "test_realtime_event_log",
+    size = "small",
+    srcs = ["test/testRealtimeEventLog.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":realtime_loop",
+        "//humanoid_nmpc/humanoid_common_mpc:mrt_control_thread",
+        "@abseil-cpp//absl/base:log_severity",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:scoped_mock_log",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# Everything the realtime thread calls on the mailboxes, the event log and the telemetry sampler allocates nothing and
+# takes no lock once built. A binary of its own: the allocation counter replaces malloc for the whole process.
+cc_test(
+    name = "test_robot_realtime_allocations",
+    size = "small",
+    srcs = ["test/testRobotRealtimeAllocations.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "test/data/dodgeball_throw.textproto",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    linkstatic = True,
+    deps = [
+        ":realtime_loop",
+        ":robot_process",
+        ":robot_test_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//robot_runtime/robot_model",
+        "//robot_runtime/robot_realtime:allocation_counter",
+        "//tools/nproto:nproto_runtime",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/synchronization",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The operator's mailboxes: queue order and repeats of the FSM commands, the joint targets merged into the posture
+# (latest wins), the dodgeball queue, the gantry height, the controller-side settings resolved and kept alive, and the
+# handlers on a loopback bus.
+cc_test(
+    name = "test_operator_command_mailbox",
+    size = "small",
+    srcs = ["test/testOperatorCommandMailbox.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _ATLAS_DATA + ["test/data/dodgeball_throw.textproto"],
+    deps = [
+        ":robot_process",
+        ":robot_test_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//humanoid_nmpc/humanoid_mpc_ipc",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//robot_runtime/robot_ipc",
+        "//robot_runtime/robot_model",
+        "//tools/nproto:nproto_runtime",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The FSM bridge's state machine against the headless simulator: the commands, the torque switch, the gantry and its
+# height slider, the controller resets and the health in the FSM state, and the dodgeball hand-over.
+cc_test(
+    name = "test_sim_fsm_bridge",
+    size = "medium",
+    srcs = ["test/testSimFsmBridge.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _ATLAS_DATA + ["test/data/dodgeball_throw.textproto"],
+    deps = [
+        ":robot_process",
+        ":robot_test_support",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//robot_runtime/mujoco_sim_interface",
+        "//tools/nproto:nproto_runtime",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The fall recovery against the real simulator, headless, on the DRC Atlas scene: every simulator reset and every catch
+# is one discontinuity, and a caught robot settles on the gantry before WB_MPC is accepted.
+cc_test(
+    name = "test_sim_fall_recovery",
+    size = "medium",
+    srcs = ["test/testSimFallRecovery.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _ATLAS_DATA,
+    deps = [
+        ":robot_process",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+cc_test(
+    name = "test_base_tilt_angle",
+    size = "small",
+    srcs = ["test/testBaseTiltAngle.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":robot_process",
+        "@abseil-cpp//absl/base:nullability",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The telemetry sampler: the decimation, the payload of robot/state round-tripped through its message, the joint names,
+# and the drops of a full ring.
+cc_test(
+    name = "test_telemetry_sampler",
+    size = "small",
+    srcs = ["test/testTelemetrySampler.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = ["//robot_models/drc_atlas/drc_atlas_description"],
+    deps = [
+        ":robot_process",
+        ":robot_test_support",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The backend registry: the mujoco backend by name (headless, on the Atlas scene), an unknown name refused with the
+# available ones, and the configuration it builds from the task file's simulator keys.
+cc_test(
+    name = "test_robot_backend_registry",
+    size = "small",
+    srcs = ["test/testRobotBackendRegistry.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _ATLAS_DATA,
+    deps = [
+        ":robot_test_support",
+        ":robot_process",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//robot_runtime/mujoco_sim_interface",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The task file's fields of the robot process, read strictly from the typed file: defaults, every field, wrong types and
+# values refused, the retired booleans refused with their replacement, and every shipped task file read with registered
+# names only.
+cc_test(
+    name = "test_robot_process_settings",
+    size = "small",
+    srcs = ["test/testRobotProcessSettings.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _SHIPPED_TASK_FILES,
+    deps = [
+        ":robot_process",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The robot process end to end without an MPC: a scripted controller, the headless simulator and a loopback bus. FSM
+# commands from the bus switch the mode, robot/state, robot/fsm_state and robot/loop_timing come out, the period holds,
+# controller settings reach the controller on the realtime thread, and stop() ends everything.
+cc_test(
+    name = "test_robot_process",
+    size = "medium",
+    srcs = ["test/testRobotProcess.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _ATLAS_DATA,
+    deps = [
+        ":robot_process",
+        ":robot_test_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//humanoid_nmpc/humanoid_mpc_ipc",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto",
+        "//robot_runtime/robot_ipc",
+        "//robot_runtime/robot_model",
+        "//tools/nproto:nproto_runtime",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The configuration store: a save checked as start-up would check the file and written atomically with the copy it
+# replaced kept, or answered UNCHANGED, REFUSED, FAILED or NOT_STORED with the stored copy untouched; the full queue, the
+# repeats and stop().
+cc_test(
+    name = "test_config_file_store",
+    size = "small",
+    srcs = ["test/testConfigFileStore.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _ATLAS_DATA,
+    deps = [
+        ":robot_process",
+        ":robot_test_support",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The checks start-up and a save share (checkRobotConfiguration()): each refuses on its own, naming the field.
+cc_test(
+    name = "test_robot_configuration_check",
+    size = "small",
+    srcs = ["test/testRobotConfigurationCheck.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _ATLAS_DATA,
+    deps = [
+        ":robot_process",
+        ":robot_test_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The robot's configuration directory: seeding, the seed policies, the contact planner's mirror, a store that cannot be
+# written, the boot marker and the fallback to the bundled files.
+# The crash-safe writes of the configuration store: a write replaces the file, a failed one leaves it as it was.
+cc_test(
+    name = "test_atomic_file_write",
+    size = "small",
+    srcs = ["test/testAtomicFileWrite.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":robot_process",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_robot_config_directory",
+    size = "small",
+    srcs = ["test/testRobotConfigDirectory.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":robot_process",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The task file's watcher: a write reported once, an unchanged or vanished file never.
+cc_test(
+    name = "test_task_file_watcher",
+    size = "small",
+    srcs = ["test/testTaskFileWatcher.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":robot_process",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The robot binaries' command line (the MPC link by name, the core lists) and the MpcLink over the remote link.
+cc_test(
+    name = "test_robot_app_options",
+    size = "small",
+    srcs = ["test/testRobotAppOptions.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":robot_process",
+        ":robot_test_support",
+        "//humanoid_nmpc/humanoid_mpc_ipc",
+        "//humanoid_nmpc/humanoid_mpc_ipc:remote_mpc_link",
+        "//lib/ocs2:ocs2_mpc",
+        "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/base:nullability",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# ==============================================================================
+# The typed configuration files (humanoid_nmpc/humanoid_mpc_config)
+# ==============================================================================
+
+# The textproto goldens of the bus payloads.
+exports_files(glob(
+    ["test/data/*.textproto"],
+    allow_empty = True,
+))
+
+# The typed configuration's tests (test/config/robot/). The conversions themselves are in :robot_process
+# (src/config/robot/).
+_CONFIG_TEST_DEPS = [
+    ":robot_process",
+    "//humanoid_nmpc/humanoid_common_mpc",
+    "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+    "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+    "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+    "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto",
+    "//tools/nproto:nproto_runtime",
+    "@abseil-cpp//absl/base:nullability",
+    "@abseil-cpp//absl/status",
+    "@abseil-cpp//absl/status:statusor",
+    "@abseil-cpp//absl/strings",
+    "@abseil-cpp//absl/strings:string_view",
+    "@googletest//:gtest_main",
+]
+
+cc_test(
+    name = "config_robot_test",
+    size = "small",
+    srcs = glob(["test/config/robot/*.cpp"]),
+    copts = FIRST_PARTY_COPTS,
+    deps = _CONFIG_TEST_DEPS,
+)

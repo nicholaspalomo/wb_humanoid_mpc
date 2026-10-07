@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 #include <ocs2_core/misc/Benchmark.h>
 
@@ -80,10 +82,10 @@ class MPC_BASE {
   virtual bool run(scalar_t currentTime, const vector_t& currentState, size_t currentMode = 0);
 
   /** Gets a pointer to the underlying solver used in the MPC. */
-  virtual SolverBase* getSolverPtr() = 0;
+  virtual SolverBase* absl_nonnull getSolverPtr() = 0;
 
   /** Gets a const pointer to the underlying solver used in the MPC. */
-  virtual const SolverBase* getSolverPtr() const = 0;
+  virtual const SolverBase* absl_nonnull getSolverPtr() const = 0;
 
   /** Returns the time horizon for which the optimizer is called. */
   scalar_t getTimeHorizon() const { return mpcSettings_.timeHorizon_; }

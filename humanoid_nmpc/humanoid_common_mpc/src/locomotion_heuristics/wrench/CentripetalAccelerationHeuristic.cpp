@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/locomotion_heuristics/wrench/CentripetalAccelerationHeuristic.h"
 
 #include <algorithm>
+#include <string>
 
 #include "absl/strings/str_cat.h"
 

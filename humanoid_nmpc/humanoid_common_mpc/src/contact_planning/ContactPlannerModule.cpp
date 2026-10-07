@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,9 +29,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
 
+#include <memory>
+#include <string>
+#include <utility>
+
 #include "absl/log/log.h"
+#include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
 
@@ -44,8 +54,9 @@ absl::StatusOr<std::shared_ptr<ContactPlannerModule>> ContactPlannerModule::Crea
   // makeContactPlanner validates first and returns the rejection that names the key.
   ASSIGN_OR_RETURN(std::unique_ptr<ContactPlannerInterface> planner, makeContactPlanner(config));
   RETURN_IF_ERROR(referenceManagerPtr->setConfigStatus(config));
-  return std::shared_ptr<ContactPlannerModule>(
-      new ContactPlannerModule(std::move(referenceManagerPtr), std::move(config), std::move(modelParameters), std::move(planner)));
+  // absl::WrapUnique: the constructor is private.
+  return std::shared_ptr<ContactPlannerModule>(absl::WrapUnique(
+      new ContactPlannerModule(std::move(referenceManagerPtr), std::move(config), std::move(modelParameters), std::move(planner))));
 }
 
 ContactPlannerModule::ContactPlannerModule(std::shared_ptr<ContactPlanningReferenceManager> referenceManagerPtr,
@@ -140,7 +151,7 @@ absl::Status ContactPlannerModule::setConfig(const ContactPlanningConfig& config
 std::optional<std::string> ContactPlannerModule::reloadSummary(const ContactPlanningConfig& previous, const ContactPlanningConfig& next) {
   const absl::StatusOr<std::string> before = contactPlannerSummary(previous);
   const absl::StatusOr<std::string> after = contactPlannerSummary(next);
-  const std::string afterText = after.ok() ? *after : std::string(after.status().message());
+  std::string afterText = after.ok() ? *after : std::string(after.status().message());
   // A change the summary does not print can still change what the planner is assembled from (the term lists of the
   // mixed-integer formulation), so those always re-print as well.
   const bool structuralChange = previous.formulation != next.formulation || previous.planner.numNodes != next.planner.numNodes ||
@@ -210,13 +221,8 @@ void ContactPlannerModule::runPlanner(const ContactPlannerInput& input, uint64_t
       configChanged_ = false;
     }
   }
-  ContactPlan plan;
-  try {
-    plan = planner_->plan(input);
-  } catch (const std::exception& e) {
-    LOG(ERROR) << "[ContactPlannerModule] planning failed: " << e.what();
-    plan.valid = false;
-  }
+  // ContactPlannerInterface::plan() reports a failure to plan as an invalid plan, never by throwing.
+  const ContactPlan plan = planner_->plan(input);
   if (logPlans_.load()) LOG(INFO) << "[ContactPlannerModule] " << plan.describe();
   // A plan made from a snapshot taken before an MPC reset describes the robot before it: the reference manager refuses
   // it, and the snapshot waiting for the worker (taken after the reset) is the one to plan from next.
@@ -253,6 +259,7 @@ void ContactPlannerModule::workerLoop() {
       std::unique_lock<std::mutex> lock(inputMutex_);
       inputCondition_.wait(lock, [this]() { return !running_.load() || pendingInput_.has_value(); });
       if (!running_.load()) return;
+      if (!pendingInput_.has_value()) continue;  // the wait above returns with one; this states it for the reader
       input = std::move(*pendingInput_);
       planEpoch = pendingInputPlanEpoch_;
       pendingInput_.reset();

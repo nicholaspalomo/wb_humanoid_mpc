@@ -32,19 +32,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <vector>
 
-#include <Eigen/Core>
+#include "Eigen/Core"
+#include "absl/base/nullability.h"
+#include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
+#include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "ocs2_pinocchio_interface/PinocchioStateInputMapping.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
-
-#include <ocs2_centroidal_model/CentroidalModelPinocchioMapping.h>
-#include <ocs2_centroidal_model/ModelHelperFunctions.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-#include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
 
 namespace ocs2::humanoid {
 
@@ -72,171 +73,140 @@ namespace ocs2::humanoid {
 */
 /******************************************************************************************************/
 
+/**
+ * The state and input layout of the centroidal MPC defined above, for the scalar type of the solver or of CppAD: the
+ * normalized centroidal momentum, the base pose and the joint angles of the state; the contact wrenches and the joint
+ * velocities of the input. getGeneralizedVelocities() updates the model's own copy of the Pinocchio interface, so a
+ * model is not thread-safe; clone() one for each thread. Every accessor takes a state of getStateDim(), an input of
+ * getInputDim() and generalized coordinates of 6 + mpc_joint_dim entries, unchecked: the solver and the control thread
+ * call them on every evaluation.
+ */
 template <typename SCALAR_T>
 class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
  public:
   CentroidalMpcRobotModel(const ModelSettings& modelSettings,
                           const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
                           const CentroidalModelInfoTpl<SCALAR_T>& centroidalModelInfo)
-      : MpcRobotModelBase<SCALAR_T>(modelSettings, 12 + modelSettings.mpc_joint_dim, 6 * N_CONTACTS + modelSettings.mpc_joint_dim),
+      : MpcRobotModelBase<SCALAR_T>(modelSettings, 12 + modelSettings.mpc_joint_dim, 6 * kNumContacts + modelSettings.mpc_joint_dim),
         pinocchioInterface_(pinocchioInterface),
         centroidalModelInfo_(centroidalModelInfo),
-        pinocchioMappingPtr_(new CentroidalModelPinocchioMappingTpl<SCALAR_T>(centroidalModelInfo)) {
+        pinocchioMappingPtr_(std::make_unique<CentroidalModelPinocchioMappingTpl<SCALAR_T>>(centroidalModelInfo)) {
     pinocchioMappingPtr_->setPinocchioInterface(pinocchioInterface_);
-  };
+  }
 
   ~CentroidalMpcRobotModel() override = default;
-  CentroidalMpcRobotModel* clone() const override { return new CentroidalMpcRobotModel(*this); }
+  CentroidalMpcRobotModel* absl_nonnull clone() const override { return new CentroidalMpcRobotModel(*this); }
+  // Copied only by clone(), whose copy constructor is private; never assigned or moved.
+  CentroidalMpcRobotModel& operator=(const CentroidalMpcRobotModel&) = delete;
+  CentroidalMpcRobotModel(CentroidalMpcRobotModel&&) = delete;
+  CentroidalMpcRobotModel& operator=(CentroidalMpcRobotModel&&) = delete;
 
   /******************************************************************************************************/
   /*                                          Start indices                                             */
   /******************************************************************************************************/
 
-  size_t getBaseStartindex() const override { return 6; };
-  size_t getJointStartindex() const override { return 12; };
-  size_t getJointVelocitiesStartindex() const override { return 6 * N_CONTACTS; };
+  // LINT.IfChange(state_input_indices)
+  size_t getBaseStartindex() const override { return 6; }
+  size_t getJointStartindex() const override { return 12; }
+  size_t getJointVelocitiesStartindex() const override { return 6 * kNumContacts; }
 
   // Assumes contact wrench [f_x, f_y, f_z, M_x, M_y, M_z]^T
-  size_t getContactWrenchStartIndices(size_t contactIndex) const override { return 6 * contactIndex; };
-  size_t getContactForceStartIndices(size_t contactIndex) const override { return getContactWrenchStartIndices(contactIndex); };
-  size_t getContactMomentStartIndices(size_t contactIndex) const override { return getContactWrenchStartIndices(contactIndex) + 3; };
+  size_t getContactWrenchStartIndices(size_t contactIndex) const override { return 6 * contactIndex; }
+  size_t getContactForceStartIndices(size_t contactIndex) const override { return getContactWrenchStartIndices(contactIndex); }
+  size_t getContactMomentStartIndices(size_t contactIndex) const override { return getContactWrenchStartIndices(contactIndex) + 3; }
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/weights/StateInputWeightsFromConfig.cpp:state_input_offsets)
 
   /******************************************************************************************************/
   /*                                     Generalized coordinates                                        */
   /******************************************************************************************************/
 
   VECTOR_T<SCALAR_T> getGeneralizedCoordinates(const VECTOR_T<SCALAR_T>& state) const override {
-    assert(state.size() == this->state_dim);
     return state.tail(6 + this->modelSettings.mpc_joint_dim);
-  };
-
-  VECTOR6_T<SCALAR_T> getBasePose(const VECTOR_T<SCALAR_T>& state) const override {
-    assert(state.size() == this->state_dim);
-    return state.segment(6, 6);
-  };
-
-  VECTOR3_T<SCALAR_T> getBasePosition(const VECTOR_T<SCALAR_T>& state) const override {
-    assert(state.size() == this->state_dim);
-    return state.segment(6, 3);
   }
 
-  VECTOR3_T<SCALAR_T> getBaseOrientationEulerZYX(const VECTOR_T<SCALAR_T>& state) const override {
-    assert(state.size() == this->state_dim);
-    return state.segment(6 + 3, 3);
-  }
+  VECTOR6_T<SCALAR_T> getBasePose(const VECTOR_T<SCALAR_T>& state) const override { return state.segment(6, 6); }
+
+  VECTOR3_T<SCALAR_T> getBasePosition(const VECTOR_T<SCALAR_T>& state) const override { return state.segment(6, 3); }
+
+  VECTOR3_T<SCALAR_T> getBaseOrientationEulerZYX(const VECTOR_T<SCALAR_T>& state) const override { return state.segment(6 + 3, 3); }
 
   // Return Com linear velocity
-  VECTOR3_T<SCALAR_T> getBaseComLinearVelocity(const VECTOR_T<SCALAR_T>& state) const override {
-    assert(state.size() == this->state_dim);
-    return state.head(3);
-  };
+  VECTOR3_T<SCALAR_T> getBaseComLinearVelocity(const VECTOR_T<SCALAR_T>& state) const override { return state.head(3); }
 
-  VECTOR6_T<SCALAR_T> getBaseComVelocity(const VECTOR_T<SCALAR_T>& state) const override {
-    assert(state.size() == this->state_dim);
-    return state.head(6);
-  };
+  VECTOR6_T<SCALAR_T> getBaseComVelocity(const VECTOR_T<SCALAR_T>& state) const override { return state.head(6); }
 
-  void setBaseComLinearVelocity(VECTOR_T<SCALAR_T>& state, const VECTOR3_T<SCALAR_T>& velocity) const override {
-    assert(state.size() == this->state_dim);
-    state.head(3) = velocity;
-  };
+  void setBaseComLinearVelocity(VECTOR_T<SCALAR_T>& state, const VECTOR3_T<SCALAR_T>& velocity) const override { state.head(3) = velocity; }
 
   VECTOR_T<SCALAR_T> getJointAngles(const VECTOR_T<SCALAR_T>& state) const override {
-    assert(state.size() == this->state_dim);
     return state.tail(this->modelSettings.mpc_joint_dim);
-  };
+  }
 
-  VECTOR_T<SCALAR_T> getJointVelocities(const VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& input) const override {
-    assert(input.size() == this->input_dim);
+  VECTOR_T<SCALAR_T> getJointVelocities(const VECTOR_T<SCALAR_T>& /*state*/, const VECTOR_T<SCALAR_T>& input) const override {
     return input.tail(this->modelSettings.mpc_joint_dim);
-  };
+  }
 
   VECTOR_T<SCALAR_T> getGeneralizedVelocities(const VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& input) override {
-    assert(state.size() == this->state_dim);
-    assert(input.size() == this->input_dim);
     updateCentroidalDynamics<SCALAR_T>(pinocchioInterface_, centroidalModelInfo_, pinocchioMappingPtr_->getPinocchioJointPosition(state));
     return pinocchioMappingPtr_->getPinocchioJointVelocity(state, input);
-  };
+  }
 
   void setGeneralizedCoordinates(VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& generalizedCorrdinates) const override {
-    assert(state.size() == this->state_dim);
-    assert(generalizedCorrdinates.size() == 6 + this->modelSettings.mpc_joint_dim);
     state.tail(6 + this->modelSettings.mpc_joint_dim) = generalizedCorrdinates;
   }
 
-  void setBasePose(VECTOR_T<SCALAR_T>& state, const VECTOR6_T<SCALAR_T>& basePose) const override {
-    assert(state.size() == this->state_dim);
-    state.segment(6, 6) = basePose;
-  }
+  void setBasePose(VECTOR_T<SCALAR_T>& state, const VECTOR6_T<SCALAR_T>& basePose) const override { state.segment(6, 6) = basePose; }
 
-  void setBasePosition(VECTOR_T<SCALAR_T>& state, const VECTOR3_T<SCALAR_T>& position) const override {
-    assert(state.size() == this->state_dim);
-    state.segment(6, 3) = position;
-  }
+  void setBasePosition(VECTOR_T<SCALAR_T>& state, const VECTOR3_T<SCALAR_T>& position) const override { state.segment(6, 3) = position; }
 
   void setBaseOrientationEulerZYX(VECTOR_T<SCALAR_T>& state, const VECTOR3_T<SCALAR_T>& eulerAnglesZYX) const override {
-    assert(state.size() == this->state_dim);
     state.segment(6 + 3, 3) = eulerAnglesZYX;
   }
 
   void setJointAngles(VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& jointAngles) const override {
-    assert(state.size() == this->state_dim);
     state.tail(this->modelSettings.mpc_joint_dim) = jointAngles;
   }
 
-  void setJointVelocities(VECTOR_T<SCALAR_T>& state, VECTOR_T<SCALAR_T>& input, const VECTOR_T<SCALAR_T>& jointVelocities) const override {
-    assert(state.size() == this->state_dim);
-    assert(input.size() == this->input_dim);
+  void setJointVelocities(VECTOR_T<SCALAR_T>& /*state*/,
+                          VECTOR_T<SCALAR_T>& input,
+                          const VECTOR_T<SCALAR_T>& jointVelocities) const override {
     input.tail(this->modelSettings.mpc_joint_dim) = jointVelocities;
   }
 
-  void adaptBasePoseHeight(VECTOR_T<SCALAR_T>& state, scalar_t heightChange) const {
-    assert(state.size() == this->state_dim);
-    state[6 + 2] += heightChange;
-  }
+  void adaptBasePoseHeight(VECTOR_T<SCALAR_T>& state, scalar_t heightChange) const override { state[6 + 2] += heightChange; }
 
   /******************************************************************************************************/
   /*                                          Contacts                                                  */
   /******************************************************************************************************/
 
   VECTOR6_T<SCALAR_T> getContactWrench(const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const override {
-    assert(input.size() == this->input_dim);
-    return input.segment(getContactWrenchStartIndices(contactIndex), CONTACT_WRENCH_DIM);
-  };
+    return input.segment(getContactWrenchStartIndices(contactIndex), kContactWrenchDim);
+  }
 
   VECTOR3_T<SCALAR_T> getContactForce(const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const override {
-    assert(input.size() == this->input_dim);
     return input.segment(getContactWrenchStartIndices(contactIndex), 3);
-  };
+  }
 
   VECTOR3_T<SCALAR_T> getContactMoment(const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const override {
-    assert(input.size() == this->input_dim);
     return input.segment((getContactWrenchStartIndices(contactIndex) + 3), 3);
-  };
+  }
 
   void setContactWrench(VECTOR_T<SCALAR_T>& input, const VECTOR6_T<SCALAR_T>& wrench, size_t contactIndex) const override {
-    assert(input.size() == this->input_dim);
     input.segment(getContactWrenchStartIndices(contactIndex), 6) = wrench;
-  };
+  }
 
   void setContactForce(VECTOR_T<SCALAR_T>& input, const VECTOR3_T<SCALAR_T>& force, size_t contactIndex) const override {
-    assert(input.size() == this->input_dim);
     input.segment(getContactWrenchStartIndices(contactIndex), 3) = force;
-  };
+  }
 
   void setContactMoment(VECTOR_T<SCALAR_T>& input, const VECTOR3_T<SCALAR_T>& moment, size_t contactIndex) const override {
-    assert(input.size() == this->input_dim);
     input.segment(getContactWrenchStartIndices(contactIndex) + 3, 3) = moment;
-  };
+  }
 
   /******************************************************************************************************/
   /*                                    Custom Centroidal Methods                                       */
   /******************************************************************************************************/
 
-  VECTOR_T<SCALAR_T> getCentroidalMomentum(const VECTOR_T<SCALAR_T>& state) const {
-    assert(state.size() == this->state_dim);
-    return state.head(6);
-  };
+  VECTOR_T<SCALAR_T> getCentroidalMomentum(const VECTOR_T<SCALAR_T>& state) const { return state.head(6); }
 
   const CentroidalModelInfoTpl<SCALAR_T>& getCentroidalModelInfo() const { return centroidalModelInfo_; }
 
@@ -247,7 +217,7 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
         centroidalModelInfo_(rhs.centroidalModelInfo_),
         pinocchioMappingPtr_(rhs.pinocchioMappingPtr_->clone()) {
     pinocchioMappingPtr_->setPinocchioInterface(pinocchioInterface_);
-  };
+  }
 
   PinocchioInterfaceTpl<SCALAR_T> pinocchioInterface_;
   const CentroidalModelInfoTpl<SCALAR_T> centroidalModelInfo_;

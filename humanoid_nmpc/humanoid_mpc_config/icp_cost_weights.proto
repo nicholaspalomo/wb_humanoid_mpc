@@ -1,0 +1,17 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "nproto/options.proto";
+
+// The instantaneous capture point cost of the centroidal MPC (the task file's icp_cost_weights block; the cost
+// icp_cost). Read while costs lists icp_cost.
+// Next ID: 2
+message IcpCostWeights {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::IcpCostWeights";
+
+  reserved 2 to max;
+
+  // The weight on the ICP error, the same along x and y.
+  double icp_error_weight = 1 [default = 0.0];
+}

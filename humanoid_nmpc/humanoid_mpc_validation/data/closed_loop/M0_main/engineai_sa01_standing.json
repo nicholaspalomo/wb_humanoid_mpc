@@ -1,0 +1,125 @@
+{
+  "schema": "humanoid_mpc_validation.closed_loop_metrics.v1",
+  "label": "M0_main",
+  "robot": "engineai_sa01",
+  "formulation": "centroidal",
+  "scenario": "standing",
+  "provenance": {
+    "git_commit": "b41650f060e24cee9b29dec4561a6dc957bc57f1",
+    "worktree_state": "2 changed paths, diff sha256 ff8d903eadc63349",
+    "machine": "Intel(R) Core(TM) Ultra 7 265K, 20 logical cores, 30.2 GiB",
+    "configuration_sha256": {
+      "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto": "c9b834dea2c89bbfdab2d42649e07ef258d7a1b6c62f063e5b751fa46629f994",
+      "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/command/reference.textproto": "32e827608c44eb5181952f30bf6408ea28ba07caeef5aa23cf4b880d43d0f7ab",
+      "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto": "656f852101595179bec1c5959eabb12e25407cac2b2ed0bb0fed4fdfa3acca47",
+      "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/controller/joint_pd_gains.textproto": "f769d1d15ff94f97c5b1dd9aa85cdbbe3a9b999ded67f07977ada4656704f493",
+      "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf": "fbc783619a56c4925fb378266fc69549a89c30f0cf755769749fb6c627e69744",
+      "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.xml": "3c845e2f9e92eb0f72e464cc3da6d66eb02fce09defe06d10c3944394aed6e71",
+      "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/contact_planning.textproto": "3104e2c27084d4c5abb3729f65d75e85134589ce10d3857bdcaf03e31e1b2dce"
+    }
+  },
+  "settings": {
+    "mpc_frequency_hz": 80,
+    "mrt_frequency_hz": 100,
+    "simulation_time_step_s": 0.0005,
+    "control_period_s": 0.01,
+    "solver_threads": 4,
+    "solve_latency": "none: a solve's policy is in use from the next control cycle",
+    "joint_pd_settle_time_s": 1,
+    "entry_end_time_s": 1.029999999999942,
+    "gantry_release_time_s": 1.529999999999887,
+    "standing_time_s": 2,
+    "command_start_time_s": 3.530000000000346,
+    "command_duration_s": 10,
+    "command_limits": [0.8, 0.2, 1],
+    "command_saturated": false,
+    "scenario_description": "at rest for 10 s"
+  },
+  "evaluation": {
+    "start_time_s": 3.5305000000003464,
+    "end_time_s": 13.520500000005033,
+    "control_cycles": 1000,
+    "solves": 800
+  },
+  "survival": {
+    "survived": true,
+    "fall_time_s": null,
+    "fall_reason": ""
+  },
+  "base_height": {
+    "mean_m": 0.8111702608366866,
+    "std_m": 0.00015452572125558534,
+    "rms_error_m": 0.002334858190199533
+  },
+  "tilt": {
+    "rms_rad": 0.0032441253043873383,
+    "max_rad": 0.0034478788660381766
+  },
+  "velocity": {
+    "rms_error_mps": 4.879125583032642e-05
+  },
+  "yaw_rate": {
+    "rms_error_radps": 5.5931815527781896e-06
+  },
+  "heading": {
+    "cumulative_final_rad": 3.423590720461726e-05,
+    "cumulative_max_rad": 3.425321082588182e-05,
+    "cumulative_min_rad": 0
+  },
+  "stance_foot_slip": {
+    "max_m": 1.3919185539690457e-06,
+    "rms_m": 1.3815195832259475e-06,
+    "stance_phases": 2
+  },
+  "joint_torque": {
+    "rms_nm": 5.890051466555212
+  },
+  "initial_state_gap": {
+    "max_rotation_rad": 0.00017687098502645746,
+    "max_rotation_time_s": 9.000499999999509,
+    "max_norm": 0.0007371129337132417
+  },
+  "quaternion_norm": {
+    "max_deviation": null
+  },
+  "non_finite_values": 0,
+  "solve_time_ms": {
+    "total": {
+      "mean": 3.0660184524999994,
+      "p50": 3.053903,
+      "p99": 3.424034,
+      "max": 3.883033
+    },
+    "lq_approximation": {
+      "mean": 1.5886515275,
+      "p50": 1.570033,
+      "p99": 1.792829,
+      "max": 2.136277
+    },
+    "solve_qp": {
+      "mean": 0.9763590162500008,
+      "p50": 0.990122,
+      "p99": 1.101577,
+      "max": 1.168876
+    },
+    "linesearch": {
+      "mean": 0.19770982500000017,
+      "p50": 0.1957,
+      "p99": 0.244892,
+      "max": 0.27926
+    },
+    "compute_controller": {
+      "mean": 0.20482157749999996,
+      "p50": 0.202289,
+      "p99": 0.241223,
+      "max": 0.25497
+    }
+  },
+  "failures": {
+    "failed_solves": 0,
+    "resets_served": 0,
+    "full_resets_served": 0,
+    "simulator_resets": 0,
+    "unhealthy_cycles": 0
+  }
+}

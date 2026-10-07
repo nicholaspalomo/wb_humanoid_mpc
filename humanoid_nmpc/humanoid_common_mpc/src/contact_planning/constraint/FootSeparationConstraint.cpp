@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -26,12 +30,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/constraint/FootSeparationConstraint.h"
 
 #include <cmath>
+#include <string>
+#include <utility>
 
 #include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
-static_assert(N_CONTACTS == 2, "the separation rows are written for a biped");
+static_assert(kNumContacts == 2, "the separation rows are written for a biped");
 
 std::string FootSeparationConstraint::describe() const {
   return absl::StrCat("|e_x . (p_L - p_R)| <= ", params_.maxStepLength, " m, ", params_.minStepWidth,
@@ -48,8 +54,8 @@ void FootSeparationConstraint::addRows(const ContactPlanningContext& ctx, int no
   for (int axis = 0; axis < 2; ++axis) {
     Coefficients xc;
     for (int w = 0; w < 2; ++w) {
-      xc.push_back({idx_.foot[0][w], axes[static_cast<size_t>(axis)](w)});
-      xc.push_back({idx_.foot[1][w], -axes[static_cast<size_t>(axis)](w)});
+      xc.emplace_back(idx_.foot[0][w], axes[static_cast<size_t>(axis)](w));
+      xc.emplace_back(idx_.foot[1][w], -axes[static_cast<size_t>(axis)](w));
     }
     const vector2_t dNominal =
         ctx.hasHeading() ? vector2_t(ctx.nominal->feet[static_cast<size_t>(node)][0] - ctx.nominal->feet[static_cast<size_t>(node)][1])
@@ -57,11 +63,11 @@ void FootSeparationConstraint::addRows(const ContactPlanningContext& ctx, int no
     const std::pair<scalar_t, scalar_t> frameTerm = ctx.frameTerm(node, axis, dNominal);
     const scalar_t g = frameTerm.first;
     const scalar_t offset = frameTerm.second;
-    if (ctx.hasHeading()) xc.push_back({idx_.heading, g});
+    if (ctx.hasHeading()) xc.emplace_back(idx_.heading, g);
     if (axis == 0) {
-      rows.addSoft(xc, {}, -params_.maxStepLength - offset, params_.maxStepLength - offset, penalty_);
+      rows.addSoft(xc, /*uCoefficients=*/{}, -params_.maxStepLength - offset, params_.maxStepLength - offset, penalty_);
     } else {
-      rows.addSoft(xc, {}, params_.minStepWidth - offset, params_.maxStepWidth - offset, penalty_);
+      rows.addSoft(xc, /*uCoefficients=*/{}, params_.minStepWidth - offset, params_.maxStepWidth - offset, penalty_);
     }
   }
 }

@@ -1,184 +1,232 @@
-"""****************************************************************************
-Copyright (c) 2024, 1X Technologies. All rights reserved.
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+# Copyright (c) 2024, 1X Technologies. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
+"""Records the robot's MPC observations from the IPC bus into a CSV file, the input of export_rollouts.py.
 
-* Redistributions of source code must retain the above copyright notice, this
-  list of conditions and the following disclaimer.
+    bazel run //humanoid_nmpc/humanoid_common_mpc_pyutils:mpc_observation_logger -- \\
+        [--network_config config/ipc/network.textproto] [--output_dir .] [--duration 0]
 
-* Redistributions in binary form must reproduce the above copyright notice,
-  this list of conditions and the following disclaimer in the documentation
-  and/or other materials provided with the distribution.
+It subscribes to robot/mpc_observation (humanoid_mpc_msgs.MpcObservation, every message in the order it arrived) and
+writes one row per observation to mpc_observation_<YYYYmmdd_HHMMSS>.csv until Ctrl-C, SIGTERM or --duration ends it:
 
-* Neither the name of the copyright holder nor the names of its
-  contributors may be used to endorse or promote products derived from
-  this software without specific prior written permission.
+    time, mode, x0, x1, ..., u0, u1, ...
 
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-****************************************************************************"""
+x<i> is component i of the MPC state and u<i> of the MPC input, as the robot sent them. The names are generic because
+the layout of both depends on the formulation and the robot (the centroidal MPC's state starts with the normalized
+momentum, the whole-body MPC's with the generalized coordinates); the task file's ModelSettings say which component is
+which. The logger only subscribes, so it runs on any machine of the network file and never disturbs the robot.
+"""
 
-import rclpy
-from rclpy.node import Node
-from ocs2_ros2_msgs.msg import MpcObservation
-from rclpy.qos import QoSProfile, ReliabilityPolicy
-import numpy as np
-import pandas as pd
-from datetime import datetime
+import argparse
+from collections.abc import Sequence
+import csv
+import datetime
+import logging
+import os
+import signal
+import threading
+import time
+from typing import TextIO
 
+from humanoid_mpc_msgs import mpc_observation_pb2
 
-class MpcObservationLogger(Node):
+from humanoid_mpc_ipc import topics
+import robot_ipc
 
-    def __init__(self):
-        super().__init__("mpc_observation_subscriber")
-        print("Setting up MPC observation logger...")
-        qos_profile = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, depth=10)
+_LOGGER = logging.getLogger("mpc_observation_logger")
 
-        self.subscription = self.create_subscription(
-            MpcObservation,
-            "humanoid/mpc_observation",
-            self.listener_callback,
-            qos_profile,
-        )
-        self.subscription  # prevent unused variable warning
-
-        self.logger_cols = [
-            "h_x",
-            "h_y",
-            "h_z",
-            "L_x",
-            "L_y",
-            "L_z",
-            "p_x",
-            "p_y",
-            "p_z",
-            "euler_z",
-            "euler_y",
-            "euler_x",
-            "q_j_l_hip_y",
-            "q_j_l_hip_x",
-            "q_j_l_hip_z",
-            "q_j_l_upperknee_y",
-            "q_j_l_lowerknee_y",
-            "q_j_l_ankle_y",
-            "q_j_l_ankle_x",
-            "q_j_r_hip_y",
-            "q_j_r_hip_x",
-            "q_j_r_hip_z",
-            "q_j_r_upperknee_y",
-            "q_j_r_lowerknee_y",
-            "q_j_r_ankle_y",
-            "q_j_r_ankle_x",
-            "q_j_spine_y",
-            "q_j_spine_z",
-            "q_j_l_shoulder_y",
-            "q_j_l_shoulder_x",
-            "q_j_l_shoulder_z",
-            "q_j_l_elbow_y",
-            "q_j_l_elbow_z",
-            "q_j_r_shoulder_y",
-            "q_j_r_shoulder_x",
-            "q_j_r_shoulder_z",
-            "q_j_r_elbow_y",
-            "q_j_r_elbow_z",
-            "q_j_l_wrist_x",
-            "q_j_l_wrist_y",
-            "q_j_neck_z",
-            "q_j_neck_y",
-            "q_j_neck_x",
-            "q_j_r_wrist_x",
-            "q_j_r_wrist_y",
-            "F_l_x",
-            "F_l_y",
-            "F_l_z",
-            "M_l_x",
-            "M_l_y",
-            "M_l_z",
-            "F_r_x",
-            "F_r_y",
-            "F_r_z",
-            "M_r_x",
-            "M_r_y",
-            "M_r_z",
-            "qd_j_l_hip_y",
-            "qd_j_l_hip_x",
-            "qd_j_l_hip_z",
-            "qd_j_l_upperknee_y",
-            "qd_j_l_lowerknee_y",
-            "qd_j_l_ankle_y",
-            "qd_j_l_ankle_x",
-            "qd_j_r_hip_y",
-            "qd_j_r_hip_x",
-            "qd_j_r_hip_z",
-            "qd_j_r_upperknee_y",
-            "qd_j_r_lowerknee_y",
-            "qd_j_r_ankle_y",
-            "qd_j_r_ankle_x",
-            "qd_j_spine_y",
-            "qd_j_spine_z",
-            "qd_j_l_shoulder_y",
-            "qd_j_l_shoulder_x",
-            "qd_j_l_shoulder_z",
-            "qd_j_l_elbow_y",
-            "qd_j_l_elbow_z",
-            "qd_j_r_shoulder_y",
-            "qd_j_r_shoulder_x",
-            "qd_j_r_shoulder_z",
-            "qd_j_r_elbow_y",
-            "qd_j_r_elbow_z",
-            "qd_j_l_wrist_x",
-            "qd_j_l_wrist_y",
-            "qd_j_neck_z",
-            "qd_j_neck_y",
-            "qd_j_neck_x",
-            "qd_j_r_wrist_x",
-            "qd_j_r_wrist_y",
-            "time",
-        ]
-        self.data_df = pd.DataFrame()
-
-    def listener_callback(self, msg):
-        print(msg.time)
-        print(type(msg.state))
-        mpc_obs_arr = np.array(msg.state.value)
-        mpc_obs_arr = np.append(mpc_obs_arr, np.zeros(7))
-        mpc_obs_arr = np.append(mpc_obs_arr, msg.input.value)
-        mpc_obs_arr = np.append(mpc_obs_arr, np.zeros(7))
-        mpc_obs_arr = np.append(mpc_obs_arr, msg.time)
-        new_df = pd.DataFrame(mpc_obs_arr.reshape(1, -1), columns=self.logger_cols)
-        self.data_df = pd.concat([self.data_df, new_df], ignore_index=True)
-
-    def save_log(self):
-        log_name = (
-            "mpc_observation_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".csv"
-        )
-        print("Saving log:", log_name)
-        self.data_df.to_csv(log_name, index=False)
-        print("Done saving log")
+DEFAULT_NETWORK_CONFIG = os.path.join("config", "ipc", "network.textproto")
+FILE_PREFIX = "mpc_observation_"
+TIME_COLUMN = "time"
+MODE_COLUMN = "mode"
+STATE_COLUMN_PREFIX = "x"
+INPUT_COLUMN_PREFIX = "u"
+# How often the main thread checks for a stop request and the duration [s].
+_POLL_PERIOD_S = 0.1
 
 
-def main(args=None):
-    rclpy.init(args=args)
-    subscriber = MpcObservationLogger()
+def column_names(state_dim: int, input_dim: int) -> list[str]:
+    """The CSV header of observations with a state of `state_dim` and an input of `input_dim` components."""
+    return (
+        [TIME_COLUMN, MODE_COLUMN]
+        + [f"{STATE_COLUMN_PREFIX}{i}" for i in range(state_dim)]
+        + [f"{INPUT_COLUMN_PREFIX}{i}" for i in range(input_dim)]
+    )
 
+
+def observation_row(message: mpc_observation_pb2.MpcObservation) -> list[float]:
+    """The CSV row of one observation: time, mode, state, input."""
+    observation = message.observation
+    return (
+        [observation.time, float(observation.mode)]
+        + list(observation.state)
+        + list(observation.input)
+    )
+
+
+class ObservationCsvWriter:
+    """Writes observations as CSV rows, the header with the first one; thread-safe.
+
+    The state and input dimensions are those of the first observation. An observation of other dimensions (a robot
+    process restarted with another formulation) is not written, and counted in `skipped`.
+    """
+
+    def __init__(self, stream: TextIO) -> None:
+        self._stream = stream
+        self._writer = csv.writer(stream)
+        self._lock = threading.Lock()
+        self._dimensions: Sequence[int] | None = None
+        self.written = 0
+        self.skipped = 0
+
+    def write(self, message: mpc_observation_pb2.MpcObservation) -> bool:
+        """Writes the row of `message`; False when its dimensions differ from the first observation's."""
+        dimensions = (len(message.observation.state), len(message.observation.input))
+        with self._lock:
+            if self._dimensions is None:
+                self._dimensions = dimensions
+                self._writer.writerow(column_names(*dimensions))
+            elif dimensions != self._dimensions:
+                self.skipped += 1
+                return False
+            self._writer.writerow(observation_row(message))
+            self.written += 1
+            return True
+
+    def flush(self) -> None:
+        with self._lock:
+            self._stream.flush()
+
+
+def log_file_name(now: datetime.datetime) -> str:
+    """The name of the CSV file of a recording started at `now`, the pattern export_rollouts.py looks for."""
+    return f"{FILE_PREFIX}{now.strftime('%Y%m%d_%H%M%S')}.csv"
+
+
+def subscribe(bus: robot_ipc.Bus, writer: ObservationCsvWriter) -> None:
+    """Hands every observation of the bus to `writer`. Call before bus.start()."""
+
+    def on_observation(message: mpc_observation_pb2.MpcObservation) -> None:
+        # A skipped observation is counted by the writer; the bus has no use for the result.
+        writer.write(message)
+
+    bus.subscribe(
+        topics.ROBOT_MPC_OBSERVATION,
+        mpc_observation_pb2.MpcObservation,
+        on_observation,
+        delivery=robot_ipc.Delivery.ALL,
+    )
+
+
+def _resolve(path: str) -> str:
+    """A path of the command line: as is when absolute, else relative to the start directory of `bazel run`."""
+    if os.path.isabs(path):
+        return path
+    start_directory = os.environ.get("BUILD_WORKING_DIRECTORY", os.getcwd())
+    candidate = os.path.join(start_directory, path)
+    workspace = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
+    if not os.path.exists(candidate) and workspace:
+        return os.path.join(workspace, path)
+    return candidate
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parses the logger's command line `argv` (sys.argv when None)."""
+    parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
+    parser.add_argument(
+        "--network_config",
+        default=DEFAULT_NETWORK_CONFIG,
+        help="the network file of the bus (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--output_dir",
+        default=".",
+        help="where the CSV file is written (default: the start directory)",
+    )
+    parser.add_argument(
+        "--duration",
+        type=float,
+        default=0.0,
+        help="seconds to record; 0 records until Ctrl-C or SIGTERM (default: %(default)s)",
+    )
+    return parser.parse_args(argv)
+
+
+def run(args: argparse.Namespace, stop: threading.Event | None = None) -> str:
+    """Records until `stop` is set or the duration passes; returns the path of the CSV file."""
+    stop = stop if stop is not None else threading.Event()
+    network = robot_ipc.load_network_config(_resolve(args.network_config))
+    output_dir = _resolve(args.output_dir)
+    os.makedirs(output_dir, exist_ok=True)
+    path = os.path.join(output_dir, log_file_name(datetime.datetime.now()))
+    with open(path, "w", newline="", encoding="utf-8") as stream:
+        writer = ObservationCsvWriter(stream)
+        # Not `with Bus(...)`: entering it starts the bus, and a running bus takes no new subscription.
+        bus = robot_ipc.Bus("", network)
+        try:
+            subscribe(bus, writer)
+            bus.start()
+            _LOGGER.info(
+                "recording %s from %s into %s",
+                topics.ROBOT_MPC_OBSERVATION,
+                ", ".join(bus.subscriber_endpoints),
+                path,
+            )
+            deadline = time.monotonic() + args.duration if args.duration > 0.0 else None
+            while not stop.wait(_POLL_PERIOD_S):
+                writer.flush()
+                if deadline is not None and time.monotonic() >= deadline:
+                    break
+        finally:
+            bus.close()
+        writer.flush()
+    _LOGGER.info(
+        "wrote %d observations to %s (%d of other dimensions skipped)",
+        writer.written,
+        path,
+        writer.skipped,
+    )
+    return path
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
+    args = parse_args(argv)
+    stop = threading.Event()
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(signum, lambda *_: stop.set())
     try:
-        rclpy.spin(subscriber)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        subscriber.save_log()
-        subscriber.destroy_node()
-        rclpy.shutdown()
+        run(args, stop)
+    except (robot_ipc.NetworkConfigError, robot_ipc.BusError, OSError) as error:
+        _LOGGER.error("%s", error)
+        return 2
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

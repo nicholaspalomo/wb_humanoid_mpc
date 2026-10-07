@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/soft_constraint/StateInputSoftConstraint.h>
 
+#include "absl/base/nullability.h"
+
 namespace ocs2 {
 
 /******************************************************************************************************/
@@ -54,7 +56,7 @@ StateInputSoftConstraint::StateInputSoftConstraint(const StateInputSoftConstrain
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-StateInputSoftConstraint* StateInputSoftConstraint::clone() const {
+StateInputSoftConstraint* absl_nonnull StateInputSoftConstraint::clone() const {
   return new StateInputSoftConstraint(*this);
 }
 

@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Every robot is described twice: by a URDF that Pinocchio loads for the MPC, and by an MJCF that MuJoCo simulates.
 
 Both must describe the same robot. Where they disagree, the controller computes its dynamics for one machine and
@@ -19,7 +46,7 @@ like defects when they are only a different, and equally valid, choice of where 
 import math
 import os
 import unittest
-import xml.etree.ElementTree as ET
+from xml.etree import ElementTree
 
 # Maximum accepted difference between the two descriptions, once fixed-joint lumping is accounted for. Loose enough to
 # tolerate a massless placeholder link one description rounds away (the G1 pelvis differs by a gram and 20 micrometres
@@ -103,10 +130,28 @@ def _floats(text, default=(0.0, 0.0, 0.0)):
     return [float(value) for value in text.split()] if text else list(default)
 
 
-def _parse_urdf(path):
-    """Returns (links, fixed_children) where links maps name -> (mass, com) and fixed_children maps parent -> list of
-    (child, translation, rotation) for fixed joints only."""
-    root = ET.parse(path).getroot()
+def _attribute(element, tag, name):
+    """The attribute `name` of `element`'s child `tag`, failing with the element named when either is missing."""
+    child = element.find(tag)
+    value = None if child is None else child.get(name)
+    if value is None:
+        raise ValueError(
+            f"<{element.tag} name='{element.get('name')}'> has no <{tag} {name}=...>"
+        )
+    return value
+
+
+def _parse_urdf(path: str) -> tuple[dict, dict[str, list]]:
+    """Parses the links and fixed joints of a URDF.
+
+    Args:
+        path: The URDF file.
+
+    Returns:
+        (links, fixed_children): links maps a link's name to its (mass, com), and fixed_children maps a parent link to
+        the (child, translation, rotation) of each fixed joint below it.
+    """
+    root = ElementTree.parse(path).getroot()
     links = {}
     for link in root.iter("link"):
         inertial = link.find("inertial")
@@ -115,10 +160,10 @@ def _parse_urdf(path):
             continue
         origin = inertial.find("origin")
         links[link.get("name")] = (
-            float(inertial.find("mass").get("value")),
+            float(_attribute(inertial, "mass", "value")),
             _floats(origin.get("xyz") if origin is not None else None),
         )
-    fixed_children = {}
+    fixed_children: dict[str, list] = {}
     for joint in root.iter("joint"):
         if joint.get("type") != "fixed":
             continue
@@ -127,27 +172,42 @@ def _parse_urdf(path):
         rotation = _rotation_from_rpy(
             *_floats(origin.get("rpy") if origin is not None else None)
         )
-        fixed_children.setdefault(joint.find("parent").get("link"), []).append(
-            (joint.find("child").get("link"), translation, rotation)
+        fixed_children.setdefault(_attribute(joint, "parent", "link"), []).append(
+            (_attribute(joint, "child", "link"), translation, rotation)
         )
     return links, fixed_children
 
 
 def _parse_mjcf(path):
     bodies = {}
-    for body in ET.parse(path).getroot().iter("body"):
+    for body in ElementTree.parse(path).getroot().iter("body"):
         inertial = body.find("inertial")
         if inertial is not None:
             bodies[body.get("name")] = (
-                float(inertial.get("mass")),
+                float(_attribute(body, "inertial", "mass")),
                 _floats(inertial.get("pos")),
             )
     return bodies
 
 
-def _lumped_inertial(link, links, fixed_children, modeled_separately):
-    """Mass and COM of a URDF link once every fixed-joint descendant the MJCF does not model separately is absorbed
-    into it, expressed in that link's own frame - the body the MJCF actually simulates.
+def _lumped_inertial(
+    link: str,
+    links: dict,
+    fixed_children: dict[str, list],
+    modeled_separately: set[str],
+) -> tuple[float, list[float]]:
+    """Mass and COM of a URDF link once every fixed-joint descendant the MJCF does not model separately is absorbed.
+
+    The COM is expressed in that link's own frame - the body the MJCF actually simulates.
+
+    Args:
+        link: The URDF link.
+        links: _parse_urdf's links.
+        fixed_children: _parse_urdf's fixed_children.
+        modeled_separately: The bodies the MJCF models itself, which are not absorbed.
+
+    Returns:
+        (mass, com) of the link with its absorbed descendants.
     """
     mass, com = links[link]
     total_mass = mass

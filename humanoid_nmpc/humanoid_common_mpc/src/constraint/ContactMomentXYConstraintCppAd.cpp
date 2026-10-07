@@ -28,14 +28,16 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>
+#include "pinocchio/fwd.hpp"
 
 #include "humanoid_common_mpc/constraint/ContactMomentXYConstraintCppAd.h"
 
-#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include <string>
 
-#include <pinocchio/multibody/data.hpp>
-#include <pinocchio/multibody/model.hpp>
+#include "pinocchio/multibody/data.hpp"
+#include "pinocchio/multibody/model.hpp"
+
+#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 namespace ocs2::humanoid {
 
@@ -48,7 +50,7 @@ ContactMomentXYConstraintCppAd::ContactMomentXYConstraintCppAd(const SwitchedMod
                                                                size_t contactPointIndex,
                                                                const PinocchioInterface& pinocchioInterface,
                                                                const MpcRobotModelBase<ad_scalar_t>& mpcRobotModel,
-                                                               std::string costName,
+                                                               const std::string& costName,
                                                                const ModelSettings& modelSettings,
                                                                bool scheduleGated)
     : StateInputConstraintCppAd(ConstraintOrder::Linear),
@@ -65,17 +67,9 @@ ContactMomentXYConstraintCppAd::ContactMomentXYConstraintCppAd(const SwitchedMod
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-ContactMomentXYConstraintCppAd::ContactMomentXYConstraintCppAd(const ContactMomentXYConstraintCppAd& other)
-    : StateInputConstraintCppAd(other),
-      referenceManagerPtr_(other.referenceManagerPtr_),
-      mpcRobotModelPtr_(other.mpcRobotModelPtr_),
-      contactRectangle_(other.contactRectangle_),
-      contactPointIndex_(other.contactPointIndex_),
-      pinocchioInterfaceCppAd_(other.pinocchioInterfaceCppAd_),
-      // isActive_ was dropped here, so every per-thread copy the SQP solver makes of the problem silently reverted a
-      // deactivated term to active.
-      isActive_(other.isActive_),
-      scheduleGated_(other.scheduleGated_) {}
+// The copy keeps isActive_: a hand-written copy constructor once dropped it, so every per-thread copy the SQP solver
+// makes of the problem silently reverted a deactivated term to active.
+ContactMomentXYConstraintCppAd::ContactMomentXYConstraintCppAd(const ContactMomentXYConstraintCppAd& other) = default;
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -92,10 +86,10 @@ bool ContactMomentXYConstraintCppAd::isActive(scalar_t time) const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-ad_vector_t ContactMomentXYConstraintCppAd::constraintFunction(ad_scalar_t time,
+ad_vector_t ContactMomentXYConstraintCppAd::constraintFunction(ad_scalar_t /*time*/,
                                                                const ad_vector_t& state,
                                                                const ad_vector_t& input,
-                                                               const ad_vector_t& parameters) const {
+                                                               const ad_vector_t& /*parameters*/) const {
   const pinocchio::ModelTpl<ad_scalar_t>& model = pinocchioInterfaceCppAd_.getModel();
   pinocchio::DataTpl<ad_scalar_t> data = pinocchioInterfaceCppAd_.getData();  // make copy of model since method is const
   updateFramePlacements(mpcRobotModelPtr_->getGeneralizedCoordinates(state), model, data);

@@ -1,0 +1,24 @@
+# proto-file: robot_runtime/robot_ipc/proto/network_config.proto
+# proto-message: robot_ipc_proto.NetworkConfig
+#
+# The nodes of the ZeroMQ bus (robot_runtime/robot_ipc, humanoid_nmpc/docs/distributed_runtime/README.md).
+#
+# Every process that publishes binds one PUB socket at the endpoint of its node name; every process that subscribes
+# connects one SUB socket to every endpoint below. For the hardware split, both machines use one file with the robot's
+# and the laptop's addresses as `host`.
+#
+# The fields of a node (the schema documents them):
+#   name       the node name a process publishes as (required, unique);
+#   host       the address the other processes connect to, and the one this node binds (required);
+#   port       its TCP port, 1-65535 (required);
+#   bind_host  the interface to bind instead of `host` (optional), e.g. "0.0.0.0" for every interface.
+#
+# The file is parsed strictly: an unknown field or a value of the wrong type is an error naming its line and column.
+
+# LINT.IfChange(localhost_nodes)
+nodes { name: "robot"     host: "127.0.0.1"  port: 5600 }  # the robot process
+nodes { name: "mpc"       host: "127.0.0.1"  port: 5610 }  # the MPC node
+nodes { name: "operator"  host: "127.0.0.1"  port: 5620 }  # the remote_control GUI
+nodes { name: "teleop"    host: "127.0.0.1"  port: 5621 }  # keyboard / Xbox teleoperation
+nodes { name: "config_push"  host: "127.0.0.1"  port: 5622 }  # push_robot_config: a configuration file to the robot
+# LINT.ThenChange(//robot_runtime/robot_ipc/src/NetworkConfig.cpp:localhost_nodes, //robot_runtime/robot_ipc/python/robot_ipc/network_config.py:localhost_nodes, //docker-compose.bridge.yaml:bus_ports, //config/ipc/two_machine.example.textproto:two_machine_nodes, //tools/deploy/netem.sh:bus_ports, //humanoid_nmpc/remote_control/remote_control/operator_bus.py:operator_nodes)

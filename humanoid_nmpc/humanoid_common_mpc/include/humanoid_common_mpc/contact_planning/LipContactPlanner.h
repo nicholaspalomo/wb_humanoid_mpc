@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -30,12 +34,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
+
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerInterface.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
+#include "humanoid_common_mpc/contact_planning/model/LipBlockIndices.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningProblem.h"
 #include "humanoid_common_mpc/contact_planning/problem/TermCollection.h"
@@ -52,23 +59,41 @@ namespace ocs2::humanoid {
  * is enforced exactly by logical propagation on the binaries.
  *
  * The problem is not written here. It is a ContactPlanningProblem assembled by ContactPlanningTermFactory from the
- * term lists of the configuration (`contact_planning.yaml`): model blocks that compose the variable layout, costs,
+ * term lists of the configuration (`contact_planning.textproto`): model blocks that compose the variable layout, costs,
  * soft and hard constraints, logic rules and assignment costs, each a named term with its own parameter block. Around
  * it, the listed search stages provide the warm start and the diving heuristic before the branch-and-bound and the
  * event-shift local search and the heading re-linearization after it. This class owns the assembled problem and the
  * stages, keeps the previous plan (the warm start and the consistency terms read it), builds the per-plan context and
- * runs the search. getFormulationSummary() prints what was assembled.
+ * runs the search. getFormulationSummary() prints what was assembled. Not thread-safe: one thread plans with it (the
+ * ContactPlannerModule's worker or its caller).
  *
  * Reduced model, per stage k (world frame, yaw-aligned constraint frame), with the default blocks:
  *   state  x_k = [c_xy, v_xy, p_L, p_R]              (CoM position / velocity, foot positions)
  *   input  u_k = [zmp_xy, dp_L, dp_R, c_L, c_R]      (ZMP, foot displacements, contact binaries)
- * and, with the heading block, x += [theta, omega, psi_L, psi_R], u += [tau_L, tau_R, dpsi_L, dpsi_R]. The enums below
- * are the indices of the first two blocks, which are always first.
+ * and, with the heading block, x += [theta, omega, psi_L, psi_R], u += [tau_L, tau_R, dpsi_L, dpsi_R]. The constants
+ * below are the indices of the first two blocks, which are always first.
  */
 class LipContactPlanner final : public ContactPlannerInterface {
  public:
-  enum StateIndex : int { CX = 0, CY, VX, VY, PLX, PLY, PRX, PRY, STATE_DIM };
-  enum InputIndex : int { ZX = 0, ZY, DLX, DLY, DRX, DRY, CL, CR, INPUT_DIM };
+  // The indices of the first two blocks (model/LipBlockIndices.h), with which every layout starts.
+  static constexpr int kCx = kLipCx;
+  static constexpr int kCy = kLipCy;
+  static constexpr int kVx = kLipVx;
+  static constexpr int kVy = kLipVy;
+  static constexpr int kPlx = kLipPlx;
+  static constexpr int kPly = kLipPly;
+  static constexpr int kPrx = kLipPrx;
+  static constexpr int kPry = kLipPry;
+  static constexpr int kStateDim = kLipStateDim;
+  static constexpr int kZx = kLipZx;
+  static constexpr int kZy = kLipZy;
+  static constexpr int kDlx = kLipDlx;
+  static constexpr int kDly = kLipDly;
+  static constexpr int kDrx = kLipDrx;
+  static constexpr int kDry = kLipDry;
+  static constexpr int kCl = kLipCl;
+  static constexpr int kCr = kLipCr;
+  static constexpr int kInputDim = kLipInputDim;
   static constexpr int kBinariesPerNode = ContactLogicState::kBinariesPerNode;  // c_L, c_R
 
   using Statistics = SearchStatistics;
@@ -88,8 +113,10 @@ class LipContactPlanner final : public ContactPlannerInterface {
    */
   static absl::StatusOr<std::unique_ptr<LipContactPlanner>> Create(ContactPlanningConfig config);
 
-  /** Plans from the given input. The previous plan (if any) seeds the incumbent. Never throws on solver failure: an invalid
-   * plan is returned instead. */
+  /**
+   * Plans from the given input. The previous plan (if any) seeds the incumbent. A problem that cannot be built or a
+   * solver failure is logged and returns an invalid plan; a search stage that fails is logged and skipped.
+   */
   ContactPlan plan(const ContactPlannerInput& input) override;
 
   /**
@@ -120,9 +147,12 @@ class LipContactPlanner final : public ContactPlannerInterface {
   static absl::StatusOr<std::string> formulationSummary(const ContactPlanningConfig& config);
 
   // The following are public for testing.
-  /** Builds the OCP-QP around the default nominal heading trajectory (previous plan, or the commanded yaw integrated). */
-  OcpQpProblem buildProblem(const ContactPlannerInput& input) const;
-  OcpQpProblem buildProblem(const ContactPlannerInput& input, const HeadingNominal& nominal) const;
+  /**
+   * Builds the OCP-QP around the default nominal heading trajectory (previous plan, or the commanded yaw integrated), or
+   * around `nominal`; makeContext()'s errors otherwise.
+   */
+  absl::StatusOr<OcpQpProblem> buildProblem(const ContactPlannerInput& input) const;
+  absl::StatusOr<OcpQpProblem> buildProblem(const ContactPlannerInput& input, const HeadingNominal& nominal) const;
   /**
    * The nominal trajectory the frame terms are linearized around: the previous plan shifted to `input.time` when there
    * is a usable one, the commanded yaw rate and CoM velocity integrated from the input otherwise.
@@ -133,8 +163,8 @@ class LipContactPlanner final : public ContactPlannerInterface {
    */
   HeadingNominal defaultNominal(const ContactPlannerInput& input, scalar_t nodeDuration = 0.0) const;
   static HeadingNominal nominalFromSolution(const Layout& layout, const OcpQpSolution& solution);
-  /** Yaw inertia used by the heading model, from the input (the robot model). Throws if it is not positive. */
-  scalar_t yawInertia(const ContactPlannerInput& input) const;
+  /** Yaw inertia used by the heading model, from the input (the robot model); an InvalidArgument if it is not positive. */
+  static absl::StatusOr<scalar_t> yawInertia(const ContactPlannerInput& input);
   std::vector<MiqpBinaryVariable> binaryVariables() const;
   MiqpAssignment initialAssignment(const ContactPlannerInput& input) const;
   /** Forward logical propagation of the listed contact logic rules. */
@@ -142,13 +172,17 @@ class LipContactPlanner final : public ContactPlannerInterface {
   /** The listed assignment costs of an assignment (exact for complete assignments, a lower bound for partial ones). */
   scalar_t assignmentCost(const ContactPlannerInput& input, const MiqpAssignment& assignment) const;
   static int contactBinaryIndex(int node, size_t foot) { return ContactLogicState::contactBinaryIndex(node, foot); }
-  /** The per-plan context the terms read (public for the equivalence tests). */
   /**
-   * Per-plan pre-computation. `dtOverride > 0` builds the context on a grid of that node duration instead of
-   * planner.dt, which is how the cadence stretch re-times every phase of an incumbent together (the terms are all
-   * exact functions of the node duration).
+   * The per-plan context the terms read (public for the equivalence tests). `dtOverride > 0` builds the context on a
+   * grid of that node duration instead of planner.dt, which is how the cadence stretch re-times every phase of an
+   * incumbent together (the terms are all exact functions of the node duration). The context points into `input`,
+   * `nominal` and this planner, which must outlive it. With the heading block, a nominal that does not cover every node
+   * or an input without a positive yaw inertia is an InvalidArgument, and a configuration without the model-derived
+   * parameters a FailedPrecondition.
    */
-  ContactPlanningContext makeContext(const ContactPlannerInput& input, const HeadingNominal& nominal, scalar_t dtOverride = 0.0) const;
+  absl::StatusOr<ContactPlanningContext> makeContext(const ContactPlannerInput& input,
+                                                     const HeadingNominal& nominal,
+                                                     scalar_t dtOverride = 0.0) const;
   ContactLogicState makeLogicState(const ContactPlannerInput& input) const;
 
  private:

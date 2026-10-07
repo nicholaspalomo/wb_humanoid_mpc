@@ -33,9 +33,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 
-#include <ocs2_core/constraint/StateInputConstraint.h>
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
-#include <ocs2_robotic_tools/end_effector/EndEffectorKinematics.h>
+#include "absl/base/nullability.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
+#include "ocs2_robotic_tools/end_effector/EndEffectorKinematics.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 
@@ -80,9 +81,15 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
                                        Config config = Config());
 
   ~EndEffectorKinematicsTwistConstraint() override = default;
-  EndEffectorKinematicsTwistConstraint* clone() const override { return new EndEffectorKinematicsTwistConstraint(*this); }
+  EndEffectorKinematicsTwistConstraint& operator=(const EndEffectorKinematicsTwistConstraint&) = delete;
+  EndEffectorKinematicsTwistConstraint(EndEffectorKinematicsTwistConstraint&&) = delete;
+  EndEffectorKinematicsTwistConstraint& operator=(EndEffectorKinematicsTwistConstraint&&) = delete;
+  EndEffectorKinematicsTwistConstraint* absl_nonnull clone() const override { return new EndEffectorKinematicsTwistConstraint(*this); }
 
-  /** Sets a new constraint coefficients. */
+  /**
+   * Sets new constraint coefficients, unchecked (the pre-computation sets them on every evaluation): the full 6D pose
+   * rows, `config.b` with 6 and each of Ax and Av empty or 6 x 6, not both empty; the constraint slices them.
+   */
   void configure(Config&& config);
   /** Sets a new constraint coefficients. */
   void configure(const Config& config) { this->configure(Config(config)); }
@@ -109,7 +116,7 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
   /** Gets the current ground contact plane normal. */
   const vector3_t& getGroundPlaneNormal() const { return ground_plane_normal_; }
 
-  size_t getNumConstraints(scalar_t time) const override { return numConstraints_; }
+  size_t getNumConstraints(scalar_t /*time*/) const override { return numConstraints_; }
   vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
   VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
                                                            const vector_t& state,
@@ -136,7 +143,7 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
   matrix3_t getAngularVelocityToOrientationErrorRateMap(const vector_t& state) const;
 
   vector3_t ground_plane_normal_;
-  bool constrainYawRateAboutNormal_{false};
+  bool constrainYawRateAboutNormal_ = false;
   std::unique_ptr<EndEffectorKinematics<scalar_t>> endEffectorKinematicsPtr_;
   size_t numConstraints_;
   Config config_;

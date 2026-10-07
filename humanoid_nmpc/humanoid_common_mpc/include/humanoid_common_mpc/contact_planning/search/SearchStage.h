@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -30,6 +34,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <optional>
 #include <vector>
 
+#include "absl/base/nullability.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningContext.h"
@@ -37,7 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** Counters of one plan, filled by the branch-and-bound and the search stages. */
+/** Counters of one plan, filled by the branch-and-bound and the search stages. Passive data. */
 struct SearchStatistics {
   int numBranchAndBoundRelaxations = 0;
   int numLocalSearchQps = 0;
@@ -48,34 +56,38 @@ struct SearchStatistics {
   bool localSearchImproved = false;
 };
 
-/** What the stages that run before the branch-and-bound can read and set. */
+/** What the stages that run before the branch-and-bound can read and set. Passive data, one per plan. */
 struct SearchSetup {
-  const ContactPlan* previousPlan = nullptr;
-  const MiqpAssignment* previousAssignment = nullptr;
+  const ContactPlan* absl_nullable previousPlan = nullptr;
+  const MiqpAssignment* absl_nullable previousAssignment = nullptr;
   int previousPlanShift = -1;  // -1: no usable previous plan
   int numNodes = 0;
   std::optional<MiqpAssignment> warmStart;  // complete assignment tried first for an incumbent (warm_start_previous_plan)
   MiqpSettings miqpSettings;                // diving is off unless the diving stage turns it on
 };
 
-/** What the stages that run after the branch-and-bound work on: the incumbent, the problem, the solver and the counters. */
+/**
+ * What the stages that run after the branch-and-bound work on: the incumbent, the problem, the solver and the counters.
+ * One per plan; the pointers are into the planner and the plan's input and are non-null while the stages run.
+ */
 struct SearchRun {
   using Clock = std::chrono::steady_clock;
-  const ContactPlannerInput* input = nullptr;
-  const ContactPlanningConfig* config = nullptr;
-  const Layout* layout = nullptr;
-  const std::vector<MiqpBinaryVariable>* binaries = nullptr;
-  const MiqpAssignment* initialAssignment = nullptr;  // fixings that hold for the whole search (the committed schedule)
-  const MiqpPropagateFn* propagate = nullptr;
-  const MiqpAssignmentCostFn* assignmentCost = nullptr;
-  MixedIntegerOcpQp* miqp = nullptr;
-  OcpQpProblem* problem = nullptr;  // the problem the incumbent was found on; a stage that re-linearizes replaces it
-  MiqpResult* result = nullptr;
-  SearchStatistics* statistics = nullptr;
-  std::function<OcpQpProblem(const HeadingNominal&)> assembleWithNominal;  // re-builds the problem around a nominal
+  const ContactPlannerInput* absl_nullable input = nullptr;
+  const ContactPlanningConfig* absl_nullable config = nullptr;
+  const Layout* absl_nullable layout = nullptr;
+  const std::vector<MiqpBinaryVariable>* absl_nullable binaries = nullptr;
+  const MiqpAssignment* absl_nullable initialAssignment = nullptr;  // fixings that hold for the whole search (the committed schedule)
+  const MiqpPropagateFn* absl_nullable propagate = nullptr;
+  const MiqpAssignmentCostFn* absl_nullable assignmentCost = nullptr;
+  MixedIntegerOcpQp* absl_nullable miqp = nullptr;
+  OcpQpProblem* absl_nullable problem = nullptr;  // the problem the incumbent was found on; a stage that re-linearizes replaces it
+  MiqpResult* absl_nullable result = nullptr;
+  SearchStatistics* absl_nullable statistics = nullptr;
+  // Re-builds the problem around a nominal; the planner's error when it cannot build the context.
+  std::function<absl::StatusOr<OcpQpProblem>(const HeadingNominal&)> assembleWithNominal;
   // Re-builds the problem on a grid of a different node duration, the incumbent's contact pattern unchanged. Under a
   // fixed pattern the cadence is the grid scale, so this is how a stage re-times every phase of the plan together.
-  std::function<OcpQpProblem(scalar_t)> assembleWithGrid;
+  std::function<absl::StatusOr<OcpQpProblem>(scalar_t)> assembleWithGrid;
   Clock::time_point start;  // start of the plan, for the time budgets
   bool verbose = false;
   // Output of a stage that re-timed the grid: the node duration the plan is to be emitted with. 0 leaves it at
@@ -92,7 +104,11 @@ struct SearchRun {
 class SearchStage : public ContactPlanningTerm {
  public:
   virtual void beforeSearch(SearchSetup& /*setup*/) const {}
-  virtual void afterSearch(SearchRun& /*run*/) const {}
+  /**
+   * Refines the incumbent of `run`. An error (a problem that cannot be re-built, a solve the QP solver rejects) ends the
+   * stage: what it adopted before stays in `run`, and the planner logs the status and runs the next stage.
+   */
+  virtual absl::Status afterSearch(SearchRun& /*run*/) const { return absl::OkStatus(); }
 };
 
 }  // namespace ocs2::humanoid

@@ -7,24 +7,26 @@
 
 #include <cstddef>
 
+#include "absl/base/nullability.h"
+
 namespace ocs2::humanoid::acom {
 
 struct AcomSirenWeightsAtlas {
   static constexpr double omega_0 = 30.0;
-  static constexpr std::size_t num_layers = 3;
-  static constexpr std::size_t input_dim = 24;
-  static constexpr std::size_t output_dim = 3;
+  static constexpr size_t num_layers = 3;
+  static constexpr size_t input_dim = 24;
+  static constexpr size_t output_dim = 3;
 
   // Joint ordering the network was trained on. Must match the
   // MPC's Pinocchio joint ordering exactly.
-  static inline const char* const joint_names[24] = {"back_bkz",  "back_bky",  "back_bkx",  "l_arm_shz", "l_arm_shx", "l_arm_ely",
-                                                     "l_arm_elx", "neck_ry",   "r_arm_shz", "r_arm_shx", "r_arm_ely", "r_arm_elx",
-                                                     "l_leg_hpz", "l_leg_hpx", "l_leg_hpy", "l_leg_kny", "l_leg_aky", "l_leg_akx",
-                                                     "r_leg_hpz", "r_leg_hpx", "r_leg_hpy", "r_leg_kny", "r_leg_aky", "r_leg_akx"};
+  static inline const char* absl_nonnull const joint_names[24] = {
+      "back_bkz",  "back_bky",  "back_bkx",  "l_arm_shz", "l_arm_shx", "l_arm_ely", "l_arm_elx", "neck_ry",
+      "r_arm_shz", "r_arm_shx", "r_arm_ely", "r_arm_elx", "l_leg_hpz", "l_leg_hpx", "l_leg_hpy", "l_leg_kny",
+      "l_leg_aky", "l_leg_akx", "r_leg_hpz", "r_leg_hpx", "r_leg_hpy", "r_leg_kny", "r_leg_aky", "r_leg_akx"};
 
   // Layer 0: (64 x 24)
-  static constexpr std::size_t W0_rows = 64;
-  static constexpr std::size_t W0_cols = 24;
+  static constexpr size_t W0_rows = 64;
+  static constexpr size_t W0_cols = 24;
   static inline const double W0[1536] = {
       -7.0550478995e-03, -1.9344015745e-03, 1.1252977885e-02,  -2.5942761567e-04, 2.9454470496e-04,  2.2744629860e-06,  -9.9547774880e-05,
       9.1610665550e-05,  -8.7317562429e-04, 2.4940201547e-04,  -6.5758490564e-06, 8.3088576503e-05,  -8.7626260938e-04, 3.7679090747e-04,
@@ -259,8 +261,8 @@ struct AcomSirenWeightsAtlas {
       3.0984685291e-03};
 
   // Layer 1: (64 x 64)
-  static constexpr std::size_t W1_rows = 64;
-  static constexpr std::size_t W1_cols = 64;
+  static constexpr size_t W1_rows = 64;
+  static constexpr size_t W1_cols = 64;
   static inline const double W1[4096] = {
       1.3132307504e-04,  -1.3255788945e-02, -2.2518869955e-03, 9.0381532209e-04,  2.3081451654e-03,  5.6085968390e-03,  -4.8371353187e-03,
       -3.1931765843e-03, 3.3361867070e-02,  1.9997861236e-02,  2.6039402001e-03,  -3.0529564247e-03, -9.6241023857e-04, 5.6228454923e-04,
@@ -861,8 +863,8 @@ struct AcomSirenWeightsAtlas {
       -1.3495940715e-02};
 
   // Layer 2: (3 x 64)
-  static constexpr std::size_t W2_rows = 3;
-  static constexpr std::size_t W2_cols = 64;
+  static constexpr size_t W2_rows = 3;
+  static constexpr size_t W2_cols = 64;
   static inline const double W2[192] = {
       1.7850626260e-02,  -3.5866981489e-04, -1.8204996362e-02, -2.9296835419e-03, -6.2886960804e-03, -1.8486447632e-02, 1.8198691308e-02,
       3.2081726938e-02,  -1.0223462246e-02, 1.4564568410e-03,  -4.1144890711e-03, 7.2445133701e-03,  -2.8175445274e-02, 3.1467613298e-03,

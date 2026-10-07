@@ -1,0 +1,50 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/joint_value.proto";
+import "humanoid_mpc_config/xyz.proto";
+import "nproto/options.proto";
+import "nproto/retired_field_options.proto";
+
+// A diagonal input weight addressed by name (the task file's input_weights, formerly the matrix R by "(i,i)" index):
+// the wrench of each contact by the contact's name, then the joint velocities (centroidal MPC) or the
+// joint accelerations (whole-body MPC) by joint name. The weight of an input coordinate is `scaling` times its entry,
+// an entry a block leaves out is 0, and the matrix is diagonal.
+//
+// The weights are of the contact wrench, also where the MPC's contact inputs are basis-vector coefficients
+// (contact_input_parameterization: "basis_vectors"): the MPC transforms them into the basis space.
+//
+// Each MPC requires each of its contacts exactly once, with both its force and its moment block (`{}` is a block of
+// zeros), and each of its joints exactly once in its own joint list, in any order. It refuses the other MPC's joint
+// list, a contact or a joint its model does not have, and a fixed joint.
+// Next ID: 5
+message InputWeights {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::InputWeights";
+  option (nproto.retired_field) = {
+    name: "default"
+    replacement: "name every weight: an entry a block leaves out is 0, and off the diagonal there is none"
+  };
+
+  reserved 5 to max;
+
+  // The weights of one contact's wrench, by the contact's name (model_settings.contact_names_6dof).
+  // Next ID: 4
+  message ContactWrench {
+    reserved 4 to max;
+
+    string contact = 1 [default = ""];
+    // The contact force and moment, x, y and z.
+    Xyz force = 2 [(nproto.optional_message) = true];
+    Xyz moment = 3 [(nproto.optional_message) = true];
+  }
+
+  // The factor of every entry below.
+  double scaling = 1 [default = 1.0];
+  // Both MPCs: each contact's wrench.
+  repeated ContactWrench contact_wrenches = 2;
+  // Centroidal MPC: the joint velocities, by joint name.
+  repeated JointValue joint_velocities = 3;
+  // Whole-body MPC: the joint accelerations, by joint name.
+  repeated JointValue joint_accelerations = 4;
+}

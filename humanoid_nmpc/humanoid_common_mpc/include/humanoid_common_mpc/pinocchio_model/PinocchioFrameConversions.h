@@ -30,10 +30,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <pinocchio/fwd.hpp>
+#include "pinocchio/fwd.hpp"
 
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
+#include "pinocchio/multibody/fwd.hpp"
 
 #include "humanoid_common_mpc/common/Types.h"
 
@@ -71,7 +72,7 @@ inline VECTOR3_T<SCALAR_T> rotateVectorWorldToLocal(const VECTOR3_T<SCALAR_T>& v
                                                     const pinocchio::DataTpl<SCALAR_T>& data,
                                                     const pinocchio::FrameIndex& localFrameIndex) {
   const MATRIX3_T<SCALAR_T>& R_WorldToLocal = getRotationMatrixLocalToWorld(data, localFrameIndex).transpose();
-  return (R_WorldToLocal * vectorInWorldFrame);
+  return R_WorldToLocal * vectorInWorldFrame;
 }
 
 ///
@@ -90,7 +91,7 @@ inline VECTOR3_T<SCALAR_T> rotateVectorLocalToWorld(const VECTOR3_T<SCALAR_T>& v
                                                     const pinocchio::DataTpl<SCALAR_T>& data,
                                                     const pinocchio::FrameIndex& localFrameIndex) {
   const MATRIX3_T<SCALAR_T>& R_WorldToLocal = getRotationMatrixLocalToWorld(data, localFrameIndex);
-  return (R_WorldToLocal * vectorInLocalFrame);
+  return R_WorldToLocal * vectorInLocalFrame;
 }
 
 ///
@@ -148,7 +149,7 @@ inline VECTOR6_T<SCALAR_T> rotateVectorLocalToWorld(const VECTOR6_T<SCALAR_T>& v
 template <typename SCALAR_T>
 inline MATRIX4_T<SCALAR_T> getTransformationMatrixLocalToWorld(const pinocchio::DataTpl<SCALAR_T>& data,
                                                                const pinocchio::FrameIndex localFrameIndex) {
-  return (data.oMf[localFrameIndex].toHomogeneousMatrix_impl());
+  return data.oMf[localFrameIndex].toHomogeneousMatrix_impl();
 }
 
 ///

@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -36,12 +40,12 @@ namespace ocs2::humanoid {
 namespace var {
 std::string footLabel(size_t foot);
 // LIP block (lip_com): states c_x c_y v_x v_y, input zmp_x zmp_y.
-inline constexpr const char* kComX = "c_x";
-inline constexpr const char* kComY = "c_y";
-inline constexpr const char* kVelX = "v_x";
-inline constexpr const char* kVelY = "v_y";
-inline constexpr const char* kZmpX = "zmp_x";
-inline constexpr const char* kZmpY = "zmp_y";
+inline constexpr char kComX[] = "c_x";
+inline constexpr char kComY[] = "c_y";
+inline constexpr char kVelX[] = "v_x";
+inline constexpr char kVelY[] = "v_y";
+inline constexpr char kZmpX[] = "zmp_x";
+inline constexpr char kZmpY[] = "zmp_y";
 // Foothold block (foothold_integrator): states p_<foot>x p_<foot>y, inputs dp_<foot>x dp_<foot>y c_<foot>.
 std::string footX(size_t foot);
 std::string footY(size_t foot);
@@ -49,8 +53,8 @@ std::string footDeltaX(size_t foot);
 std::string footDeltaY(size_t foot);
 std::string contact(size_t foot);
 // Heading block (heading_double_integrator): states theta omega psi_<foot>, inputs tau_<foot> dpsi_<foot>.
-inline constexpr const char* kHeading = "theta";
-inline constexpr const char* kHeadingRate = "omega";
+inline constexpr char kHeading[] = "theta";
+inline constexpr char kHeadingRate[] = "omega";
 std::string footYaw(size_t foot);
 std::string yawTorque(size_t foot);
 std::string footYawDelta(size_t foot);
@@ -58,8 +62,8 @@ std::string footYawDelta(size_t foot);
 
 /**
  * Variable layout of the planner's OCP: the states and inputs of every node, in the order the model blocks declared
- * them. The LIP block and the foothold block always come first, so that indices 0..7 are the StateIndex / InputIndex
- * enums of LipContactPlanner and the mixed-integer solver finds the contact binaries where it always did; the heading
+ * them. The LIP block and the foothold block always come first, so that indices 0..7 are the kLip* constants of
+ * model/LipBlockIndices.h and the mixed-integer solver finds the contact binaries where it always did; the heading
  * block, when listed, appends its variables. The well-known indices below are resolved by name after the blocks have
  * declared their variables (-1 when the block is absent).
  */
@@ -89,7 +93,11 @@ struct Layout {
   int yawTorque(size_t foot) const { return hasHeading ? yawTorque0 + static_cast<int>(foot) : -1; }
   int footYawDelta(size_t foot) const { return hasHeading ? footYawDelta0 + static_cast<int>(foot) : -1; }
 
-  /** Index of a state / input by name; throws std::out_of_range for an unknown name. */
+  /**
+   * Index of a state / input by name. The name must be in the layout: a term asks only for the variables of the blocks
+   * it requires, which ContactPlanningProblem::finalize() has checked, so an unknown name is a programming error and
+   * CHECK-fails with the name. Use hasState() / hasInput() for a variable that may be absent.
+   */
   int state(const std::string& name) const;
   int input(const std::string& name) const;
   bool hasState(const std::string& name) const;

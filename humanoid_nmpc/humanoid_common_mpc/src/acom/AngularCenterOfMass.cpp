@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -27,11 +31,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cstddef>
-#include <stdexcept>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
+#include "absl/log/absl_check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
@@ -57,7 +63,7 @@ constexpr Eigen::Index kBaseOrientationOffset = 3;
 using RowMajorMatrix = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
 
 /** One layer of a generated weight header, copied out of its row-major C arrays. */
-SirenLayerWeights mapLayer(const double* weight, std::size_t rows, std::size_t cols, const double* bias) {
+SirenLayerWeights mapLayer(const double* absl_nonnull weight, size_t rows, size_t cols, const double* absl_nonnull bias) {
   SirenLayerWeights layer;
   layer.weight = Eigen::Map<const RowMajorMatrix>(weight, static_cast<Eigen::Index>(rows), static_cast<Eigen::Index>(cols));
   layer.bias = Eigen::Map<const Eigen::VectorXd>(bias, static_cast<Eigen::Index>(rows));
@@ -92,15 +98,18 @@ absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> createFromStaticWeights() {
   return acom;
 }
 
-using AcomFactory = absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> (*)();
+using AcomFactory = absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> (*absl_nonnull)();
 
 /** One compiled-in network, and the names it is known by on either side of the training pipeline. */
 struct RegisteredAcomNetwork {
-  /// model_settings.robotName of the robots that run this network.
+  /// model_settings.robot_name of the robots that run this network.
+  // NOLINTNEXTLINE(totw-view-member): a string literal of the constexpr registry below.
   absl::string_view robotName;
   /// The --robot key of humanoid_learning/acom/train_main.py that trains it.
+  // NOLINTNEXTLINE(totw-view-member): a string literal of the constexpr registry below.
   absl::string_view trainMainRobot;
   /// The generated header the weights live in.
+  // NOLINTNEXTLINE(totw-view-member): a string literal of the constexpr registry below.
   absl::string_view headerName;
   AcomFactory create;
 };
@@ -109,15 +118,24 @@ struct RegisteredAcomNetwork {
 // test then refuses to pass until the robot also has a case of its own, see testAcomAngularVelocityConsistency.cpp.
 // LINT.IfChange(acom_robot_dispatch)
 constexpr RegisteredAcomNetwork kRegisteredAcomNetworks[] = {
-    {"atlas", "atlas", "AcomSirenWeightsAtlas.h", &createFromStaticWeights<acom::AcomSirenWeightsAtlas>},
-    {"engineai_sa01", "sa01", "AcomSirenWeightsSa01.h", &createFromStaticWeights<acom::AcomSirenWeightsSa01>},
-    {"g1", "g1", "AcomSirenWeightsG1.h", &createFromStaticWeights<acom::AcomSirenWeightsG1>},
+    {.robotName = "atlas",
+     .trainMainRobot = "atlas",
+     .headerName = "AcomSirenWeightsAtlas.h",
+     .create = &createFromStaticWeights<acom::AcomSirenWeightsAtlas>},
+    {.robotName = "engineai_sa01",
+     .trainMainRobot = "sa01",
+     .headerName = "AcomSirenWeightsSa01.h",
+     .create = &createFromStaticWeights<acom::AcomSirenWeightsSa01>},
+    {.robotName = "g1",
+     .trainMainRobot = "g1",
+     .headerName = "AcomSirenWeightsG1.h",
+     .create = &createFromStaticWeights<acom::AcomSirenWeightsG1>},
 };
 // clang-format off
-// LINT.ThenChange(//humanoid_learning/acom/train_main.py:robot_paths, //humanoid_nmpc/humanoid_common_mpc/test/testAcomAngularVelocityConsistency.cpp:acom_acceptance_robots, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:acom_robot_name, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:acom_robot_name, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml:acom_robot_name)
+// LINT.ThenChange(//humanoid_learning/acom/train_main.py:robot_paths, //humanoid_nmpc/humanoid_common_mpc/test/testAcomAngularVelocityConsistency.cpp:acom_acceptance_robots, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:acom_robot_name, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto:acom_robot_name, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto:acom_robot_name)
 // clang-format on
 
-const RegisteredAcomNetwork* findRegisteredNetwork(absl::string_view robotName) {
+const RegisteredAcomNetwork* absl_nullable findRegisteredNetwork(absl::string_view robotName) {
   for (const RegisteredAcomNetwork& network : kRegisteredAcomNetworks) {
     if (network.robotName == robotName) {
       return &network;
@@ -127,13 +145,13 @@ const RegisteredAcomNetwork* findRegisteredNetwork(absl::string_view robotName) 
 }
 
 absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> createRegisteredNetwork(absl::string_view robotName) {
-  const RegisteredAcomNetwork* network = findRegisteredNetwork(robotName);
+  const RegisteredAcomNetwork* absl_nullable network = findRegisteredNetwork(robotName);
   if (network == nullptr) {
     return absl::NotFoundError(
-        absl::StrCat("No Angular Center of Mass (ACoM) network is registered for model_settings.robotName '", robotName,
+        absl::StrCat("No Angular Center of Mass (ACoM) network is registered for model_settings.robot_name '", robotName,
                      "'; the registered robots are: ", absl::StrJoin(AngularCenterOfMass::registeredRobotNames(), ", "),
-                     ". Leave com_and_acom_tracking_cost out of task.yaml's costs list and heading_double_integrator out of "
-                     "contact_planning.dynamics in contact_planning.yaml, or train a network with `bazel run "
+                     ". Leave com_and_acom_tracking_cost out of task.textproto's costs list and heading_double_integrator out of "
+                     "the dynamics list of contact_planning.textproto, or train a network with `bazel run "
                      "//humanoid_learning/acom:train_main` and register it in AngularCenterOfMass.cpp."));
   }
   return network->create();
@@ -142,14 +160,15 @@ absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> createRegisteredNetwork(abs
 /** The retraining instruction every joint-order error ends with. */
 std::string retrainAdvice(const RegisteredAcomNetwork& network) {
   return absl::StrCat(
-      "The MPC model's joints are the URDF's minus model_settings.fixedJointNames, so either restore fixedJointNames to the set ",
+      "The MPC model's joints are the URDF's minus model_settings.fixed_joint_names, so either restore fixed_joint_names to the set ",
       network.headerName, " was trained without (its joint_names[] lists the joints it expects, in order), or retrain against the ",
-      "current task.yaml with `bazel run //humanoid_learning/acom:train_main -- --robot ", network.trainMainRobot, " --install_header`.");
+      "current task.textproto with `bazel run //humanoid_learning/acom:train_main -- --robot ", network.trainMainRobot,
+      " --install_header`.");
 }
 
 }  // namespace
 
-AngularCenterOfMass::AngularCenterOfMass(std::size_t inputDim, std::size_t numLayers, double omega0)
+AngularCenterOfMass::AngularCenterOfMass(size_t inputDim, size_t numLayers, double omega0)
     : inputDim_(inputDim), numLayers_(numLayers), omega0_(omega0) {}
 
 std::vector<std::string> AngularCenterOfMass::registeredRobotNames() {
@@ -169,12 +188,12 @@ absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> AngularCenterOfMass::Create
   const std::vector<std::string>& trainedJointNames = acom->getJointNames();
   if (trainedJointNames.size() != modelJointNames.size()) {
     return absl::FailedPreconditionError(
-        absl::StrCat("The Angular Center of Mass network for model_settings.robotName '", robotName, "' (", network.headerName, ") takes ",
+        absl::StrCat("The Angular Center of Mass network for model_settings.robot_name '", robotName, "' (", network.headerName, ") takes ",
                      trainedJointNames.size(), " joints but the MPC model has ", modelJointNames.size(), ". ", retrainAdvice(network)));
   }
-  for (std::size_t joint = 0; joint < modelJointNames.size(); ++joint) {
+  for (size_t joint = 0; joint < modelJointNames.size(); ++joint) {
     if (trainedJointNames[joint] != modelJointNames[joint]) {
-      return absl::FailedPreconditionError(absl::StrCat("The Angular Center of Mass network for model_settings.robotName '", robotName,
+      return absl::FailedPreconditionError(absl::StrCat("The Angular Center of Mass network for model_settings.robot_name '", robotName,
                                                         "' was trained on a different joint vector than the MPC model: joint ", joint,
                                                         " is '", trainedJointNames[joint], "' in ", network.headerName, " but '",
                                                         modelJointNames[joint], "' in the MPC model. ", retrainAdvice(network)));
@@ -189,9 +208,9 @@ absl::Status AngularCenterOfMass::loadWeights(const std::vector<SirenLayerWeight
         absl::StrCat("AngularCenterOfMass::loadWeights: expected ", numLayers_ + 1, " layers, got ", layers.size(), "."));
   }
   // Validate dimension consistency between consecutive layers.
-  for (std::size_t i = 0; i < layers.size(); ++i) {
-    const std::size_t expectedIn = (i == 0) ? inputDim_ : static_cast<std::size_t>(layers[i - 1].weight.rows());
-    if (static_cast<std::size_t>(layers[i].weight.cols()) != expectedIn) {
+  for (size_t i = 0; i < layers.size(); ++i) {
+    const size_t expectedIn = (i == 0) ? inputDim_ : static_cast<size_t>(layers[i - 1].weight.rows());
+    if (static_cast<size_t>(layers[i].weight.cols()) != expectedIn) {
       return absl::InvalidArgumentError(absl::StrCat("AngularCenterOfMass::loadWeights: layer ", i, " weight has ", layers[i].weight.cols(),
                                                      " columns, expected ", expectedIn, "."));
     }
@@ -210,13 +229,6 @@ absl::Status AngularCenterOfMass::loadWeights(const std::vector<SirenLayerWeight
   return absl::OkStatus();
 }
 
-void AngularCenterOfMass::setWeights(const std::vector<SirenLayerWeights>& layers) {
-  const absl::Status status = loadWeights(layers);
-  if (!status.ok()) {
-    throw std::runtime_error(std::string(status.message()));
-  }
-}
-
 absl::Status AngularCenterOfMass::setJointNames(std::vector<std::string> jointNames) {
   if (jointNames.size() != inputDim_) {
     return absl::InvalidArgumentError(absl::StrCat("AngularCenterOfMass::setJointNames: the network takes ", inputDim_,
@@ -227,16 +239,14 @@ absl::Status AngularCenterOfMass::setJointNames(std::vector<std::string> jointNa
 }
 
 void AngularCenterOfMass::checkWeightsLoaded() const {
-  if (layers_.empty()) {
-    throw std::runtime_error("AngularCenterOfMass: no weights loaded. Construct via Create(), or call loadWeights() before evaluating.");
-  }
+  ABSL_CHECK(!layers_.empty())
+      << "AngularCenterOfMass: no weights loaded. Construct via Create(), or call loadWeights() before evaluating.";
 }
 
 void AngularCenterOfMass::checkJointVectorSize(const vector_t& qJoints) const {
-  if (static_cast<std::size_t>(qJoints.size()) != inputDim_) {
-    throw std::runtime_error(absl::StrCat("AngularCenterOfMass: expected ", inputDim_, " joint positions, got ", qJoints.size(),
-                                          ". The SIREN weights were trained for a different robot model than the one in use."));
-  }
+  ABSL_CHECK_EQ(static_cast<size_t>(qJoints.size()), inputDim_)
+      << "AngularCenterOfMass: wrong number of joint positions. The SIREN weights were trained for a different robot model than the "
+         "one in use.";
 }
 
 vector3_t AngularCenterOfMass::computeJointOrientationOffset(const vector_t& qJoints) const {
@@ -246,7 +256,7 @@ vector3_t AngularCenterOfMass::computeJointOrientationOffset(const vector_t& qJo
   vector_t x = qJoints;
 
   // Hidden sinusoidal layers: x = sin(omega_0 * (W * x + b))
-  for (std::size_t i = 0; i < numLayers_; ++i) {
+  for (size_t i = 0; i < numLayers_; ++i) {
     vector_t affine = omega0_ * (layers_[i].weight * x + layers_[i].bias);
     x = affine.array().sin().matrix();
   }
@@ -265,7 +275,7 @@ matrix_t AngularCenterOfMass::computeJointOffsetJacobian(const vector_t& qJoints
   vector_t x = qJoints;
   matrix_t J = matrix_t::Identity(inputDim_, inputDim_);
 
-  for (std::size_t i = 0; i < numLayers_; ++i) {
+  for (size_t i = 0; i < numLayers_; ++i) {
     vector_t affine = omega0_ * (layers_[i].weight * x + layers_[i].bias);
     vector_t cos_affine = affine.array().cos().matrix();
 

@@ -7,65 +7,42 @@ SHELL := /bin/bash
 mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
 current_path := $(dir $(mkfile_path))
 
-# Source the Bazel+ROS2 environment
+# Source the Bazel environment (setup_env.sh)
 source_env := source $(current_path)/setup_env.sh
 
-# Wrapper for ros2 launch that kills the entire process group on exit.
-# Prevents zombie processes when Jupyter notebook cells are interrupted.
-# Prepend to any ros2 launch command: $(cleanup_trap) && ros2 launch ...
-cleanup_trap := trap 'pkill -P $$$$ 2>/dev/null; wait' EXIT INT TERM
+# The launch targets stop their processes themselves (tools/launch tears down every process group it started, and
+# tools/deploy/session.sh the robot container), so an interrupted target leaves nothing running.
 
 ############################################################
 # Build targets
 ############################################################
-.PHONY: build-all build-debug build-release build-relwithdebinfo build \
+.PHONY: help build-all build-debug build-release build-relwithdebinfo build \
         test-all test test-heuristic-parameters derive-heuristic-parameters clean clean-all format lint ci-local \
-        launch-g1-dummy-sim launch-g1-sim launch-wb-g1-dummy-sim launch-wb-g1-sim \
-        launch-drc-atlas-dummy-sim launch-drc-atlas-sim launch-drc-atlas-sandbox test-pinocchio-model-atlas \
-        launch-r1-dummy-sim launch-r1-sim launch-r1-sandbox test-pinocchio-model-r1 \
-        launch-sa01-dummy-sim launch-sa01-sim launch-sa01-sandbox test-pinocchio-model-sa01 \
-        start-vnc stop-vnc kill-sims kill-builds check-zombies \
-        launch-g1-dummy-sim-vnc launch-g1-sim-vnc launch-wb-g1-dummy-sim-vnc launch-wb-g1-sim-vnc \
-        launch-drc-atlas-dummy-sim-vnc launch-drc-atlas-sim-vnc launch-drc-atlas-sandbox-vnc \
-        launch-r1-dummy-sim-vnc launch-r1-sim-vnc launch-r1-sandbox-vnc \
-        launch-sa01-dummy-sim-vnc launch-sa01-sim-vnc launch-sa01-sandbox-vnc \
-        run-ocs2-tests run-mpc-tests test-rl train-rl train-cartpole train-cartpole-vnc train-bc export-rollouts lock-rl-deps echo-packages update-submodules git-lfs install-hooks train-acom-jupyter plotjuggler-vnc
+        lint-tidy lint-tidy-fix \
+        test-pinocchio-model-atlas test-pinocchio-model-r1 test-pinocchio-model-sa01 \
+        start-vnc stop-vnc kill-sims check-zombies \
+        deploy-robot robot-images rerun-viewer rerun-web ipc-list ipc-echo ipc-hz \
+        closed-loop-metrics benchmark-mpc-solve \
+        run-ocs2-tests run-mpc-tests test-rl train-rl train-cartpole train-cartpole-vnc train-bc export-rollouts lock-rl-deps echo-packages update-submodules install-hooks train-acom-jupyter
+# The launch targets are declared .PHONY where the robot table below generates them.
 
 ## Launch ACoM SIREN training notebook in Jupyter Lab
 train-acom-jupyter:
 	@tools/launch_jupyter.sh
 
-## Kill any running Bazel builds, compilers, and stale server locks
-kill-builds:
-	@echo "🧹 Cleaning up background Bazel builds and stale locks..."
-# 	@pkill -9 -x bazel 2>/dev/null || true
-# 	@pkill -9 -x bazelisk 2>/dev/null || true
-# 	@pkill -9 -x cc1plus 2>/dev/null || true
-# 	@for pid_file in $$HOME/.cache/bazel/_bazel_*/*/server/server.pid.txt; do \
-# 		[ -f "$$pid_file" ] || continue; \
-# 		b_pid=$$(cat "$$pid_file" 2>/dev/null); \
-# 		if [ -n "$$b_pid" ]; then \
-# 			kill -9 "$$b_pid" 2>/dev/null || true; \
-# 			rm -rf "$$(dirname "$$pid_file")"; \
-# 		fi; \
-# 	done
-# 	@echo "✅ Build cleanup done."
-
-## Kill any running sim processes before launching a new one.
-## Note: The [x] character-class trick prevents pkill -f from matching its own shell.
+## Stop what a launch target left running: the laptop side's launcher (the PID it left in .deploy/ of this checkout,
+## never a process of another checkout or test), the simulation's robot container, and a NETEM qdisc on lo.
 ## This cannot remove zombies: a zombie has already exited and only its parent can reap it. See check-zombies.
-kill-sims: kill-builds
+kill-sims:
 	@echo "🧹 Cleaning up previous sim processes..."
-# 	@pkill -9 -f 'humanoid_centroidal_mpc_si[m]|humanoid_centroidal_mpc_sq[p]|humanoid_wb_mpc_si[m]|humanoid_wb_mpc_sq[p]' 2>/dev/null || true
-# 	@pkill -9 -f 'robot_state_publishe[r]|base_velocity_controlle[r]' 2>/dev/null || true
-# 	@sleep 0.5
-# 	@echo "✅ Cleanup done."
-# 	@$(MAKE) --no-print-directory check-zombies WARN_ONLY=1
+	@$(session) stop
+	@echo "✅ Cleanup done."
+	@$(MAKE) --no-print-directory check-zombies WARN_ONLY=1
 
 ## Report zombie processes and which parent is holding them.
 ## A zombie has already exited and only its parent can reap it, so kill/pkill have no effect; that is why kill-sims
-## and kill-builds never cleared them. Docker's init (tini) reaps orphans, which is why docker-compose.yaml sets
-## `init: true`. Run this inside the dev container for a container-local view.
+## never cleared them. Docker's init (tini) reaps orphans, which is why docker-compose.yaml sets `init: true`. Run
+## this inside the dev container for a container-local view.
 check-zombies:
 	@z=$$(ps -eo stat --no-headers 2>/dev/null | awk '/^Z/ {n++} END {print n+0}'); \
 	if [ "$$z" -eq 0 ]; then \
@@ -157,18 +134,15 @@ lock-rl-deps:
 
 ## Run Pinocchio Model Atlas test
 test-pinocchio-model-atlas:
-	@bazel build //... && \
-	$(source_env) && ros2 run drc_atlas_centroidal_mpc test_pinocchio_model
+	bazel run //robot_models/drc_atlas/drc_atlas_centroidal_mpc:test_pinocchio_model
 
 ## Run Pinocchio Model R1 test
 test-pinocchio-model-r1:
-	@bazel build //... && \
-	$(source_env) && ros2 run unitree_r1_centroidal_mpc test_pinocchio_model
+	bazel run //robot_models/unitree_r1/unitree_r1_centroidal_mpc:test_pinocchio_model
 
 ## Run Pinocchio Model EngineAI SA01 test
 test-pinocchio-model-sa01:
-	@bazel build //... && \
-	$(source_env) && ros2 run engineai_sa01_centroidal_mpc test_pinocchio_model
+	bazel run //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc:test_pinocchio_model
 
 ############################################################
 # Utility targets
@@ -182,28 +156,112 @@ echo-packages:
 clean:
 	bazel clean
 
-## Deep clean (remove entire Bazel cache + generated env)
+## Deep clean (remove the entire Bazel cache of this checkout)
 clean-all:
 	bazel clean --expunge
-	rm -rf $(current_path)/.bazel_ros_install
 
 ## Format source code (C++, Python, trailing newlines, and whitespace)
 format:
-	@python3 tools/hooks/format_code.py
+	@python3 -m tools.hooks.format_code
 
-## Lint repository (IFTTT directives, formatting checks, whitespace, and EOF newlines)
+## Lint repository: IFTTT, formatting, the token checks of tools/hooks/checks.py, cpplint, pylint and mypy
 lint:
-	@python3 tools/hooks/lint_code.py
+	@python3 -m tools.hooks.lint_code
+
+# clang-tidy runs as a Bazel aspect (tools/clang_tidy/README.md), inside .bazelrc's RAM-bounded --jobs and tools/bazel's
+# machine lock: never by hand. Each target prints the findings of the build's reports even when an action failed, and
+# fails when either did. The build event file names exactly this build's reports. The report is read after the build
+# has released the machine lock, so each run writes its own file (named after the shell's PID, and deleted afterwards)
+# and a concurrent run cannot overwrite it; CLANG_TIDY_BEP=<path> keeps the file of a run.
+# LINT.IfChange(lint_tidy)
+CLANG_TIDY_BEP ?=
+clang_tidy_bep := bep="$(or $(CLANG_TIDY_BEP),.bazel/clang_tidy_bep.$$$$.json)"
+clang_tidy_bep_cleanup := $(if $(CLANG_TIDY_BEP),,rm -f "$$bep";)
+
+## Lint C++ with clang-tidy as a Bazel aspect (RAM-bounded, machine lock), its self-test included:
+## make lint-tidy [PKG=//humanoid_nmpc/...]
+lint-tidy:
+	@$(source_env) && mkdir -p .bazel && status=0 && $(clang_tidy_bep); \
+	bazel build --config=clang-tidy --keep_going --build_event_json_file="$$bep" \
+		$(or $(PKG),//...) //tools/clang_tidy:selftest || status=$$?; \
+	python3 -m tools.clang_tidy.clang_tidy_report "$$bep" || status=$$?; \
+	$(clang_tidy_bep_cleanup) exit $$status
+
+## Apply clang-tidy's fix-its, all or nothing per diagnostic, and clang-format the edited files; build afterwards:
+## make lint-tidy-fix CHECKS='modernize-use-override' [PKG=//humanoid_nmpc/...] [PATHS="dir ..."]
+lint-tidy-fix:
+	@$(if $(CHECKS),,$(error lint-tidy-fix needs CHECKS=<glob>, e.g. CHECKS=modernize-use-override))
+	@$(source_env) && mkdir -p .bazel && status=0 && $(clang_tidy_bep); \
+	bazel build --config=clang-tidy-fix --keep_going --build_event_json_file="$$bep" \
+		$(or $(PKG),//...) || status=$$?; \
+	python3 -m tools.clang_tidy.clang_tidy_apply "$$bep" --checks '$(CHECKS)' \
+		$(if $(PATHS),--paths $(PATHS)) || status=$$?; \
+	$(clang_tidy_bep_cleanup) exit $$status
+# LINT.ThenChange(//.bazelrc:clang_tidy_config, //AGENTS.md:style_commands)
+
+############################################################
+# Closed-loop metrics and the solve benchmark (humanoid_nmpc/humanoid_mpc_validation/README.md)
+############################################################
+# Both run under `bazel test`, so that tools/bazel's machine lock keeps them from running next to another build: each
+# run compiles CppAD libraries and simulates for minutes. One robot at a time. The commit and the worktree state go into
+# every document; pass VALIDATION_GIT_COMMIT and VALIDATION_WORKTREE_STATE where git cannot see the checkout.
+# LINT.IfChange(closed_loop_targets)
+VALIDATION_PKG := humanoid_nmpc/humanoid_mpc_validation
+# Both are computed in the recipe, by the bash that already runs it: a $(shell) starts a bash of its own, which in the dev
+# container prints the environment banner (BASH_ENV) into the value, before any `| tail` can drop it. The worktree state
+# hashes the diff, the status and the contents of every untracked file (tools/worktree_state.sh); POSIX sh prints none.
+VALIDATION_GIT_COMMIT ?=
+VALIDATION_WORKTREE_STATE ?=
+validation_provenance = commit="$(VALIDATION_GIT_COMMIT)"; [ -n "$$commit" ] || commit=$$(git rev-parse HEAD 2>/dev/null || echo unknown); \
+	state="$(VALIDATION_WORKTREE_STATE)"; [ -n "$$state" ] || state=$$(sh $(VALIDATION_PKG)/tools/worktree_state.sh);
+validation_env = --test_env=WB_VALIDATION_GIT_COMMIT="$$commit" --test_env=WB_VALIDATION_WORKTREE_STATE="$$state" \
+	$(if $(VALIDATION_MACHINE),--test_env=WB_VALIDATION_MACHINE="$(VALIDATION_MACHINE)") \
+	--nozip_undeclared_test_outputs --cache_test_results=no --test_output=errors
+
+## Closed-loop metrics of one robot: make closed-loop-metrics ROBOT=<robot> LABEL=M0 [SCENARIO=walk_0p5] [BASELINE=M0] [RECORD_STATES=1]
+# ROBOT: drc_atlas, engineai_sa01, unitree_g1, unitree_r1 or unitree_g1_wb. Without SCENARIO every scenario runs. The
+# metrics land in data/closed_loop/$(LABEL)/ with the time series of the turning scenarios, which the 720-degree turn
+# exception of a later comparison reads; RECORD_STATES=1 also keeps the walking states for the solve benchmark.
+closed-loop-metrics:
+	@$(if $(and $(ROBOT),$(LABEL)),,$(error Usage: make closed-loop-metrics ROBOT=drc_atlas|engineai_sa01|unitree_g1|unitree_r1|unitree_g1_wb LABEL=<label> [SCENARIO=<scenario>] [BASELINE=<label>] [RECORD_STATES=1]))
+	@$(validation_provenance) outputs=.bazel/testlogs/$(VALIDATION_PKG)/closed_loop_$(ROBOT)/test.outputs; \
+	bazel test //$(VALIDATION_PKG):closed_loop_$(ROBOT) $(validation_env) --test_arg=--label=$(LABEL) \
+		$(if $(SCENARIO),--test_filter='*/$(SCENARIO)') $(if $(BASELINE),--test_arg=--baseline=$(BASELINE)); status=$$?; \
+	mkdir -p $(VALIDATION_PKG)/data/closed_loop/$(LABEL); \
+	install -m 644 $$outputs/*.json $(VALIDATION_PKG)/data/closed_loop/$(LABEL)/ 2>/dev/null; \
+	for series in $$outputs/*_turn_*_timeseries.txt $$outputs/*_arc_timeseries.txt; do \
+		[ -f "$$series" ] && install -m 644 "$$series" $(VALIDATION_PKG)/data/closed_loop/$(LABEL)/; \
+	done; \
+	$(if $(RECORD_STATES),install -D -m 644 -t $(VALIDATION_PKG)/data/benchmark/states/ $$outputs/*_states.txt 2>/dev/null;) \
+	echo "Metrics in $(VALIDATION_PKG)/data/closed_loop/$(LABEL)/, time series in $$outputs/."; exit $$status
+
+## Solve benchmark of one robot: make benchmark-mpc-solve ROBOT=<robot> LABEL=B0 [STATES=<recorded states>] [BASELINE=B0]
+# Replays data/benchmark/states/<robot>_<walking scenario>_states.txt by default: walk_0p5, or walk_0p3 for EngineAI SA01
+# and Unitree R1 (RobotConfiguration::walkingScenario). The document lands in data/benchmark/$(LABEL)/; with BASELINE the
+# run is held to the real-time gate of section 4.6 against data/benchmark/$(BASELINE)/.
+benchmark-mpc-solve:
+	@$(if $(and $(ROBOT),$(LABEL)),,$(error Usage: make benchmark-mpc-solve ROBOT=drc_atlas|engineai_sa01|unitree_g1|unitree_r1|unitree_g1_wb LABEL=<label> [STATES=<file>] [BASELINE=<label>]))
+	@$(validation_provenance) outputs=.bazel/testlogs/$(VALIDATION_PKG)/benchmark_mpc_solve_$(ROBOT)/test.outputs; \
+	bazel test //$(VALIDATION_PKG):benchmark_mpc_solve_$(ROBOT) $(validation_env) --test_arg=--label=$(LABEL) \
+		$(if $(STATES),--test_arg=--states=$(STATES)) $(if $(BASELINE),--test_arg=--baseline=$(BASELINE)); status=$$?; \
+	mkdir -p $(VALIDATION_PKG)/data/benchmark/$(LABEL); \
+	install -m 644 $$outputs/*.json $(VALIDATION_PKG)/data/benchmark/$(LABEL)/ 2>/dev/null; \
+	echo "Benchmark in $(VALIDATION_PKG)/data/benchmark/$(LABEL)/."; exit $$status
+# LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/RobotConfiguration.h:robot_configurations, //humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/LockstepOutputs.h:output_names, //humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/io/RunProvenance.h:provenance_environment, //humanoid_nmpc/humanoid_mpc_validation/exe/benchmarkMpcSolveMain.cpp:benchmark_paths)
 
 ## Check the locomotion-heuristic coefficients against the robots' URDFs (humanoid_nmpc/docs/locomotion_heuristics)
-# Not a bazel target: Pinocchio reaches Python through the ROS install, which bazel's hermetic toolchain cannot see.
+# Not a bazel target: Pinocchio reaches Python through robotpkg's bindings in /opt/openrobots (setup_env.sh puts them on
+# PYTHONPATH), which bazel's hermetic toolchain cannot see.
+# The script reads the configuration textprotos with config_textproto (the standard library only, so the system Python
+# of robotpkg's pinocchio can run it), which lives under its Bazel import root.
+HEURISTICS_PYTHONPATH := $(CURDIR)/humanoid_nmpc/humanoid_mpc_config/python$(if $(PYTHONPATH),:$(PYTHONPATH))
 test-heuristic-parameters:
-	@python3 -m unittest discover -s tools/locomotion_heuristics -p "test_*.py" -v
+	@PYTHONPATH="$(HEURISTICS_PYTHONPATH)" python3 -m unittest discover -s tools/locomotion_heuristics -p "test_*.py" -v
 
 ## Print the derived locomotion-heuristic block for one robot: make derive-heuristic-parameters ROBOT=drc_atlas
 # LINT.IfChange(derive_heuristic_parameters_usage)
 derive-heuristic-parameters:
-	@$(if $(ROBOT),python3 tools/locomotion_heuristics/derive_parameters.py --robot $(ROBOT),\
+	@$(if $(ROBOT),PYTHONPATH="$(HEURISTICS_PYTHONPATH)" python3 tools/locomotion_heuristics/derive_parameters.py --robot $(ROBOT),\
 		@echo "Usage: make derive-heuristic-parameters ROBOT=drc_atlas|engineai_sa01|unitree_g1|unitree_r1")
 # LINT.ThenChange(//tools/locomotion_heuristics/derive_parameters.py:derive_parameters_robots)
 
@@ -214,13 +272,9 @@ install-hooks:
 	ln -sfn ../../tools/hooks/pre-commit .git/hooks/pre-commit && \
 	echo "✅ Git pre-commit hook installed successfully (a symlink to tools/hooks/pre-commit)."
 
-## Update git submodules (mujoco)
+## Update git submodules (tools/ifttt-lint)
 update-submodules:
 	git submodule update --init --recursive
-
-## Pull git-lfs files
-git-lfs:
-	git lfs install && git lfs pull
 
 ############################################################
 # VNC visualization (for macOS host)
@@ -228,179 +282,252 @@ git-lfs:
 # LINT.IfChange(vnc_resolution)
 RESOLUTION ?= $(VNC_RESOLUTION)
 # LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_resolution, //docker-compose.yaml:vnc_resolution)
+# In the dev container, also when make runs on the host: the VNC desktop is the dev container's.
 start-vnc:
-	@chmod +x $(current_path)/.devcontainer/start_vnc.sh && \
-	$(current_path)/.devcontainer/start_vnc.sh $(RESOLUTION)
+	@$(dev_run) 'chmod +x .devcontainer/start_vnc.sh && .devcontainer/start_vnc.sh $(RESOLUTION)'
 
 stop-vnc:
-	@chmod +x $(current_path)/.devcontainer/start_vnc.sh && \
-	$(current_path)/.devcontainer/start_vnc.sh stop
+	@$(dev_run) 'chmod +x .devcontainer/start_vnc.sh && .devcontainer/start_vnc.sh stop'
 
 # LINT.IfChange(vnc_ports)
 # Environment overrides for VNC display + Mesa software GLX
 VNC_GL_ENV := export DISPLAY=:99 && \
-	export PLOTJUGGLER_DISPLAY=:100 && \
 	export LIBGL_ALWAYS_SOFTWARE=1 && \
 	export LIBGL_ALWAYS_INDIRECT=0 && \
 	export GALLIUM_DRIVER=llvmpipe && \
 	export MESA_GL_VERSION_OVERRIDE=3.3 && \
 	export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
 # Printed right before a -vnc target launches, so the URLs are not buried under the build output.
-vnc_urls := echo "🖥️  noVNC: http://localhost:6080/vnc.html (simulation & RViz)  |  http://localhost:6082/vnc.html (PlotJuggler)"
-# LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //docker-compose.yaml:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/README.md:vnc_ports)
+vnc_urls := echo "🖥️  noVNC: http://localhost:6080/vnc.html (MuJoCo viewer & operator GUI)" && \
+	echo "🌐 Rerun: http://localhost:9090/?url=rerun+http://localhost:9876/proxy (host browser; set RERUN_SINK=spawn to view in noVNC)"
+# LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //docker-compose.bridge.yaml:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/README.md:vnc_ports)
+
 
 ############################################################
-# Launch targets (Bazel build + ROS2 launch)
+# Launch and deployment (humanoid_nmpc/docs/distributed_runtime/README.md, tools/deploy/README.md)
 ############################################################
+# Simulation runs the hardware topology. The robot side - the robot process, with MuJoCo as its backend - runs in the
+# robot-sim container: the robot's own image (robot-runtime) and compose file (docker-compose.robot.yaml), with its
+# realtime settings, plus only the viewer's GL. The laptop side - the MPC node, the remote-control GUI and the Rerun
+# bridge - runs in the dev container, over the remote MPC link on the bus. Nothing runs the MPC inside the robot
+# process. The robot side needs the host's Docker, so `make launch-<robot>-sim` runs on the host (Linux), or in a dev
+# container that can reach Docker; the laptop side and the Bazel builds then run in the dev container DEV_CONTAINER.
+#
+#   make launch-drc-atlas-sim                 # the viewer and the GUI on this shell's DISPLAY (default :99)
+#   make launch-drc-atlas-sim-vnc             # ... on the VNC desktop :99, started first
+#   make launch-drc-atlas-sim NETEM="delay 3ms 1ms loss 0.5%"    # the bus over a lossy, delayed link (tc netem)
+#   make launch-drc-atlas-dummy-sim           # the MPC against the dummy simulator (the MPC model's rollout)
+#   make deploy-robot ROBOT=drc_atlas HOST=<robot> NETWORK=<file> [SERVICE=enable]   # the robot's computer
+#   make launch-drc-atlas-robot HOST=<robot>  # the deployed robot side, in the foreground over ssh
+#   make launch-drc-atlas-mpc NETWORK=<file>  # the laptop side against it
+#   make launch-drc-atlas-sandbox             # the URDF in Rerun, with a slider per joint
+#
+# A launch target's variables:
+#   RERUN_SINK=serve_web|spawn|connect|save   the Rerun bridge's sink (default serve_web: the
+#                                             web viewer at http://localhost:9090; spawn: the native viewer; save: to RRD_PATH=<file>.rrd)
+#   NETEM="<netem parameters>"                -sim: tc netem on the bus's packets on lo (default: none)
+#   HEADLESS=true                             -sim: the robot process without the MuJoCo viewer
+#   NETWORK=<network file>                    -mpc: the network file with the robot's address (required); a path
+#                                             inside the checkout, relative to it or absolute: deploy-robot reads it on
+#                                             the host, the launch targets in the dev container, which sees the checkout
+#                                             only
+#   JOINT_SOURCE=sliders|nominal              -sandbox: where the joint positions come from (default sliders)
+#   DEV_CONTAINER=<name>                      the dev container, when make runs on the host (default devcontainer-app-1)
+#   PLOT_CONFIG=<file>                        the Rerun bridge's plot configuration (default:
+#                                             humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto)
+#
+# The sandbox replaces RViz's display launch files: the model sandbox publishes the URDF's link poses at the nominal
+# joint positions, or at those of its Tk window with a slider per joint (joint_state_publisher_gui's), and the Rerun
+# bridge draws them. RViz's interactive markers and its other displays are not reproduced.
+
+DEV_CONTAINER ?= devcontainer-app-1
+export WB_DEV_CONTAINER := $(DEV_CONTAINER)
+RERUN_SINK ?= serve_web
+NETEM ?=
+HEADLESS ?=
+NETWORK ?=
+JOINT_SOURCE ?= sliders
+RRD_PATH ?=
+PLOT_CONFIG ?= humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto
+# The Rerun bridge's sink, and the recording of RERUN_SINK=save (relative to the checkout, where the bridge runs).
+rerun_sets = --set rerun_sink=$(RERUN_SINK) $(if $(RRD_PATH),--set rrd_path=$(RRD_PATH)) $(if $(PLOT_CONFIG),--set plot_config=$(PLOT_CONFIG))
+# deploy-robot and launch-<robot>-robot
+ROBOT ?=
+HOST ?= localhost
+SERVICE ?= none
+REGISTRY ?=
+PLATFORM ?=
+BACKEND ?=
+MEMORY_LIMIT ?=
+CPUSET ?=
+REALTIME_PRIORITY ?=
+REALTIME_CORES ?=
+BACKEND_CORES ?=
+CONFIG_SEED ?=
+NETEM_INTERFACE ?= lo
+DEPLOY_DIR ?= wb-humanoid-robot
+
+# NETWORK= is a path relative to the checkout, where deploy_robot.sh (on the host) and the launcher (in the dev
+# container) both resolve it, or an absolute path inside the checkout, which is made relative. One outside it is refused:
+# the dev container sees nothing else of the host.
+checkout_root := $(abspath $(current_path))
+network_file = $(if $(filter /%,$(NETWORK)),$(if $(filter $(checkout_root)/%,$(NETWORK)),$(patsubst $(checkout_root)/%,%,$(NETWORK)),$(error NETWORK=$(NETWORK) is outside the checkout $(checkout_root): the dev container sees only the checkout, so copy the file into it, e.g. config/ipc/my_network.textproto)),$(NETWORK))
+
+# A shell command in the dev container's checkout: here inside it, through docker exec from the host.
+dev_run := $(current_path)tools/deploy/in_dev_container.sh
+session := $(current_path)tools/deploy/session.sh
+deploy_robot := $(current_path)tools/deploy/deploy_robot.sh
+deploy_flags = --host $(HOST) --deploy_dir $(DEPLOY_DIR) \
+	$(if $(NETWORK),--network $(network_file)) $(if $(REGISTRY),--registry $(REGISTRY)) \
+	$(if $(PLATFORM),--platform $(PLATFORM)) $(if $(CPUSET),--cpuset $(CPUSET)) \
+	$(if $(BACKEND),--backend $(BACKEND)) $(if $(MEMORY_LIMIT),--memory_limit $(MEMORY_LIMIT)) \
+	$(if $(REALTIME_PRIORITY),--realtime_priority $(REALTIME_PRIORITY)) \
+	$(if $(REALTIME_CORES),--realtime_cores $(REALTIME_CORES)) \
+	$(if $(BACKEND_CORES),--backend_cores $(BACKEND_CORES)) $(if $(CONFIG_SEED),--config_seed $(CONFIG_SEED)) \
+	$(if $(NETEM),--netem "$(NETEM)" --netem_interface $(NETEM_INTERFACE))
+
+# The laptop side's binaries, per formulation, and the bridge and the GUI every launch file starts: the processes of the
+# launch files (mpc.textproto, dummy_sim.textproto, sandbox.textproto), which the launch targets build first.
+# LINT.IfChange(launch_binaries)
+laptop_binaries := //humanoid_nmpc/remote_control:base_velocity_controller_gui //humanoid_nmpc/humanoid_rerun_viewer
+mpc_binaries_centroidal := //humanoid_nmpc/humanoid_centroidal_mpc_app:humanoid_centroidal_mpc_node
+dummy_binaries_centroidal := $(mpc_binaries_centroidal) //humanoid_nmpc/humanoid_centroidal_mpc_app:humanoid_centroidal_mpc_dummy_sim
+mpc_binaries_wb := //humanoid_nmpc/humanoid_wb_mpc_app:humanoid_wb_mpc_node
+dummy_binaries_wb := $(mpc_binaries_wb) //humanoid_nmpc/humanoid_wb_mpc_app:humanoid_wb_mpc_dummy_sim
+sandbox_binaries := //humanoid_nmpc/humanoid_rerun_viewer:model_sandbox //humanoid_nmpc/humanoid_rerun_viewer
+# LINT.ThenChange(//tools/deploy/test_deploy_files.py:launch_binaries)
+
+# The robot configurations: <target name> <deployment name (ROBOT=)> <MPC package> <formulation> <description package>.
+# LINT.IfChange(robot_configurations)
+ROBOT_CONFIGURATIONS := \
+	g1:unitree_g1:robot_models/unitree_g1/g1_centroidal_mpc:centroidal:robot_models/unitree_g1/g1_description \
+	wb-g1:unitree_g1_wb:robot_models/unitree_g1/g1_wb_mpc:wb:robot_models/unitree_g1/g1_description \
+	drc-atlas:drc_atlas:robot_models/drc_atlas/drc_atlas_centroidal_mpc:centroidal:robot_models/drc_atlas/drc_atlas_description \
+	r1:unitree_r1:robot_models/unitree_r1/unitree_r1_centroidal_mpc:centroidal:robot_models/unitree_r1/unitree_r1_description \
+	sa01:engineai_sa01:robot_models/engineai_sa01/engineai_sa01_centroidal_mpc:centroidal:robot_models/engineai_sa01/engineai_sa01_description
+# The robots with a sandbox target: one per description (the whole-body G1 shares the G1's).
+SANDBOX_ROBOTS := g1 drc-atlas r1 sa01
+# LINT.ThenChange(//tools/deploy/BUILD.bazel:robot_configurations, //robot_models/tests/test_launch_files.py:robot_configurations, //.devcontainer/README.md:launch_targets, //README.md:launch_targets)
+
+field = $(word $(2),$(subst :, ,$(1)))
 
 # LINT.IfChange(launch_targets)
-launch-g1-dummy-sim: kill-sims
-	$(source_env) && \
-	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
-	ros2 launch g1_centroidal_mpc dummy_sim.launch.py
+# The launch targets of one robot configuration ($(1) is its entry of ROBOT_CONFIGURATIONS): the launch files of its
+# MPC package's launch/ directory (robot.textproto, mpc.textproto, dummy_sim.textproto).
+define robot_launch_targets
+.PHONY: launch-$(call field,$(1),1)-sim launch-$(call field,$(1),1)-sim-vnc launch-$(call field,$(1),1)-dummy-sim \
+	launch-$(call field,$(1),1)-dummy-sim-vnc launch-$(call field,$(1),1)-robot launch-$(call field,$(1),1)-mpc
 
-launch-g1-sim: kill-sims
-	$(source_env) && \
-	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
-	ros2 launch g1_centroidal_mpc mujoco_sim.launch.py
+launch-$(call field,$(1),1)-sim: kill-sims
+	@$(session) sim --robot $(call field,$(1),2) --launch_file $(call field,$(1),3)/launch/mpc.textproto \
+		--build "$(mpc_binaries_$(call field,$(1),4)) $(laptop_binaries)" $$(rerun_sets) \
+		$$(if $$(NETEM),--netem "$$(NETEM)") $$(if $$(filter true,$$(HEADLESS)),--headless)
 
-launch-wb-g1-dummy-sim: kill-sims
-	$(source_env) && \
-	bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sqp_node //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_dummy_sim_node && \
-	ros2 launch g1_wb_mpc dummy_sim.launch.py
+launch-$(call field,$(1),1)-sim-vnc: kill-sims start-vnc
+	@$$(vnc_urls)
+	@DISPLAY=:99 $(session) sim --robot $(call field,$(1),2) --launch_file $(call field,$(1),3)/launch/mpc.textproto \
+		--build "$(mpc_binaries_$(call field,$(1),4)) $(laptop_binaries)" $$(rerun_sets) \
+		$$(if $$(NETEM),--netem "$$(NETEM)") $$(if $$(filter true,$$(HEADLESS)),--headless)
 
-launch-wb-g1-sim: kill-sims
-	$(source_env) && \
-	bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sqp_node //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sim && \
-	ros2 launch g1_wb_mpc mujoco_sim.launch.py
+launch-$(call field,$(1),1)-dummy-sim: kill-sims
+	@$(session) laptop --launch_file $(call field,$(1),3)/launch/dummy_sim.textproto \
+		--build "$(dummy_binaries_$(call field,$(1),4)) $(laptop_binaries)" $$(rerun_sets)
 
-launch-drc-atlas-dummy-sim: kill-sims
-	$(source_env) && \
-	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
-	ros2 launch drc_atlas_centroidal_mpc dummy_sim.launch.py
+launch-$(call field,$(1),1)-dummy-sim-vnc: kill-sims start-vnc
+	@$$(vnc_urls)
+	@DISPLAY=:99 $(session) laptop --launch_file $(call field,$(1),3)/launch/dummy_sim.textproto \
+		--build "$(dummy_binaries_$(call field,$(1),4)) $(laptop_binaries)" $$(rerun_sets)
 
-launch-drc-atlas-sim: kill-sims
-	$(source_env) && \
-	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
-	ros2 launch drc_atlas_centroidal_mpc mujoco_sim.launch.py
+launch-$(call field,$(1),1)-robot:
+	@$(deploy_robot) up --robot $(call field,$(1),2) --host $$(HOST) --deploy_dir $$(DEPLOY_DIR)
 
-launch-drc-atlas-sandbox: kill-sims
-	$(source_env) && ros2 launch drc_atlas_description display.launch.py
+launch-$(call field,$(1),1)-mpc: kill-sims
+	@$$(if $$(NETWORK),,$$(error launch-$(call field,$(1),1)-mpc needs NETWORK=<network file> with the robot's address, e.g. a copy of config/ipc/two_machine.example.textproto))
+	@$(session) laptop --launch_file $(call field,$(1),3)/launch/mpc.textproto \
+		--build "$(mpc_binaries_$(call field,$(1),4)) $(laptop_binaries)" $$(rerun_sets) \
+		--set network_file=$$(network_file)
+endef
 
-launch-r1-dummy-sim: kill-sims
-	$(source_env) && \
-	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
-	ros2 launch unitree_r1_centroidal_mpc dummy_sim.launch.py
+# The sandbox of one robot description ($(1) is its entry of ROBOT_CONFIGURATIONS): launch/sandbox.textproto of it.
+define robot_sandbox_targets
+.PHONY: launch-$(call field,$(1),1)-sandbox launch-$(call field,$(1),1)-sandbox-vnc
 
-launch-r1-sim: kill-sims
-	$(source_env) && \
-	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
-	ros2 launch unitree_r1_centroidal_mpc mujoco_sim.launch.py
+launch-$(call field,$(1),1)-sandbox: kill-sims
+	@$(session) laptop --launch_file $(call field,$(1),5)/launch/sandbox.textproto --build "$(sandbox_binaries)" \
+		$$(rerun_sets) --set joint_source=$$(JOINT_SOURCE)
 
-launch-r1-sandbox: kill-sims
-	$(source_env) && ros2 launch unitree_r1_description display.launch.py
+launch-$(call field,$(1),1)-sandbox-vnc: kill-sims start-vnc
+	@$$(vnc_urls)
+	@DISPLAY=:99 $(session) laptop --launch_file $(call field,$(1),5)/launch/sandbox.textproto \
+		--build "$(sandbox_binaries)" $$(rerun_sets) --set joint_source=$$(JOINT_SOURCE)
+endef
 
-launch-sa01-dummy-sim: kill-sims
-	$(source_env) && \
-	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
-	ros2 launch engineai_sa01_centroidal_mpc dummy_sim.launch.py
+$(foreach configuration,$(ROBOT_CONFIGURATIONS),$(eval $(call robot_launch_targets,$(configuration))))
+$(foreach configuration,$(filter $(addsuffix :%,$(SANDBOX_ROBOTS)),$(ROBOT_CONFIGURATIONS)),\
+	$(eval $(call robot_sandbox_targets,$(configuration))))
+# LINT.ThenChange(//.devcontainer/README.md:launch_targets, //README.md:launch_targets, //tools/deploy/test_deploy_files.py:launch_targets)
 
-launch-sa01-sim: kill-sims
-	$(source_env) && \
-	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
-	ros2 launch engineai_sa01_centroidal_mpc mujoco_sim.launch.py
+## Deploy the robot side to the robot's computer: make deploy-robot ROBOT=drc_atlas HOST=<ssh host> NETWORK=<file>
+## [SERVICE=install|enable] [REGISTRY=<registry>] [PLATFORM=linux/arm64] [BACKEND=<backend name>] [MEMORY_LIMIT=4g]
+## [CPUSET=2-5] [REALTIME_PRIORITY=80] [NETEM="delay 3ms"]. HOST=localhost deploys to this machine without ssh
+## (tools/deploy/README.md). A deployment that runs already is restarted on the new image.
+deploy-robot:
+	@$(if $(ROBOT),,$(error deploy-robot needs ROBOT=<robot configuration>: drc_atlas, engineai_sa01, unitree_g1, unitree_g1_wb or unitree_r1))
+	@$(deploy_robot) deploy --robot $(ROBOT) --service $(SERVICE) $(deploy_flags)
 
-launch-sa01-sandbox: kill-sims
-	$(source_env) && ros2 launch engineai_sa01_description display.launch.py
+## Build the robot bundle and the robot-runtime and robot-sim images, without deploying them
+robot-images:
+	@$(deploy_robot) image --target robot-sim $(if $(PLATFORM),--platform $(PLATFORM))
 
-launch-g1-dummy-sim-vnc: kill-sims start-vnc
-	@$(vnc_urls)
-	@echo "🚀 Building targets and launching G1 Centroidal MPC Dummy Simulation..."
-	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
-	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch g1_centroidal_mpc dummy_sim.launch.py
+## The Rerun bridge on its own, with the native viewer (rerun-viewer) or the web viewer at http://localhost:9090
+## (rerun-web): make rerun-viewer [ROBOT=drc_atlas] [NETWORK=<file>]. Draws the robot only with ROBOT=.
+rerun_urdf_drc_atlas := robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf
+rerun_urdf_engineai_sa01 := robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf
+rerun_urdf_unitree_g1 := robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf
+rerun_urdf_unitree_g1_wb := $(rerun_urdf_unitree_g1)
+rerun_urdf_unitree_r1 := robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf
+rerun_flags = $(if $(ROBOT),--urdf=$(rerun_urdf_$(ROBOT))) $(if $(NETWORK),--network_config=$(network_file))
+rerun-viewer:
+	@$(dev_run) 'bazel run //humanoid_nmpc/humanoid_rerun_viewer -- $(rerun_flags) --rerun_sink=spawn'
 
-launch-g1-sim-vnc: kill-sims start-vnc
-	@$(vnc_urls)
-	@echo "🚀 Building targets and launching G1 Centroidal MPC MuJoCo Simulation..."
-	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
-	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch g1_centroidal_mpc mujoco_sim.launch.py
+rerun-web:
+	@echo "🌐 Rerun web viewer: http://localhost:9090/?url=rerun+http://localhost:9876/proxy"
+	@$(dev_run) 'bazel run //humanoid_nmpc/humanoid_rerun_viewer -- $(rerun_flags) --rerun_sink=serve_web'
 
-launch-wb-g1-dummy-sim-vnc: kill-sims start-vnc
-	@$(vnc_urls)
-	@echo "🚀 Building targets and launching G1 Whole-Body MPC Dummy Simulation..."
-	@bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sqp_node //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_dummy_sim_node && \
-	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch g1_wb_mpc dummy_sim.launch.py
+## Inspect the bus (tools/ipc): make ipc-list, make ipc-echo TOPIC=mpc/status, make ipc-hz TOPIC=robot/mpc_observation
+ipc_network = $(if $(NETWORK),--network_config=$(network_file))
+ipc-list:
+	@$(dev_run) 'bazel run //tools/ipc:ipc_tool -- list $(ipc_network)'
 
-launch-wb-g1-sim-vnc: kill-sims start-vnc
-	@$(vnc_urls)
-	@echo "🚀 Building targets and launching G1 Whole-Body MPC MuJoCo Simulation..."
-	@bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sqp_node //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sim && \
-	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch g1_wb_mpc mujoco_sim.launch.py
+ipc-echo:
+	@$(if $(TOPIC),,$(error ipc-echo needs TOPIC=<topic>, e.g. TOPIC=mpc/status))
+	@$(dev_run) 'bazel run //tools/ipc:ipc_tool -- echo $(TOPIC) $(ipc_network)'
 
-launch-drc-atlas-dummy-sim-vnc: kill-sims start-vnc
-	@$(vnc_urls)
-	@echo "🚀 Building targets and launching DRC Atlas Dummy Simulation..."
-	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
-	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch drc_atlas_centroidal_mpc dummy_sim.launch.py
+ipc-hz:
+	@$(if $(TOPIC),,$(error ipc-hz needs TOPIC=<topic>, e.g. TOPIC=robot/mpc_observation))
+	@$(dev_run) 'bazel run //tools/ipc:ipc_tool -- hz $(TOPIC) $(ipc_network)'
 
-launch-drc-atlas-sim-vnc: kill-sims start-vnc
-	@$(vnc_urls)
-	@echo "🚀 Building targets and launching DRC Atlas MuJoCo Simulation..."
-	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
-	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch drc_atlas_centroidal_mpc mujoco_sim.launch.py
-
-launch-drc-atlas-sandbox-vnc: kill-sims start-vnc
-	@$(vnc_urls)
-	@echo "🚀 Building targets and launching DRC Atlas URDF Viewer..."
-	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch drc_atlas_description display.launch.py
-
-launch-r1-dummy-sim-vnc: kill-sims start-vnc
-	@$(vnc_urls)
-	@echo "🚀 Building targets and launching Unitree R1 Centroidal MPC Dummy Simulation..."
-	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
-	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch unitree_r1_centroidal_mpc dummy_sim.launch.py
-
-launch-r1-sim-vnc: kill-sims start-vnc
-	@$(vnc_urls)
-	@echo "🚀 Building targets and launching Unitree R1 Centroidal MPC MuJoCo Simulation..."
-	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
-	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch unitree_r1_centroidal_mpc mujoco_sim.launch.py
-
-launch-r1-sandbox-vnc: kill-sims start-vnc
-	@$(vnc_urls)
-	@echo "🚀 Building targets and launching Unitree R1 URDF Viewer..."
-	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch unitree_r1_description display.launch.py
-
-launch-sa01-dummy-sim-vnc: kill-sims start-vnc
-	@$(vnc_urls)
-	@echo "🚀 Building targets and launching EngineAI SA01 Centroidal MPC Dummy Simulation..."
-	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
-	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch engineai_sa01_centroidal_mpc dummy_sim.launch.py
-
-launch-sa01-sim-vnc: kill-sims start-vnc
-	@$(vnc_urls)
-	@echo "🚀 Building targets and launching EngineAI SA01 Centroidal MPC MuJoCo Simulation..."
-	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
-	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch engineai_sa01_centroidal_mpc mujoco_sim.launch.py
-
-launch-sa01-sandbox-vnc: kill-sims start-vnc
-	@$(vnc_urls)
-	@echo "🚀 Building targets and launching EngineAI SA01 URDF Viewer..."
-	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch engineai_sa01_description display.launch.py
-# LINT.ThenChange(//setup_env.sh:registered_packages, //.devcontainer/README.md:launch_targets)
-
-plotjuggler:
-	@echo "📊 Ensuring ROS2 message dependencies are built..."
-	bazel build //humanoid_nmpc/humanoid_mpc_msgs
-	@echo "📊 Launching PlotJuggler with Humanoid Telemetry layout..."
-	$(source_env) && ros2 run plotjuggler plotjuggler --buffer_size 60 --layout tools/plotjuggler/humanoid_telemetry.xml
-
-# LINT.IfChange(plotjuggler_vnc)
-plotjuggler-vnc: start-vnc
-	@echo "📊 Ensuring ROS2 message dependencies are built..."
-	$(source_env) && bazel build //humanoid_nmpc/humanoid_mpc_msgs
-	@echo "📊 Launching PlotJuggler in dedicated VNC display (:100, port 6082)..."
-	@echo "👉 Open http://localhost:6082/vnc.html in your browser"
-	@pkill -9 plotjuggler 2>/dev/null || true
-	$(source_env) && DISPLAY=:100 ros2 run plotjuggler plotjuggler --buffer_size 60 --layout tools/plotjuggler/humanoid_telemetry.xml
-# LINT.ThenChange(//.devcontainer/README.md:plotjuggler_vnc)
+## The launch, deployment, inspection and style-check targets
+help:
+	@echo "Launch targets, for <robot> in $(foreach c,$(ROBOT_CONFIGURATIONS),$(call field,$(c),1)):"
+	@echo "  launch-<robot>-sim[-vnc]        robot side in the robot-sim container + MPC, GUI and Rerun bridge in the dev"
+	@echo "                                  container, over the bus (NETEM=, HEADLESS=true, RERUN_SINK=)"
+	@echo "  launch-<robot>-dummy-sim[-vnc]  the MPC against the dummy simulator, with the GUI and the Rerun bridge"
+	@echo "  launch-<robot>-robot HOST=      the deployed robot side, in the foreground (ssh to HOST, or localhost)"
+	@echo "  launch-<robot>-mpc NETWORK=     the laptop side against the robot of the network file"
+	@echo "  launch-<robot>-sandbox[-vnc]    for <robot> in $(SANDBOX_ROBOTS): the URDF in Rerun at its nominal pose or"
+	@echo "                                  at a slider per joint (JOINT_SOURCE=sliders|nominal); RViz's interactive"
+	@echo "                                  markers and other displays are not reproduced"
+	@echo "Deployment: deploy-robot ROBOT= HOST= NETWORK= [SERVICE=install|enable] [REGISTRY=] [PLATFORM=] [BACKEND=]"
+	@echo "            [MEMORY_LIMIT=], robot-images"
+	@echo "Viewers and the bus: rerun-viewer, rerun-web [ROBOT=] [NETWORK=], ipc-list, ipc-echo TOPIC=, ipc-hz TOPIC="
+	@echo "Validation (humanoid_nmpc/humanoid_mpc_validation): closed-loop-metrics ROBOT= LABEL= [SCENARIO=] [BASELINE=]"
+	@echo "            [RECORD_STATES=1], benchmark-mpc-solve ROBOT= LABEL= [STATES=] [BASELINE=]"
+	@echo "Clean-up: kill-sims, check-zombies"
+	@echo "Style checks (AGENTS.md, \"Running the style checks\"; tools/hooks/README.md, tools/clang_tidy/README.md):"
+	@echo "  format                          clang-format, black, isort and the enforced checks' safe rewrites"
+	@echo "  lint                            every check without a compiler; one check or directory:"
+	@echo "                                  python3 -m tools.hooks.lint_code --only <check> --paths <dir>"
+	@echo "  lint-tidy [PKG=]                clang-tidy as a Bazel aspect, inside the machine lock"
+	@echo "  lint-tidy-fix CHECKS= [PKG=] [PATHS=]        apply clang-tidy's fix-its, then build"
+	@echo "  install-hooks                   the pre-commit hook: format, then lint the staged files"

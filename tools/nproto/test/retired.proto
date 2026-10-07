@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package nproto_test;
+
+import "nproto/options.proto";
+import "nproto/retired_field_options.proto";
+
+// A message that names the fields it no longer has, for the parsers' answers to them (testTextproto.cpp and
+// tools/nproto/test/test_nproto_textproto.py): a retired name in either spelling, a snake-cased name that is a field,
+// and a nested message whose whole layout moved.
+// Next ID: 4
+message Retired {
+  option (nproto.generate_struct) = "nproto::test::Retired";
+  option (nproto.retired_field) = { name: "use_old_switch" replacement: "list old_switch under switches" };
+  option (nproto.retired_field) = { name: "legacyGain" replacement: "set block.gain instead" };
+
+  reserved 4 to max;
+
+  // Every unknown field of the block ends with the layout hint.
+  // Next ID: 2
+  message Block {
+    option (nproto.retired_layout_hint) = "(the flat keys moved into block, tools/nproto/README.md)";
+
+    reserved 2 to max;
+
+    double gain = 1;
+  }
+
+  repeated string switches = 1;
+  Block block = 2;
+  double step_width = 3;
+}

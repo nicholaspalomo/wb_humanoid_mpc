@@ -1,0 +1,101 @@
+load("@operator_deps//:requirements.bzl", "requirement")
+load("@protobuf//bazel:proto_library.bzl", "proto_library")
+load("@protobuf//bazel:py_proto_library.bzl", "py_proto_library")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+
+# tools/launch - start the processes of a launch file on one machine and stop them together, see README.md.
+#
+#   bazel run //tools/launch -- <launch file> [--machine robot|laptop] [--set name=value] [--dry_run]
+#   .bazel/bin/tools/launch/launch <launch file> ...    # the built binary, e.g. on the robot computer
+#
+# Launch files are textprotos of launch_proto.LaunchFile (proto/launch_file.proto), so the launcher needs the
+# generated module and runs through Bazel.
+
+package(default_visibility = ["//visibility:public"])
+
+# The schema of a launch file. Imported as "launch_proto/launch_file.proto", so that Python imports
+# `from launch_proto import launch_file_pb2`: a top-level `launch` package would collide with the one of ROS 2.
+proto_library(
+    name = "launch_file_proto",
+    srcs = ["proto/launch_file.proto"],
+    import_prefix = "launch_proto",
+    strip_import_prefix = "/tools/launch/proto",
+    deps = ["//tools/nproto:options_proto"],
+)
+
+# Linked against the protobuf wheel of @operator_deps (//tools/python:python_proto_toolchain).
+py_proto_library(
+    name = "launch_file_py_proto",
+    deps = [":launch_file_proto"],
+)
+
+py_library(
+    name = "launch_lib",
+    srcs = [
+        "launch_cli.py",
+        "launch_file.py",
+        "launch_script.py",
+        "process_supervisor.py",
+    ],
+    # The modules import each other by name, as they do when launch.py runs as a script.
+    imports = ["."],
+    deps = [
+        ":launch_file_py_proto",
+        requirement("protobuf"),
+    ],
+)
+
+py_binary(
+    name = "launch",
+    srcs = ["launch.py"],
+    main = "launch.py",
+    deps = [":launch_lib"],
+)
+
+# The schema is data, so that the test can check that the example's `# proto-file:` header names it.
+py_test(
+    name = "test_launch_file",
+    size = "small",
+    srcs = ["test_launch_file.py"],
+    data = [
+        "examples/example.launch.textproto",
+        "proto/launch_file.proto",
+    ],
+    deps = [":launch_lib"],
+)
+
+py_test(
+    name = "test_process_supervisor",
+    size = "small",
+    srcs = ["test_process_supervisor.py"],
+    deps = [":launch_lib"],
+)
+
+# Runs launch.py, the entry point itself, as a subprocess for the signal and exit-status tests.
+py_test(
+    name = "test_launch",
+    size = "small",
+    srcs = ["test_launch.py"],
+    data = [
+        "examples/example.launch.textproto",
+        "launch.py",
+    ],
+    deps = [":launch_lib"],
+)
+
+# Exports the one process of a machine of a launch file as a POSIX sh script, for a machine that cannot run the
+# launcher (the robot-runtime image carries no Python): tools/deploy builds the robot's entry scripts with it.
+py_binary(
+    name = "export_script",
+    srcs = ["launch_script.py"],
+    main = "launch_script.py",
+    deps = [":launch_lib"],
+)
+
+py_test(
+    name = "test_launch_script",
+    size = "small",
+    srcs = ["test_launch_script.py"],
+    data = ["examples/example.launch.textproto"],
+    deps = [":launch_lib"],
+)

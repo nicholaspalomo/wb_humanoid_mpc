@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -26,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/constraint/ReachabilityConstraint.h"
 
 #include <cmath>
+#include <string>
+#include <utility>
 
 #include "absl/strings/str_cat.h"
 
@@ -44,14 +50,15 @@ void ReachabilityConstraint::configure(const ContactPlanningConfig& config) {
 
 void ReachabilityConstraint::addRows(const ContactPlanningContext& ctx, int node, RowBuilder& rows) const {
   const std::array<vector2_t, 2>& axes = ctx.axesAt(node);
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     for (int axis = 0; axis < 2; ++axis) {
       Coefficients xc;
       for (int w = 0; w < 2; ++w) {
-        xc.push_back({idx_.foot[foot][w], axes[static_cast<size_t>(axis)](w)});
-        xc.push_back({idx_.com[w], -axes[static_cast<size_t>(axis)](w)});
+        xc.emplace_back(idx_.foot[foot][w], axes[static_cast<size_t>(axis)](w));
+        xc.emplace_back(idx_.com[w], -axes[static_cast<size_t>(axis)](w));
       }
-      scalar_t lower, upper;
+      scalar_t lower = 0.0;
+      scalar_t upper = 0.0;
       if (axis == 0) {
         lower = -params_.reachX;
         upper = params_.reachX;
@@ -68,8 +75,8 @@ void ReachabilityConstraint::addRows(const ContactPlanningContext& ctx, int node
       const std::pair<scalar_t, scalar_t> frameTerm = ctx.frameTerm(node, axis, dNominal);
       const scalar_t g = frameTerm.first;
       const scalar_t offset = frameTerm.second;
-      if (ctx.hasHeading()) xc.push_back({idx_.heading, g});
-      rows.addSoft(xc, {}, lower - offset, upper - offset, penalty_);
+      if (ctx.hasHeading()) xc.emplace_back(idx_.heading, g);
+      rows.addSoft(xc, /*uCoefficients=*/{}, lower - offset, upper - offset, penalty_);
     }
   }
 }

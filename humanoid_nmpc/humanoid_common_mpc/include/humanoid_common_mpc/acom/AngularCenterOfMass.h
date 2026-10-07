@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,14 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <Eigen/Core>
-#include <Eigen/Dense>
-
 #include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "Eigen/Core"
+#include "Eigen/Dense"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -86,16 +89,16 @@ struct SirenLayerWeights {
  */
 class AngularCenterOfMass {
  public:
-  AngularCenterOfMass(std::size_t inputDim, std::size_t numLayers, double omega0 = 30.0);
+  AngularCenterOfMass(size_t inputDim, size_t numLayers, double omega0 = 30.0);
 
   /**
-   * The values of model_settings.robotName that have a network compiled into this binary, sorted. This is the
+   * The values of model_settings.robot_name that have a network compiled into this binary, sorted. This is the
    * registry Create() resolves names against, and the list its unknown-robot error prints.
    */
   static std::vector<std::string> registeredRobotNames();
 
   /**
-   * Creates the evaluator for `robotName` (model_settings.robotName) and checks it against the model it will be fed.
+   * Creates the evaluator for `robotName` (model_settings.robot_name) and checks it against the model it will be fed.
    *
    * The network is a function of a VECTOR of joint angles, so it is only meaningful when `modelJointNames` - the
    * MPC model's joints, in the order the MPC hands them over (ModelSettings::mpcModelJointNames, or equivalently the
@@ -116,13 +119,6 @@ class AngularCenterOfMass {
    * layer count, a layer's shape or the 3-wide readout does not match the architecture this evaluator was built for.
    */
   absl::Status loadWeights(const std::vector<SirenLayerWeights>& layers);
-
-  /**
-   * Throwing form of loadWeights().
-   *
-   * @throws std::runtime_error with loadWeights()'s message.
-   */
-  void setWeights(const std::vector<SirenLayerWeights>& layers);
 
   /**
    * Records the joint names, in input order, that the network was trained on. Returns InvalidArgument unless there is
@@ -165,24 +161,22 @@ class AngularCenterOfMass {
    */
   matrix_t computeAcomJacobian(const vector_t& q) const;
 
-  std::size_t getInputDim() const { return inputDim_; }
-  std::size_t getNumLayers() const { return numLayers_; }
-  double getOmega0() const { return omega0_; }
+  size_t getInputDim() const { return inputDim_; }
 
  private:
   // The two checks below guard the evaluation hot path against PROGRAMMING errors - a joint vector of the wrong size,
   // or an evaluator used before its weights were loaded - which Create() has already ruled out for every
-  // configuration it accepts. They throw std::runtime_error rather than returning a Status so that the evaluation
-  // methods can keep returning plain values.
+  // configuration it accepts. They are ABSL_CHECKs, so that the evaluation methods keep returning plain values: an
+  // invariant that does not hold ends the process with the message instead of evaluating out of bounds.
 
-  /** Throws if qJoints does not have exactly inputDim_ entries. */
+  /** Checks that qJoints has exactly inputDim_ entries. */
   void checkJointVectorSize(const vector_t& qJoints) const;
 
-  /** Throws if no weights have been loaded. */
+  /** Checks that weights have been loaded. */
   void checkWeightsLoaded() const;
 
-  std::size_t inputDim_;
-  std::size_t numLayers_;
+  size_t inputDim_;
+  size_t numLayers_;
   double omega0_;
   std::vector<SirenLayerWeights> layers_;
   std::vector<std::string> jointNames_;

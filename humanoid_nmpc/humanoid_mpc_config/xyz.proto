@@ -1,0 +1,17 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "nproto/options.proto";
+
+// A vector by its components, for weights and values addressed by name: absent components are 0.
+// Next ID: 4
+message Xyz {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::Xyz";
+
+  reserved 4 to max;
+
+  double x = 1 [default = 0.0];
+  double y = 2 [default = 0.0];
+  double z = 3 [default = 0.0];
+}

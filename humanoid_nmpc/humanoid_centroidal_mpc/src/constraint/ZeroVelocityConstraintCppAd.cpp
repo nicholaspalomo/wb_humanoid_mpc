@@ -30,7 +30,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"
 
-#include <humanoid_common_mpc/HumanoidPreComputation.h>
+#include <memory>
+#include <utility>
+
+#include "humanoid_common_mpc/HumanoidPreComputation.h"
 
 namespace ocs2::humanoid {
 
@@ -44,7 +47,8 @@ ZeroVelocityConstraintCppAd::ZeroVelocityConstraintCppAd(const SwitchedModelRefe
                                                          EndEffectorKinematicsTwistConstraint::Config config)
     : StateInputConstraint(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
-      eeTwistConstraintPtr_(new EndEffectorKinematicsTwistConstraint(endEffectorKinematics, numConstraints, std::move(config))),
+      eeTwistConstraintPtr_(
+          std::make_unique<EndEffectorKinematicsTwistConstraint>(endEffectorKinematics, numConstraints, std::move(config))),
       contactPointIndex_(contactPointIndex),
       numConstraints_(numConstraints) {}
 
@@ -76,9 +80,9 @@ vector_t ZeroVelocityConstraintCppAd::getValue(scalar_t time,
                                                const vector_t& state,
                                                const vector_t& input,
                                                const PreComputation& preComp) const {
-  const auto& humanoidPreComp = cast<HumanoidPreComputation>(preComp);
+  const HumanoidPreComputation& humanoidPreComp = cast<HumanoidPreComputation>(preComp);
   // Modify to actual ground height
-  auto& config = eeTwistConstraintPtr_->getConfig();
+  EndEffectorKinematicsTwistConstraint::Config& config = eeTwistConstraintPtr_->getConfig();
   config.b[2] = -config.Ax(2, 2) * humanoidPreComp.getFootReferenceHeight(contactPointIndex_);
   return eeTwistConstraintPtr_->getValue(time, state, input, preComp);
 }
@@ -90,9 +94,9 @@ VectorFunctionLinearApproximation ZeroVelocityConstraintCppAd::getLinearApproxim
                                                                                       const vector_t& state,
                                                                                       const vector_t& input,
                                                                                       const PreComputation& preComp) const {
-  const auto& humanoidPreComp = cast<HumanoidPreComputation>(preComp);
+  const HumanoidPreComputation& humanoidPreComp = cast<HumanoidPreComputation>(preComp);
   // Modify to actual ground height
-  auto& config = eeTwistConstraintPtr_->getConfig();
+  EndEffectorKinematicsTwistConstraint::Config& config = eeTwistConstraintPtr_->getConfig();
   config.b[2] = -config.Ax(2, 2) * humanoidPreComp.getFootReferenceHeight(contactPointIndex_);
   return eeTwistConstraintPtr_->getLinearApproximation(time, state, input, preComp);
 }

@@ -1,1 +1,40 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load(":copts.bzl", "FIRST_PARTY_COPTS")
+
 # This package contains Bazel build infrastructure (macros, rules, extensions).
+
+# The system library repositories; //tools/hooks:test_boost_usage checks that the @pinocchio target is the only one that
+# depends on Boost or carries its defines.
+exports_files(["system_libs.bzl"])
+
+# The first-party warning flags; //tools/hooks:test_agents_style_sections checks that AGENTS.md names only these.
+exports_files(["copts.bzl"])
+
+# Proves in every build of //... that FIRST_PARTY_COPTS (copts.bzl) is clean on every third-party header family that
+# first-party code includes: they are system headers (-isystem, copts.bzl says how), and -Werror makes every warning one
+# of them would still trip, the -Wall / -Wextra / -Wpedantic ones included, a failure here. A flag that fails on this
+# target is dropped from copts.bzl, with a comment naming the header. Nothing links it.
+cc_library(
+    name = "first_party_copts_probe",
+    srcs = ["first_party_copts_probe.cpp"],
+    hdrs = ["first_party_copts_probe.h"],
+    copts = FIRST_PARTY_COPTS + ["-Werror"],
+    deps = [
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto",
+        "//lib/mujoco_vendor",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@cppzmq",
+        "@eigen",
+        "@glew",
+        "@glfw",
+        "@googletest//:gtest",
+        "@hpipm",
+        "@pinocchio",
+        "@urdf",
+    ],
+)

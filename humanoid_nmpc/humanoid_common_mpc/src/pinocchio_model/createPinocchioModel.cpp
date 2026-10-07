@@ -28,45 +28,44 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>
+#include "pinocchio/fwd.hpp"
 
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
-
-#include <pinocchio/multibody/model.hpp>
-#include <pinocchio/parsers/urdf.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <memory>
-#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/functional/function_ref.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
-
-#include <pinocchio/parsers/urdf.hpp>
-
-#include <urdf_parser/urdf_parser.h>
-
 #include "ocs2_pinocchio_interface/urdf.h"
+#include "pinocchio/multibody/model.hpp"
+#include "pinocchio/parsers/urdf.hpp"
+#include "urdf_parser/urdf_parser.h"
 
-#include <ocs2_core/misc/LoadData.h>
-#include <ocs2_pinocchio_interface/urdf.h>
-
-#include <humanoid_common_mpc/pinocchio_model/pinocchioUtils.h>
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
 #include "humanoid_common_mpc/contact/ContactPolygon.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
+#include "humanoid_common_mpc/pinocchio_model/pinocchioUtils.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
 
 namespace ocs2::humanoid {
+
+namespace {
 
 ///
 /// \brief Create a joint model composite with the appropriate DoF
 ///
 
-static pinocchio::JointModelComposite getBaseJointcomposite() {
+pinocchio::JointModelComposite getBaseJointcomposite() {
   // add 6 DoF for the floating base
   pinocchio::JointModelComposite baseJointComposite(2);
   // baseJointComposite.addJoint(pinocchio::JointModelFreeFlyer());
@@ -83,7 +82,7 @@ static pinocchio::JointModelComposite getBaseJointcomposite() {
 /// \param[in] model The model to which the frames are added.
 ///
 
-static void addContactCenterFrames(const ContactPolygon& contactPolygon, pinocchio::ModelTpl<scalar_t>& model) {
+void addContactCenterFrames(const ContactPolygon& contactPolygon, pinocchio::ModelTpl<scalar_t>& model) {
   const ContactCenterPoint& ccp = contactPolygon.getContactCenterPoint();
   pinocchio::SE3 relPoseToParent(matrix3_t::Identity(), ccp.translationFromParent);
   pinocchio::Frame contactCenterFrame(ccp.frameName, model.getJointId(ccp.parentJointName), model.getFrameId(ccp.parentJointName),
@@ -98,10 +97,8 @@ static void addContactCenterFrames(const ContactPolygon& contactPolygon, pinocch
 /// \param[in] model The model to which the frames are added.
 ///
 
-static void addCollisionCenterFrames(const ContactPolygon& contactPolygon, pinocchio::ModelTpl<scalar_t>& model, scalar_t radius = 0.075) {
+void addCollisionCenterFrames(const ContactPolygon& contactPolygon, pinocchio::ModelTpl<scalar_t>& model) {
   const ContactCenterPoint& ccp = contactPolygon.getContactCenterPoint();
-  scalar_t y_half = (contactPolygon.getBounds().y_max - contactPolygon.getBounds().y_min) / 2.0;
-  // scalar_t collisionCenterDistance = sqrt(radius * radius - y_half * y_half);
   pinocchio::SE3 relPoseToParentCP1(matrix3_t::Identity(),
                                     ccp.translationFromParent + vector3_t(contactPolygon.getBounds().x_max * 0.6, 0.0, 0.0));
   pinocchio::Frame contactCenterFrameCP1(ccp.frameName + "_collision_p_1", model.getJointId(ccp.parentJointName),
@@ -121,12 +118,12 @@ static void addCollisionCenterFrames(const ContactPolygon& contactPolygon, pinoc
 /// \param[in] model The model to which the frames are added.
 ///
 
-static void addContactPolygonFrames(const ContactPolygon& contactPolygon, pinocchio::ModelTpl<scalar_t>& model) {
+void addContactPolygonFrames(const ContactPolygon& contactPolygon, pinocchio::ModelTpl<scalar_t>& model) {
   addContactCenterFrames(contactPolygon, model);
   addCollisionCenterFrames(contactPolygon, model);
   const vector3_t& contactCenterTranslation = contactPolygon.getContactCenterPoint().translationFromParent;  // from parent Joint
   int nPoints = contactPolygon.getNumberOfContactPoints();
-  for (int i = 0; i < nPoints; i++) {
+  for (int i = 0; i < nPoints; ++i) {
     vector3_t contactPointTranslation = contactCenterTranslation + contactPolygon.getContactPointTranslation(i);
     pinocchio::SE3 relPoseToParentJoint(matrix3_t::Identity(), contactPointTranslation);
 
@@ -135,6 +132,8 @@ static void addContactPolygonFrames(const ContactPolygon& contactPolygon, pinocc
     model.addFrame(currContactFrame);
   }
 }
+
+}  // namespace
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -150,12 +149,19 @@ PinocchioInterface createDefaultPinocchioInterface(const std::string& urdfFilePa
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-absl::StatusOr<PinocchioInterface> loadCustomPinocchioInterface(const std::string& taskFilePath,
-                                                                const std::string& urdfFilePath,
-                                                                const ModelSettings& modelSettings,
-                                                                bool scaleTotalMass,
-                                                                scalar_t totalMass,
-                                                                bool verbose) {
+namespace {
+
+/**
+ * The MPC's Pinocchio model (loadCustomPinocchioInterface()), with the contact frames of the sole that
+ * `contactRectangle(i)` gives each contact i.
+ */
+absl::StatusOr<PinocchioInterface> buildCustomPinocchioInterface(
+    const std::string& urdfFilePath,
+    const ModelSettings& modelSettings,
+    absl::FunctionRef<absl::StatusOr<ContactRectangle>(int contactIndex)> contactRectangle,
+    bool scaleTotalMass,
+    scalar_t totalMass,
+    bool verbose) {
   urdf::ModelInterfaceSharedPtr urdfTree = urdf::parseURDFFile(urdfFilePath);
   if (urdfTree == nullptr) {
     return absl::InvalidArgumentError(
@@ -176,9 +182,9 @@ absl::StatusOr<PinocchioInterface> loadCustomPinocchioInterface(const std::strin
   pinocchio::ModelTpl<scalar_t> model;
   pinocchio::urdf::buildModel(newModel, getBaseJointcomposite(), model);
 
-  for (int i = 0; i < N_CONTACTS; i++) {
-    ContactRectangle contactRectangle = ContactRectangle::loadContactRectangle(taskFilePath, modelSettings, i, verbose);
-    addContactPolygonFrames(contactRectangle, model);
+  for (int i = 0; i < static_cast<int>(kNumContacts); ++i) {
+    ASSIGN_OR_RETURN(const ContactRectangle rectangle, contactRectangle(i));
+    addContactPolygonFrames(rectangle, model);
   }
 
   if (scaleTotalMass) {
@@ -190,22 +196,33 @@ absl::StatusOr<PinocchioInterface> loadCustomPinocchioInterface(const std::strin
   return pinocchioInterface;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
+}  // namespace
 
-PinocchioInterface createCustomPinocchioInterface(const std::string& taskFilePath,
-                                                  const std::string& urdfFilePath,
-                                                  const ModelSettings& modelSettings,
-                                                  bool scaleTotalMass,
-                                                  scalar_t totalMass,
-                                                  bool verbose) {
+absl::StatusOr<PinocchioInterface> loadCustomPinocchioInterface(const mpc_config::TaskFile& taskFile,
+                                                                const std::string& urdfFilePath,
+                                                                const ModelSettings& modelSettings,
+                                                                bool scaleTotalMass,
+                                                                scalar_t totalMass,
+                                                                bool verbose) {
+  return buildCustomPinocchioInterface(
+      urdfFilePath, modelSettings,
+      [&](int contactIndex) { return contactRectangleFromConfig(taskFile.contacts, modelSettings, contactIndex); }, scaleTotalMass,
+      totalMass, verbose);
+}
+
+absl::StatusOr<PinocchioInterface> loadCustomPinocchioInterface(const std::string& taskFilePath,
+                                                                const std::string& urdfFilePath,
+                                                                const ModelSettings& modelSettings,
+                                                                bool scaleTotalMass,
+                                                                scalar_t totalMass,
+                                                                bool verbose) {
+  ASSIGN_OR_RETURN(const mpc_config::TaskFile taskFile, loadTaskFile(taskFilePath));
   absl::StatusOr<PinocchioInterface> pinocchioInterface =
-      loadCustomPinocchioInterface(taskFilePath, urdfFilePath, modelSettings, scaleTotalMass, totalMass, verbose);
+      loadCustomPinocchioInterface(taskFile, urdfFilePath, modelSettings, scaleTotalMass, totalMass, verbose);
   if (!pinocchioInterface.ok()) {
-    throw std::invalid_argument(std::string(pinocchioInterface.status().message()));
+    return withConfigFile(pinocchioInterface.status(), taskFilePath);
   }
-  return *std::move(pinocchioInterface);
+  return pinocchioInterface;
 }
 
 }  // namespace ocs2::humanoid

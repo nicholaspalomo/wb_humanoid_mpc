@@ -1,0 +1,122 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+
+# robot_realtime - Building blocks of the robot process's realtime thread: a lock-free SPSC ring, thread setup
+# (SCHED_FIFO, mlockall, stack prefault, affinity, name), absolute-deadline pacing and loop timing statistics.
+# Free of ROS, protobuf and humanoid_nmpc. See README.md.
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "robot_realtime",
+    srcs = [
+        "src/LoopTimingStats.cpp",
+        "src/PeriodicTimer.cpp",
+        "src/RealtimeThread.cpp",
+    ],
+    hdrs = [
+        "include/robot_realtime/LoopTimingSnapshot.h",
+        "include/robot_realtime/LoopTimingStats.h",
+        "include/robot_realtime/PeriodicTimer.h",
+        "include/robot_realtime/RealtimeThread.h",
+        "include/robot_realtime/SpscQueue.h",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["include"],
+    deps = [
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/types:span",
+    ],
+)
+
+# Counts every heap allocation of the process by interposing glibc's allocation functions, for the allocation test
+# only. Linked statically, so that the interposer is part of the executable.
+cc_library(
+    name = "allocation_counter",
+    testonly = True,
+    srcs = ["test/AllocationCounter.cpp"],
+    hdrs = ["test/AllocationCounter.h"],
+    copts = FIRST_PARTY_COPTS,
+    linkstatic = True,
+    alwayslink = True,
+    deps = [
+        "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:nullability",
+    ],
+)
+
+cc_test(
+    name = "test_spsc_queue",
+    size = "small",
+    srcs = ["test/testSpscQueue.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":robot_realtime",
+        "@abseil-cpp//absl/base:nullability",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_periodic_timer",
+    size = "small",
+    srcs = ["test/testPeriodicTimer.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":robot_realtime",
+        "@abseil-cpp//absl/base:nullability",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_loop_timing_stats",
+    size = "small",
+    srcs = ["test/testLoopTimingStats.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":robot_realtime",
+        "//robot_runtime/robot_core",
+        "@abseil-cpp//absl/base:nullability",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_realtime_thread",
+    size = "small",
+    srcs = ["test/testRealtimeThread.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":robot_realtime",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The realtime property: once constructed, the queue, the timer and the statistics make no heap allocation. A target
+# of its own, because the allocation counter replaces malloc for the whole binary.
+cc_test(
+    name = "test_realtime_allocations",
+    size = "small",
+    srcs = ["test/testRealtimeAllocations.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    linkstatic = True,
+    deps = [
+        ":allocation_counter",
+        ":robot_realtime",
+        "//robot_runtime/robot_core",
+        "@abseil-cpp//absl/base:nullability",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)

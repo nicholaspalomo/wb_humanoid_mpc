@@ -127,7 +127,7 @@ flowchart TD
         JacReorder --> JacFull["J_aCOM/dx =<br/>[0₃ₓ₆ | 0₃ₓ₃ | I₃ₓ₃ | P·J_Δθ]"]
         ThetaErr --> Cost["½ e_com' Q_com e_com<br/>+ ½ e_aCOM' Q_aCOM e_aCOM"]
         JacFull --> GaussNewton["Gauss-Newton Hessian:<br/>J' Q J"]
-        GaussNewton --> SQP["OCS2 SQP/iLQR Solver"]
+        GaussNewton --> SQP["OCS2 SQP Solver"]
         Cost --> SQP
     end
 ```
@@ -191,7 +191,7 @@ This chain-rule Jacobian is implemented identically in both:
 
 ### 4.1 ComAndAcomTrackingCost
 
-CoM + aCOM tracking is the cost **`com_and_acom_tracking_cost`** of `task.yaml`'s `costs` list, selected by name like
+CoM + aCOM tracking is the cost **`com_and_acom_tracking_cost`** of the task file's `costs` list, selected by name like
 every other cost term. Listing it replaces base-pose regulation with a combined **CoM + aCOM** cost:
 
 $$\mathcal{L}_{\text{CoM+aCOM}}(\mathbf{x}, \mathbf{x}_{\text{ref}}) = \frac{1}{2} \mathbf{e}_{\text{CoM}}^\top \mathbf{Q}_{\text{CoM}} \, \mathbf{e}_{\text{CoM}} + \frac{1}{2} \mathbf{e}_{\text{aCOM}}^\top \mathbf{Q}_{\text{aCOM}} \, \mathbf{e}_{\text{aCOM}}$$
@@ -206,35 +206,38 @@ Everything the replacement involves follows from that one entry (`CentroidalMpcI
 
 ```mermaid
 flowchart LR
-    entry["costs: com_and_acom_tracking_cost"] --> running["ComAndAcomTrackingCost on Q_com, Q_acom<br/>(stateCostPtr: comAndAcomTrackingCost)"]
-    entry --> zeroQ["Q: base-pose block 6..11 zeroed<br/>(state_quadratic_cost or state_input_quadratic_cost)"]
-    entry --> zeroQf["Q_final: base-pose block zeroed<br/>(terminal_cost)"]
-    zeroQf --> terminal["terminal ComAndAcomTrackingCost on<br/>terminalCostScaling x Q_com, Q_acom<br/>(finalCostPtr: terminalComAndAcomTrackingCost)"]
+    entry["costs: com_and_acom_tracking_cost"] --> running["ComAndAcomTrackingCost on com_weights, acom_weights<br/>(stateCostPtr: comAndAcomTrackingCost)"]
+    entry --> zeroQ["state_weights: base-pose block 6..11 zeroed<br/>(state_quadratic_cost or state_input_quadratic_cost)"]
+    entry --> zeroQf["final_state_weights: base-pose block zeroed<br/>(terminal_cost)"]
+    zeroQf --> terminal["terminal ComAndAcomTrackingCost on<br/>terminal_cost_scaling x com_weights, acom_weights<br/>(finalCostPtr: terminalComAndAcomTrackingCost)"]
     entry --> arms["procedural arm swing off"]
     entry --> updater["live parameter updater: zeroes the same blocks<br/>because the RUNNING problem carries the cost"]
 ```
 
-- **Which quadratic state cost carries `Q` does not matter.** The base-pose block is zeroed in `state_quadratic_cost`
-  and in `state_input_quadratic_cost` alike, and the ACoM cost is added beside either (or on its own).
-- **The terminal node keeps CoM and orientation regulation.** With `terminal_cost`, `Q_final`'s base-pose block is
-  zeroed as well, and the final cost gets a second `ComAndAcomTrackingCost` weighted by `terminalCostScaling` times
-  `Q_com` and `Q_acom` - exactly how `Q_final` relates to `Q` for the rest of the state. Zeroing without that
-  substitute would leave the last node - the one `terminalCostScaling` weights up - with no CoM, height or orientation
-  weight at all. Under the
-  DCM terminal cost (`dcm_terminal_cost` in `costs`, in place of `terminal_cost`, as Atlas ships) there is no
-  `Q_final` and no terminal instance: the horizon ends on the capture-point cost.
+- **Which quadratic state cost carries `state_weights` does not matter.** The base-pose block is zeroed in
+  `state_quadratic_cost` and in `state_input_quadratic_cost` alike, and the ACoM cost is added beside either (or on its
+  own).
+- **The terminal node keeps CoM and orientation regulation.** With `terminal_cost`, the base-pose block of
+  `final_state_weights` is zeroed as well, and the final cost gets a second `ComAndAcomTrackingCost` weighted by
+  `terminal_cost_scaling` times `com_weights` and `acom_weights` - exactly how `final_state_weights` relates to
+  `state_weights` for the rest of the state. Zeroing without that substitute would leave the last node - the one
+  `terminal_cost_scaling` weights up - with no CoM, height or orientation weight at all. Under the DCM terminal cost
+  (`dcm_terminal_cost` in `costs`, in place of `terminal_cost`, as Atlas ships) there is no `final_state_weights` and no
+  terminal instance: the horizon ends on the capture-point cost.
 - **Centroidal MPC only.** `WBMpcInterface` refuses the name: the whole-body state has joint angles where the
   centroidal state has the base pose, so the zeroed block would be one leg's weights.
-- **The cost list is not hot-reloadable.** `MpcParameterUpdaterModule` zeroes a reloaded `Q` and `Q_final` when the
-  running problem carries the ACoM cost, whatever the reloaded file lists, and warns when the two disagree; the new list
-  takes effect at the next start.
-- **The retired key is refused.** It replaced the top-level boolean `useComAndAcomTracking`; a task file that still
-  carries that key - with either value - fails at start-up (`loadMpcFormulationTasks`) with a message naming
+- **The cost list is not hot-reloadable.** The parameter updater's `QuadraticCostWeightsApplier`
+  (`humanoid_common_mpc/parameter_update/`) zeroes a reloaded `state_weights` and `final_state_weights` when the
+  running problem carries the ACoM cost, whatever the reloaded file lists, and the updater warns when the two disagree;
+  the new list takes effect at the next start.
+- **The retired key is refused.** The cost replaced the top-level boolean `useComAndAcomTracking`; a task file that
+  still carries it - in that spelling or as `use_com_and_acom_tracking`, with either value - does not parse: the strict
+  parser refuses it with the replacement that the `retired_field` option of `task_file.proto` gives, which names
   `com_and_acom_tracking_cost`, so that a stale file never silently runs a different formulation.
 
 ### 4.2 Gauss-Newton Quadratic Approximation
 
-The cost function provides a quadratic approximation for the SQP/iLQR solver using Jacobians w.r.t. the centroidal state $\mathbf{x}$:
+The cost function provides a quadratic approximation for the OCS2 SQP solver using Jacobians w.r.t. the centroidal state $\mathbf{x}$:
 
 $$\mathbf{x} = \begin{bmatrix} \mathbf{h}_{\text{norm}} \\ \mathbf{p}_{\text{base}} \\ \boldsymbol{\theta}_{\text{base}}^{\text{ZYX}} \\ \mathbf{q}_j \end{bmatrix} \in \mathbb{R}^{n_x}, \quad \text{indices: } [0..5, \; 6..8, \; 9..11, \; 12..12{+}n_j]$$
 
@@ -269,41 +272,43 @@ While `com_and_acom_tracking_cost` is listed, `CentroidalMpcInterface` switches 
 
 ### 4.4 Configuration
 
-Enable in `task.yaml` (the weights below show the layout; `robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml`
-carries Atlas's tuned values):
-```yaml
-costs:
-  - state_quadratic_cost
-  - com_and_acom_tracking_cost
-  # ...
+Enable in the task file (the weights below show the layout;
+`robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto` carries Atlas's tuned values). The weights
+are the blocks `com_weights` and `acom_weights` (formerly `Q_com` and `Q_acom`), by name:
+```textproto
+costs: "state_quadratic_cost"
+costs: "com_and_acom_tracking_cost"
+# ...
 
-Q_com:
+com_weights {
   scaling: 1.0
-  "(0,0)": 1.0  # weight on p_com_x
-  "(1,1)": 1.0  # weight on p_com_y
-  "(2,2)": 1.0  # weight on p_com_z
+  x: 1.0  # weight on p_com_x
+  y: 1.0  # weight on p_com_y
+  z: 1.0  # weight on p_com_z
+}
 
-# Rows follow the centroidal state's ZYX Euler convention, mirroring Q entries
-# (9,9) through (11,11). Row 0 is yaw, not roll.
-Q_acom:
+# The aCOM is weighted in the centroidal state's ZYX Euler convention, as state_weights.base_orientation is.
+acom_weights {
   scaling: 1.0
-  "(0,0)": 1.0  # weight on the aCOM yaw
-  "(1,1)": 1.0  # weight on the aCOM pitch
-  "(2,2)": 1.0  # weight on the aCOM roll
+  yaw: 1.0  # weight on the aCOM yaw
+  pitch: 1.0  # weight on the aCOM pitch
+  roll: 1.0  # weight on the aCOM roll
+}
 ```
 
 With the cost listed, the factory zeroes the 6x6 base-pose block (the diagonal block at rows and columns 6..11:
-$\mathbf{p}_{\text{base}}$ and the base Euler angles) of both the running `Q` and the terminal `Q_final`, to avoid
-penalizing the same error twice in two parameterizations; `ComAndAcomTrackingCost::zeroBasePoseWeights` defines that
+$\mathbf{p}_{\text{base}}$ and the base Euler angles) of both the running `state_weights` and the terminal
+`final_state_weights`, to avoid penalizing the same error twice in two parameterizations;
+`ComAndAcomTrackingCost::zeroBasePoseWeights` defines that
 block, and the live parameter updater calls the same function. `testAcomWiring` pins the wiring: the named cost
 assembles, term by term and derivative by derivative, exactly the problem the retired boolean assembled on Atlas; the
 block is zeroed beside either quadratic state cost; the terminal node keeps CoM and orientation regulation; and the
 retired key is refused.
 
 `ComAndAcomTrackingCost::Create` refuses to build the cost - with a `Status` that names the key to change - when
-`Q_com` or `Q_acom` is not 3x3, when no network is registered for `model_settings.robotName`, or when the network was
+`com_weights` or `acom_weights` is missing, when no network is registered for `model_settings.robot_name`, or when the network was
 trained on a joint vector other than the MPC model's (compared name by name, see section 8). Before that, a task file
-that lists `com_and_acom_tracking_cost` without writing `Q_com` or `Q_acom` - as the G1 and SA01 files, which do not
+that lists `com_and_acom_tracking_cost` without writing `com_weights` or `acom_weights` - as the G1 and SA01 files, which do not
 list it, carry neither - is refused the same way by `HumanoidCostConstraintFactory`, naming the missing matrix.
 
 ---
@@ -359,7 +364,7 @@ humanoid_nmpc/humanoid_centroidal_mpc/test/
 bazel run //humanoid_learning/acom:train_main -- \
     --robot g1 --output_dir /tmp/acom_g1
 
-# Train on EngineAI SA01 (12 leg joints; model_settings.robotName engineai_sa01)
+# Train on EngineAI SA01 (12 leg joints; model_settings.robot_name engineai_sa01)
 bazel run //humanoid_learning/acom:train_main -- \
     --robot sa01 --output_dir /tmp/acom_sa01
 
@@ -369,13 +374,14 @@ bazel run //humanoid_learning/acom:train_main -- \
 ```
 
 `--robot` picks the model files in `train_main.py`'s `_ROBOT_CONFIGS`. Everything that has to agree with the MPC - the
-robot's `model_settings.robotName` and the joints it holds fixed (`model_settings.fixedJointNames`) - is read out of
-that robot's centroidal `task.yaml` at training time rather than repeated in the script.
+robot's `model_settings.robot_name` and the joints it holds fixed (`model_settings.fixed_joint_names`) - is read out of
+that robot's centroidal `task.textproto` at training time (strictly parsed into its schema, `humanoid_mpc_config.TaskFile`)
+rather than repeated in the script.
 
 The defaults - `--num_samples 20000 --hidden_dim 64 --epochs 150` - are a standard run, **not** a record of how each
 shipped header was made. The Atlas header came from `--num_samples 80000 --epochs 300` (section 6.3); the recipe of the G1
 and SA01 headers was not recorded. Every header exported since records its own: `train_main.py` writes the robot, its
-`robotName` and fixed joints, the sampling box, the dataset size, epochs, width, layer count, seeds and the exported
+`robot_name` and fixed joints, the sampling box, the dataset size, epochs, width, layer count, seeds and the exported
 epoch into the header's banner. The architecture defaults (`--hidden_dim 64`, two sine layers) *are* those of every
 shipped header; they used to be 5000 / 16 / 30, which meant following this section verbatim installed a network about
 twice as inaccurate as the one it replaced.
@@ -585,7 +591,7 @@ gen = AcomDatasetGenerator(
 dataset = gen.generate_dataset(num_samples=20000)
 ```
 
-(`train_main.make_generator("atlas")` builds exactly this, with the fixed joints read from Atlas's `task.yaml`.)
+(`train_main.make_generator("atlas")` builds exactly this, with the fixed joints read from Atlas's `task.textproto`.)
 
 For all three robots currently shipped, MuJoCo's MJCF also declares joints in Pinocchio's order, so `joint_perm` comes
 out as the identity. That is asserted rather than assumed, by `test_joint_permutation_is_the_identity`: a non-identity
@@ -608,8 +614,8 @@ it:
 
 ### Fixed joints
 
-The fixed joints are `model_settings.fixedJointNames` of the robot's centroidal `task.yaml`, which `train_main.py` reads
+The fixed joints are `model_settings.fixed_joint_names` of the robot's centroidal `task.textproto`, which `train_main.py` reads
 directly, so there is no second list to keep in sync. Those joints are held at zero during sampling and then dropped
 from the dataset, so the network's inputs are exactly the MPC model's joints; a fixed-joint name the model does not
-have is rejected rather than ignored. Changing `fixedJointNames` after training - even for another set of the same size -
+have is rejected rather than ignored. Changing `fixed_joint_names` after training - even for another set of the same size -
 is caught at start-up by the name check above, and needs a retrain.

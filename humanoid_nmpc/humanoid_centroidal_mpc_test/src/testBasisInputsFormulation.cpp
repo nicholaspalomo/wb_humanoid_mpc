@@ -37,52 +37,46 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * and load the libraries it compiled: the CppAD folder is keyed by the basis, so that is exactly what they must do.
  */
 
-#include <gtest/gtest.h>
-
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <unistd.h>
 
-#include <cstdlib>
+#include <algorithm>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <random>
-#include <regex>
-#include <sstream>
-#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <Eigen/Eigenvalues>
-
-#include <boost/property_tree/ptree.hpp>
-
+#include "Eigen/Eigenvalues"
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "gtest/gtest.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/cost/QuadraticStateInputCost.h"
 
-#include <ocs2_core/PreComputation.h>
-#include <ocs2_core/cost/QuadraticStateInputCost.h>
-#include <ocs2_core/misc/LoadData.h>
-
-#include <ament_index_cpp/get_package_share_directory.hpp>
-
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsAD.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsBasisInputsAD.h"
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
+#include "humanoid_common_mpc/config/weights/StateInputLayout.h"
+#include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/constraint/ZeroWrenchConstraint.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "robot_core/ResourcePaths.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -102,116 +96,43 @@ struct AtlasFiles {
   std::string referenceFile;
 };
 
-std::optional<std::string> firstExistingPath(const std::vector<std::string>& candidates) {
-  for (const std::string& candidate : candidates) {
-    std::error_code ec;
-    if (std::filesystem::exists(candidate, ec)) {
-      return candidate;
-    }
-  }
-  return std::nullopt;
-}
-
-/** The first of `root + "/" + relativePath` over the roots that exists. */
-std::optional<std::string> firstExistingPathUnder(const std::vector<std::string>& roots, const std::string& relativePath) {
-  std::vector<std::string> candidates;
-  for (const std::string& root : roots) {
-    candidates.emplace_back(absl::StrCat(root, "/", relativePath));
-  }
-  return firstExistingPath(candidates);
-}
-
-/**
- * Locates the DRC Atlas task/URDF/reference files.
- *
- * Under `bazel test` the data files live in the runfiles tree, which is also the working directory, so those copies
- * are preferred: they are symlinks into the checkout and therefore always current. The ament index (populated by
- * setup_env.sh from a *copy* of the source tree) is only a fallback because that copy can be stale.
- */
+/** The DRC Atlas task, URDF and reference files, from the test's runfiles (BUILD `_TEST_DATA`). */
 AtlasFiles locateAtlasFiles() {
-  const std::string taskRel = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml";
-  const std::string referenceRel = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml";
-  const std::string urdfRel = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
-
-  std::vector<std::string> roots;
-  if (const char* srcDir = std::getenv("TEST_SRCDIR")) {
-    roots.emplace_back(absl::StrCat(srcDir, "/_main"));
-    roots.emplace_back(absl::StrCat(srcDir, "/wb_humanoid_mpc"));
-  }
-  roots.emplace_back(std::filesystem::current_path().string());
-  roots.emplace_back("/wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc");
-
-  const std::optional<std::string> taskFile = firstExistingPathUnder(roots, taskRel);
-  const std::optional<std::string> referenceFile = firstExistingPathUnder(roots, referenceRel);
-  const std::optional<std::string> urdfFile = firstExistingPathUnder(roots, urdfRel);
-  if (taskFile && referenceFile && urdfFile) {
-    return AtlasFiles{*taskFile, *urdfFile, *referenceFile};
-  }
-
-  // Fallback: installed / ament-indexed packages (requires AMENT_PREFIX_PATH, which .bazelrc forwards to tests).
-  const std::string configDir = ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc");
-  const std::string descriptionDir = ament_index_cpp::get_package_share_directory("drc_atlas_description");
-  return AtlasFiles{absl::StrCat(configDir, "/config/mpc/task.yaml"), absl::StrCat(descriptionDir, "/urdf/atlas.urdf"),
-                    absl::StrCat(configDir, "/config/command/reference.yaml")};
+  return AtlasFiles{
+      .taskFile = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto").value(),
+      .urdfFile = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf").value(),
+      .referenceFile =
+          robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.textproto").value()};
 }
 
 /******************************************************************************************************/
-/*                                        Task file rewriting                                         */
+/*                                     The configuration of a mode                                    */
 /******************************************************************************************************/
 
-std::string readFile(const std::string& path) {
-  std::ifstream in(path);
-  if (!in) {
-    throw std::runtime_error(absl::StrCat("[testBasisInputsFormulation] Cannot read file: ", path));
-  }
-  std::stringstream buffer;
-  buffer << in.rdbuf();
-  return buffer.str();
-}
-
 /**
- * Replaces the value of every `<indent>key: value  # comment` line with `<indent>key: newValue` and returns the number
- * of lines that were rewritten. The key must match a whole YAML key (e.g. "verbose" does not match "verboseCppAd:").
- */
-size_t replaceYamlScalar(std::string& content, const std::string& key, const std::string& newValue) {
-  const std::regex lineRegex(absl::StrCat("(^|\\n)([ \\t]*", key, ":)[ \\t]*[^\\n]*"));
-  const size_t numMatches = std::distance(std::sregex_iterator(content.begin(), content.end(), lineRegex), std::sregex_iterator());
-  content = std::regex_replace(content, lineRegex, absl::StrCat("$1$2 ", newValue));
-  return numMatches;
-}
-
-/** Rewrites the single `key:` line of a task file, and fails loudly when there is not exactly one. */
-void replaceExactlyOnce(std::string& content, const std::string& key, const std::string& value) {
-  const size_t numReplaced = replaceYamlScalar(content, key, value);
-  if (numReplaced != 1) {
-    throw std::runtime_error(
-        absl::StrCat("[testBasisInputsFormulation] Expected exactly one '", key, ":' line in the task file, found ", numReplaced));
-  }
-}
-
-/**
- * Writes a copy of the Atlas task file for the requested input formulation into `dir`.
+ * The Atlas configuration for the requested input formulation.
  *
  * The CppAD folder is not taken from the task file: ModelSettings derives it from the MPC and robot names, relative to
  * the working directory (the runfiles tree under `bazel test`), and CentroidalMpcInterface appends the key of the
  * contact input parameterization - `wrench_inputs`, or `basis<n>_<hash of the basis>` - so the two modes compile into
- * folders of their own (CppAdModelFolderIsKeyedByTheParameterizationAndTheBasis checks it). The copy still forces
- * recompilation, so that the test always exercises code generation rather than whatever an earlier run left behind.
+ * folders of their own (CppAdModelFolderIsKeyedByTheParameterizationAndTheBasis checks it). The configuration still
+ * forces recompilation, so that the test always exercises code generation rather than whatever an earlier run left
+ * behind.
  */
-std::string writeTaskFileForMode(const AtlasFiles& files, bool useBasisInputs, const std::filesystem::path& dir) {
-  const std::string modeName = useBasisInputs ? "basis" : "wrench";
+absl::StatusOr<CentroidalMpcConfig> configForMode(const AtlasFiles& files, bool useBasisInputs) {
+  absl::StatusOr<CentroidalMpcConfig> config = loadCentroidalMpcConfig(files.taskFile, files.referenceFile);
+  if (!config.ok()) return config.status();
+  config->task.contact_input_parameterization = useBasisInputs ? "basis_vectors" : "wrench";
+  config->task.model_settings.recompile_libraries_cpp_ad = true;
+  return config;
+}
 
-  std::string content = readFile(files.taskFile);
-  replaceExactlyOnce(content, "contactInputParameterization", useBasisInputs ? "basis_vectors" : "wrench");
-  replaceExactlyOnce(content, "recompileLibrariesCppAd", "true");
-
-  const std::filesystem::path taskFile = dir / absl::StrCat("task_", modeName, ".yaml");
-  std::ofstream out(taskFile);
-  if (!out) {
-    throw std::runtime_error(absl::StrCat("[testBasisInputsFormulation] Cannot write file: ", taskFile.string()));
-  }
-  out << content;
-  return taskFile.string();
+/** The wrench-space input_weights of `config` on the state and input of `interface`; a refusal fails the test. */
+matrix_t wrenchSpaceR(const CentroidalMpcConfig& config, const CentroidalMpcInterface& interface) {
+  const absl::StatusOr<matrix_t> R = inputWeightsFromConfig(
+      config.task.input_weights, stateInputLayout(interface.modelSettings(), StateInputLayout::Mpc::kCentroidal), "input_weights");
+  EXPECT_TRUE(R.ok()) << R.status();
+  return R.ok() ? *R : matrix_t();
 }
 
 /******************************************************************************************************/
@@ -220,7 +141,7 @@ std::string writeTaskFileForMode(const AtlasFiles& files, bool useBasisInputs, c
 
 /** Central finite-difference Jacobian of f around v. */
 template <typename Func>
-matrix_t centralDifferenceJacobian(Func&& f, const vector_t& v, size_t outputDim, scalar_t eps) {
+matrix_t centralDifferenceJacobian(const Func& f, const vector_t& v, size_t outputDim, scalar_t eps) {
   matrix_t jacobian(outputDim, v.size());
   for (Eigen::Index j = 0; j < v.size(); ++j) {
     vector_t vPlus = v;
@@ -274,7 +195,8 @@ class BasisInputsFormulationTest : public ::testing::Test {
  protected:
   struct InterfaceHolder {
     std::unique_ptr<CentroidalMpcInterface> interface;
-    std::string taskFile;
+    // The configuration the interface is built from.
+    CentroidalMpcConfig config;
     std::string error;
     bool attempted = false;
   };
@@ -303,60 +225,42 @@ class BasisInputsFormulationTest : public ::testing::Test {
       return h;
     }
     h.attempted = true;
-    try {
-      h.taskFile = writeTaskFileForMode(files_, useBasisInputs, tmpDir_);
-      absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> statusOr =
-          CentroidalMpcInterface::Create(h.taskFile, files_.urdfFile, files_.referenceFile);
-      if (!statusOr.ok()) {
-        h.error = std::string(statusOr.status().message());
-      } else {
-        h.interface = std::move(*statusOr);
-      }
-    } catch (const std::exception& e) {
-      h.error = e.what();
+    absl::StatusOr<CentroidalMpcConfig> config = configForMode(files_, useBasisInputs);
+    if (!config.ok()) {
+      h.error = std::string(config.status().message());
+      return h;
+    }
+    h.config = *std::move(config);
+    absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> statusOr = CentroidalMpcInterface::Create(h.config, files_.urdfFile);
+    if (!statusOr.ok()) {
+      h.error = std::string(statusOr.status().message());
+    } else {
+      h.interface = std::move(*statusOr);
     }
     return h;
   }
 
   /**
-   * An interface built from the basis-mode task file with code generation off and `keyEdits` applied (each sets the
-   * value of exactly one `key:` line), then `textEdits` (each replaces a text that occurs exactly once). Built after the
+   * An interface built from the basis-mode configuration with code generation off and `edit` applied. Built after the
    * basis-mode interface, whose compiled libraries it loads: no edit may change the basis, and so none changes the CppAD
    * folder.
    */
-  static absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> buildBasisVariant(
-      const std::string& name,
-      const std::vector<std::pair<std::string, std::string>>& keyEdits,
-      const std::vector<std::pair<std::string, std::string>>& textEdits = {}) {
+  static absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> buildBasisVariant(const std::function<void(mpc_config::TaskFile&)>& edit) {
     InterfaceHolder& basis = holder(/*useBasisInputs=*/true);
     if (!basis.interface) {
       return absl::FailedPreconditionError(absl::StrCat("the basis-mode interface failed: ", basis.error));
     }
-    std::string content = readFile(basis.taskFile);
-    replaceExactlyOnce(content, "recompileLibrariesCppAd", "false");
-    for (const std::pair<std::string, std::string>& edit : keyEdits) {
-      replaceExactlyOnce(content, edit.first, edit.second);
-    }
-    for (const std::pair<std::string, std::string>& edit : textEdits) {
-      const std::string::size_type position = content.find(edit.first);
-      if (position == std::string::npos || content.find(edit.first, position + 1) != std::string::npos) {
-        return absl::InternalError(absl::StrCat("'", edit.first, "' does not occur exactly once in the task file"));
-      }
-      content.replace(position, edit.first.size(), edit.second);
-    }
-    const std::filesystem::path taskFile = tmpDir_ / absl::StrCat("task_basis_", name, ".yaml");
-    {
-      std::ofstream out(taskFile);
-      out << content;
-    }
-    return CentroidalMpcInterface::Create(taskFile.string(), files_.urdfFile, files_.referenceFile);
+    CentroidalMpcConfig config = basis.config;
+    config.task.model_settings.recompile_libraries_cpp_ad = false;
+    edit(config.task);
+    return CentroidalMpcInterface::Create(config, files_.urdfFile);
   }
 
-  static CentroidalDynamicsBasisInputsAD* basisDynamics(const CentroidalMpcInterface& interface) {
+  static CentroidalDynamicsBasisInputsAD* absl_nullable basisDynamics(const CentroidalMpcInterface& interface) {
     return dynamic_cast<CentroidalDynamicsBasisInputsAD*>(interface.getOptimalControlProblem().dynamicsPtr.get());
   }
 
-  static CentroidalDynamicsAD* wrenchDynamics(const CentroidalMpcInterface& interface) {
+  static CentroidalDynamicsAD* absl_nullable wrenchDynamics(const CentroidalMpcInterface& interface) {
     return dynamic_cast<CentroidalDynamicsAD*>(interface.getOptimalControlProblem().dynamicsPtr.get());
   }
 
@@ -374,28 +278,28 @@ BasisInputsFormulationTest::InterfaceHolder BasisInputsFormulationTest::wrenchHo
 /******************************************************************************************************/
 /* (1) Dimensions and wiring of the basis-vector formulation                                          */
 /******************************************************************************************************/
-TEST_F(BasisInputsFormulationTest, BasisMode_Dimensions) {
+TEST_F(BasisInputsFormulationTest, BasisModeDimensions) {
   InterfaceHolder& h = holder(/*useBasisInputs=*/true);
   ASSERT_TRUE(h.interface) << "Failed to construct the basis-mode interface: " << h.error;
   const CentroidalMpcInterface& interface = *h.interface;
 
   EXPECT_TRUE(interface.usesContactBasisVectorInputs());
 
-  const BasisInputsModelDecorator<scalar_t>* decorator = interface.getBasisDecoratorPtr();
+  const BasisInputsModelDecorator<scalar_t>* absl_nullable decorator = interface.getBasisDecoratorPtr();
   ASSERT_NE(decorator, nullptr);
   EXPECT_NE(dynamic_cast<const BasisInputsModelDecorator<scalar_t>*>(&interface.getEffectiveMpcRobotModel()), nullptr);
   EXPECT_NE(dynamic_cast<const BasisInputsModelDecorator<ad_scalar_t>*>(&interface.getEffectiveMpcRobotModelAD()), nullptr);
 
   // numBasisPerFoot = numBasisVectors (friction pyramid) + 1 normal + 4 CoP corner + 2 torsional rays: the
   // conservative_inner_approximation generator set, which is still the default and what the shipped Atlas file uses.
-  size_t numBasisVectorsFromYaml = 0;
-  loadData::loadCppDataType(h.taskFile, "contacts.contactWrenchConeSoftConstraint.numBasisVectors", numBasisVectorsFromYaml);
+  const size_t numBasisVectorsFromFile =
+      static_cast<size_t>(h.config.task.contacts.contact_wrench_cone_soft_constraint.num_basis_vectors.value_or(0));
   const size_t numBasisPerFoot = decorator->getNumBasisPerFoot();
-  EXPECT_EQ(numBasisPerFoot, numBasisVectorsFromYaml + 7);
+  EXPECT_EQ(numBasisPerFoot, numBasisVectorsFromFile + 7);
 
   const size_t jointDim = interface.modelSettings().mpc_joint_dim;
-  const size_t wrenchInputDim = kWrenchDimPerContact * N_CONTACTS + jointDim;
-  const size_t basisInputDim = N_CONTACTS * numBasisPerFoot + jointDim;
+  const size_t wrenchInputDim = kWrenchDimPerContact * kNumContacts + jointDim;
+  const size_t basisInputDim = kNumContacts * numBasisPerFoot + jointDim;
 
   EXPECT_EQ(interface.getEffectiveMpcRobotModel().getInputDim(), basisInputDim);
   EXPECT_EQ(interface.getEffectiveMpcRobotModelAD().getInputDim(), basisInputDim);
@@ -404,36 +308,37 @@ TEST_F(BasisInputsFormulationTest, BasisMode_Dimensions) {
   EXPECT_EQ(interface.getMpcRobotModel().getInputDim(), wrenchInputDim);
   EXPECT_EQ(interface.getWrenchInputDim(), wrenchInputDim);
   EXPECT_EQ(interface.getWrenchInputDim(), static_cast<size_t>(interface.getCentroidalModelInfo().inputDim));
-  EXPECT_EQ(interface.getNumBasisInputs(), N_CONTACTS * numBasisPerFoot);
-  EXPECT_EQ(interface.getEffectiveMpcRobotModel().getJointVelocitiesStartindex(), N_CONTACTS * numBasisPerFoot);
+  EXPECT_EQ(interface.getNumBasisInputs(), kNumContacts * numBasisPerFoot);
+  EXPECT_EQ(interface.getEffectiveMpcRobotModel().getJointVelocitiesStartindex(), kNumContacts * numBasisPerFoot);
 
   // M = blkdiag(B_0, B_1, I_joints) of size wrenchInputDim x basisInputDim.
-  ASSERT_TRUE(interface.getBasisToWrenchMap().has_value());
-  const matrix_t& M = *interface.getBasisToWrenchMap();
+  const std::optional<matrix_t>& basisToWrenchMap = interface.getBasisToWrenchMap();
+  if (!basisToWrenchMap.has_value()) GTEST_FAIL() << "no basis-to-wrench map under basis-vector inputs";
+  const matrix_t& M = *basisToWrenchMap;
   ASSERT_EQ(static_cast<size_t>(M.rows()), interface.getWrenchInputDim());
   ASSERT_EQ(static_cast<size_t>(M.cols()), basisInputDim);
-  for (size_t i = 0; i < N_CONTACTS; ++i) {
+  for (size_t i = 0; i < kNumContacts; ++i) {
     const matrix_t& B = decorator->getBasisMatrix(i);
     ASSERT_EQ(static_cast<size_t>(B.rows()), kWrenchDimPerContact);
     ASSERT_EQ(static_cast<size_t>(B.cols()), numBasisPerFoot);
     EXPECT_DOUBLE_EQ((M.block(kWrenchDimPerContact * i, numBasisPerFoot * i, kWrenchDimPerContact, numBasisPerFoot) - B).norm(), 0.0);
   }
   EXPECT_DOUBLE_EQ((M.bottomRightCorner(jointDim, jointDim) - matrix_t::Identity(jointDim, jointDim)).norm(), 0.0);
-  EXPECT_DOUBLE_EQ(M.topRightCorner(kWrenchDimPerContact * N_CONTACTS, jointDim).norm(), 0.0);
-  EXPECT_DOUBLE_EQ(M.bottomLeftCorner(jointDim, N_CONTACTS * numBasisPerFoot).norm(), 0.0);
+  EXPECT_DOUBLE_EQ(M.topRightCorner(kWrenchDimPerContact * kNumContacts, jointDim).norm(), 0.0);
+  EXPECT_DOUBLE_EQ(M.bottomLeftCorner(jointDim, kNumContacts * numBasisPerFoot).norm(), 0.0);
 
   // The OCP uses the basis-input dynamics with a matching input dimension.
-  CentroidalDynamicsBasisInputsAD* dynamics = basisDynamics(interface);
+  CentroidalDynamicsBasisInputsAD* absl_nullable dynamics = basisDynamics(interface);
   ASSERT_NE(dynamics, nullptr);
   EXPECT_EQ(dynamics->getBasisInputDim(), basisInputDim);
   EXPECT_EQ(dynamics->getNumBasisPerFoot(), numBasisPerFoot);
   EXPECT_EQ(wrenchDynamics(interface), nullptr);
 
   const std::optional<BasisInputsCostTransformConfig> config = interface.getBasisInputsCostTransformConfig();
-  ASSERT_TRUE(config.has_value());
+  if (!config.has_value()) GTEST_FAIL() << "config has no value";
   EXPECT_EQ(config->regularization, kDefaultBasisRegularization) << "the shipped λ regularization is the full diagonal";
   EXPECT_EQ(config->wrenchInputDim, wrenchInputDim);
-  EXPECT_EQ(config->numBasisInputs, N_CONTACTS * numBasisPerFoot);
+  EXPECT_EQ(config->numBasisInputs, kNumContacts * numBasisPerFoot);
   EXPECT_EQ(config->basisInputDim(), basisInputDim);
   EXPECT_DOUBLE_EQ(config->lambdaRegularization, interface.getBasisScalingRegularization());
   EXPECT_DOUBLE_EQ((config->basisToWrenchMap - M).norm(), 0.0);
@@ -442,7 +347,7 @@ TEST_F(BasisInputsFormulationTest, BasisMode_Dimensions) {
 /******************************************************************************************************/
 /* (2) Basis dynamics == wrench dynamics evaluated on the world-frame-rotated wrench                   */
 /******************************************************************************************************/
-TEST_F(BasisInputsFormulationTest, BasisDynamics_MatchesWrenchDynamicsWithRotatedWrench) {
+TEST_F(BasisInputsFormulationTest, BasisDynamicsMatchesWrenchDynamicsWithRotatedWrench) {
   InterfaceHolder& hBasis = holder(/*useBasisInputs=*/true);
   ASSERT_TRUE(hBasis.interface) << "Failed to construct the basis-mode interface: " << hBasis.error;
   InterfaceHolder& hWrench = holder(/*useBasisInputs=*/false);
@@ -450,9 +355,9 @@ TEST_F(BasisInputsFormulationTest, BasisDynamics_MatchesWrenchDynamicsWithRotate
   CentroidalMpcInterface& basisInterface = *hBasis.interface;
   const CentroidalMpcInterface& wrenchInterface = *hWrench.interface;
 
-  CentroidalDynamicsBasisInputsAD* basisDyn = basisDynamics(basisInterface);
+  CentroidalDynamicsBasisInputsAD* absl_nullable basisDyn = basisDynamics(basisInterface);
   ASSERT_NE(basisDyn, nullptr);
-  CentroidalDynamicsAD* wrenchDyn = wrenchDynamics(wrenchInterface);
+  CentroidalDynamicsAD* absl_nullable wrenchDyn = wrenchDynamics(wrenchInterface);
   ASSERT_NE(wrenchDyn, nullptr);
   // Both interfaces are built from the same URDF/reference, so the underlying centroidal model is identical.
   ASSERT_EQ(basisInterface.getCentroidalModelInfo().stateDim, wrenchInterface.getCentroidalModelInfo().stateDim);
@@ -466,7 +371,7 @@ TEST_F(BasisInputsFormulationTest, BasisDynamics_MatchesWrenchDynamicsWithRotate
 
   std::mt19937 gen(42);
   const vector_t x = makeRotatedTestState(basisInterface, gen);
-  const vector_t uBasis = makeRandomBasisInput(N_CONTACTS * numBasisPerFoot, jointDim, gen);
+  const vector_t uBasis = makeRandomBasisInput(kNumContacts * numBasisPerFoot, jointDim, gen);
   ASSERT_EQ(static_cast<size_t>(uBasis.size()), effectiveModel.getInputDim());
   // Sanity check of the assumed state layout (euler ZYX at 9..11, joints from 12).
   EXPECT_DOUBLE_EQ(x(kBaseEulerZyxStartIndex), 0.7);
@@ -481,27 +386,29 @@ TEST_F(BasisInputsFormulationTest, BasisDynamics_MatchesWrenchDynamicsWithRotate
   const vector_t uWrench = basisDyn->toWorldFrameWrenchInput<scalar_t>(pinocchioInterface, basisInterface.getCentroidalModelInfo(), uBasis);
   ASSERT_EQ(static_cast<size_t>(uWrench.size()), wrenchInputDim);
 
-  const matrix_t& M = *basisInterface.getBasisToWrenchMap();
+  const std::optional<matrix_t>& basisToWrenchMap = basisInterface.getBasisToWrenchMap();
+  if (!basisToWrenchMap.has_value()) GTEST_FAIL() << "no basis-to-wrench map under basis-vector inputs";
+  const matrix_t& M = *basisToWrenchMap;
   const vector_t uWrenchLocal = M * uBasis;  // naive constant map: wrenches stay in the local contact frame
 
-  for (size_t i = 0; i < N_CONTACTS; ++i) {
+  for (size_t i = 0; i < kNumContacts; ++i) {
     const VECTOR6_T<scalar_t> wrenchWorldFromDynamics = uWrench.segment<kWrenchDimPerContact>(kWrenchDimPerContact * i);
     const VECTOR6_T<scalar_t> wrenchWorldFromDecorator = decorator.getContactWrenchInWorldFrame(x, uBasis, i);
     const VECTOR6_T<scalar_t> wrenchLocalFromDecorator = decorator.getContactWrench(uBasis, i);
     const VECTOR6_T<scalar_t> wrenchLocalFromMap = uWrenchLocal.segment<kWrenchDimPerContact>(kWrenchDimPerContact * i);
 
     // The dynamics and the decorator must agree on the world-frame wrench.
-    EXPECT_LE((wrenchWorldFromDynamics - wrenchWorldFromDecorator).norm(), 1e-9) << "contact " << i;
+    EXPECT_LE((wrenchWorldFromDynamics - wrenchWorldFromDecorator).norm(), 1.0e-9) << "contact " << i;
     // The input-only accessor returns the local-frame wrench B * lambda.
-    EXPECT_LE((wrenchLocalFromDecorator - wrenchLocalFromMap).norm(), 1e-12) << "contact " << i;
+    EXPECT_LE((wrenchLocalFromDecorator - wrenchLocalFromMap).norm(), 1.0e-12) << "contact " << i;
     // Rotating back must recover the local wrench (frame rotation is consistent).
-    EXPECT_LE((decorator.rotateWrenchWorldToLocal(x, wrenchWorldFromDecorator, i) - wrenchLocalFromDecorator).norm(), 1e-9)
+    EXPECT_LE((decorator.rotateWrenchWorldToLocal(x, wrenchWorldFromDecorator, i) - wrenchLocalFromDecorator).norm(), 1.0e-9)
         << "contact " << i;
     // With a rotated foot (yaw 0.7) the naive constant map differs from the rotated one in the force x/y components.
-    EXPECT_GT((wrenchWorldFromDynamics.head<2>() - wrenchLocalFromMap.head<2>()).norm(), 1e-6) << "contact " << i;
+    EXPECT_GT((wrenchWorldFromDynamics.head<2>() - wrenchLocalFromMap.head<2>()).norm(), 1.0e-6) << "contact " << i;
     // Rotations preserve force and moment magnitudes.
-    EXPECT_NEAR(wrenchWorldFromDynamics.head<3>().norm(), wrenchLocalFromMap.head<3>().norm(), 1e-9) << "contact " << i;
-    EXPECT_NEAR(wrenchWorldFromDynamics.tail<3>().norm(), wrenchLocalFromMap.tail<3>().norm(), 1e-9) << "contact " << i;
+    EXPECT_NEAR(wrenchWorldFromDynamics.head<3>().norm(), wrenchLocalFromMap.head<3>().norm(), 1.0e-9) << "contact " << i;
+    EXPECT_NEAR(wrenchWorldFromDynamics.tail<3>().norm(), wrenchLocalFromMap.tail<3>().norm(), 1.0e-9) << "contact " << i;
   }
   // Joint velocities pass through unchanged.
   EXPECT_DOUBLE_EQ((uWrench.tail(jointDim) - uBasis.tail(jointDim)).norm(), 0.0);
@@ -511,24 +418,24 @@ TEST_F(BasisInputsFormulationTest, BasisDynamics_MatchesWrenchDynamicsWithRotate
   const vector_t fBasis = basisDyn->computeFlowMap(/*t=*/0.0, x, uBasis, preComp);
   const vector_t fWrench = wrenchDyn->computeFlowMap(/*time=*/0.0, x, uWrench, preComp);
   ASSERT_EQ(fBasis.size(), fWrench.size());
-  EXPECT_LE((fBasis - fWrench).norm(), 1e-8 * (1.0 + fWrench.norm()))
+  EXPECT_LE((fBasis - fWrench).norm(), 1.0e-8 * (1.0 + fWrench.norm()))
       << "||f_basis - f_wrench|| = " << (fBasis - fWrench).norm() << ", ||f_wrench|| = " << fWrench.norm();
 
   // Feeding the un-rotated local wrench into the wrench dynamics must NOT reproduce the basis dynamics: the rotation
   // inside the basis-input tape is what makes the formulation frame-correct.
   const vector_t fNaive = wrenchDyn->computeFlowMap(/*time=*/0.0, x, uWrenchLocal, preComp);
-  EXPECT_GT((fBasis - fNaive).norm(), 1e-6);
+  EXPECT_GT((fBasis - fNaive).norm(), 1.0e-6);
 }
 
 /******************************************************************************************************/
 /* (3) CppAD linear approximation of the basis dynamics vs central finite differences                 */
 /******************************************************************************************************/
-TEST_F(BasisInputsFormulationTest, BasisDynamics_LinearApproximationMatchesFiniteDifferences) {
+TEST_F(BasisInputsFormulationTest, BasisDynamicsLinearApproximationMatchesFiniteDifferences) {
   InterfaceHolder& h = holder(/*useBasisInputs=*/true);
   ASSERT_TRUE(h.interface) << "Failed to construct the basis-mode interface: " << h.error;
   const CentroidalMpcInterface& interface = *h.interface;
 
-  CentroidalDynamicsBasisInputsAD* dynamics = basisDynamics(interface);
+  CentroidalDynamicsBasisInputsAD* absl_nullable dynamics = basisDynamics(interface);
   ASSERT_NE(dynamics, nullptr);
 
   const size_t stateDim = interface.getEffectiveMpcRobotModel().getStateDim();
@@ -538,7 +445,7 @@ TEST_F(BasisInputsFormulationTest, BasisDynamics_LinearApproximationMatchesFinit
 
   std::mt19937 gen(1234);
   const vector_t x = makeRotatedTestState(interface, gen);
-  const vector_t u = makeRandomBasisInput(N_CONTACTS * numBasisPerFoot, jointDim, gen);
+  const vector_t u = makeRandomBasisInput(kNumContacts * numBasisPerFoot, jointDim, gen);
 
   const PreComputation preComp;
   const VectorFunctionLinearApproximation approx = dynamics->linearApproximation(/*t=*/0.0, x, u, preComp);
@@ -549,10 +456,10 @@ TEST_F(BasisInputsFormulationTest, BasisDynamics_LinearApproximationMatchesFinit
   ASSERT_EQ(static_cast<size_t>(approx.dfdu.cols()), inputDim);
 
   const vector_t f = dynamics->computeFlowMap(/*t=*/0.0, x, u, preComp);
-  EXPECT_LE((approx.f - f).norm(), 1e-12);
+  EXPECT_LE((approx.f - f).norm(), 1.0e-12);
 
-  constexpr scalar_t eps = 1e-6;
-  constexpr scalar_t tolerance = 1e-4;
+  constexpr scalar_t eps = 1.0e-6;
+  constexpr scalar_t tolerance = 1.0e-4;
   const matrix_t dfdxFd = centralDifferenceJacobian(
       [&](const vector_t& xPerturbed) { return dynamics->computeFlowMap(/*t=*/0.0, xPerturbed, u, preComp); }, x, stateDim, eps);
   const matrix_t dfduFd = centralDifferenceJacobian(
@@ -564,19 +471,19 @@ TEST_F(BasisInputsFormulationTest, BasisDynamics_LinearApproximationMatchesFinit
   // The contact-frame rotation depends on the configuration, so the *linear* momentum rate (rows 0..2) must depend on
   // the base orientation through dfdx. In the wrench-space dynamics this block is identically zero because the forces
   // are constant world-frame inputs; here it is the extra term contributed by the rotation inside the tape.
-  EXPECT_GT(approx.dfdx.block(0, kBaseEulerZyxStartIndex, 3, 3).norm(), 1e-6);
+  EXPECT_GT(approx.dfdx.block(0, kBaseEulerZyxStartIndex, 3, 3).norm(), 1.0e-6);
 }
 
 /******************************************************************************************************/
 /* (4) The quadratic input cost is R_basis = M^T R_wrench M + reg * blkdiag(S, 0), S the λ regularization */
 /******************************************************************************************************/
-TEST_F(BasisInputsFormulationTest, InputCost_IsTransformedWithRegularization) {
+TEST_F(BasisInputsFormulationTest, InputCostIsTransformedWithRegularization) {
   InterfaceHolder& h = holder(/*useBasisInputs=*/true);
   ASSERT_TRUE(h.interface) << "Failed to construct the basis-mode interface: " << h.error;
   const CentroidalMpcInterface& interface = *h.interface;
 
   const std::optional<BasisInputsCostTransformConfig> config = interface.getBasisInputsCostTransformConfig();
-  ASSERT_TRUE(config.has_value());
+  if (!config.has_value()) GTEST_FAIL() << "config has no value";
   const size_t wrenchInputDim = interface.getWrenchInputDim();
   const size_t basisInputDim = interface.getEffectiveMpcRobotModel().getInputDim();
   const size_t numLambda = config->numBasisInputs;
@@ -584,13 +491,11 @@ TEST_F(BasisInputsFormulationTest, InputCost_IsTransformedWithRegularization) {
   ASSERT_EQ(numLambda + jointDim, basisInputDim);
 
   // The regularization must be the value configured in the task file (and non-trivial for this test to be meaningful).
-  scalar_t regularizationFromYaml = -1.0;
-  loadData::loadCppDataType(h.taskFile, "contacts.basisScalingRegularization", regularizationFromYaml);
-  EXPECT_DOUBLE_EQ(config->lambdaRegularization, regularizationFromYaml);
+  EXPECT_DOUBLE_EQ(config->lambdaRegularization, h.config.task.contacts.basis_scaling_regularization);
   EXPECT_GT(config->lambdaRegularization, 0.0);
 
-  matrix_t R_wrench = matrix_t::Zero(wrenchInputDim, wrenchInputDim);
-  loadData::loadEigenMatrix(h.taskFile, "R", R_wrench);
+  const matrix_t R_wrench = wrenchSpaceR(h.config, *h.interface);
+  ASSERT_EQ(static_cast<size_t>(R_wrench.rows()), wrenchInputDim);
   const matrix_t R_expected = transformWrenchInputCostToBasisSpace(R_wrench, *config);
   ASSERT_EQ(static_cast<size_t>(R_expected.rows()), basisInputDim);
   ASSERT_EQ(static_cast<size_t>(R_expected.cols()), basisInputDim);
@@ -604,17 +509,19 @@ TEST_F(BasisInputsFormulationTest, InputCost_IsTransformedWithRegularization) {
     if (!ocp.costPtr->getTermIndex(costName, termIndex)) {
       continue;
     }
-    QuadraticStateInputCost* quadraticCost = dynamic_cast<QuadraticStateInputCost*>(&ocp.costPtr->get(costName));
+    QuadraticStateInputCost* absl_nullable quadraticCost = dynamic_cast<QuadraticStateInputCost*>(&ocp.costPtr->get(costName));
     ASSERT_NE(quadraticCost, nullptr) << costName << " is not a QuadraticStateInputCost";
-    matrix_t Q, R, P;
+    matrix_t Q;
+    matrix_t R;
+    matrix_t P;
     quadraticCost->getGains(Q, R, P);
     ASSERT_EQ(static_cast<size_t>(R.rows()), basisInputDim) << costName;
     ASSERT_EQ(static_cast<size_t>(R.cols()), basisInputDim) << costName;
 
-    EXPECT_LE((R - R_expected).cwiseAbs().maxCoeff(), 1e-12) << costName << ": R is not M^T R_wrench M + reg * S";
-    EXPECT_LE((R - R.transpose()).cwiseAbs().maxCoeff(), 1e-12) << costName << ": R is not symmetric";
+    EXPECT_LE((R - R_expected).cwiseAbs().maxCoeff(), 1.0e-12) << costName << ": R is not M^T R_wrench M + reg * S";
+    EXPECT_LE((R - R.transpose()).cwiseAbs().maxCoeff(), 1.0e-12) << costName << ": R is not symmetric";
     // The joint-velocity block is unaffected by the transform.
-    EXPECT_LE((R.bottomRightCorner(jointDim, jointDim) - R_wrench.bottomRightCorner(jointDim, jointDim)).cwiseAbs().maxCoeff(), 1e-12)
+    EXPECT_LE((R.bottomRightCorner(jointDim, jointDim) - R_wrench.bottomRightCorner(jointDim, jointDim)).cwiseAbs().maxCoeff(), 1.0e-12)
         << costName;
 
     // M^T R_wrench M is singular on the null space of M; the regularization must make the lambda block positive definite.
@@ -623,7 +530,7 @@ TEST_F(BasisInputsFormulationTest, InputCost_IsTransformedWithRegularization) {
       // reg * I on every lambda bounds every eigenvalue from below by reg.
       Eigen::SelfAdjointEigenSolver<matrix_t> eigenSolver(matrix_t(R.topLeftCorner(numLambda, numLambda)));
       ASSERT_EQ(eigenSolver.info(), Eigen::Success) << costName;
-      EXPECT_GE(eigenSolver.eigenvalues().minCoeff(), config->lambdaRegularization - 1e-12)
+      EXPECT_GE(eigenSolver.eigenvalues().minCoeff(), config->lambdaRegularization - 1.0e-12)
           << costName << ": lambda block of R is not positive definite";
     }
     ++numCostsChecked;
@@ -635,13 +542,13 @@ TEST_F(BasisInputsFormulationTest, InputCost_IsTransformedWithRegularization) {
       transformWrenchInputCostToBasisSpace(R_wrench, config->basisToWrenchMap, numLambda, /*lambdaRegularization=*/0.0);
   Eigen::SelfAdjointEigenSolver<matrix_t> unregularizedSolver(matrix_t(R_unregularized.topLeftCorner(numLambda, numLambda)));
   ASSERT_EQ(unregularizedSolver.info(), Eigen::Success);
-  EXPECT_LE(unregularizedSolver.eigenvalues().minCoeff(), 1e-12);
+  EXPECT_LE(unregularizedSolver.eigenvalues().minCoeff(), 1.0e-12);
 }
 
 /******************************************************************************************************/
 /* (5) ZeroWrenchConstraint on the effective (basis) model: Jacobian vs finite differences            */
 /******************************************************************************************************/
-TEST_F(BasisInputsFormulationTest, ZeroWrenchConstraint_ConstrainsTheBasisScalingsDirectly) {
+TEST_F(BasisInputsFormulationTest, ZeroWrenchConstraintConstrainsTheBasisScalingsDirectly) {
   InterfaceHolder& h = holder(/*useBasisInputs=*/true);
   ASSERT_TRUE(h.interface) << "Failed to construct the basis-mode interface: " << h.error;
   const CentroidalMpcInterface& interface = *h.interface;
@@ -656,36 +563,36 @@ TEST_F(BasisInputsFormulationTest, ZeroWrenchConstraint_ConstrainsTheBasisScalin
 
   EXPECT_EQ(effectiveModel.getContactInputDim(0), numBasisPerFoot);
 
-  for (size_t contactIndex = 0; contactIndex < N_CONTACTS; ++contactIndex) {
+  for (size_t contactIndex = 0; contactIndex < kNumContacts; ++contactIndex) {
     ZeroWrenchConstraint constraint(*interface.getSwitchedModelReferenceManagerPtr(), contactIndex, effectiveModel);
 
     std::mt19937 gen(7 + contactIndex);
     const vector_t x = makeRotatedTestState(interface, gen);
-    const vector_t u = makeRandomBasisInput(N_CONTACTS * numBasisPerFoot, jointDim, gen);
+    const vector_t u = makeRandomBasisInput(kNumContacts * numBasisPerFoot, jointDim, gen);
     const size_t lambdaStart = numBasisPerFoot * contactIndex;
 
     // The constrained quantity is the basis scaling block itself, not the six wrench components it maps to.
     const vector_t value = constraint.getValue(/*time=*/0.0, x, u, preComp);
     ASSERT_EQ(static_cast<size_t>(value.size()), numBasisPerFoot) << "contact " << contactIndex;
-    EXPECT_LE((value - u.segment(lambdaStart, numBasisPerFoot)).norm(), 1e-12) << "contact " << contactIndex;
+    EXPECT_LE((value - u.segment(lambdaStart, numBasisPerFoot)).norm(), 1.0e-12) << "contact " << contactIndex;
 
     const VectorFunctionLinearApproximation approx = constraint.getLinearApproximation(/*time=*/0.0, x, u, preComp);
     ASSERT_EQ(static_cast<size_t>(approx.dfdu.rows()), numBasisPerFoot) << "contact " << contactIndex;
     ASSERT_EQ(static_cast<size_t>(approx.dfdu.cols()), inputDim) << "contact " << contactIndex;
     ASSERT_EQ(static_cast<size_t>(approx.dfdx.rows()), numBasisPerFoot) << "contact " << contactIndex;
     ASSERT_EQ(static_cast<size_t>(approx.dfdx.cols()), stateDim) << "contact " << contactIndex;
-    EXPECT_LE((approx.f - value).norm(), 1e-12) << "contact " << contactIndex;
+    EXPECT_LE((approx.f - value).norm(), 1.0e-12) << "contact " << contactIndex;
     EXPECT_DOUBLE_EQ(approx.dfdx.norm(), 0.0) << "contact " << contactIndex;
 
-    constexpr scalar_t eps = 1e-6;
+    constexpr scalar_t eps = 1.0e-6;
     const matrix_t dfduFd = centralDifferenceJacobian(
         [&](const vector_t& uPerturbed) { return constraint.getValue(/*time=*/0.0, x, uPerturbed, preComp); }, u, numBasisPerFoot, eps);
-    EXPECT_LE(maxNormalizedError(approx.dfdu, dfduFd), 1e-6) << "contact " << contactIndex;
+    EXPECT_LE(maxNormalizedError(approx.dfdu, dfduFd), 1.0e-6) << "contact " << contactIndex;
 
     // Structure: the identity on this contact's lambda columns, zero everywhere else.
     matrix_t expectedDfdu = matrix_t::Zero(numBasisPerFoot, inputDim);
     expectedDfdu.middleCols(lambdaStart, numBasisPerFoot).setIdentity();
-    EXPECT_LE((approx.dfdu - expectedDfdu).cwiseAbs().maxCoeff(), 1e-12) << "contact " << contactIndex;
+    EXPECT_LE((approx.dfdu - expectedDfdu).cwiseAbs().maxCoeff(), 1.0e-12) << "contact " << contactIndex;
 
     // Full row rank, so the equality-constraint projection removes the whole contact block. Constraining the six
     // wrench components instead would leave the null space of B free during swing, held down by nothing but the small
@@ -696,15 +603,15 @@ TEST_F(BasisInputsFormulationTest, ZeroWrenchConstraint_ConstrainsTheBasisScalin
     ASSERT_GT(basisNullSpace.cols(), 0) << "the basis has more generators than wrench components";
     vector_t spuriousInput = vector_t::Zero(inputDim);
     spuriousInput.segment(lambdaStart, numBasisPerFoot) = basisNullSpace.col(0);
-    EXPECT_LE(decorator.getContactWrench(spuriousInput, contactIndex).norm(), 1e-9) << "contact " << contactIndex;
-    EXPECT_GT(constraint.getValue(/*time=*/0.0, x, spuriousInput, preComp).norm(), 1e-6)
+    EXPECT_LE(decorator.getContactWrench(spuriousInput, contactIndex).norm(), 1.0e-9) << "contact " << contactIndex;
+    EXPECT_GT(constraint.getValue(/*time=*/0.0, x, spuriousInput, preComp).norm(), 1.0e-6)
         << "contact " << contactIndex << ": a lambda in the null space of B has to be rejected during swing";
 
     // Zero scalings remain the unique solution and give the zero wrench.
     vector_t zeroContact = u;
     zeroContact.segment(lambdaStart, numBasisPerFoot).setZero();
-    EXPECT_LE(constraint.getValue(/*time=*/0.0, x, zeroContact, preComp).norm(), 1e-12) << "contact " << contactIndex;
-    EXPECT_LE(decorator.getContactWrench(zeroContact, contactIndex).norm(), 1e-12) << "contact " << contactIndex;
+    EXPECT_LE(constraint.getValue(/*time=*/0.0, x, zeroContact, preComp).norm(), 1.0e-12) << "contact " << contactIndex;
+    EXPECT_LE(decorator.getContactWrench(zeroContact, contactIndex).norm(), 1.0e-12) << "contact " << contactIndex;
   }
 }
 
@@ -722,27 +629,20 @@ TEST_F(BasisInputsFormulationTest, BasisGeneratorsStayInsideTheWrenchCone) {
 
   // Rebuild the cone rows from the same task file the basis was built from. In basis mode the wrench-cone soft
   // constraint is skipped, so this is the only thing standing between the MPC and an unbounded friction force.
-  ContactWrenchConeConstraint::Config coneConfig;
-  const std::string prefix = "contacts.contactWrenchConeSoftConstraint.";
-  boost::property_tree::ptree pt;
-  loadData::readPropertyTree(h.taskFile, pt);
-  loadData::loadPtreeValue(pt, coneConfig.frictionCoefficient, absl::StrCat(prefix, "frictionCoefficient"), /*verbose=*/false);
-  loadData::loadPtreeValue(pt, coneConfig.torsionalFrictionCoefficient, absl::StrCat(prefix, "torsionalFrictionCoefficient"),
-                           /*verbose=*/false);
-  loadData::loadPtreeValue(pt, coneConfig.minNormalForce, absl::StrCat(prefix, "minNormalForce"), /*verbose=*/false);
-  loadData::loadPtreeValue(pt, coneConfig.gripperForce, absl::StrCat(prefix, "gripperForce"), /*verbose=*/false);
-  loadData::loadPtreeValue(pt, coneConfig.numBasisVectors, absl::StrCat(prefix, "numBasisVectors"), /*verbose=*/false);
+  const absl::StatusOr<ContactWrenchConeConstraint::Config> converted = contactWrenchConeConfigFromConfig(h.config.task.contacts);
+  ASSERT_TRUE(converted.ok()) << converted.status();
+  const ContactWrenchConeConstraint::Config& coneConfig = *converted;
 
   std::mt19937 gen(11);
   std::uniform_real_distribution<scalar_t> magnitude(0.0, 200.0);
-  for (size_t contactIndex = 0; contactIndex < N_CONTACTS; ++contactIndex) {
+  for (size_t contactIndex = 0; contactIndex < kNumContacts; ++contactIndex) {
     const ContactRectangle rectangle =
-        ContactRectangle::loadContactRectangle(h.taskFile, interface.modelSettings(), static_cast<int>(contactIndex), /*verbose=*/false);
+        contactRectangleFromConfig(h.config.task.contacts, interface.modelSettings(), static_cast<int>(contactIndex)).value();
     const ContactWrenchConeRows rows = buildLocalWrenchConeRows(coneConfig, rectangle);
     const matrix_t& B = decorator.getBasisMatrix(contactIndex);
 
     for (Eigen::Index j = 0; j < B.cols(); ++j) {
-      EXPECT_GE(rows.evaluateCone(vector6_t(B.col(j))).minCoeff(), -1e-9)
+      EXPECT_GE(rows.evaluateCone(vector6_t(B.col(j))).minCoeff(), -1.0e-9)
           << "contact " << contactIndex << " generator " << j << " lies outside the friction / CoP / torsional limits";
     }
     for (int trial = 0; trial < 200; ++trial) {
@@ -751,7 +651,7 @@ TEST_F(BasisInputsFormulationTest, BasisGeneratorsStayInsideTheWrenchCone) {
         lambda(i) = magnitude(gen);
       }
       const vector6_t wrench = B * lambda;
-      EXPECT_GE(rows.evaluateCone(wrench).minCoeff(), -1e-9 * std::max(1.0, wrench.norm()))
+      EXPECT_GE(rows.evaluateCone(wrench).minCoeff(), -1.0e-9 * std::max(1.0, wrench.norm()))
           << "contact " << contactIndex << " trial " << trial << ": a non-negative lambda left the cone";
     }
   }
@@ -797,8 +697,10 @@ TEST_F(BasisInputsFormulationTest, CppAdModelFolderIsKeyedByTheParameterizationA
 // without it - legitimate in wrench mode - loaded with no bound on the scalings at all: adhesion, a center of pressure
 // outside the sole, unbounded torsion.
 TEST_F(BasisInputsFormulationTest, TheNonNegativityBarrierIsBuiltWithoutContactWrenchCone) {
-  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> variant =
-      buildBasisVariant("without_cone", /*keyEdits=*/{}, /*textEdits=*/{{"\n  - contact_wrench_cone", "\n  - friction_force_cone"}});
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> variant = buildBasisVariant([](mpc_config::TaskFile& task) {
+    std::replace(task.soft_constraints.begin(), task.soft_constraints.end(), std::string("contact_wrench_cone"),
+                 std::string("friction_force_cone"));
+  });
   ASSERT_TRUE(variant.ok()) << variant.status();
   const OptimalControlProblem& ocp = (*variant)->getOptimalControlProblem();
   for (const std::string& footName : (*variant)->modelSettings().contactNames) {
@@ -820,23 +722,21 @@ TEST_F(BasisInputsFormulationTest, TheNonNegativityBarrierIsBuiltWithoutContactW
 /* (5e) contacts.basisRegularization reaches the OCP's input cost at start-up                         */
 /******************************************************************************************************/
 TEST_F(BasisInputsFormulationTest, TheNamedRegularizationShapesTheStartUpInputCost) {
-  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> variant =
-      buildBasisVariant("null_space", {{"basisRegularization", std::string(kNullSpaceBasisRegularization)}});
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> variant = buildBasisVariant(
+      [](mpc_config::TaskFile& task) { task.contacts.basis_regularization = std::string(kNullSpaceBasisRegularization); });
   ASSERT_TRUE(variant.ok()) << variant.status();
   const std::optional<BasisInputsCostTransformConfig> config = (*variant)->getBasisInputsCostTransformConfig();
-  ASSERT_TRUE(config.has_value());
+  if (!config.has_value()) GTEST_FAIL() << "config has no value";
   EXPECT_EQ(config->regularization, kNullSpaceBasisRegularization);
 
   InterfaceHolder& basis = holder(/*useBasisInputs=*/true);
   ASSERT_TRUE(basis.interface);
-  matrix_t R_wrench = matrix_t::Zero(config->wrenchInputDim, config->wrenchInputDim);
-  loadData::loadEigenMatrix(basis.taskFile, "R", R_wrench);
+  const matrix_t R_wrench = wrenchSpaceR(basis.config, *basis.interface);
   const matrix_t expectedR = transformWrenchInputCostToBasisSpace(R_wrench, *config);
   // Positive control: the shipped full_diagonal R differs, so a factory that ignored the name would fail below.
-  ASSERT_GT((expectedR - transformWrenchInputCostToBasisSpace(R_wrench, *basis.interface->getBasisInputsCostTransformConfig()))
-                .cwiseAbs()
-                .maxCoeff(),
-            1e-9);
+  const std::optional<BasisInputsCostTransformConfig> shippedConfig = basis.interface->getBasisInputsCostTransformConfig();
+  if (!shippedConfig.has_value()) GTEST_FAIL() << "no cost transform under basis-vector inputs";
+  ASSERT_GT((expectedR - transformWrenchInputCostToBasisSpace(R_wrench, *shippedConfig)).cwiseAbs().maxCoeff(), 1.0e-9);
 
   OptimalControlProblem& ocp = (*variant)->getOptimalControlProblemRef();
   size_t numCostsChecked = 0;
@@ -845,13 +745,14 @@ TEST_F(BasisInputsFormulationTest, TheNamedRegularizationShapesTheStartUpInputCo
     if (!ocp.costPtr->getTermIndex(costName, termIndex)) {
       continue;
     }
-    QuadraticStateInputCost* quadraticCost = dynamic_cast<QuadraticStateInputCost*>(&ocp.costPtr->get(costName));
+    QuadraticStateInputCost* absl_nullable quadraticCost = dynamic_cast<QuadraticStateInputCost*>(&ocp.costPtr->get(costName));
     ASSERT_NE(quadraticCost, nullptr) << costName;
     matrix_t Q;
     matrix_t R;
     matrix_t P;
     quadraticCost->getGains(Q, R, P);
-    EXPECT_LE((R - expectedR).cwiseAbs().maxCoeff(), 1e-12) << costName << ": the factory did not apply basisRegularization: null_space";
+    EXPECT_LE((R - expectedR).cwiseAbs().maxCoeff(), 1.0e-12)
+        << costName << ": the factory did not apply basis_regularization: \"null_space\"";
     ++numCostsChecked;
   }
   EXPECT_GE(numCostsChecked, 1u) << "No quadratic input cost found in the OCP";
@@ -860,13 +761,13 @@ TEST_F(BasisInputsFormulationTest, TheNamedRegularizationShapesTheStartUpInputCo
 /******************************************************************************************************/
 /* (6) The wrench-space formulation is unchanged                                                      */
 /******************************************************************************************************/
-TEST_F(BasisInputsFormulationTest, WrenchMode_Unchanged) {
+TEST_F(BasisInputsFormulationTest, WrenchModeUnchanged) {
   InterfaceHolder& h = holder(/*useBasisInputs=*/false);
   ASSERT_TRUE(h.interface) << "Failed to construct the wrench-mode interface: " << h.error;
   const CentroidalMpcInterface& interface = *h.interface;
 
   const size_t jointDim = interface.modelSettings().mpc_joint_dim;
-  const size_t wrenchInputDim = kWrenchDimPerContact * N_CONTACTS + jointDim;
+  const size_t wrenchInputDim = kWrenchDimPerContact * kNumContacts + jointDim;
 
   EXPECT_FALSE(interface.usesContactBasisVectorInputs());
   EXPECT_EQ(interface.getEffectiveMpcRobotModel().getInputDim(), wrenchInputDim);
@@ -876,7 +777,7 @@ TEST_F(BasisInputsFormulationTest, WrenchMode_Unchanged) {
   // The effective model IS the wrench-space model.
   EXPECT_EQ(&interface.getEffectiveMpcRobotModel(), static_cast<const MpcRobotModelBase<scalar_t>*>(&interface.getMpcRobotModel()));
   EXPECT_EQ(&interface.getEffectiveMpcRobotModelAD(), static_cast<const MpcRobotModelBase<ad_scalar_t>*>(&interface.getMpcRobotModelAD()));
-  EXPECT_EQ(interface.getEffectiveMpcRobotModel().getJointVelocitiesStartindex(), kWrenchDimPerContact * N_CONTACTS);
+  EXPECT_EQ(interface.getEffectiveMpcRobotModel().getJointVelocitiesStartindex(), kWrenchDimPerContact * kNumContacts);
 
   EXPECT_FALSE(interface.getBasisInputsCostTransformConfig().has_value());
   EXPECT_FALSE(interface.getBasisToWrenchMap().has_value());
@@ -889,7 +790,7 @@ TEST_F(BasisInputsFormulationTest, WrenchMode_Unchanged) {
   // The contact block of a wrench-space model is the six wrench components, and the zero-wrench constraint pins exactly
   // that block with an identity Jacobian (the basis-vector model overrides the block size, see the basis-mode test).
   const MpcRobotModelBase<scalar_t>& wrenchModel = interface.getEffectiveMpcRobotModel();
-  for (size_t contactIndex = 0; contactIndex < N_CONTACTS; ++contactIndex) {
+  for (size_t contactIndex = 0; contactIndex < kNumContacts; ++contactIndex) {
     EXPECT_EQ(wrenchModel.getContactInputDim(contactIndex), kWrenchDimPerContact);
     ZeroWrenchConstraint zeroWrench(*interface.getSwitchedModelReferenceManagerPtr(), contactIndex, wrenchModel);
     EXPECT_EQ(zeroWrench.getNumConstraints(0.0), kWrenchDimPerContact);
@@ -900,17 +801,16 @@ TEST_F(BasisInputsFormulationTest, WrenchMode_Unchanged) {
     const vector_t x = vector_t::Zero(interface.getEffectiveMpcRobotModel().getStateDim());
     const PreComputation preComp;
     const vector_t value = zeroWrench.getValue(/*time=*/0.0, x, u, preComp);
-    EXPECT_LE((value - u.segment(kWrenchDimPerContact * contactIndex, kWrenchDimPerContact)).norm(), 1e-12);
+    EXPECT_LE((value - u.segment(kWrenchDimPerContact * contactIndex, kWrenchDimPerContact)).norm(), 1.0e-12);
     const VectorFunctionLinearApproximation approx = zeroWrench.getLinearApproximation(/*time=*/0.0, x, u, preComp);
     matrix_t expected = matrix_t::Zero(kWrenchDimPerContact, wrenchInputDim);
     expected.middleCols(kWrenchDimPerContact * contactIndex, kWrenchDimPerContact).setIdentity();
-    EXPECT_LE((approx.dfdu - expected).cwiseAbs().maxCoeff(), 1e-12) << "contact " << contactIndex;
+    EXPECT_LE((approx.dfdu - expected).cwiseAbs().maxCoeff(), 1.0e-12) << "contact " << contactIndex;
     EXPECT_DOUBLE_EQ(approx.dfdx.norm(), 0.0);
   }
 
   // The input cost keeps the raw wrench-space R.
-  matrix_t R_wrench = matrix_t::Zero(wrenchInputDim, wrenchInputDim);
-  loadData::loadEigenMatrix(h.taskFile, "R", R_wrench);
+  const matrix_t R_wrench = wrenchSpaceR(h.config, interface);
   OptimalControlProblem& ocp = interface.getOptimalControlProblemRef();
   const std::vector<std::string> candidateCostNames = {"stateInputQuadraticCost", "inputQuadraticCost"};
   size_t numCostsChecked = 0;
@@ -919,13 +819,15 @@ TEST_F(BasisInputsFormulationTest, WrenchMode_Unchanged) {
     if (!ocp.costPtr->getTermIndex(costName, termIndex)) {
       continue;
     }
-    QuadraticStateInputCost* quadraticCost = dynamic_cast<QuadraticStateInputCost*>(&ocp.costPtr->get(costName));
+    QuadraticStateInputCost* absl_nullable quadraticCost = dynamic_cast<QuadraticStateInputCost*>(&ocp.costPtr->get(costName));
     ASSERT_NE(quadraticCost, nullptr) << costName;
-    matrix_t Q, R, P;
+    matrix_t Q;
+    matrix_t R;
+    matrix_t P;
     quadraticCost->getGains(Q, R, P);
     ASSERT_EQ(static_cast<size_t>(R.rows()), wrenchInputDim) << costName;
     ASSERT_EQ(static_cast<size_t>(R.cols()), wrenchInputDim) << costName;
-    EXPECT_LE((R - R_wrench).cwiseAbs().maxCoeff(), 1e-12) << costName;
+    EXPECT_LE((R - R_wrench).cwiseAbs().maxCoeff(), 1.0e-12) << costName;
     ++numCostsChecked;
   }
   EXPECT_GE(numCostsChecked, 1u) << "No quadratic input cost found in the OCP";
@@ -939,7 +841,7 @@ TEST_F(BasisInputsFormulationTest, WrenchMode_Unchanged) {
     u(i) = dist(gen);
   }
   const MpcRobotModelBase<scalar_t>& model = interface.getEffectiveMpcRobotModel();
-  for (size_t i = 0; i < N_CONTACTS; ++i) {
+  for (size_t i = 0; i < kNumContacts; ++i) {
     EXPECT_DOUBLE_EQ((model.getContactWrenchInWorldFrame(x, u, i) - model.getContactWrench(u, i)).norm(), 0.0) << "contact " << i;
     EXPECT_DOUBLE_EQ((model.getContactWrench(u, i) - u.segment<kWrenchDimPerContact>(kWrenchDimPerContact * i)).norm(), 0.0)
         << "contact " << i;

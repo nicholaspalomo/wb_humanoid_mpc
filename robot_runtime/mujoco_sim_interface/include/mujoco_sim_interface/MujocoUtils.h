@@ -29,26 +29,58 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <mujoco/mujoco.h>
-
 #include <cstdint>
 #include <deque>
+#include <memory>
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
+#include "absl/status/statusor.h"
+#include "mujoco/mujoco.h"
+
 namespace robot::mujoco_sim_interface {
 
+/** Deletes an mjModel, so that a std::unique_ptr owns it (MjModelPtr). */
+struct MjModelDeleter {
+  void operator()(mjModel* absl_nonnull model) const { mj_deleteModel(model); }
+};
+
+/** Deletes an mjData, so that a std::unique_ptr owns it (MjDataPtr). */
+struct MjDataDeleter {
+  void operator()(mjData* absl_nonnull data) const { mj_deleteData(data); }
+};
+
+/** Deletes an mjSpec, so that a std::unique_ptr owns it (MjSpecPtr). */
+struct MjSpecDeleter {
+  void operator()(mjSpec* absl_nonnull spec) const { mj_deleteSpec(spec); }
+};
+
+using MjModelPtr = std::unique_ptr<mjModel, MjModelDeleter>;
+using MjDataPtr = std::unique_ptr<mjData, MjDataDeleter>;
+using MjSpecPtr = std::unique_ptr<mjSpec, MjSpecDeleter>;
+
+/**
+ * The simulation data of `model`, owned. Fails with InternalError where mj_makeData returns null. MuJoCo 3.3 aborts by
+ * itself when it cannot allocate, so that is not expected, but its API does not promise a non-null result.
+ */
+absl::StatusOr<MjDataPtr> makeMjData(const mjModel* absl_nonnull model);
+
+/**
+ * Timing of the simulation loop, as the viewer's metrics overlay shows it. Passive data, written by the simulation
+ * thread and copied to the render thread with the state it belongs to (MjState).
+ */
 struct Metrics {
   /// FPS of Simulation::step
-  double fpsSim;
+  double fpsSim = 0.0;
   /// Real time factor for current sim step: RTF = dt_sim / dt_real
-  double rtfTick;
+  double rtfTick = 0.0;
   /// Smoothed RTF (exponential moving average)
-  double rtfSmoothed;
+  double rtfSmoothed = 0.0;
   /// Time drift per-tick.
-  double driftTick;
+  double driftTick = 0.0;
   /// Total time drift since starting the sim.
-  double driftCumulative;
+  double driftCumulative = 0.0;
 
   void reset() {
     fpsSim = 0.0;
@@ -59,8 +91,17 @@ struct Metrics {
   }
 };
 
+/**
+ * A snapshot of the physics state for the render thread: its own mjData of `model`, which it owns, plus the clock and the
+ * metrics of the step it was taken at. Copies are deep (a new mjData, with the contents copied); a moved-from MjState has
+ * no model and no data. Not thread-safe: the simulator hands snapshots between threads through a triple buffer.
+ *
+ * `data` is never null in an MjState constructed from a model or copied from one that has data. A null from mj_makeData
+ * is not expected (see makeMjData(), which MujocoSimInterface::Create() uses for the simulator's own data), so it aborts
+ * here (ABSL_DIE_IF_NULL) rather than leaving a snapshot whose first reader dereferences it.
+ */
 struct MjState {
-  explicit MjState(const mjModel* model);
+  explicit MjState(const mjModel* absl_nonnull model);
 
   // Deep-copy: allocate new mjData and copy contents
   MjState(const MjState& other);
@@ -72,18 +113,18 @@ struct MjState {
 
   ~MjState();
 
-  const mjModel* model{nullptr};
-  int64_t timestamp{0};
-  mjData* data{nullptr};
+  const mjModel* absl_nullable model = nullptr;
+  int64_t timestamp = 0;
+  mjData* absl_nullable data = nullptr;  // owned; null only when moved from
   Metrics metrics;
 };
 
 /** One sample of the contact timeline: the contact state the controller planned and the one the physics produced. */
 struct ContactTimelineSample {
-  double time{0.0};         // [s] simulation time of the sample
-  uint32_t target{0};       // bit i set: contact point i is planned to be in contact
-  uint32_t actual{0};       // bit i set: contact point i carries contact force against something outside the robot
-  bool targetKnown{false};  // false until the controller has provided a planned contact state
+  double time = 0.0;         // [s] simulation time of the sample
+  uint32_t target{0};        // bit i set: contact point i is planned to be in contact
+  uint32_t actual{0};        // bit i set: contact point i carries contact force against something outside the robot
+  bool targetKnown = false;  // false until the controller has provided a planned contact state
 };
 
 /**
@@ -109,7 +150,7 @@ class ContactTimeline {
 };
 
 /** True if `bodyId` is `ancestorId` or lies in its kinematic subtree. */
-bool isInBodySubtree(const mjModel* model, int bodyId, int ancestorId);
+bool isInBodySubtree(const mjModel* absl_nonnull model, int bodyId, int ancestorId);
 
 /**
  * MuJoCo body of every contact point, in the order of `contactFrameNames`, or -1 where none could be found (with a
@@ -121,11 +162,11 @@ bool isInBodySubtree(const mjModel* model, int bodyId, int ancestorId);
  *     children into their parent body. A link that hangs on a movable joint but is no body of the scene is an error,
  *     not a guess.
  */
-std::vector<int> resolveContactBodies(const mjModel* model,
+std::vector<int> resolveContactBodies(const mjModel* absl_nonnull model,
                                       const std::string& urdfPath,
                                       const std::vector<std::string>& contactFrameNames,
                                       const std::vector<std::string>& contactParentJointNames,
-                                      std::vector<std::string>* errors);
+                                      std::vector<std::string>* absl_nullable errors);
 
 /**
  * Ground-truth contact mask: bit i is set when a geom of contact body i (or of its subtree) is in a contact that carries
@@ -142,14 +183,17 @@ std::vector<int> resolveContactBodies(const mjModel* model,
  * would be reported to the controller as that foot being planted - the mask feeds the RobotState's contact flags and
  * the cheater_sim estimator - which is a far worse disturbance than the ball itself, and an invisible one.
  */
-uint32_t groundTruthContactMask(
-    const mjModel* model, const mjData* data, const std::vector<int>& contactBodyIds, double forceThreshold, int ignoreBodyId = -1);
+uint32_t groundTruthContactMask(const mjModel* absl_nonnull model,
+                                const mjData* absl_nonnull data,
+                                const std::vector<int>& contactBodyIds,
+                                double forceThreshold,
+                                int ignoreBodyId = -1);
 
 /** Whole-body centroidal quantities of the floating-base robot of the scene, for the viewer's markers. */
 struct RobotCentroidalState {
-  bool valid{false};
-  int rootBodyId{-1};                    // the first body hanging on a free joint
-  double mass{0.0};                      // [kg] of the root's subtree
+  bool valid = false;
+  int rootBodyId = -1;                   // the first body hanging on a free joint
+  double mass = 0.0;                     // [kg] of the root's subtree
   double com[3]{0.0, 0.0, 0.0};          // [m] world frame
   double comVelocity[3]{0.0, 0.0, 0.0};  // [m/s] world frame, mass-weighted mean of the body velocities
 };
@@ -158,11 +202,11 @@ struct RobotCentroidalState {
  * Center of mass and its velocity of the robot: the subtree of the first body on a free joint. Requires a state on which
  * mj_forward() has run. `valid` is false without such a body or with zero mass.
  */
-RobotCentroidalState robotCentroidalState(const mjModel* model, const mjData* data);
+RobotCentroidalState robotCentroidalState(const mjModel* absl_nullable model, const mjData* absl_nullable data);
 
 /** Ground reaction of the physics contacts against the robot's root subtree, and the zero moment point it defines. */
 struct GroundReaction {
-  bool valid{false};                // a vertical force above `minNormalForce` was found
+  bool valid = false;               // a vertical force above `minNormalForce` was found
   double force[3]{0.0, 0.0, 0.0};   // [N] total contact force on the robot, world frame
   double moment[3]{0.0, 0.0, 0.0};  // [N m] of those forces about the world origin
   double zmp[2]{0.0, 0.0};          // [m] point of the ground plane z = 0 about which the horizontal moment vanishes
@@ -176,12 +220,14 @@ struct GroundReaction {
  * Contacts with `ignoreBodyId` are left out, as groundTruthContactMask leaves them out: a thrown ball striking the
  * robot is not a ground reaction, and at 25 m/s its contact force alone exceeds the robot's weight.
  */
-GroundReaction groundReaction(const mjModel* model, const mjData* data, int rootBodyId, double minNormalForce, int ignoreBodyId = -1);
+GroundReaction groundReaction(
+    const mjModel* absl_nullable model, const mjData* absl_nullable data, int rootBodyId, double minNormalForce, int ignoreBodyId = -1);
 
 /**
  * Divergent component of motion (capture point) of a linear inverted pendulum of natural frequency sqrt(gravity / height)
  * on the ground plane: com_xy + v_xy / omega. `height` is clamped to at least 0.05 m.
  */
-void divergentComponentOfMotion(const double com[3], const double comVelocity[3], double height, double gravity, double dcm[2]);
+void divergentComponentOfMotion(
+    const double com[absl_nonnull 3], const double comVelocity[absl_nonnull 3], double height, double gravity, double dcm[absl_nonnull 2]);
 
 }  // namespace robot::mujoco_sim_interface

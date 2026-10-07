@@ -26,6 +26,9 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
+
+#include <stdexcept>
+#include <string>
 #include <unordered_map>
 
 #include <ocs2_core/integration/Integrator.h>
@@ -36,20 +39,16 @@ namespace ocs2 {
 
 namespace integrator_type {
 
+// LINT.IfChange(integrator_names)
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 std::string toString(IntegratorType integratorType) {
-  static const std::unordered_map<IntegratorType, std::string> integratorMap = {
-      {IntegratorType::EULER, "EULER"},
-      {IntegratorType::ODE45, "ODE45"},
-      {IntegratorType::ODE45_OCS2, "ODE45_OCS2"},
-      {IntegratorType::ADAMS_BASHFORTH, "ADAMS_BASHFORTH"},
-      {IntegratorType::BULIRSCH_STOER, "BULIRSCH_STOER"},
-      {IntegratorType::MODIFIED_MIDPOINT, "MODIFIED_MIDPOINT"},
-      {IntegratorType::RK4, "RK4"},
-      {IntegratorType::RK5_VARIABLE, "RK5_VARIABLE"},
-      {IntegratorType::ADAMS_BASHFORTH_MOULTON, "ADAMS_BASHFORTH_MOULTON"}};
+  static const std::unordered_map<IntegratorType, std::string> integratorMap = {{IntegratorType::EULER, "EULER"},
+                                                                                {IntegratorType::ODE45, "ODE45"},
+                                                                                {IntegratorType::ODE45_OCS2, "ODE45_OCS2"},
+                                                                                {IntegratorType::MODIFIED_MIDPOINT, "MODIFIED_MIDPOINT"},
+                                                                                {IntegratorType::RK4, "RK4"}};
 
   return integratorMap.at(integratorType);
 }
@@ -58,19 +57,20 @@ std::string toString(IntegratorType integratorType) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 IntegratorType fromString(const std::string& name) {
-  static const std::unordered_map<std::string, IntegratorType> integratorMap = {
-      {"EULER", IntegratorType::EULER},
-      {"ODE45", IntegratorType::ODE45},
-      {"ODE45_OCS2", IntegratorType::ODE45_OCS2},
-      {"ADAMS_BASHFORTH", IntegratorType::ADAMS_BASHFORTH},
-      {"BULIRSCH_STOER", IntegratorType::BULIRSCH_STOER},
-      {"MODIFIED_MIDPOINT", IntegratorType::MODIFIED_MIDPOINT},
-      {"RK4", IntegratorType::RK4},
-      {"RK5_VARIABLE", IntegratorType::RK5_VARIABLE},
-      {"ADAMS_BASHFORTH_MOULTON", IntegratorType::ADAMS_BASHFORTH_MOULTON}};
+  static const std::unordered_map<std::string, IntegratorType> integratorMap = {{"EULER", IntegratorType::EULER},
+                                                                                {"ODE45", IntegratorType::ODE45},
+                                                                                {"ODE45_OCS2", IntegratorType::ODE45_OCS2},
+                                                                                {"MODIFIED_MIDPOINT", IntegratorType::MODIFIED_MIDPOINT},
+                                                                                {"RK4", IntegratorType::RK4}};
 
-  return integratorMap.at(name);
+  const std::unordered_map<std::string, IntegratorType>::const_iterator type = integratorMap.find(name);
+  if (type == integratorMap.end()) {
+    throw std::invalid_argument("[integrator_type::fromString] Unknown integrator type \"" + name +
+                                "\". The integrator types are: EULER, MODIFIED_MIDPOINT, ODE45, ODE45_OCS2, RK4.");
+  }
+  return type->second;
 }
+// LINT.ThenChange(//lib/ocs2/core/include/ocs2_core/integration/Integrator.h:integrator_types)
 
 }  // namespace integrator_type
 
@@ -78,6 +78,7 @@ IntegratorType fromString(const std::string& name) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 std::unique_ptr<IntegratorBase> newIntegrator(IntegratorType integratorType, const std::shared_ptr<SystemEventHandler>& eventHandlerPtr) {
+  // LINT.IfChange(integrator_factory)
   switch (integratorType) {
     case (IntegratorType::EULER):
       return std::make_unique<IntegratorEuler>(eventHandlerPtr);
@@ -85,23 +86,14 @@ std::unique_ptr<IntegratorBase> newIntegrator(IntegratorType integratorType, con
       return std::make_unique<ODE45>(eventHandlerPtr);
     case (IntegratorType::ODE45_OCS2):
       return std::make_unique<RungeKuttaDormandPrince5>(eventHandlerPtr);
-    case (IntegratorType::ADAMS_BASHFORTH):
-      return std::make_unique<IntegratorAdamsBashforth<1>>(eventHandlerPtr);
-    case (IntegratorType::BULIRSCH_STOER):
-      return std::make_unique<IntegratorBulirschStoer>(eventHandlerPtr);
     case (IntegratorType::MODIFIED_MIDPOINT):
       return std::make_unique<IntegratorModifiedMidpoint>(eventHandlerPtr);
     case (IntegratorType::RK4):
       return std::make_unique<IntegratorRK4>(eventHandlerPtr);
-    case (IntegratorType::RK5_VARIABLE):
-      return std::make_unique<IntegratorRK5Variable>(eventHandlerPtr);
-#if (BOOST_VERSION / 100000 == 1 && BOOST_VERSION / 100 % 1000 > 55)
-    case (IntegratorType::ADAMS_BASHFORTH_MOULTON):
-      return std::make_unique<IntegratorAdamsBashforthMoulton<1>>(eventHandlerPtr);
-#endif
     default:
-      throw std::runtime_error("Integrator of type " + integrator_type::toString(integratorType) + " not supported.");
+      throw std::runtime_error("Integrator of type " + std::to_string(static_cast<int>(integratorType)) + " not supported.");
   }
+  // LINT.ThenChange(//lib/ocs2/core/include/ocs2_core/integration/Integrator.h:integrator_types)
 }
 
 }  // namespace ocs2

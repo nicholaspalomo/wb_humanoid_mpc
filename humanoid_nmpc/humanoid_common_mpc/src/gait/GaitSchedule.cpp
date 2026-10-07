@@ -30,13 +30,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 
-#include <ocs2_core/misc/Lookup.h>
-
-#include <ocs2_core/misc/LoadData.h>
-#include <boost/property_tree/info_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
+#include <algorithm>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "absl/log/log.h"
+#include "absl/status/statusor.h"
+#include "ocs2_core/misc/Lookup.h"
+
+#include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/config/reference/GaitFromConfig.h"
+#include "humanoid_mpc_config/reference_file.nproto.h"
 
 namespace ocs2::humanoid {
 
@@ -79,13 +87,13 @@ void GaitSchedule::insertModeSequenceTemplate(const ModeSequenceTemplate& modeSe
 
   // add an intermediate stance phase
   scalar_t phaseTransitionStanceTime = phaseTransitionStanceTime_;
-  if (!modeSequence.empty() && modeSequence.back() == ModeNumber::STANCE) {
+  if (!modeSequence.empty() && modeSequence.back() == ModeNumber::kStance) {
     phaseTransitionStanceTime = 0.0;
   }
 
   if (phaseTransitionStanceTime > 0.0) {
     eventTimes.push_back(startTime);
-    modeSequence.push_back(ModeNumber::STANCE);
+    modeSequence.push_back(ModeNumber::kStance);
   }
 
   // tile the mode sequence template from startTime+phaseTransitionStanceTime to finalTime.
@@ -107,7 +115,7 @@ ModeSchedule GaitSchedule::getModeSchedule(scalar_t lowerBoundTime, scalar_t upp
     modeSequence.erase(modeSequence.begin(), modeSequence.begin() + index - 1);
 
     // set the default initial phase
-    modeSequence.front() = ModeNumber::STANCE;
+    modeSequence.front() = ModeNumber::kStance;
   }
 
   // Start tiling at time
@@ -138,6 +146,7 @@ void GaitSchedule::tileModeSequenceTemplate(scalar_t startTime, scalar_t finalTi
   }
 
   if (!eventTimes.empty() && startTime <= eventTimes.back()) {
+    // NOLINTNEXTLINE(exceptions): reached from the solve through OCS2 overrides with no status channel; it fails the solve.
     throw std::runtime_error("The initial time for template-tiling is not greater than the last event time.");
   }
 
@@ -146,7 +155,7 @@ void GaitSchedule::tileModeSequenceTemplate(scalar_t startTime, scalar_t finalTi
 
   // concatenate from index
   while (eventTimes.back() < finalTime) {
-    for (size_t i = 0; i < templateModeSequence.size(); i++) {
+    for (size_t i = 0; i < templateModeSequence.size(); ++i) {
       modeSequence.push_back(templateModeSequence[i]);
       scalar_t deltaTime = templateTimes[i + 1] - templateTimes[i];
       eventTimes.push_back(eventTimes.back() + deltaTime);
@@ -154,32 +163,20 @@ void GaitSchedule::tileModeSequenceTemplate(scalar_t startTime, scalar_t finalTi
   }  // end of while loop
 
   // default final phase
-  modeSequence.push_back(ModeNumber::STANCE);
+  modeSequence.push_back(ModeNumber::kStance);
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-std::shared_ptr<GaitSchedule> GaitSchedule::loadGaitSchedule(const std::string& referenceFile,
-                                                             const ModelSettings& modelSettings,
-                                                             bool verbose) {
-  const ModeSchedule initModeSchedule = loadModeSchedule(referenceFile, "initialModeSchedule", /*verbose=*/false);
-  const ModeSequenceTemplate defaultModeSequenceTemplate =
-      loadModeSequenceTemplate(referenceFile, "defaultModeSequenceTemplate", /*verbose=*/false);
+namespace {
 
-  const Gait defaultGait = [&] {
-    Gait gait{};
-    gait.duration = defaultModeSequenceTemplate.switchingTimes.back();
-    // Events: from time -> phase
-    std::for_each(defaultModeSequenceTemplate.switchingTimes.begin() + 1, defaultModeSequenceTemplate.switchingTimes.end() - 1,
-                  [&](double eventTime) { gait.eventPhases.push_back(eventTime / gait.duration); });
-    // Modes:
-    gait.modeSequence = defaultModeSequenceTemplate.modeSequence;
-    return gait;
-  }();
-
-  // display
+/** The gait schedule of `initModeSchedule` and `defaultModeSequenceTemplate`, logged when `verbose` (GaitSchedule::Create()). */
+std::shared_ptr<GaitSchedule> makeGaitSchedule(const ModeSchedule& initModeSchedule,
+                                               const ModeSequenceTemplate& defaultModeSequenceTemplate,
+                                               const ModelSettings& modelSettings,
+                                               bool verbose) {
   if (verbose) {
     LOG(INFO) << "\n#### Modes Schedule: ";
     LOG(INFO) << "\n#### =============================================================================\n";
@@ -187,8 +184,28 @@ std::shared_ptr<GaitSchedule> GaitSchedule::loadGaitSchedule(const std::string& 
     LOG(INFO) << "Default Modes Sequence Template: \n" << defaultModeSequenceTemplate;
     LOG(INFO) << "#### =============================================================================\n";
   }
-
   return std::make_shared<GaitSchedule>(initModeSchedule, defaultModeSequenceTemplate, modelSettings.phaseTransitionStanceTime);
+}
+
+}  // namespace
+
+absl::StatusOr<std::shared_ptr<GaitSchedule>> GaitSchedule::Create(const mpc_config::ReferenceFile& referenceFile,
+                                                                   const ModelSettings& modelSettings,
+                                                                   bool verbose) {
+  ASSIGN_OR_RETURN(const ModeSchedule initModeSchedule, initialModeScheduleFromConfig(referenceFile));
+  ASSIGN_OR_RETURN(const ModeSequenceTemplate defaultModeSequenceTemplate, defaultModeSequenceTemplateFromConfig(referenceFile));
+  return makeGaitSchedule(initModeSchedule, defaultModeSequenceTemplate, modelSettings, verbose);
+}
+
+absl::StatusOr<std::shared_ptr<GaitSchedule>> GaitSchedule::Create(const std::string& referenceFile,
+                                                                   const ModelSettings& modelSettings,
+                                                                   bool verbose) {
+  ASSIGN_OR_RETURN(const mpc_config::ReferenceFile reference, loadReferenceFile(referenceFile));
+  absl::StatusOr<std::shared_ptr<GaitSchedule>> schedule = Create(reference, modelSettings, verbose);
+  if (!schedule.ok()) {
+    return withConfigFile(schedule.status(), referenceFile);
+  }
+  return schedule;
 }
 
 /******************************************************************************************************/

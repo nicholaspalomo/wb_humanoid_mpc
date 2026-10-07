@@ -29,6 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include "humanoid_centroidal_mpc/constraint/NormalVelocityConstraintCppAd.h"
+
+#include <memory>
+
 #include "humanoid_common_mpc/HumanoidPreComputation.h"
 
 namespace ocs2::humanoid {
@@ -42,7 +45,7 @@ NormalVelocityConstraintCppAd::NormalVelocityConstraintCppAd(const SwitchedModel
                                                              size_t contactPointIndex)
     : StateInputConstraint(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
-      eeLinearConstraintPtr_(new EndEffectorKinematicsLinearVelConstraint(endEffectorKinematics, /*numConstraints=*/1)),
+      eeLinearConstraintPtr_(std::make_unique<EndEffectorKinematicsLinearVelConstraint>(endEffectorKinematics, /*numConstraints=*/1)),
       contactPointIndex_(contactPointIndex) {}
 
 /******************************************************************************************************/

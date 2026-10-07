@@ -28,6 +28,23 @@ py_test(
     ],
 )
 
+# The actor-critic network, the behavioral cloning warmstart and the ONNX export of its policy.
+py_test(
+    name = "test_actor_critic",
+    size = "medium",
+    srcs = ["test_actor_critic.py"],
+    deps = [
+        "//humanoid_learning/export:export_lib",
+        "//humanoid_learning/training:training_lib",
+        requirement("flax"),
+        requirement("jax"),
+        requirement("jaxlib"),
+        requirement("numpy"),
+        requirement("onnx"),
+        requirement("optax"),
+    ],
+)
+
 py_test(
     name = "test_cartpole",
     size = "medium",

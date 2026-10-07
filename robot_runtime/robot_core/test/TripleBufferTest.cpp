@@ -1,9 +1,38 @@
-#include <gtest/gtest.h>
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
 
 #include <atomic>
 #include <chrono>
 #include <thread>
 #include <vector>
+
+#include "gtest/gtest.h"
 
 #include "robot_core/TripleBuffer.h"
 
@@ -12,30 +41,30 @@ namespace {
 
 // Simple POD type for testing
 struct TestData {
-  int value{0};
-  double extra{0.0};
+  int value = 0;
+  double extra = 0.0;
 };
 
 // ---------------------------------------------------------------------------
 // Basic functionality
 // ---------------------------------------------------------------------------
 
-TEST(TripleBufferTest, DefaultConstructed_ReadsDefaultValue) {
+TEST(TripleBufferTest, DefaultConstructedReadsDefaultValue) {
   TripleBuffer<TestData> buf;
   const TestData& data = buf.readSlot();
   EXPECT_EQ(data.value, 0);
   EXPECT_DOUBLE_EQ(data.extra, 0.0);
 }
 
-TEST(TripleBufferTest, InitialValue_AllSlotsInitialized) {
-  TestData init{42, 3.14};
+TEST(TripleBufferTest, InitialValueAllSlotsInitialized) {
+  TestData init{.value = 42, .extra = 3.14};
   TripleBuffer<TestData> buf(init);
   const TestData& data = buf.readSlot();
   EXPECT_EQ(data.value, 42);
   EXPECT_DOUBLE_EQ(data.extra, 3.14);
 }
 
-TEST(TripleBufferTest, WriteAndPublish_ConsumerSeesLatest) {
+TEST(TripleBufferTest, WriteAndPublishConsumerSeesLatest) {
   TripleBuffer<int> buf(0);
 
   buf.writeSlot() = 100;
@@ -45,7 +74,7 @@ TEST(TripleBufferTest, WriteAndPublish_ConsumerSeesLatest) {
   EXPECT_EQ(buf.readSlot(), 100);
 }
 
-TEST(TripleBufferTest, MultipleWrites_ConsumerSeesOnlyLatest) {
+TEST(TripleBufferTest, MultipleWritesConsumerSeesOnlyLatest) {
   TripleBuffer<int> buf(0);
 
   buf.writeSlot() = 1;
@@ -60,12 +89,12 @@ TEST(TripleBufferTest, MultipleWrites_ConsumerSeesOnlyLatest) {
   EXPECT_EQ(buf.readSlot(), 3);
 }
 
-TEST(TripleBufferTest, AcquireWithoutPublish_ReturnsFalse) {
+TEST(TripleBufferTest, AcquireWithoutPublishReturnsFalse) {
   TripleBuffer<int> buf(0);
   EXPECT_FALSE(buf.acquireRead());
 }
 
-TEST(TripleBufferTest, DoubleAcquire_SecondReturnsFalse) {
+TEST(TripleBufferTest, DoubleAcquireSecondReturnsFalse) {
   TripleBuffer<int> buf(0);
 
   buf.writeSlot() = 42;
@@ -80,7 +109,7 @@ TEST(TripleBufferTest, DoubleAcquire_SecondReturnsFalse) {
   EXPECT_EQ(buf.readSlot(), 42);
 }
 
-TEST(TripleBufferTest, HasNewData_ReflectsState) {
+TEST(TripleBufferTest, HasNewDataReflectsState) {
   TripleBuffer<int> buf(0);
 
   EXPECT_FALSE(buf.hasNewData());
@@ -93,7 +122,7 @@ TEST(TripleBufferTest, HasNewData_ReflectsState) {
   EXPECT_FALSE(buf.hasNewData());
 }
 
-TEST(TripleBufferTest, AlternatingWriteRead_CorrectValues) {
+TEST(TripleBufferTest, AlternatingWriteReadCorrectValues) {
   TripleBuffer<int> buf(0);
 
   for (int i = 1; i <= 100; ++i) {
@@ -108,7 +137,7 @@ TEST(TripleBufferTest, AlternatingWriteRead_CorrectValues) {
 // Concurrent SPSC correctness
 // ---------------------------------------------------------------------------
 
-TEST(TripleBufferTest, ConcurrentSPSC_ReaderSeesMonotonicallyIncreasingValues) {
+TEST(TripleBufferTest, ConcurrentSPSCReaderSeesMonotonicallyIncreasingValues) {
   TripleBuffer<int> buf(0);
   constexpr int kNumWrites = 100000;
   std::atomic<bool> done{false};
@@ -119,7 +148,7 @@ TEST(TripleBufferTest, ConcurrentSPSC_ReaderSeesMonotonicallyIncreasingValues) {
       buf.writeSlot() = i;
       buf.publishWrite();
     }
-    done.store(true, std::memory_order_release);  // NOLINT(argument-comment): libstdc++ names atomic::store's value parameter __i
+    done.store(true, std::memory_order_release);
   });
 
   // Consumer thread: read values, verify monotonically increasing
@@ -149,11 +178,11 @@ TEST(TripleBufferTest, ConcurrentSPSC_ReaderSeesMonotonicallyIncreasingValues) {
   EXPECT_GT(readCount, 0);
 }
 
-TEST(TripleBufferTest, ConcurrentSPSC_NoDataRace_ConsistentStruct) {
+TEST(TripleBufferTest, ConcurrentSPSCNoDataRaceConsistentStruct) {
   struct BigData {
-    int header{0};
+    int header = 0;
     int payload[64]{};
-    int footer{0};
+    int footer = 0;
 
     void fill(int val) {
       header = val;
@@ -179,7 +208,7 @@ TEST(TripleBufferTest, ConcurrentSPSC_NoDataRace_ConsistentStruct) {
       buf.writeSlot().fill(i);
       buf.publishWrite();
     }
-    done.store(true, std::memory_order_release);  // NOLINT(argument-comment): libstdc++ names atomic::store's value parameter __i
+    done.store(true, std::memory_order_release);
   });
 
   int readCount = 0;
@@ -203,7 +232,7 @@ TEST(TripleBufferTest, ConcurrentSPSC_NoDataRace_ConsistentStruct) {
 // Bounded latency
 // ---------------------------------------------------------------------------
 
-TEST(TripleBufferTest, ReaderNeverBlocks_BoundedLatency) {
+TEST(TripleBufferTest, ReaderNeverBlocksBoundedLatency) {
   TripleBuffer<int> buf(0);
   constexpr int kNumReads = 10000;
 

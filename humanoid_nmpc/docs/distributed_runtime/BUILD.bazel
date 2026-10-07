@@ -1,0 +1,6 @@
+# The architecture contract of the distributed runtime. README.md's topic table is the contract the operator tools
+# test against (//humanoid_nmpc/remote_control:test_operator_topics reads it).
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["README.md"])

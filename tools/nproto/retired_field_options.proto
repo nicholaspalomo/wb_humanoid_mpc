@@ -1,0 +1,21 @@
+// The message options that turn an unknown-field error of the strict textproto parsers into an answer
+// (tools/nproto/README.md, "Retired fields"). An options-only file: the RetiredField message they carry is defined in
+// retired_field.proto, which needs (nproto.generate_struct) from options.proto, so neither file can hold the other's
+// definitions.
+syntax = "proto3";
+
+package nproto;
+
+import "google/protobuf/descriptor.proto";
+import "nproto/retired_field.proto";
+
+// LINT.IfChange(retired_options)
+extend google.protobuf.MessageOptions {
+  // A field the message no longer has; repeat the option once per field. A file that sets it is refused with
+  // "'<name>' is retired: <replacement>".
+  repeated RetiredField retired_field = 52003;
+  // Appended to every unknown-field error of the message, for a whole layout that moved: "the flat keys of the
+  // contact planner moved into the planner, shared and hlip blocks (humanoid_nmpc/docs/...)".
+  string retired_layout_hint = 52005;
+}
+// LINT.ThenChange(//tools/nproto/src/Textproto.cpp:retired_options, //tools/nproto/nproto_textproto.py:retired_options, //tools/nproto/nproto_generator.py:option_names)

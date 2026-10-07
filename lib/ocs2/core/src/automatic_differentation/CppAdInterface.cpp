@@ -29,15 +29,71 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/automatic_differentiation/CppAdInterface.h>
 
-#include <boost/filesystem.hpp>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <mutex>
+#include <stdexcept>
+#include <system_error>
+#include <utility>
+
+#include "absl/base/nullability.h"
+#include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
 
 namespace ocs2 {
 
+namespace {
+
+/** The observer of CppAdInterface::setLibraryObserver(), with the mutex that guards it. */
+struct LibraryObserverSlot {
+  std::mutex mutex;
+  CppAdInterface::LibraryObserver observer;
+};
+
+LibraryObserverSlot& libraryObserverSlot() {
+  static LibraryObserverSlot slot;
+  return slot;
+}
+
+/** The extension of a library's generator stamp, after the library's name without its own extension. */
+// LINT.IfChange(generator_stamp_extension)
+constexpr char kGeneratorStampExtension[] = ".generator";
+// LINT.ThenChange(//lib/ocs2/core/test/automatic_differentiation/testCppAdGeneratorStamp.cpp:library_paths)
+
+}  // namespace
+
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-CppAdInterface::CppAdInterface(ad_parameterized_function_t adFunction, size_t variableDim, size_t parameterDim, std::string modelName,
-                               std::string folderName, std::vector<std::string> compileFlags)
+void CppAdInterface::setLibraryObserver(LibraryObserver observer) {
+  LibraryObserverSlot& slot = libraryObserverSlot();
+  std::lock_guard<std::mutex> lock(slot.mutex);
+  slot.observer = std::move(observer);
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+void CppAdInterface::notifyLibraryObserver() const {
+  LibraryObserverSlot& slot = libraryObserverSlot();
+  LibraryObserver observer;
+  {
+    std::lock_guard<std::mutex> lock(slot.mutex);
+    observer = slot.observer;
+  }
+  if (observer) observer(*this);
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+CppAdInterface::CppAdInterface(ad_parameterized_function_t adFunction,
+                               size_t variableDim,
+                               size_t parameterDim,
+                               std::string modelName,
+                               std::string folderName,
+                               std::vector<std::string> compileFlags)
     : adFunction_(std::move(adFunction)),
       variableDim_(variableDim),
       parameterDim_(parameterDim),
@@ -60,7 +116,8 @@ CppAdInterface::CppAdInterface(ad_function_t adFunction, size_t variableDim, std
 /******************************************************************************************************/
 CppAdInterface::CppAdInterface(const CppAdInterface& rhs)
     : CppAdInterface(rhs.adFunction_, rhs.variableDim_, rhs.parameterDim_, rhs.modelName_, rhs.folderName_, rhs.compileFlags_) {
-  if (isLibraryAvailable()) {
+  if (rhs.model_ != nullptr || isLibraryAvailable()) {
+    rangeDim_ = rhs.rangeDim_;  // known when rhs has a model, so that the reloaded library is checked against it
     loadModels(false);
   }
 }
@@ -115,8 +172,10 @@ void CppAdInterface::createModels(ApproximationOrder approximationOrder, bool ve
     std::cerr << "[CppAdInterface] Renaming " << libraryName_ + tmpName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION << " to "
               << libraryName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION << std::endl;
   }
-  boost::filesystem::rename(libraryName_ + tmpName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION,
-                            libraryName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION);
+  std::filesystem::rename(libraryName_ + tmpName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION, libraryFilePath());
+  // After the library: a stamp without its library is never left behind, a library without its stamp is regenerated.
+  writeGeneratorStamp();
+  notifyLibraryObserver();
 }
 
 /******************************************************************************************************/
@@ -129,9 +188,62 @@ void CppAdInterface::loadModels(bool verbose) {
   }
   dynamicLib_.reset(new CppAD::cg::LinuxDynamicLib<scalar_t>(libraryName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION));
   model_ = dynamicLib_->model(modelName_);
+  // A fresh interface does not know its range yet (an earlier createModels() or the interface a copy was made of
+  // would have set it), so the function is evaluated once to find it: a library whose output size changed while its
+  // inputs did not is as stale as one whose inputs changed.
+  checkLoadedModelDimensions(/*expectedRangeDim=*/rangeDim_ != 0 ? rangeDim_ : evaluateRangeDim());
   rangeDim_ = model_->Range();
 
   setSparsityNonzeros();
+  notifyLibraryObserver();
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+void CppAdInterface::checkLoadedModelDimensions(size_t expectedRangeDim) const {
+  if (model_ == nullptr) {
+    throw std::runtime_error(absl::StrCat("[CppAdInterface] The library in '", libraryFolder_, "' has no model named '", modelName_,
+                                          "'. Delete the folder, or set recompileLibrariesCppAd: true, to regenerate it."));
+  }
+  const size_t expectedDomainDim = variableDim_ + parameterDim_;
+  if (model_->Domain() != expectedDomainDim || model_->Range() != expectedRangeDim) {
+    throw std::runtime_error(absl::StrCat(
+        "[CppAdInterface] The library in '", libraryFolder_, "' was generated for another function: its domain is ", model_->Domain(),
+        " and its range ", model_->Range(), ", but the function now takes ", variableDim_, " variables + ", parameterDim_,
+        " parameters = ", expectedDomainDim, " and returns ", expectedRangeDim,
+        ". It is stale (for example from before a change of the state layout): delete the folder, or set recompileLibrariesCppAd: true, "
+        "to regenerate it."));
+  }
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+size_t CppAdInterface::evaluateRangeDim() const {
+  // At the taping point of createModels(), but off tape: no operation is recorded and nothing is generated.
+  const ad_vector_t x = ad_vector_t::Ones(variableDim_);
+  const ad_vector_t p = ad_vector_t::Ones(parameterDim_);
+  ad_vector_t y;
+  adFunction_(x, p, y);
+  return static_cast<size_t>(y.size());
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+size_t CppAdInterface::getTapeOperationCount() const {
+  // The same taping as createModels(): at ones, then optimized.
+  ad_vector_t xp(variableDim_ + parameterDim_);
+  xp.setOnes();
+  CppAD::Independent(xp);
+  const ad_vector_t x = xp.segment(0, variableDim_);
+  const ad_vector_t p = xp.segment(variableDim_, parameterDim_);
+  ad_vector_t y;
+  adFunction_(x, p, y);
+  ad_fun_t fun(xp, y);
+  fun.optimize();
+  return fun.size_op();
 }
 
 /******************************************************************************************************/
@@ -140,9 +252,14 @@ void CppAdInterface::loadModels(bool verbose) {
 void CppAdInterface::loadModelsIfAvailable(ApproximationOrder approximationOrder, bool verbose) {
   if (isLibraryAvailable()) {
     loadModels(verbose);
-  } else {
-    createModels(approximationOrder, verbose);
+    return;
   }
+  std::error_code error;
+  if (std::filesystem::exists(libraryFilePath(), error)) {
+    LOG(INFO) << "[CppAdInterface] The library in '" << libraryFolder_ << "' was generated by another CppAD generator than "
+              << kCppAdGeneratorTag << " (its stamp " << generatorStampPath() << " is missing or names another): regenerating it.";
+  }
+  createModels(approximationOrder, verbose);
 }
 
 /******************************************************************************************************/
@@ -170,8 +287,8 @@ matrix_t CppAdInterface::getJacobian(const vector_t& x, const vector_t& p) const
 
   std::vector<scalar_t> sparseJacobian(nnzJacobian_);
   CppAD::cg::ArrayView<scalar_t> sparseJacobianArrayView(sparseJacobian);
-  size_t const* rows;
-  size_t const* cols;
+  size_t const* absl_nullable rows;
+  size_t const* absl_nullable cols;
   // Call this particular SparseJacobian. Other CppAd functions allocate internal vectors that are incompatible with multithreading.
   model_->SparseJacobian(xpArrayView, sparseJacobianArrayView, &rows, &cols);
 
@@ -205,8 +322,8 @@ ScalarFunctionQuadraticApproximation CppAdInterface::getGaussNewtonApproximation
   // Jacobian
   std::vector<scalar_t> sparseJacobian(nnzJacobian_);
   CppAD::cg::ArrayView<scalar_t> sparseJacobianArrayView(sparseJacobian);
-  size_t const* rows;
-  size_t const* cols;
+  size_t const* absl_nullable rows;
+  size_t const* absl_nullable cols;
   model_->SparseJacobian(xpArrayView, sparseJacobianArrayView, &rows, &cols);
 
   // Sparse evaluation of J' * f
@@ -264,8 +381,8 @@ matrix_t CppAdInterface::getHessian(const vector_t& w, const vector_t& x, const 
 
   std::vector<scalar_t> sparseHessian(nnzHessian_);
   CppAD::cg::ArrayView<scalar_t> sparseHessianArrayView(sparseHessian);
-  size_t const* rows;
-  size_t const* cols;
+  size_t const* absl_nullable rows;
+  size_t const* absl_nullable cols;
 
   CppAD::cg::ArrayView<const scalar_t> wArrayView(w.data(), w.size());
 
@@ -303,15 +420,63 @@ void CppAdInterface::setFolderNames() {
 /******************************************************************************************************/
 /******************************************************************************************************/
 bool CppAdInterface::isLibraryAvailable() const {
-  return boost::filesystem::exists(libraryName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION);
+  std::error_code error;
+  return std::filesystem::exists(libraryFilePath(), error) && hasCurrentGeneratorStamp();
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+std::string CppAdInterface::libraryFilePath() const {
+  return libraryName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+std::string CppAdInterface::generatorStampPath() const {
+  return libraryName_ + kGeneratorStampExtension;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+bool CppAdInterface::hasCurrentGeneratorStamp() const {
+  std::ifstream stamp(generatorStampPath(), std::ios::binary);
+  if (!stamp.is_open()) return false;
+  const std::string content((std::istreambuf_iterator<char>(stamp)), std::istreambuf_iterator<char>());
+  return content == absl::StrCat(kCppAdGeneratorTag, "\n");
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+void CppAdInterface::writeGeneratorStamp() const {
+  const std::string stampPath = generatorStampPath();
+  // The temporary name is unique to this process and interface, as the library's own temporary name is.
+  const std::string temporaryPath = absl::StrCat(stampPath, ".", tmpName_);
+  bool written = false;
+  {
+    std::ofstream stamp(temporaryPath, std::ios::binary | std::ios::trunc);
+    stamp << kCppAdGeneratorTag << '\n';
+    stamp.close();
+    written = !stamp.fail();
+  }
+  std::error_code error;
+  if (written) std::filesystem::rename(temporaryPath, stampPath, error);
+  if (!written || error) {
+    std::filesystem::remove(temporaryPath, error);
+    LOG(WARNING) << "[CppAdInterface] Could not write the generator stamp " << stampPath
+                 << ": the library is regenerated on its next use.";
+  }
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 void CppAdInterface::createFolderStructure() const {
-  boost::filesystem::create_directories(libraryFolder_);
-  boost::filesystem::create_directories(tmpFolder_);
+  std::filesystem::create_directories(libraryFolder_);
+  std::filesystem::create_directories(tmpFolder_);
 }
 
 /******************************************************************************************************/

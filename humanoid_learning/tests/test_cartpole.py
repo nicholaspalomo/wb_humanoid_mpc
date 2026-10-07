@@ -1,30 +1,59 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Unit and integration tests for Cartpole Brax MJX environment and training pipeline."""
 
 import os
 
+# JAX picks its platform when it is first imported, so the tests pin it to the CPU before the imports below.
 os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
+# pylint: disable=wrong-import-position  # JAX_PLATFORMS is set above, before JAX is imported.
 import shutil
 import tempfile
 import unittest
 
-from brax.envs.base import State
-from brax.training import types
+from brax.envs import base as brax_base
 from brax.training.agents.ppo import networks as ppo_networks
 import jax
 import jax.numpy as jnp
 import numpy as np
 from PIL import Image
 
-from humanoid_learning.examples.train_cartpole import (
-    CartpoleBraxEnv,
-    plot_training_curves,
-    render_policy_rollout,
-)
+from humanoid_learning.examples import train_cartpole
+
+# pylint: enable=wrong-import-position
 
 
-def _dummy_inference_fn(obs, rng):
+def _dummy_inference_fn(
+    obs: np.ndarray, rng: jax.Array
+) -> tuple[jax.Array, dict[str, jax.Array]]:
     """Module-level dummy inference function for policy rollout tests."""
+    del obs, rng  # Unused.
     return jnp.zeros((1,)), {}
 
 
@@ -33,7 +62,7 @@ class TestCartpoleBraxTrainingPipeline(unittest.TestCase):
 
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp(prefix="cartpole_test_")
-        self.env = CartpoleBraxEnv()
+        self.env = train_cartpole.CartpoleBraxEnv()
         self.rng = jax.random.PRNGKey(42)
 
     def tearDown(self):
@@ -49,7 +78,7 @@ class TestCartpoleBraxTrainingPipeline(unittest.TestCase):
     def test_env_single_reset_and_step(self):
         """Tests single environment reset and physics stepping."""
         state = self.env.reset(self.rng)
-        self.assertIsInstance(state, State)
+        self.assertIsInstance(state, brax_base.State)
         self.assertEqual(state.obs.shape, (5,))
         self.assertFalse(bool(state.done))
         self.assertFalse(np.isnan(np.array(state.obs)).any())
@@ -69,7 +98,7 @@ class TestCartpoleBraxTrainingPipeline(unittest.TestCase):
     def test_rendering_and_gif_generation(self):
         """Tests rendering policy rollout to animated GIF."""
         gif_path = os.path.join(self.temp_dir, "test_rollout.gif")
-        eval_score = render_policy_rollout(
+        eval_score = train_cartpole.render_policy_rollout(
             self.env.mj_model, _dummy_inference_fn, gif_path, num_frames=20
         )
 
@@ -84,14 +113,14 @@ class TestCartpoleBraxTrainingPipeline(unittest.TestCase):
 
     def test_plotting_training_curves(self):
         """Tests generating metric curves plot."""
-        metrics_history = {
+        metrics_history: dict[str, list[float]] = {
             "eval_steps": [1000, 2000, 3000, 4000],
             "eval_scores": [50.0, 70.0, 100.0, 119.0],
             "loss_steps": [1000, 2000, 3000, 4000],
             "loss": [10.0, 8.0, 5.0, 3.0],
         }
         plot_path = os.path.join(self.temp_dir, "test_curves.png")
-        plot_training_curves(metrics_history, plot_path)
+        train_cartpole.plot_training_curves(metrics_history, plot_path)
 
         self.assertTrue(os.path.exists(plot_path))
         self.assertGreater(os.path.getsize(plot_path), 1000)
@@ -126,7 +155,7 @@ class TestCartpoleBraxTrainingPipeline(unittest.TestCase):
         inference_fn = make_inference_fn((normalizer_params, policy_params))
 
         single_obs = jnp.zeros((self.env.observation_size,))
-        action, extra = inference_fn(single_obs, rng_step)
+        action, _ = inference_fn(single_obs, rng_step)
         self.assertEqual(action.shape, (self.env.action_size,))
         self.assertFalse(np.isnan(np.array(action)).any())
 

@@ -33,6 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
 #include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
 #include <ocs2_robotic_tools/end_effector/EndEffectorKinematics.h>
@@ -105,7 +107,7 @@ class PinocchioEndEffectorKinematicsCppAd final : public EndEffectorKinematics<s
                                       bool verbose = false);
 
   ~PinocchioEndEffectorKinematicsCppAd() override = default;
-  PinocchioEndEffectorKinematicsCppAd* clone() const override;
+  PinocchioEndEffectorKinematicsCppAd* absl_nonnull clone() const override;
   PinocchioEndEffectorKinematicsCppAd& operator=(const PinocchioEndEffectorKinematicsCppAd&) = delete;
 
   const std::vector<std::string>& getIds() const override;

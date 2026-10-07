@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -24,6 +28,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include "humanoid_common_mpc/contact_planning/execution/DcmStepAdjustmentRule.h"
+
+#include <string>
 
 #include "absl/strings/str_cat.h"
 
@@ -47,7 +53,7 @@ feet_array_t<vector2_t> DcmStepAdjustmentRule::correctFootholds(const ExecutionC
   // NMPC expects, however far the planner's reduced model has drifted, and non-zero only under a real disturbance.
   const vector2_t dcmError = computeDcm(ctx.com, ctx.comVelocity, omega) - computeDcm(ctx.predictedCom, ctx.predictedComVelocity, omega);
 
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     const std::optional<std::pair<scalar_t, scalar_t>> phase = swingPhaseAtTime(schedule, foot, ctx.time);
     if (!phase.has_value()) continue;
     const scalar_t touchDownTime = phase->second;

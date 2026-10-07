@@ -1,0 +1,61 @@
+load("@operator_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+
+# humanoid_common_mpc_pyutils - Python tools around the MPC: the MPC observation logger, which records
+# robot/mpc_observation from the IPC bus into a CSV file, and export_rollouts.py, which turns those files into the
+# demonstration dataset of humanoid_learning's BC warm start (`make export-rollouts`, under the system Python).
+#
+#   bazel run //humanoid_nmpc/humanoid_common_mpc_pyutils:mpc_observation_logger -- [--duration 30] [--output_dir .]
+
+package(default_visibility = ["//visibility:public"])
+
+py_library(
+    name = "export_rollouts_lib",
+    srcs = [
+        "humanoid_common_mpc_pyutils/__init__.py",
+        "humanoid_common_mpc_pyutils/export_rollouts.py",
+    ],
+    imports = ["."],
+    deps = [requirement("numpy")],
+)
+
+py_library(
+    name = "mpc_observation_logger_lib",
+    srcs = [
+        "humanoid_common_mpc_pyutils/__init__.py",
+        "humanoid_common_mpc_pyutils/mpc_observation_logger.py",
+    ],
+    imports = ["."],
+    deps = [
+        "//humanoid_nmpc/humanoid_mpc_ipc:topics_py",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_py_proto",
+        "//robot_runtime/robot_ipc:robot_ipc_py",
+    ],
+)
+
+py_binary(
+    name = "mpc_observation_logger",
+    srcs = ["humanoid_common_mpc_pyutils/mpc_observation_logger.py"],
+    data = ["//config/ipc:network.textproto"],
+    main = "humanoid_common_mpc_pyutils/mpc_observation_logger.py",
+    deps = [":mpc_observation_logger_lib"],
+)
+
+# The default columns (the logger's, and the ROS-era logger's), explicit columns, and every row of every file.
+py_test(
+    name = "test_export_rollouts",
+    size = "small",
+    srcs = ["test/test_export_rollouts.py"],
+    deps = [":export_rollouts_lib"],
+)
+
+# The CSV columns and file name, every observation of a loopback bus in order, and export_rollouts.py reading the file.
+py_test(
+    name = "test_mpc_observation_logger",
+    size = "small",
+    srcs = ["test/test_mpc_observation_logger.py"],
+    deps = [
+        ":export_rollouts_lib",
+        ":mpc_observation_logger_lib",
+    ],
+)

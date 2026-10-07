@@ -1,4 +1,30 @@
-#!/usr/bin/env python3
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Flags, and can fix, British spellings: this repository is written in American English.
 
 color, behavior, center, initialize, normalize, analyze, modeling, labeled, canceled, defense, gray, program. The words
@@ -8,12 +34,21 @@ external API - carries `NOLINT(american-spelling)`.
 """
 
 import argparse
+from collections.abc import Iterable
 import os
 import re
 import sys
-from typing import Callable, Iterable, List, NamedTuple, Optional, Tuple
+from typing import NamedTuple
 
+from tools.hooks import check_types
+from tools.hooks import lint_files
+
+NAME = "american-spelling"
 NOLINT = "NOLINT(american-spelling)"
+# The checker's own word list and its tests are British on purpose.
+_OWN_FILES = frozenset(
+    {"tools/hooks/american_spelling.py", "tools/hooks/test_american_spelling.py"}
+)
 
 # -our -> -or. Only these stems: "four", "hour", "your", "tour", "pour", "source" and "course" are not British.
 _OUR_STEMS = (
@@ -236,7 +271,8 @@ _WORDS = {
 }
 
 
-def _build_table() -> dict:
+def _build_table() -> dict[str, str]:
+    """British -> American spelling: _WORDS, and every stem of the -our, -ise and -yse families with its suffixes."""
     table = dict(_WORDS)
     for stem in _OUR_STEMS:
         for suffix in _OUR_SUFFIXES:
@@ -251,7 +287,7 @@ def _build_table() -> dict:
     return table
 
 
-def _with_prefixes(table: dict) -> dict:
+def _with_prefixes(table: dict[str, str]) -> dict[str, str]:
     """Adds the prefixed forms (uninitialised, decentralised, reorganised, non-normalised, ...)."""
     prefixed = dict(table)
     for prefix in (
@@ -302,30 +338,38 @@ class Finding(NamedTuple):
         )
 
 
-def _scan_line(line: str, on_match: Callable[[re.Match, str], None]) -> None:
+def _scan_line(line: str) -> list[tuple[re.Match[str], str]]:
+    """The British spellings of `line` outside URLs, each with its American spelling in the same case."""
     urls = [(m.start(), m.end()) for m in _URL.finditer(line)]
+    matches = []
     for part in _PART.finditer(line):
         american = TABLE.get(part.group(0).lower())
         if american is None or any(start <= part.start() < end for start, end in urls):
             continue
-        on_match(part, _match_case(part.group(0), american))
+        matches.append((part, _match_case(part.group(0), american)))
+    return matches
 
 
-def check_source(source: str, path: str = "<source>") -> List[Finding]:
-    findings: List[Finding] = []
+def check_source(source: str, path: str = "<source>") -> list[Finding]:
+    """The British spellings of `source`, except on lines marked NOLINT(american-spelling).
+
+    Args:
+        source: The text of a file.
+        path: The file's path, which the findings name.
+
+    Returns:
+        One finding per British spelling, in the order of the text.
+    """
+    findings: list[Finding] = []
     for number, line in enumerate(source.splitlines(), start=1):
         if NOLINT in line:
             continue
-        _scan_line(
-            line,
-            lambda m, american: findings.append(
-                Finding(path, number, m.group(0), american)
-            ),
-        )
+        for match, american in _scan_line(line):
+            findings.append(Finding(path, number, match.group(0), american))
     return findings
 
 
-def fix_source(source: str) -> Tuple[str, int]:
+def fix_source(source: str) -> tuple[str, int]:
     """The source with every British spelling replaced, and how many were."""
     count = 0
     out_lines = []
@@ -333,10 +377,7 @@ def fix_source(source: str) -> Tuple[str, int]:
         if NOLINT in line:
             out_lines.append(line)
             continue
-        edits: List[Tuple[int, int, str]] = []
-        _scan_line(
-            line, lambda m, american: edits.append((m.start(), m.end(), american))
-        )
+        edits = [(m.start(), m.end(), american) for m, american in _scan_line(line)]
         for start, end, american in reversed(edits):
             line = line[:start] + american + line[end:]
         count += len(edits)
@@ -344,15 +385,62 @@ def fix_source(source: str) -> Tuple[str, int]:
     return "".join(out_lines), count
 
 
-def check_files(paths: Iterable[str], root: str) -> List[Finding]:
-    findings: List[Finding] = []
+def check_files(paths: Iterable[str], root: str) -> list[Finding]:
+    """The British spellings of the files `paths`, which the findings name relative to `root`."""
+    findings: list[Finding] = []
     for path in paths:
         with open(path, encoding="utf-8", errors="ignore") as f:
             findings += check_source(f.read(), os.path.relpath(path, root))
     return findings
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def _skipped(path: str) -> bool:
+    # Robot model files (URDF, MJCF) are upstream data.
+    return (
+        path in _OWN_FILES
+        or os.path.splitext(path)[1].lower() in check_types.MODEL_EXTENSIONS
+    )
+
+
+def _findings(source: str, path: str) -> list[check_types.Finding]:
+    """The registry's check: every British spelling of a file that is not a robot model or the word list itself."""
+    if _skipped(path):
+        return []
+    findings: list[check_types.Finding] = []
+    for number, line in enumerate(source.splitlines(), start=1):
+        for match, american in _scan_line(line):
+            findings.append(
+                check_types.Finding(
+                    path,
+                    number,
+                    match.start() + 1,
+                    NAME,
+                    f"British spelling `{match.group(0)}`: write `{american}` (American English throughout, "
+                    "AGENTS.md).",
+                )
+            )
+    return findings
+
+
+def _fix(source: str, path: str) -> str:
+    return source if _skipped(path) else fix_source(source)[0]
+
+
+CHECKS = [
+    check_types.Check(
+        name=NAME,
+        languages=frozenset({check_types.Language.TEXT}),
+        scope=lint_files.Scope.TEXT,
+        check_source=_findings,
+        fix_source=_fix,
+        description="American English throughout: color, behavior, center, initialize (AGENTS.md).",
+        hint="Fix them all with: python3 -m tools.hooks.american_spelling --fix <files> (or lint_code --fix "
+        "--only american-spelling).",
+    )
+]
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("paths", nargs="+")
     parser.add_argument("--fix", action="store_true", help="rewrite the files in place")

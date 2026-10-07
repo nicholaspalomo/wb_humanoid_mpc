@@ -30,17 +30,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <pinocchio/fwd.hpp>
+#include "pinocchio/fwd.hpp"
 
+#include <algorithm>
 #include <array>
-#include <cppad/cg.hpp>
 #include <iostream>
 #include <memory>
+#include <string>
+#include <vector>
 
-#include <pinocchio/algorithm/center-of-mass.hpp>
-
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
+#include "cppad/cg.hpp"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -112,7 +114,7 @@ std::vector<VECTOR3_T<SCALAR_T>> getContactPositions(const PinocchioInterfaceTpl
 template <typename SCALAR_T>
 std::vector<VECTOR3_T<SCALAR_T>> computeFramePositions(const VECTOR_T<SCALAR_T>& q,
                                                        PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
-                                                       std::vector<std::string> frameNames);
+                                                       const std::vector<std::string>& frameNames);
 
 ///
 /// @brief Returns all the frame positions in the inertial frame.
@@ -150,34 +152,6 @@ std::vector<VECTOR3_T<SCALAR_T>> getFramePositions(const PinocchioInterfaceTpl<S
 scalar_t computeComHeightAboveFeet(const vector_t& q,
                                    PinocchioInterface& pinocchioInterface,
                                    const MpcRobotModelBase<scalar_t>& mpcRobotModel);
-
-///
-/// @brief Gets the estimated ground height using the feet in contact for a pinocchio model with updated frame placements.
-///
-/// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
-/// @param pinocchioInterface Pinocchio interface.
-/// @param measuredMode mode of which feet are in contact.
-///
-/// @return the estimated ground height.
-
-scalar_t getGroundHeightEstimate(PinocchioInterfaceTpl<scalar_t>& pinocchioInterface,
-                                 const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                 size_t measuredMode);
-
-///
-/// @brief Computes the estimated ground height using the feet in contact.
-///
-/// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
-/// @param pinocchioInterface Pinocchio interface.
-/// @param q Current generalized coordinates.
-/// @param measuredMode mode of which feet are in contact.
-///
-/// @return the estimated ground height.
-
-scalar_t computeGroundHeightEstimate(PinocchioInterfaceTpl<scalar_t>& pinocchioInterface,
-                                     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                     const vector_t& q,
-                                     size_t measuredMode);
 
 ///
 /// @brief Return amount of legs in contact
@@ -219,34 +193,13 @@ inline vector_t weightCompensatingInput(const PinocchioInterface& pinocchioInter
     // (world frame for wrench-space models, local contact frame for basis-vector inputs). For a flat foot the
     // vertical force is identical in both frames. Prefer the state-aware overload below when a state is available.
     const vector3_t forceInInertialFrame(0.0, 0.0, weight / numStanceLegs);
-    for (size_t i = 0; i < contactFlags.size(); i++) {
+    for (size_t i = 0; i < contactFlags.size(); ++i) {
       if (contactFlags[i]) {
         mpcRobotModel.setContactForce(input, forceInInertialFrame, i);
       }
     }
   }
   return input;
-}
-
-///
-/// @brief Contact wrenches the inverse dynamics may project into joint torques, given the measured contact state.
-///
-/// A contact point that is not measured in contact cannot transmit a wrench to the environment, whatever the executed
-/// plan expects there: projecting its planned wrench would push the leg against nothing (a late touch-down) or, after a
-/// foot lifted early, keep loading a leg that carries nothing. The planned wrench of every such point is dropped; the
-/// points measured in contact keep the planned wrench (zero where the plan holds the foot in swing).
-///
-/// @param plannedWrenches [W_left, W_right] of the executed policy, world frame.
-/// @param measuredContactFlags Measured contact state, one flag per contact point.
-///
-/// @return the wrenches to hand to computeJointTorques.
-
-inline std::array<vector6_t, 2> gateContactWrenchesByMeasuredContacts(std::array<vector6_t, 2> plannedWrenches,
-                                                                      const contact_flag_t& measuredContactFlags) {
-  for (size_t i = 0; i < plannedWrenches.size() && i < measuredContactFlags.size(); ++i) {
-    if (!measuredContactFlags[i]) plannedWrenches[i].setZero();
-  }
-  return plannedWrenches;
 }
 
 ///
@@ -270,7 +223,7 @@ inline vector_t weightCompensatingInput(const PinocchioInterface& pinocchioInter
   vector_t input = vector_t::Zero(mpcRobotModel.getInputDim());
   if (numStanceLegs > 0) {
     const vector3_t forceInInertialFrame(0.0, 0.0, weight / numStanceLegs);
-    for (size_t i = 0; i < contactFlags.size(); i++) {
+    for (size_t i = 0; i < contactFlags.size(); ++i) {
       if (contactFlags[i]) {
         mpcRobotModel.setContactForceInWorldFrame(state, input, forceInInertialFrame, i);
       }
@@ -299,8 +252,8 @@ inline std::vector<pinocchio::FrameIndex> getContactFrameIndices(const Pinocchio
                                                                  const MpcRobotModelBase<SCALAR_T>& mpcRobotModel) {
   // Sized, not reserved: reserve leaves size() at 0, so indexing below would be out of bounds and the returned
   // vector would be empty - which silently turned every range-for over these indices into a no-op.
-  std::vector<pinocchio::FrameIndex> contactFrameIndices(N_CONTACTS);
-  for (size_t i = 0; i < N_CONTACTS; i++) {
+  std::vector<pinocchio::FrameIndex> contactFrameIndices(kNumContacts);
+  for (size_t i = 0; i < kNumContacts; ++i) {
     contactFrameIndices[i] = getContactFrameIndex<SCALAR_T>(pinocchioInterface, mpcRobotModel, i);
   }
   return contactFrameIndices;
@@ -322,7 +275,7 @@ inline std::vector<pinocchio::FrameIndex> getContactFrameIndices(const Pinocchio
 /// @return Location of center of pressure in the inertial frame.
 
 template <typename SCALAR_T>
-inline VECTOR3_T<SCALAR_T> computeContactCoP(const VECTOR_T<SCALAR_T> input,
+inline VECTOR3_T<SCALAR_T> computeContactCoP(const VECTOR_T<SCALAR_T>& input,
                                              const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
                                              size_t contactIndex,
                                              const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
@@ -369,69 +322,16 @@ inline VECTOR3_T<SCALAR_T> computeContactCoP(const VECTOR_T<SCALAR_T>& state,
 /******************************************************************************************************/
 
 ///
-/// @brief Computes the center of pressure (CoP) for all contacts in the inertial frame.
-///
-/// @warning Assumes that the frame placements are up to date.
-///
-/// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
-/// @param input Current input.
-/// @param pinocchioInterface Pinocchio interface.
-/// @param contactFlags Flags indicating which contacts are in contact. Returns 0 vector if not in contact.
-///
-/// @return Locations of center of pressure in the inertial frame.
-
-inline std::vector<vector3_t> computeContactsCoP(const vector_t input,
-                                                 const PinocchioInterfaceTpl<scalar_t>& pinocchioInterface,
-                                                 const contact_flag_t& contactFlags,
-                                                 const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
-  std::vector<vector3_t> contactCoPs;
-  contactCoPs.reserve(N_CONTACTS);
-  for (size_t contactIndex = 0; contactIndex < N_CONTACTS; contactIndex++) {
-    if (contactFlags[contactIndex]) {
-      contactCoPs.emplace_back(computeContactCoP<scalar_t>(input, pinocchioInterface, contactIndex, mpcRobotModel));
-    } else {
-      contactCoPs.emplace_back(vector3_t::Zero());
-    }
-  }
-  return contactCoPs;
-}
-
-///
-/// @brief Computes the center of pressure (CoP) for all contacts in the inertial frame from the state-aware
-/// world-frame wrench (frame-correct for basis-vector inputs).
-///
-/// @warning Assumes that the frame placements are up to date.
-///
-/// @param state Current state.
-/// @param input Current input.
-/// @param pinocchioInterface Pinocchio interface.
-/// @param contactFlags Flags indicating which contacts are in contact. Returns 0 vector if not in contact.
-///
-/// @return Locations of center of pressure in the inertial frame.
-
-inline std::vector<vector3_t> computeContactsCoP(const vector_t& state,
-                                                 const vector_t& input,
-                                                 const PinocchioInterfaceTpl<scalar_t>& pinocchioInterface,
-                                                 const contact_flag_t& contactFlags,
-                                                 const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
-  std::vector<vector3_t> contactCoPs;
-  contactCoPs.reserve(N_CONTACTS);
-  for (size_t contactIndex = 0; contactIndex < N_CONTACTS; contactIndex++) {
-    if (contactFlags[contactIndex]) {
-      contactCoPs.emplace_back(computeContactCoP<scalar_t>(state, input, pinocchioInterface, contactIndex, mpcRobotModel));
-    } else {
-      contactCoPs.emplace_back(vector3_t::Zero());
-    }
-  }
-  return contactCoPs;
-}
-
-///
 /// @brief Computes euler zyx angles from an eigen quaternion
 ///
 /// @param quat Quaternion
 ///
 /// @return vector3_t (euler_z, euler_y,euler_x)
+///
+/// The sine of the pitch is clamped to [-1, 1] before the asin. At a pitch of +-90 degrees it is 1 in exact
+/// arithmetic, but rounding can carry it past 1 - for (0, sqrt(0.5), 0, sqrt(0.5)) it is 1 + 2^-52 - and asin is then
+/// NaN, which would reach the MPC's initial state through the MRT. Inside [-1, 1] the clamp returns its argument
+/// unchanged, so every orientation that converted before converts to the same bits.
 
 static inline vector3_t quaternionToEulerZYX(const quaternion_t& quat) {
   scalar_t w = quat.w();
@@ -442,7 +342,8 @@ static inline vector3_t quaternionToEulerZYX(const quaternion_t& quat) {
   // Yaw (Z axis rotation)
   scalar_t yaw = std::atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z));
   // Pitch (Y axis rotation)
-  scalar_t pitch = std::asin(2.0 * (w * y - z * x));
+  const scalar_t sinPitch = std::clamp(2.0 * (w * y - z * x), -1.0, 1.0);
+  scalar_t pitch = std::asin(sinPitch);
   // Roll (X axis rotation)
   scalar_t roll = std::atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y));
 

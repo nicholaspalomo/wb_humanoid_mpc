@@ -28,7 +28,17 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <humanoid_wb_mpc/constraint/EndEffectorDynamicsAccelerationsConstraint.h>
+#include "humanoid_wb_mpc/constraint/EndEffectorDynamicsAccelerationsConstraint.h"
+
+#include <memory>
+#include <utility>
+
+#include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_join.h"
+
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
@@ -37,17 +47,28 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
+absl::StatusOr<std::unique_ptr<EndEffectorDynamicsAccelerationsConstraint>> EndEffectorDynamicsAccelerationsConstraint::Create(
+    const EndEffectorDynamics<scalar_t>& endEffectorDynamics, size_t numConstraints, Config config) {
+  if (endEffectorDynamics.getIds().size() != 1) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[EndEffectorDynamicsAccelerationsConstraint] this class only accepts a single end-effector; "
+                     "the end-effector dynamics has ",
+                     endEffectorDynamics.getIds().size(), ": [", absl::StrJoin(endEffectorDynamics.getIds(), ", "), "]"));
+  }
+  return absl::WrapUnique(new EndEffectorDynamicsAccelerationsConstraint(endEffectorDynamics, numConstraints, std::move(config)));
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
 EndEffectorDynamicsAccelerationsConstraint::EndEffectorDynamicsAccelerationsConstraint(
     const EndEffectorDynamics<scalar_t>& endEffectorDynamics, size_t numConstraints, Config config)
     : StateInputConstraint(ConstraintOrder::Linear),
+      ground_plane_normal_(0.0, 0.0, 1.0),
       endEffectorDynamicsPtr_(endEffectorDynamics.clone()),
       numConstraints_(numConstraints),
-      ground_plane_normal_(0.0, 0.0, 1.0),
-      config_(std::move(config)) {
-  if (endEffectorDynamicsPtr_->getIds().size() != 1) {
-    throw std::runtime_error("[EndEffectorDynamicsAccelerationsConstraint] this class only accepts a single end-effector!");
-  }
-}
+      config_(std::move(config)) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -56,9 +77,9 @@ EndEffectorDynamicsAccelerationsConstraint::EndEffectorDynamicsAccelerationsCons
 EndEffectorDynamicsAccelerationsConstraint::EndEffectorDynamicsAccelerationsConstraint(
     const EndEffectorDynamicsAccelerationsConstraint& rhs)
     : StateInputConstraint(rhs),
+      ground_plane_normal_(rhs.ground_plane_normal_),
       endEffectorDynamicsPtr_(rhs.endEffectorDynamicsPtr_->clone()),
       numConstraints_(rhs.numConstraints_),
-      ground_plane_normal_(rhs.ground_plane_normal_),
       config_(rhs.config_) {}
 
 /******************************************************************************************************/
@@ -66,14 +87,6 @@ EndEffectorDynamicsAccelerationsConstraint::EndEffectorDynamicsAccelerationsCons
 /******************************************************************************************************/
 
 void EndEffectorDynamicsAccelerationsConstraint::configure(Config&& config) {
-  assert(config.b.rows() == numConstraints_);
-  assert(config.Ax.size() > 0 || config.Av.size() > 0);
-  assert((config.Ax.size() > 0 && config.Ax.rows() == numConstraints_) || config.Ax.size() == 0);
-  assert((config.Ax.size() > 0 && config.Ax.cols() == 6) || config.Ax.size() == 0);
-  assert((config.Av.size() > 0 && config.Av.rows() == numConstraints_) || config.Av.size() == 0);
-  assert((config.Av.size() > 0 && config.Av.cols() == 6) || config.Av.size() == 0);
-  assert((config.Aa.size() > 0 && config.Aa.rows() == numConstraints_) || config.Aa.size() == 0);
-  assert((config.Aa.size() > 0 && config.Aa.cols() == 6) || config.Aa.size() == 0);
   config_ = std::move(config);
 }
 
@@ -81,10 +94,10 @@ void EndEffectorDynamicsAccelerationsConstraint::configure(Config&& config) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-vector_t EndEffectorDynamicsAccelerationsConstraint::getValue(scalar_t time,
+vector_t EndEffectorDynamicsAccelerationsConstraint::getValue(scalar_t /*time*/,
                                                               const vector_t& state,
                                                               const vector_t& input,
-                                                              const PreComputation& preComp) const {
+                                                              const PreComputation& /*preComp*/) const {
   vector_t f = config_.b;
   if (config_.Ax.size() > 0) {
     // foot pose is a 6D vector containing the foot position and orientation error wrt. to the ground normal
@@ -106,20 +119,19 @@ vector_t EndEffectorDynamicsAccelerationsConstraint::getValue(scalar_t time,
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-VectorFunctionLinearApproximation EndEffectorDynamicsAccelerationsConstraint::getLinearApproximation(scalar_t time,
-                                                                                                     const vector_t& state,
-                                                                                                     const vector_t& input,
-                                                                                                     const PreComputation& preComp) const {
+VectorFunctionLinearApproximation EndEffectorDynamicsAccelerationsConstraint::getLinearApproximation(
+    scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& /*preComp*/) const {
   VectorFunctionLinearApproximation linearApproximation =
       VectorFunctionLinearApproximation::Zero(getNumConstraints(time), state.size(), input.size());
 
   linearApproximation.f = config_.b;
 
-  // Orientation error gains are ignored for now
-  // This is equal with assuming that the bottom 3 rows of Ax are zero.
+  // The position goes through the top-left 3x3 block of Ax and the orientation error with respect to the ground plane
+  // through the bottom-right one. The two off-diagonal blocks are not read, so this is the linearization of getValue(),
+  // which applies all of Ax, only for a block-diagonal Ax - the form WBMpcInterface::getStanceFootConstraint builds.
   if (config_.Ax.size() > 0) {
-    const auto positionApprox = endEffectorDynamicsPtr_->getPositionLinearApproximation(state).front();
-    const auto orientationApprox =
+    const VectorFunctionLinearApproximation positionApprox = endEffectorDynamicsPtr_->getPositionLinearApproximation(state).front();
+    const VectorFunctionLinearApproximation orientationApprox =
         endEffectorDynamicsPtr_->getOrientationErrorWrtPlaneLinearApproximation(state, {ground_plane_normal_}).front();
 
     linearApproximation.f.head(3).noalias() += config_.Ax.topLeftCorner(3, 3) * positionApprox.f;
@@ -129,14 +141,15 @@ VectorFunctionLinearApproximation EndEffectorDynamicsAccelerationsConstraint::ge
   }
 
   if (config_.Av.size() > 0) {
-    const auto velocityApprox = endEffectorDynamicsPtr_->getTwistLinearApproximation(state, input).front();
+    const VectorFunctionLinearApproximation velocityApprox = endEffectorDynamicsPtr_->getTwistLinearApproximation(state, input).front();
     linearApproximation.f.noalias() += config_.Av * velocityApprox.f;
     linearApproximation.dfdx.noalias() += config_.Av * velocityApprox.dfdx;
     linearApproximation.dfdu.noalias() += config_.Av * velocityApprox.dfdu;
   }
 
   if (config_.Aa.size() > 0) {
-    const auto accelApprox = endEffectorDynamicsPtr_->getAccelerationsLinearApproximation(state, input).front();
+    const VectorFunctionLinearApproximation accelApprox =
+        endEffectorDynamicsPtr_->getAccelerationsLinearApproximation(state, input).front();
     linearApproximation.f.noalias() += config_.Aa * accelApprox.f;
     linearApproximation.dfdx.noalias() += config_.Aa * accelApprox.dfdx;
     linearApproximation.dfdu.noalias() += config_.Aa * accelApprox.dfdu;

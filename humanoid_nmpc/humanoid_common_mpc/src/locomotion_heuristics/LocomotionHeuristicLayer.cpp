@@ -29,12 +29,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
 
-#include "humanoid_common_mpc/common/MpcFormulationConfig.h"
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 
+#include "humanoid_common_mpc/common/MpcFormulationConfig.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFactory.h"
 
@@ -61,22 +65,22 @@ absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> LocomotionHeuristicLay
                      "4.3), not a companion to it: either set ",
                      kContactScheduleSourceKey, ": ", kGaitScheduleContactScheduleSource,
                      ", or empty the locomotion_heuristics.foothold list and tune the planner's own foothold terms in "
-                     "contact_planning.yaml."));
+                     "contact_planning.textproto."));
   }
 
   // The foothold anchor keeps the feet apart laterally with the nominal step width, or - with hip_centered_stepping -
   // with the hips. With neither, every other foothold heuristic is a velocity- or rate-proportional correction around
   // the STANCE foot's own lateral line, and the swing foot is targeted onto the stance foot: towards self-collision
   // and zero support width. That cannot work, so it is refused.
-  const bool listsAnchor = config.formulation.listed(HeuristicKind::FOOTHOLD, heuristic::kHipCenteredStepping);
+  const bool listsAnchor = config.formulation.listed(HeuristicKind::kFoothold, heuristic::kHipCenteredStepping);
   if (!config.formulation.foothold.empty() && !listsAnchor && !(environment.nominalStepWidth > 0.0)) {
     return absl::InvalidArgumentError(absl::StrCat(
         "[LocomotionHeuristicLayer] locomotion_heuristics.foothold lists ", absl::StrJoin(config.formulation.foothold, ", "),
-        " with model_settings.nominal_foothold.stepWidth at ", environment.nominalStepWidth,
+        " with nominal_foothold.step_width at ", environment.nominalStepWidth,
         " and without 'hip_centered_stepping'. Nothing would then keep the feet apart: the other foothold heuristics correct a "
         "landing target that sits on the stance foot's own lateral line, so the swing foot would be aimed at the stance foot. "
         "Either add 'hip_centered_stepping' to the list, which places each foot relative to its own hip, or set "
-        "model_settings.nominal_foothold.stepWidth to the lateral distance between the feet."));
+        "nominal_foothold.step_width to the lateral distance between the feet."));
   }
 
   auto layer = std::make_unique<LocomotionHeuristicLayer>();
@@ -112,7 +116,7 @@ absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> LocomotionHeuristicLay
   // hidden.
   if (environment.usesContactBasisVectorInputs && layer->wrenchNeedsWorldFrame_) {
     LOG(WARNING) << "[LocomotionHeuristicLayer] a listed wrench heuristic produces a HORIZONTAL force while "
-                    "contactInputParameterization is basis_vectors. The contact-force reference is therefore written through the "
+                    "contact_input_parameterization is \"basis_vectors\". The contact-force reference is therefore written through the "
                     "state-aware setContactForceInWorldFrame(), which rotates it into the local contact frame and costs "
                     "one forward-kinematics pass per shooting node per SQP iteration in inputQuadraticCost and "
                     "stateInputQuadraticCost. Watch the solve time; the vertical-only heuristics do not pay this.";
@@ -127,7 +131,7 @@ absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> LocomotionHeuristicLay
   }
   if (environment.footPositionIsUntracked && !layer->foothold_.empty()) {
     LOG(WARNING) << "[LocomotionHeuristicLayer] locomotion_heuristics.foothold lists " << absl::StrJoin(config.formulation.foothold, ", ")
-                 << " while task_space_foot_cost_weights.pos_x and pos_y are both zero (or task_space_foot_cost is not listed). "
+                 << " while task_space_foot_cost.weights.pos_x and pos_y are both zero (or task_space_foot_cost is not listed). "
                     "Nothing then tracks the landing target these shape, so they do not move the feet. Raise pos_x and pos_y for "
                     "them to act.";
   }

@@ -32,12 +32,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-
-#include <ocs2_oc/approximate_model/LinearQuadraticApproximator.h>
-#include <ocs2_oc/oc_problem/OptimalControlProblemHelperFunction.h>
+#include "ocs2_oc/approximate_model/LinearQuadraticApproximator.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblemHelperFunction.h"
 
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
@@ -69,9 +71,11 @@ void append(Fingerprint& fingerprint, const std::string& label, const matrix_t& 
 }  // namespace
 
 void setWalkingReferences(CentroidalMpcInterface& interface) {
-  const vector_t x0 = interface.getInitialState();
+  const vector_t& x0 = interface.getInitialState();
   const Eigen::Index nu = static_cast<Eigen::Index>(interface.getEffectiveMpcRobotModel().getInputDim());
-  const ModeSchedule schedule({0.2, 0.55, 0.65, 1.0, 1.1, 1.45}, {STANCE, LF, STANCE, RF, STANCE, LF, STANCE});
+  const ModeSchedule schedule({0.2, 0.55, 0.65, 1.0, 1.1, 1.45},
+                              {ModeNumber::kStance, ModeNumber::kLf, ModeNumber::kStance, ModeNumber::kRf, ModeNumber::kStance,
+                               ModeNumber::kLf, ModeNumber::kStance});
   vector_t xStart = x0;
   xStart(0) = 0.4;  // forward normalized momentum: a walking command
   vector_t xEnd = xStart;
@@ -80,7 +84,7 @@ void setWalkingReferences(CentroidalMpcInterface& interface) {
   const std::shared_ptr<SwitchedModelReferenceManager> referenceManager = interface.getSwitchedModelReferenceManagerPtr();
   referenceManager->getGaitSchedule()->updateModeSchedule(schedule);
   referenceManager->setTargetTrajectories(TargetTrajectories({0.0, 2.0}, {xStart, xEnd}, {u0, u0}));
-  referenceManager->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.5, x0, STANCE);
+  referenceManager->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.5, x0, ModeNumber::kStance);
   interface.getOptimalControlProblemRef().targetTrajectoriesPtr = &referenceManager->getTargetTrajectories();
 }
 

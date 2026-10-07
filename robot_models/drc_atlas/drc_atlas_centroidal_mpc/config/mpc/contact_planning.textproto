@@ -1,0 +1,412 @@
+# proto-file: humanoid_nmpc/humanoid_mpc_config/contact_planning_file.proto
+# proto-message: humanoid_mpc_config.ContactPlanningFile
+# Online contact planner of the DRC Atlas, read when task.textproto selects
+# contact_schedule_source: contact_planner (Atlas ships gait_schedule). This file lives next to task.textproto
+# (CentroidalMpcInterface looks for contact_planning.textproto in the task file's directory); the parameter updater reloads
+# it whenever it is saved, like task.textproto, and the tuning GUI edits it in place.
+#
+# `planner.type` chooses the planner and therefore which of the blocks below are read at all.
+#
+#   hlip      the closed-form reduced-order stepper of arXiv:2502.15630 (the planner selected here; see
+#             humanoid_nmpc/docs/hlip_contact_planner/README.md). A fixed cadence of alternating single supports and a
+#             foothold from the H-LIP deadbeat step-to-step controller. Nothing is optimized, nothing is searched and
+#             no gain is tuned: the reduced model proposes a nominal gait and the whole-body MPC is free to leave it.
+#             Reads `planner`, `shared`, `hlip`, the `execution` list and whether `dynamics` lists
+#             heading_double_integrator.
+#   lip_miqp  the mixed-integer program (LipContactPlanner, humanoid_nmpc/docs/README.md section 2). A Linear Inverted
+#             Pendulum on a coarse grid, one contact binary per node and foot, solved by branch-and-bound over HPIPM
+#             relaxations. Reads `planner`, `shared`, the term lists and one parameter block per listed term. It is
+#             also what a robot gets whose file omits planner.type: the library defaults are its configuration.
+#
+# Either way the result replaces the gait schedule (mode sequence + event times) and provides the swing-foot landing
+# targets tracked by task.textproto task_space_foot_cost.weights.pos_x / pos_y - which Atlas ships at 0, so raise them before
+# switching the planner on (CentroidalMpcInterface warns at start-up while they are 0). The planner prints what it was
+# configured with at start-up and after every reload that changes what it prints (ContactPlannerModule::reloadSummary).
+planner {  # which planner, grid, commit window, solver budget, threading
+  # Which contact planner runs (ContactPlannerFactory). `hlip` is the closed-form reduced-order stepper of
+  # arXiv:2502.15630 (humanoid_nmpc/docs/hlip_contact_planner/README.md): a fixed cadence and the H-LIP deadbeat step,
+  # nothing is optimized, and of the blocks below it reads `shared`, `hlip`, the `execution` list and whether
+  # `dynamics` lists heading_double_integrator. `lip_miqp` is the mixed-integer program, which reads the term lists
+  # and every per-term block and ignores the `hlip` block.
+  type: "hlip"
+  dt: 0.025  # [s] planner node duration. The H-LIP mode schedule takes the planner's continuous event times;
+                                    #     only the per-node contacts and footholds are rounded to the nearest node,
+                                    #     so keep this well below ssp_duration.
+                                    #     A plan costs microseconds, so a fine grid is free. With lip_miqp use 0.1.
+  num_nodes: 56  # planning horizon = num_nodes * dt = 1.4 s, covers mpc.time_horizon (1 s)
+  commit_time: 0.05  # [s] the applied schedule is fixed this far ahead; must cover the planner latency (a swing
+                                     #     that has started or starts within this window is always executed to its touch-down)
+  # Enabled: with min_double_support_duration 0 the swings abut and the boundary walk has nothing to terminate it,
+  # which stalls the planner silently (it falls back to a STANCE-only merge, so the foot that should lift never
+  # does and the robot is dragged sideways standing still). 0.6 is above both shared.gait_limits.max_swing_duration
+  # (0.35 s) and hlip.ssp_duration (0.25 s), so a whole swing still fits, and commit_time + 0.6 = 0.65 s leaves the
+  # 1.4 s plan reaching past the boundary.
+  max_commit_extension: 0.6  # [s] <= 0: no cap (today's behavior). Bounds how far past commit_time the boundary may be
+                                      # extended to reach a swing's touch-down. The extension walks the phases overlapping the
+                                      # window and each swing it reaches pushes the boundary to that swing's touch-down, which
+                                      # pulls the following phases into the walk. With min_double_support_duration: 0 every swing
+                                      # starts exactly where the previous one ends, so nothing terminates the walk: the boundary
+                                      # runs to the end of the stepping region, no plan reaches past it (planUsable needs
+                                      # endTime() > commit_time + dt), and the planner stops publishing - the robot stops
+                                      # stepping. A double support of any length breaks the chain, which is why an uncapped
+                                      # extension only fails once the double supports are actually gone. Set it above
+                                      # max_swing_duration (validated) so a whole swing still fits; a capped boundary can fall
+                                      # inside a swing in flight and let a later plan re-time it, which is what the extension
+                                      # exists to prevent, so validate in MuJoCo before hardware.
+  max_branch_and_bound_nodes: 200  # relaxations per plan
+  max_solve_time: 0.1  # [s] anytime limit, the best plan found so far is returned
+  max_qp_iterations: 60
+  # "pre_solve_hook": plan synchronously in the MPC pre-solve hook, which is right for planner.type: hlip. That planner solves
+  # nothing - a fixed cadence and a closed-form deadbeat step over 56 nodes - so it costs microseconds, and the
+  # background thread buys nothing while costing the one thing a feedback law cannot afford: its plan is made at most
+  # planning_frequency times a second from a snapshot up to a planning period old (on either path a plan is activated
+  # one MPC cycle after it is made), so at 10 Hz against a 50 Hz MPC the footholds are computed from a state up to
+  # 100 ms old - two fifths of the 0.25 s single support they are meant to correct. With
+  # planner.type: lip_miqp the opposite holds: a mixed-integer solve takes tens of milliseconds and must not block
+  # the solver, so that planner needs "background_thread". ContactPlanningConfig::warnings() reports the mismatch either
+  # way round.
+  threading: "pre_solve_hook"  # "background_thread": plan on a worker thread (required for lip_miqp)
+  planning_frequency: 50  # [Hz] upper bound on the background planning rate; ignored when planning synchronously
+  verbose: false
+  log_plans: true  # one log line per plan: objective, relaxations, solve time, NODE-LIMIT / TIME-LIMIT when the
+                   # search was cut short, CoM velocity at both ends of the horizon, and per foot the phase
+                   # sequence with durations and every step (dx, dy). Set false once the gait is understood.
+}
+
+shared {  # parameters read by more than one term
+  big_m: 1.5  # [m] big-M of the contact disjunctions: must exceed foot_separation.max_step_length and be at least
+                                     #     foot_separation.max_step_width (validated). A tighter big-M tightens the
+                                     #     relaxations and speeds up the search.
+  slack_penalty {  # default penalty of every soft constraint without a `slack` block of its own
+    quadratic: 10000  # quadratic penalty on the ZMP / reachability slacks
+    linear: 100  # linear penalty on the same slacks
+  }
+# The file is one configuration split into blocks, because ifttt-lint cannot nest the small cross-file pairs below (the
+# pendulum against task.textproto's DCM cost, the two cadences against task.textproto's swing_time_scale) in a file-wide block.
+  # The pendulum, omega = sqrt(gravity / com_height). com_height left out is the robot's own: the model's center of mass
+  # above the mean height of its soles at task.textproto initial_state (computeComHeightAboveFeet), 1.0805 m for this
+  # URDF, so omega = 3.013 rad/s; the planner logs both at start-up. task.textproto dcm_terminal_cost resolves its own
+  # absent com_height with the same function, so the two pendulums agree by construction, and a plan carries the omega it
+  # was made on, which the terminal cost takes the planned DCM with. A positive com_height is an explicit override of the
+  # model; give dcm_terminal_cost.com_height and gravity the same values then.
+  # (Until the height was derived both keys were hand-set to 0.85 m, 23 cm below the model's center of mass: omega
+  # 3.40 rad/s instead of 3.01, and a deadbeat gain K[1] of 0.476 instead of 0.571 at the cadence below, so the step
+  # law was not deadbeat for the robot it ran on.)
+  # LINT.IfChange(atlas_pendulum)
+  gravity: 9.81  # [m/s^2]
+  # com_height [m], the LIP height: left out, the model's center of mass above its feet at initial_state (1.0805 m).
+  # LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:atlas_dcm_pendulum)
+  # Cadence. The stride period the planner can emit is bounded below by
+  # 2 * (min_swing_duration + min_double_support_duration), so these keys, not the reach limits, set the top speed:
+  # at 0.4 / 0.1 the floor was a 1.0 s stride, which needs a 0.6 m step to track the joypad's full-stick 1.2 m/s.
+  # At 0.3 / 0.1 it is 0.8 s, i.e. a 0.48 m step for the same command.
+  # With min_double_support_duration at 0 the floor is 2 * min_swing_duration = 0.5 s, i.e. a 0.30 m step for that command,
+  # and step_length's nominal displacement follows the same ratio (T_stride / T_swing drops from 2.67 to 2.0).
+  # Every duration is quantized to a whole number of `dt` nodes (ceil for a minimum, floor for a maximum), so at
+  # dt: 0.1 nothing below 0.1 s is expressible.
+  # task.textproto swing_trajectory_config.swing_time_scale must stay <= min_swing_duration or every swing is scaled down in
+  # height and velocity by swingDuration / swing_time_scale and the foot lands short and low.
+  # LINT.IfChange(atlas_gait_cadence)
+  gait_limits {
+    min_swing_duration: 0.25  # [s] must stay >= task.textproto swing_trajectory_config.swing_time_scale (0.25).
+                                      #     With planner.type: hlip nothing below reads these limits: the cadence is
+                                      #     hlip.ssp_duration exactly and the execution rules that read them are not
+                                      #     listed. They shape the plan only under planner.type: lip_miqp.
+    # [s] a long swing at speed is dead time the planner would otherwise spend. At 1.0 the planner chose 0.6-0.7 s
+    # swings even at low command, and with min_double_support_duration 0 the whole of that is single support: the lateral
+    # LIP diverges as cosh(omega t), so a 0.7 s single support multiplies a lateral offset by cosh(2.11) = 4.2 on the
+    # model's 1.0805 m pendulum, with no double support in which to walk the ZMP across. It also caps the lateral
+    # speed, which needs a step of v_y * T_stride to fit inside max_step_width - min_step_width = 0.30 m, so a long stride
+    # halves what the gait can deliver sideways. And a 1.0 s swing is most of the 1.2 s horizon, which leaves the
+    # planner nothing to plan with and makes max_commit_extension unusable (the capped boundary would still outrun the
+    # plan).
+    max_swing_duration: 0.35
+    min_contact_duration: 0.3  # [s]
+    max_contact_duration: 0  # [s] <= 0: no limit (standing allowed)
+    min_double_support_duration: 0  # [s] after a touch-down the other foot stays down at least this long. 0 disables the
+                                       # hold entirely and lets a foot lift at the very node the other lands (an
+                                       # instantaneous support exchange, which is what double_support_penalty then asks for).
+                                       # NOTE: any value above 0 is quantized up to a whole node, so at dt: 0.1 anything in
+                                       # (0, 0.1] behaves as 0.1 s; only exactly 0 gives a zero double support.
+  }
+  # LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:atlas_swing_time_scale)
+}
+
+# ---- the closed-form H-LIP planner (planner.type: hlip) ----
+# The reduced-order layer of arXiv:2502.15630. The gait is a fixed cadence and each foothold is the H-LIP deadbeat
+# step; there is no cost, no constraint and no search, and the whole-body MPC is what departs from this nominal gait.
+# The deadbeat gain is closed form (K = [1, dsp_duration + coth(omega ssp_duration) / omega]), so nothing here is a
+# weight: every key is either a cadence, a geometry, or the range of a joypad command.
+# LINT.IfChange(atlas_hlip_cadence)
+hlip {
+  # [s] single support. The stride is 2 * (ssp_duration + dsp_duration). This is the single most consequential key
+  # here, for two reasons, and both want it short.
+  #
+  # First, the lateral pendulum amplifies an offset by cosh(omega * ssp_duration) every step: on the model's 1.0805 m
+  # pendulum 1.30 at 0.25 s, 1.61 at 0.35 s, 2.37 at 0.5 s.
+  #
+  # Second, and the one that decides whether the gait can start at all: a robot standing still has its center of
+  # mass half a step width from either foot with no lateral velocity, so the moment the first foot leaves the ground
+  # it falls sideways fast. Catching it takes a first step far wider than the nominal one - at the dsp_duration 0.05
+  # set below, 0.47 m at 0.35 s and 0.39 m at 0.25 s - and if that does not fit inside max_step_width it is clipped.
+  # The double support enters the deadbeat gain as K = [1, dsp_duration + coth(omega ssp_duration) / omega], and omega
+  # is the pendulum's, so this demand cannot be quoted without saying which dsp_duration and which pendulum it was
+  # computed at. A clipped step is no longer the deadbeat step, the residual grows by the factor above every step,
+  # and depending on how much is cut the gait recovers or locks into an alternating wide and narrow limit cycle it
+  # cannot leave: the feet come together, the robot walks itself sideways and falls. That is exactly what happened at
+  # 0.35 s with max_step_width 0.45 on the hand-set 0.85 m pendulum Atlas then used, which demanded 0.52 m and locked;
+  # on the model's pendulum the same cadence demands 0.47 m, is clipped once and recovers. The start-up print says
+  # which of the two a clipped first step does, and ContactPlanningConfig::warnings() reports a step that does not
+  # fit.
+  #
+  # Every executed swing lasts exactly this long, so task.textproto swing_trajectory_config.swing_time_scale must stay at
+  # or below it, or every swing is scaled down in height and velocity (the reference manager warns when it is not).
+  ssp_duration: 0.25
+  # LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto:atlas_swing_time_scale)
+  # LINT.IfChange(atlas_hlip_step_bounds)
+  # [s] double support. The paper uses 0, an instantaneous exchange of support. Here it is the time the whole-body
+  # MPC has to move the center of mass over the next stance foot before that foot has to carry the robot alone: the
+  # reduced model's double support only drifts at constant velocity and does not represent the transfer itself. It
+  # enters the deadbeat gain in closed form, so nothing else has to be retuned with it.
+  dsp_duration: 0.05
+  step_width: 0.25  # [m] lateral distance between the feet of the nominal period-two orbit
+  max_step_length: 0.5  # [m] clip on the step along the heading. This and the two below are the only bounds
+                                      #     the planner applies to the deadbeat step: a foothold outside the leg's reach is
+                                      #     clipped rather than handed to the MPC. They are safety limits, not tuning.
+  max_step_width: 0.45  # [m] largest lateral distance between the feet after a step
+  min_step_width: 0.15  # [m] self-collision margin on that distance
+  # Standing / walking blend, equations (15) - (17) of the paper: alpha = tanh(sharpness (phi - threshold)) / 2 + 1/2
+  # with phi the squared norm of the commands and the measured center-of-mass velocity, its lateral part taken
+  # relative to the sway of stepping in place (HlipContactPlanner::blendVelocity), each normalized by its threshold
+  # below.
+  # Under alpha = 0.5 the planner stands and the feet stay put; above it the commanded velocity is scaled by alpha, so
+  # the stride grows out of standing instead of jumping to full length at the first non-zero command.
+  blend {
+    sharpness: 40  # rho_1
+    threshold: 0.02  # rho_2
+    max_commanded_velocity_x: 0.7  # [m/s]
+    max_commanded_velocity_y: 0.3  # [m/s]
+    max_commanded_yaw_rate: 0.61  # [rad/s] (35 deg/s)
+    # The measured velocity phi is normalized by. The paper writes v_b for the base velocity; what the planner
+    # actually measures and feeds the blend is the CENTER-OF-MASS velocity, so the keys are named for that.
+    # Laterally it is the velocity beyond the zero-command stepping orbit's own sway (0.132 m/s on the model's
+    # pendulum) that counts.
+    max_com_velocity_x: 0.5  # [m/s]
+    max_com_velocity_y: 0.4  # [m/s]
+  }
+  # LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.textproto:lateral_velocity_limit)
+}
+
+# ---- the formulation: what the planner is assembled from ----
+# The `costs`, `soft_constraints`, `hard_constraints`, `logic_rules`, `assignment_costs` and `search` lists below,
+# and every per-term block after them, belong to the mixed-integer planner and are ignored with planner.type: hlip.
+# Two of the lists are read under BOTH planners and are not part of that:
+#   dynamics   only for whether heading_double_integrator is listed: that is what tells the H-LIP planner to publish
+#              a planned heading and planned foot yaws, which the foot cost tracks when the robot turns.
+#   execution  in full. ContactPlanningReferenceManager::setConfigStatus builds the execution rules from this list
+#              whatever the planner is, and preSolverRun / overrideTarget apply them under either one. This comment
+#              used to say only `dynamics` was consulted, which is how the `execution` list below came to be
+#              described as empty under hlip while it holds the one entry the gait cannot walk without.
+                                    # model blocks; order fixes the variable layout, the first two are mandatory
+dynamics: "lip_com"  # LIP center of mass: c, v; input zmp (zero-order hold)
+dynamics: "foothold_integrator"  # foot positions p_i; inputs dp_i and the contact binaries c_i
+dynamics: "heading_double_integrator"  # heading model (ACoM dynamics): theta, omega, foot yaws psi_i; inputs tau_i, dpsi_i.
+                                  # The whole-body heading (the angular center of mass) and its angular momentum about the
+                                  # vertical join the reduced model, driven by the yaw torques the stance feet can carry.
+                                  # Turning becomes a stepping decision bounded by the ground torques, and the foothold
+                                  # frame follows the planned heading (successive linearization). The planned foot yaw
+                                  # reaches the foot cost through task_space_foot_cost.weights.orientation_z (0 = not tracked).
+                                    # in accumulation order of the stage matrices
+costs: "regularization"
+costs: "previous_foothold_consistency"
+costs: "velocity_tracking"
+costs: "step_width"
+costs: "heading_rate_tracking"
+costs: "heading_tracking"
+costs: "foot_yaw_tracking"
+costs: "yaw_torque_regularization"
+costs: "foot_yaw_regularization"
+costs: "zmp_regularization"
+costs: "foothold_regularization"
+costs: "step_length"  # cyclic step length: a swinging foot advances what the commanded speed needs per node
+costs: "terminal_dcm"
+soft_constraints: "zmp_support_region"
+soft_constraints: "reachability"
+soft_constraints: "foot_separation"
+soft_constraints: "hip_yaw_range"
+hard_constraints: "no_flight"
+hard_constraints: "foot_motion_in_swing_only"
+hard_constraints: "yaw_torque_budget"
+hard_constraints: "foot_yaw_pinned_in_contact"
+                                    # propagation on the contact binaries, outside the QP
+logic_rules: "phase_durations"
+logic_rules: "no_flight"
+logic_rules: "minimum_double_support"
+logic_rules: "alternating_feet"  # a foot may not swing twice in a row
+                                    # costs on the binaries, outside the QP
+assignment_costs: "contact_switch"
+assignment_costs: "plan_consistency"
+assignment_costs: "double_support_penalty"
+                                    # stages around the branch-and-bound
+search: "warm_start_previous_plan"
+search: "diving"
+search: "event_shift_local_search"
+# search: "cadence_stretch"                 # re-time the incumbent by scaling the node grid (no-op while cadence_stretch.samples is 0)
+search: "heading_relinearization"
+# Execution rules of the reference manager, applied between plans (measured contact events, closed-form LIP
+# corrections). This list is read under BOTH planners; it is not part of the lip_miqp-only formulation above.
+#
+# With planner.type: hlip it holds exactly one entry, planned_com_override, and that entry is mandatory: it is the
+# paper's equations 11-14 reference plumbing rather than a heuristic, and the comment on it below says what happens
+# without it. Every other rule here is a heuristic correction between plans and stays commented out, because the
+# H-LIP replans from the measured state at every MPC solve and the whole-body MPC absorbs what is left, which is the
+# point of the paper's split. Enable a heuristic one at a time and validate it in MuJoCo before hardware;
+# phase_resetting must precede energy_cadence_modulation when both are listed.
+#
+# This block used to claim that "with planner.type: hlip the list is empty on purpose" and that "with none listed
+# the reference manager merges plans exactly as it did before they existed, which is the behavior the gait is tuned
+# against" - three lines above the entry that must be there, and directly contradicted by the comment on that entry.
+# An operator who believed it and commented planned_com_override out would walk the robot sideways into the floor,
+# so the wording is now the same one the EngineAI SA01 copy of this file carries.
+# Not a heuristic: this is the reference plumbing of the paper (its equations 11-14). The H-LIP's lateral orbit
+# requires the center of mass to fall towards the swing foot, while the target trajectory built from the operator's
+# command asks for a straight line with no lateral velocity. Without this rule the whole-body MPC holds the center
+# of mass still, the planner reads that back and narrows the step to min_step_width, and the robot sidesteps and
+# falls. The rules below it are the heuristics, and they stay off.
+execution: "planned_com_override"  # the plan's center of mass replaces the horizontal CoM reference of the target
+# execution: "phase_resetting"               # early touch-down: switch the foot to contact at once; late: extend the swing
+# execution: "planned_heading_override"      # the plan's heading replaces the commanded yaw in the MPC target trajectory
+# execution: "energy_cadence_modulation"     # re-time the touch-down of the swing in flight by the LIP orbital energy error
+# execution: "dcm_step_adjustment"           # move the landing target by the DCM error propagated to touch-down
+
+# ---- one parameter block per term, named as the term ----
+regularization {
+  state: 1.0e-08  # added to the diagonal of Q at every node
+  input: 1.0e-06  # added to the diagonal of R on the running nodes
+}
+previous_foothold_consistency {
+  weight: 5  # ||foot position - previous plan||^2 per node, damps landing-target jitter
+}
+velocity_tracking {
+  weight: 100  # ||v_com - v_cmd||^2 per node
+}
+step_width {
+  weight: 10  # (step width - nominal_step_width)^2 per node
+  nominal_step_width: 0.25  # [m] preferred lateral distance between the feet
+}
+heading_rate_tracking {
+  weight: 20  # (heading rate - commanded yaw rate)^2 per node
+}
+heading_tracking {
+  weight: 5  # (heading - commanded heading)^2 per node
+}
+foot_yaw_tracking {
+  weight: 5  # (foot yaw - nominal heading)^2 per node
+}
+yaw_torque_regularization {
+  weight: 0.001  # yaw torque^2 per node
+}
+foot_yaw_regularization {
+  weight: 1  # (foot yaw displacement)^2 per node
+}
+zmp_regularization {
+  weight: 0.1  # ||zmp - p_com||^2 per node
+}
+foothold_regularization {
+  weight: 0.2  # ||foot displacement||^2 per node
+}
+# The velocity tracking alone is indifferent between a few long steps and many short ones at the same average speed,
+# and from rest it favors the short quick steps that accelerate the pendulum fastest. This term draws every swing to
+# the displacement a cyclic gait at the commanded speed needs, d_nom = v_cmd * dt * T_stride / T_swing at the nominal
+# cadence of the gait limits (T_swing = min_swing_duration, T_stride = 2 (min_swing_duration + min_double_support_duration)),
+# and a standing foot to stay put. With the acceleration limit of reference.textproto (max_linear_acceleration) the steps
+# then lengthen progressively with the ramped command.
+step_length {
+  weight: 20  # ||dp_swing - d_nom||^2 per running node and foot
+}
+terminal_dcm {
+  weight: 50  # ||DCM_N - zmp_(N-1)||^2 (terminal capturability)
+  # "commanded_velocity": the terminal DCM xi_N is drawn to zmp_(N-1) + v_cmd / omega, i.e. the plan is asked to keep
+  # walking at the end of the horizon; "rest": onto the ZMP, a stop, which shortens the steps at speed.
+  target: "commanded_velocity"
+}
+zmp_support_region {
+  half_width_x: 0.08  # [m] ZMP box half-width around a supporting foot along the heading (0 = from the footprint)
+  half_width_y: 0.04  # [m] ZMP box half-width laterally
+}
+# Reach. These were ~3x the header defaults, which let the planner buy velocity tracking with stride length the leg
+# cannot deliver: the landing target ran away from the foot and the swing never reached it. Tightened to something
+# the leg can actually reach, so the planner has to buy speed with cadence instead.
+reachability {
+  reach_x: 0.6  # [m] foot x offset from the CoM
+  reach_y_inner: 0.05  # [m] left foot y - CoM y >= reach_y_inner (mirrored for the right foot)
+  reach_y_outer: 0.45  # [m]
+}
+foot_separation {
+  max_step_length: 0.7  # [m] |x_left - x_right| bound
+  min_step_width: 0.15  # [m] self-collision margin
+  max_step_width: 0.45  # [m]
+}
+# hip_yaw_range and yaw_torque_budget take their values from the robot model: the yaw inertia, the yaw torque limits
+# (torsional friction coefficient * weight, friction coefficient * half the weight * nominal_step_width, both from
+# contact_wrench_cone_soft_constraint) and the per-leg hip yaw range are not keys here.
+contact_switch {
+  cost: 0.02  # per lift-off / touch-down event. A faster cadence puts more events in the horizon,
+                                    # so at 1.0 this term charged the planner for the very thing the cadence limits allow.
+}
+plan_consistency {
+  cost: 0.5  # per node whose contact differs from the previous plan (hysteresis between plans)
+}
+# The incentive for the zero double support that min_double_support_duration: 0 only permits: with the duration at zero
+# and this term absent the planner still keeps a double support while walking, because it is cheaper for the ZMP.
+double_support_penalty {
+  cost: 0.1  # per node at which both feet are in contact. The term cannot tell the weight transfer
+                                    # of a step apart from standing on two feet, so it prices standing as well: measured
+                                    # against these gait limits, 0.1 removes the transition double support at 0.6 m/s
+                                    # (4 double-support nodes and no simultaneous exchange become 1 and 2) and leaves a
+                                    # zero velocity command standing; 0.3 already makes the robot step in place rather
+                                    # than stand, and 5.0 makes it march continuously. Raise it only with the standing
+                                    # regression test in front of you.
+}
+diving {
+  max_dive_iterations: 64
+}
+event_shift_local_search {
+  iterations: 10  # rounds of event-shift local search on the incumbent (0 disables)
+  max_time: 0.05  # [s]
+}
+cadence_stretch {
+  samples: 0  # stretch candidates evaluated after the branch-and-bound (0 disables the stage)
+  max_stretch: 1.25  # upper bound on the stretch; also clipped by the gait limits and by the commit window
+}
+heading_relinearization {
+  passes: 1  # re-linearizations of the heading frame at the incumbent (0 disables)
+}
+phase_resetting {
+  early_touchdown_min_swing_ratio: 0.25  # contact during this initial fraction of the nominal swing is ignored (scuffing)
+  early_touchdown_min_contact_duration: 0.02  # [s] contact must persist this long before the swing is ended (sensor debounce)
+  early_touchdown_min_advance: 0.04  # [s] a touch-down closer than this to its scheduled time is executed as planned.
+                                             # Ending the swing early holds the foot down from the measured contact until its
+                                             # scheduled touch-down, which at min_double_support_duration: 0 is the other foot's
+                                             # lift-off: the truncation then opens a double support as long as the foot was
+                                             # early, on nearly every step, and shorter than the MPC's own dt (0.02 s). This
+                                             # also bounds the shortest double support the rule can create. Must exceed
+                                             # early_touchdown_min_contact_duration or the debounce alone defeats it. 0 = off.
+  max_late_touchdown_extension: 0.15  # [s] total extension budget of a swing past its planned touch-down
+  late_touchdown_extension_step: 0.05  # [s] the touch-down is pushed this far ahead of the current time per cycle
+  late_touchdown_search_velocity: 0.05  # [m/s] descent rate of the foot height target while searching for the ground
+}
+# The DCM step adjustment and the cadence modulation measure the deviation of the measured CoM from the NMPC's own
+# predicted trajectory, so they act only on real disturbances and are zero while the robot does what the controller
+# expects. That prediction is refreshed every solve, so each loop corrects the deviation that appeared over the last
+# solver period, once: they damp impulses and slips and do not integrate a sustained push (the planner re-plans from
+# the measured state for that). dcm_step_adjustment.max_offset is the safety bound; check in simulation that the offset
+# is not sitting at it.
+energy_cadence_modulation {
+  gain: 0.01  # [s/J] touch-down shift = -gain * (E - E_pred), E of the full model mass
+  deadband: 0  # [J] deviations within this band re-time nothing; a few joules absorb velocity noise
+}
+dcm_step_adjustment {
+  gain: 0.5  # 1 = exact LIP compensation of the DCM increment, propagated to touch-down
+  max_offset: 0.05  # [m] bound on the landing target offset (also clipped to the reachable region)
+}

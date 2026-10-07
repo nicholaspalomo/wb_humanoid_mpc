@@ -1,6 +1,7 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
-load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+
 # mujoco_sim_interface - MuJoCo simulation interface library
 
 package(default_visibility = ["//visibility:public"])
@@ -29,41 +30,27 @@ cc_library(
     ],
     hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-    ],
+    copts = FIRST_PARTY_COPTS,
     deps = [
         "//lib/mujoco_vendor",
         "//robot_runtime/robot_core",
         "//robot_runtime/robot_model",
         "@eigen",
-        "@boost",
+        "@abseil-cpp//absl/base:no_destructor",
+        "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/log:die_if_null",
         "@abseil-cpp//absl/log:log",
         "@abseil-cpp//absl/log:globals",
         "@abseil-cpp//absl/log:initialize",
+        "@abseil-cpp//absl/memory",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
         "@urdf",
         "@glfw",
         "@glew",
-        "@ros2_ament_index_cpp",
-    ],
-)
-
-cc_binary(
-    name = "mujoco_sim_no_torques",
-    srcs = ["exe/mujocoSimNoTorques.cpp"],
-    copts = ["-std=c++20"],
-    deps = [
-        ":mujoco_sim_interface",
-        "@boost",
-        "@glfw",
     ],
 )
 
@@ -71,13 +58,11 @@ cc_test(
     name = "test_mujoco_contact_utils",
     size = "small",
     srcs = ["test/testMujocoContactUtils.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-    ],
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":mujoco_sim_interface",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
     ],
 )
@@ -86,13 +71,10 @@ cc_test(
     name = "test_projectile",
     size = "medium",  # drops and rolls balls for a few simulated seconds
     srcs = ["test/testProjectile.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-    ],
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":mujoco_sim_interface",
+        "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
     ],
 )
@@ -101,14 +83,31 @@ cc_test(
     name = "test_mujoco_sim_interface_dodgeball",
     size = "medium",  # constructs the Atlas simulator a few times and runs ~11 simulated seconds
     srcs = ["test/testMujocoSimInterfaceDodgeball.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-    ],
+    copts = FIRST_PARTY_COPTS,
     data = ["//robot_models/drc_atlas/drc_atlas_description"],
     deps = [
         ":mujoco_sim_interface",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The torque switch: no action applied before the torques came back on is executed, and only the physics thread writes
+# the damping it swaps.
+cc_test(
+    name = "test_mujoco_sim_interface_torque_switch",
+    size = "small",
+    srcs = ["test/testMujocoSimInterfaceTorqueSwitch.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = ["//robot_models/drc_atlas/drc_atlas_description"],
+    deps = [
+        ":mujoco_sim_interface",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/status:statusor",
+        "//robot_runtime/robot_model",
         "@googletest//:gtest_main",
     ],
 )
@@ -117,14 +116,22 @@ cc_test(
     name = "test_mujoco_sim_interface_gantry",
     size = "small",
     srcs = ["test/testMujocoSimInterfaceGantry.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
+    copts = FIRST_PARTY_COPTS,
+    # Every shipped scene: each declares the gantry weld.
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/engineai_sa01/engineai_sa01_description",
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_r1/unitree_r1_description",
     ],
-    data = ["//robot_models/drc_atlas/drc_atlas_description"],
     deps = [
         ":mujoco_sim_interface",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
     ],
 )
@@ -133,13 +140,10 @@ cc_test(
     name = "test_mujoco_contact_patch",
     size = "small",
     srcs = ["test/testMujocoContactPatch.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-    ],
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":mujoco_sim_interface",
+        "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
     ],
 )
@@ -148,13 +152,10 @@ cc_test(
     name = "test_visualization_registry",
     size = "small",
     srcs = ["test/testVisualizationRegistry.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-    ],
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":mujoco_sim_interface",
+        "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
     ],
 )
@@ -163,13 +164,29 @@ cc_test(
     name = "test_cheater_sim_contact_estimator",
     size = "small",
     srcs = ["test/testCheaterSimContactEstimator.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-    ],
+    copts = FIRST_PARTY_COPTS,
     deps = [
         ":mujoco_sim_interface",
+        "@abseil-cpp//absl/base:nullability",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# How the simulator and its viewer fail to start: Create()'s Status for every scene and configuration error, and a viewer
+# without a display that logs why instead of ending the process; which scenes can hold the robot by the gantry weld
+# (checkSceneSupportsGantryHold()), and the hold a scene without one falls back to.
+cc_test(
+    name = "test_mujoco_sim_startup",
+    size = "small",
+    srcs = ["test/testMujocoSimStartup.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":mujoco_sim_interface",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:status_matchers",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
     ],
 )

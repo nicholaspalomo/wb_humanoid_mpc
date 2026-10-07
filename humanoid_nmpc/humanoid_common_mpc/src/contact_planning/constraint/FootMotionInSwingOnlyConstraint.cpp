@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -26,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/constraint/FootMotionInSwingOnlyConstraint.h"
 
 #include <cmath>
+#include <string>
 
 #include "absl/strings/str_cat.h"
 
@@ -41,10 +46,10 @@ void FootMotionInSwingOnlyConstraint::configure(const ContactPlanningConfig& con
 
 void FootMotionInSwingOnlyConstraint::addRows(const ContactPlanningContext& ctx, int /*node*/, RowBuilder& rows) const {
   const scalar_t M = ctx.bigM;
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     for (int axis = 0; axis < 2; ++axis) {
       for (const scalar_t sign : {1.0, -1.0}) {
-        rows.addHard({}, {{idx_.footDelta[foot][axis], sign}, {idx_.contact[foot], M}}, -kLipLooseBound, M);
+        rows.addHard(/*xCoefficients=*/{}, {{idx_.footDelta[foot][axis], sign}, {idx_.contact[foot], M}}, -kLipLooseBound, M);
       }
     }
   }

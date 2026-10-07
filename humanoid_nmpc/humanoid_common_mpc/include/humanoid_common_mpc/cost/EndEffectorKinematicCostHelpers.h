@@ -30,12 +30,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
+#include "absl/status/statusor.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 
+/** The task-space weights of an end-effector cost: position, orientation, linear and angular velocity, per axis. */
 struct EndEffectorKinematicsWeights {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   // Cost weights [w_x,w_y,w_z]
@@ -44,53 +46,58 @@ struct EndEffectorKinematicsWeights {
   vector3_t contactLinearVelocityErrorWeight{0.01, 0.01, 0.01};
   vector3_t contactAngularVelocityErrorWeight{0.01, 0.01, 0.01};
 
-  vector12_t toVector();
-
-  static EndEffectorKinematicsWeights getWeights(const std::string& taskFile, const std::string prefix, bool verbose);
-  static std::vector<std::string> getDescriptions();
+  vector12_t toVector() const;
 };
 
+/**
+ * The task-space state of an end effector packed in one 13-vector, [position (3), orientation quaternion coefficients (4),
+ * linear velocity (3), angular velocity (3)], with typed accessors; the parameter layout of the end-effector costs.
+ */
 template <typename SCALAR_T>
 struct EndEffectorKinematicsCostElement {
-  EndEffectorKinematicsCostElement(const Eigen::Matrix<SCALAR_T, 13, 1>& vector) : costElementVector(vector) {}
+  explicit EndEffectorKinematicsCostElement(const Eigen::Matrix<SCALAR_T, 13, 1>& vector) : costElementVector(vector) {}
   EndEffectorKinematicsCostElement() : costElementVector(Eigen::Matrix<SCALAR_T, 13, 1>::Zero()) {}
   Eigen::Matrix<SCALAR_T, 13, 1> costElementVector;
 
-  Eigen::Matrix<SCALAR_T, 13, 1> getValues() { return costElementVector; };
+  Eigen::Matrix<SCALAR_T, 13, 1> getValues() { return costElementVector; }
 
   VECTOR3_T<SCALAR_T> getPosition() const { return costElementVector.head(3); }
   QUATERNION_T<SCALAR_T> getOrientation() const { return QUATERNION_T<SCALAR_T>(VECTOR4_T<SCALAR_T>(costElementVector.segment(3, 4))); }
   VECTOR3_T<SCALAR_T> getLinearVelocity() const { return costElementVector.segment(7, 3); }
   VECTOR3_T<SCALAR_T> getAngularVelocity() const { return costElementVector.tail(3); }
 
-  void setPosition(const VECTOR3_T<SCALAR_T>& position) { costElementVector.head(3) = position; };
-  void setOrientation(const VECTOR4_T<SCALAR_T>& orientation) { costElementVector.segment(3, 4) = orientation; };
-  void setOrientation(const QUATERNION_T<SCALAR_T>& orientation) { costElementVector.segment(3, 4) = orientation.coeffs(); };
-  void setLinearVelocity(const VECTOR3_T<SCALAR_T>& linearVelocity) { costElementVector.segment(7, 3) = linearVelocity; };
-  void setAngularVelocity(const VECTOR3_T<SCALAR_T>& angularVelocity) { costElementVector.tail(3) = angularVelocity; };
+  void setPosition(const VECTOR3_T<SCALAR_T>& position) { costElementVector.head(3) = position; }
+  void setOrientation(const VECTOR4_T<SCALAR_T>& orientation) { costElementVector.segment(3, 4) = orientation; }
+  void setOrientation(const QUATERNION_T<SCALAR_T>& orientation) { costElementVector.segment(3, 4) = orientation.coeffs(); }
+  void setLinearVelocity(const VECTOR3_T<SCALAR_T>& linearVelocity) { costElementVector.segment(7, 3) = linearVelocity; }
+  void setAngularVelocity(const VECTOR3_T<SCALAR_T>& angularVelocity) { costElementVector.tail(3) = angularVelocity; }
 };
 
 template <typename SCALAR_T>
 VECTOR12_T<SCALAR_T> computeTaskSpaceErrors(const EndEffectorKinematicsCostElement<SCALAR_T>& current,
                                             const EndEffectorKinematicsCostElement<SCALAR_T>& reference);
 
+/**
+ * The planar reference of an end effector packed in one 12-vector, [position (3), plane normal (3), linear velocity (3),
+ * angular velocity (3)], with typed accessors.
+ */
 template <typename SCALAR_T>
 struct PlanarEndEffectorKinematicsPlanarReference {
-  PlanarEndEffectorKinematicsPlanarReference(const VECTOR12_T<SCALAR_T>& vector) : costElementVector(vector) {}
+  explicit PlanarEndEffectorKinematicsPlanarReference(const VECTOR12_T<SCALAR_T>& vector) : costElementVector(vector) {}
   PlanarEndEffectorKinematicsPlanarReference() : costElementVector(VECTOR12_T<SCALAR_T>::Zero()) {}
   VECTOR12_T<SCALAR_T> costElementVector;
 
-  VECTOR12_T<SCALAR_T> getValues() { return costElementVector; };
+  VECTOR12_T<SCALAR_T> getValues() { return costElementVector; }
 
   VECTOR3_T<SCALAR_T> getPosition() const { return costElementVector.head(3); }
   VECTOR3_T<SCALAR_T> getPlaneNormal() const { return costElementVector.segment(3, 3); }
   VECTOR3_T<SCALAR_T> getLinearVelocity() const { return costElementVector.segment(6, 3); }
   VECTOR3_T<SCALAR_T> getAngularVelocity() const { return costElementVector.tail(3); }
 
-  void setPosition(const VECTOR3_T<SCALAR_T>& position) { costElementVector.head(3) = position; };
-  void setPlaneNormal(const VECTOR3_T<SCALAR_T>& planeNormal) { costElementVector.segment(3, 3) = planeNormal; };
-  void setLinearVelocity(const VECTOR3_T<SCALAR_T>& linearVelocity) { costElementVector.segment(6, 3) = linearVelocity; };
-  void setAngularVelocity(const VECTOR3_T<SCALAR_T>& angularVelocity) { costElementVector.tail(3) = angularVelocity; };
+  void setPosition(const VECTOR3_T<SCALAR_T>& position) { costElementVector.head(3) = position; }
+  void setPlaneNormal(const VECTOR3_T<SCALAR_T>& planeNormal) { costElementVector.segment(3, 3) = planeNormal; }
+  void setLinearVelocity(const VECTOR3_T<SCALAR_T>& linearVelocity) { costElementVector.segment(6, 3) = linearVelocity; }
+  void setAngularVelocity(const VECTOR3_T<SCALAR_T>& angularVelocity) { costElementVector.tail(3) = angularVelocity; }
 };
 
 }  // namespace ocs2::humanoid

@@ -31,18 +31,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstring>
 
+#include "absl/base/nullability.h"
+
 namespace robot::mujoco_sim_interface {
 
 namespace {
 
-mjvGeom* nextGeom(mjvScene* scene) {
+mjvGeom* absl_nullable nextGeom(mjvScene* absl_nullable scene) {
   if (scene == nullptr || scene->ngeom >= scene->maxgeom) return nullptr;
-  mjvGeom* geom = &scene->geoms[scene->ngeom++];
+  mjvGeom* absl_nonnull geom = &scene->geoms[scene->ngeom++];
   std::memset(geom, 0, sizeof(mjvGeom));
   return geom;
 }
 
-void paint(mjvGeom* geom, const MarkerColor& color) {
+void paint(mjvGeom* absl_nonnull geom, const MarkerColor& color) {
   geom->rgba[0] = color.r;
   geom->rgba[1] = color.g;
   geom->rgba[2] = color.b;
@@ -53,8 +55,8 @@ void paint(mjvGeom* geom, const MarkerColor& color) {
 
 }  // namespace
 
-bool addGroundDiscGeom(mjvScene* scene, double x, double y, double radius, const MarkerColor& color) {
-  mjvGeom* geom = nextGeom(scene);
+bool addGroundDiscGeom(mjvScene* absl_nullable scene, double x, double y, double radius, const MarkerColor& color) {
+  mjvGeom* absl_nullable geom = nextGeom(scene);
   if (geom == nullptr) return false;
   constexpr double kHalfHeight = 0.002;  // a thin cylinder just above the ground plane, so it is not z-fighting the floor
   const mjtNum size[3] = {radius, kHalfHeight, 0.0};
@@ -65,8 +67,8 @@ bool addGroundDiscGeom(mjvScene* scene, double x, double y, double radius, const
   return true;
 }
 
-bool addSphereGeom(mjvScene* scene, const double position[3], double radius, const MarkerColor& color) {
-  mjvGeom* geom = nextGeom(scene);
+bool addSphereGeom(mjvScene* absl_nullable scene, const double position[absl_nonnull 3], double radius, const MarkerColor& color) {
+  mjvGeom* absl_nullable geom = nextGeom(scene);
   if (geom == nullptr) return false;
   const mjtNum size[3] = {radius, 0.0, 0.0};
   const mjtNum at[3] = {position[0], position[1], position[2]};
@@ -76,8 +78,9 @@ bool addSphereGeom(mjvScene* scene, const double position[3], double radius, con
   return true;
 }
 
-bool addVerticalLineGeom(mjvScene* scene, const double position[3], double groundHeight, double width, const MarkerColor& color) {
-  mjvGeom* geom = nextGeom(scene);
+bool addVerticalLineGeom(
+    mjvScene* absl_nullable scene, const double position[absl_nonnull 3], double groundHeight, double width, const MarkerColor& color) {
+  mjvGeom* absl_nullable geom = nextGeom(scene);
   if (geom == nullptr) return false;
   const mjtNum from[3] = {position[0], position[1], position[2]};
   const mjtNum to[3] = {position[0], position[1], groundHeight};

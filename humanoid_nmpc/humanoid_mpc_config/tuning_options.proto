@@ -1,0 +1,76 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "nproto/options.proto";
+
+// The GUI and reload metadata of a hyperparameter, the field option (humanoid_mpc_config.tuning) of config_options.proto
+// (README.md, "GUI metadata"). The tuning GUI renders every numeric, bool and registry-string field of the file
+// schemas from their descriptors, with these options, so that a new hyperparameter needs a schema field and no GUI
+// code.
+//
+// The options of a block field apply to every field below it, unless that field sets its own: each option the field
+// sets replaces the block's, except `registry`, which is each field's own, and `active_when`, whose conditions add up
+// from the top of the file down. A shared message (Xyz, JointValue) is therefore annotated where it is
+// used: `StateWeights state_weights = 39 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];` makes every weight
+// below it hot. remote_control/config_schema.py (inherit()) reads them so, and so must any other walk of the descriptors
+// (the C++ test that compares the RELOAD_HOT fields with what each formulation's parameter updater applies).
+// Next ID: 12
+message TuningOptions {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::TuningOptions";
+
+  reserved 12 to max;
+  // 5 was the display label: a control is labeled by its field names (humanoid_nmpc/remote_control/README.md).
+  reserved 5;
+
+  // The field applies only while another field of the same file has one of `values`.
+  // Next ID: 3
+  message Condition {
+    reserved 3 to max;
+
+    // The path of the other field from the file message, e.g. "contact_input_parameterization".
+    string field_path = 1 [default = ""];
+    // e.g. "wrench".
+    repeated string values = 2;
+  }
+
+  // Who applies a change of the field. Every field the GUI renders has HOT or START_UP.
+  enum Reload {
+    RELOAD_UNSPECIFIED = 0;
+    // The running MPC's parameter updater (both formulations) or the robot applies it, from the bus or from the file.
+    RELOAD_HOT = 1;
+    // It takes effect at the next start-up; the GUI labels it " (restart)".
+    RELOAD_START_UP = 2;
+  }
+
+  // LINT.IfChange(default_slider_range)
+  // The slider range; absent: (0, max(4|v|, 1)), or symmetric for a negative value.
+  double slider_min = 1;
+  double slider_max = 2;
+  // LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/config_schema.py:default_slider_range)
+  // A slider over decades (weights of the input cost, regularizations).
+  bool log_scale = 3 [default = false];
+  // "m", "rad", "N", "s", "Hz", "N m/rad".
+  string unit = 4 [default = ""];
+  // Non-empty: the field gets no widget, for this reason (problem dimensions, thread counts, model selection, the
+  // initial pose, robot and frame names).
+  string exclude_reason = 6 [default = ""];
+  Reload reload = 7 [default = RELOAD_UNSPECIFIED];
+  // A string field that names an entry of this registry: the GUI offers its names, which config_registries.textproto
+  // lists by registry. A registry named here for the first time is added to the collection of
+  // //tools/config_registries, and the file written again.
+  // LINT.IfChange(registry)
+  string registry = 8 [default = ""];
+  // LINT.ThenChange(//tools/config_registries/ConfigRegistries.cpp:registry_names)
+  repeated Condition active_when = 9;
+  // Who reads the field: "gui", "robot" or "mpc"; empty: the MPC (the consumption test exempts by it).
+  // LINT.IfChange(consumer)
+  string consumer = 10 [default = ""];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/ConfigReload.h:consumer_names)
+  // Who reads the field, by formulation name: "centroidal", "whole_body"; empty: every formulation. Inherited like
+  // reload; the GUI labels a field the file's formulation does not read "not applicable", and the reload-class coverage
+  // test expects it in that formulation's applied fields only.
+  // LINT.IfChange(formulations)
+  repeated string formulations = 11;
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/ConfigReload.h:formulation_names, //humanoid_nmpc/remote_control/remote_control/config_schema.py:formulation_names)
+}

@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,33 +29,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
 
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
-
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <stdexcept>
+#include <memory>
+#include <string>
 #include <utility>
-
-#include "humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h"
-#include "humanoid_common_mpc/contact_planning/model/LipBlockIndices.h"
+#include <vector>
 
 #include "absl/log/log.h"
+#include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
+
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h"
+#include "humanoid_common_mpc/contact_planning/model/LipBlockIndices.h"
 
 namespace ocs2::humanoid {
-
-static_assert(static_cast<int>(LipContactPlanner::CX) == static_cast<int>(LIP_CX) &&
-                  static_cast<int>(LipContactPlanner::PRY) == static_cast<int>(LIP_PRY) &&
-                  static_cast<int>(LipContactPlanner::STATE_DIM) == static_cast<int>(LIP_STATE_DIM),
-              "the planner's state enum is the layout of the LIP and foothold blocks");
-static_assert(static_cast<int>(LipContactPlanner::ZX) == static_cast<int>(LIP_ZX) &&
-                  static_cast<int>(LipContactPlanner::CR) == static_cast<int>(LIP_CR) &&
-                  static_cast<int>(LipContactPlanner::INPUT_DIM) == static_cast<int>(LIP_INPUT_DIM),
-              "the planner's input enum is the layout of the LIP and foothold blocks");
 
 namespace {
 
@@ -66,11 +63,11 @@ OcpQpHpipmSolver::Settings relaxationQpSettings(const ContactPlanningConfig& con
   OcpQpHpipmSolver::Settings qpSettings;
   qpSettings.iterMax = config.planner.maxQpIterations;
   qpSettings.hpipmMode = 2;  // BALANCE
-  qpSettings.mu0 = 1e1;
-  qpSettings.tolStat = 1e-5;
-  qpSettings.tolEq = 1e-6;
-  qpSettings.tolIneq = 1e-6;
-  qpSettings.tolComp = 1e-6;
+  qpSettings.mu0 = 1.0e1;
+  qpSettings.tolStat = 1.0e-5;
+  qpSettings.tolEq = 1.0e-6;
+  qpSettings.tolIneq = 1.0e-6;
+  qpSettings.tolComp = 1.0e-6;
   return qpSettings;
 }
 
@@ -81,9 +78,10 @@ absl::StatusOr<Layout> LipContactPlanner::makeLayout(const ContactPlanningConfig
   return problem.layout();
 }
 
-scalar_t LipContactPlanner::yawInertia(const ContactPlannerInput& input) const {
+absl::StatusOr<scalar_t> LipContactPlanner::yawInertia(const ContactPlannerInput& input) {
   if (input.yawInertia <= 0.0) {
-    throw std::invalid_argument("[LipContactPlanner] the heading model needs a positive yaw inertia in the input (from the robot model)");
+    return absl::InvalidArgumentError(
+        "[LipContactPlanner] the heading model needs a positive yaw inertia in the input (from the robot model)");
   }
   return input.yawInertia;
 }
@@ -94,8 +92,8 @@ absl::StatusOr<std::unique_ptr<LipContactPlanner>> LipContactPlanner::Create(Con
   RETURN_IF_ERROR(config.validateStatus());
   ASSIGN_OR_RETURN(ContactPlanningProblem problem, ContactPlanningTermFactory::buildProblemStatus(config));
   ASSIGN_OR_RETURN(TermCollection<SearchStage> stages, ContactPlanningTermFactory::buildSearchStagesStatus(config));
-  // Not std::make_unique: the constructor is private.
-  return std::unique_ptr<LipContactPlanner>(new LipContactPlanner(std::move(config), std::move(problem), std::move(stages)));
+  // absl::WrapUnique: the constructor is private.
+  return absl::WrapUnique(new LipContactPlanner(std::move(config), std::move(problem), std::move(stages)));
 }
 
 LipContactPlanner::LipContactPlanner(ContactPlanningConfig config, ContactPlanningProblem problem, TermCollection<SearchStage> searchStages)
@@ -120,7 +118,7 @@ absl::Status LipContactPlanner::setConfig(const ContactPlanningConfig& config) {
   // limits or term lists that keep the layout.
   const Layout& layout = problem.layout();
   const bool sameProblem = config.planner.numNodes == config_.planner.numNodes &&
-                           std::abs(config.planner.dt - config_.planner.dt) <= 1e-12 && layout.nx == problem_.layout().nx &&
+                           std::abs(config.planner.dt - config_.planner.dt) <= 1.0e-12 && layout.nx == problem_.layout().nx &&
                            layout.nu == problem_.layout().nu && layout.hasHeading == problem_.layout().hasHeading;
   config_ = config;
   problem_ = std::move(problem);
@@ -143,7 +141,7 @@ std::string LipContactPlanner::getFormulationSummary() const {
   absl::StrAppend(&out, problem_.summary());
   absl::StrAppend(&out, "search (", searchStages_.size(), "):\n");
   for (size_t i = 0; i < searchStages_.size(); ++i) {
-    absl::StrAppend(&out, "  - ", searchStages_.nameAt(i), ": ", searchStages_.at(i).describe(), "\n");
+    absl::StrAppend(&out, "  - ", searchStages_.nameAt(i), ": ", searchStages_.termAt(i).describe(), "\n");
   }
   return out;
 }
@@ -191,7 +189,7 @@ MiqpAssignment LipContactPlanner::initialAssignment(const ContactPlannerInput& i
   MiqpAssignment assignment(static_cast<size_t>(kBinariesPerNode * N), kMiqpFree);
   const int numCommitted = std::min(static_cast<int>(input.committedContacts.size()), N);
   for (int k = 0; k < numCommitted; ++k) {
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    for (size_t foot = 0; foot < kNumContacts; ++foot) {
       assignment[static_cast<size_t>(contactBinaryIndex(k, foot))] = input.committedContacts[static_cast<size_t>(k)][foot] ? 1 : 0;
     }
   }
@@ -259,19 +257,23 @@ HeadingNominal LipContactPlanner::nominalFromSolution(const Layout& layout, cons
   return ocs2::humanoid::nominalFromSolution(layout, solution.x);
 }
 
-ContactPlanningContext LipContactPlanner::makeContext(const ContactPlannerInput& input,
-                                                      const HeadingNominal& nominal,
-                                                      scalar_t dtOverride) const {
+absl::StatusOr<ContactPlanningContext> LipContactPlanner::makeContext(const ContactPlannerInput& input,
+                                                                      const HeadingNominal& nominal,
+                                                                      scalar_t dtOverride) const {
   const int N = config_.planner.numNodes;
   const Layout& layout = problem_.layout();
   if (layout.hasHeading && (nominal.heading.size() < static_cast<size_t>(N + 1) || nominal.feet.size() < static_cast<size_t>(N + 1) ||
                             nominal.com.size() < static_cast<size_t>(N + 1))) {
-    throw std::invalid_argument("[LipContactPlanner] the nominal heading trajectory must cover every node");
+    return absl::InvalidArgumentError("[LipContactPlanner] the nominal heading trajectory must cover every node");
   }
   if (layout.hasHeading && !config_.hasModelParameters()) {
-    throw std::invalid_argument(
+    return absl::FailedPreconditionError(
         "[LipContactPlanner] the heading model needs the model-derived parameters (torque limits, foot yaw bounds); apply "
         "ContactPlanningModelParameters to the configuration first");
+  }
+  scalar_t headingYawInertia = 1.0;
+  if (layout.hasHeading) {
+    ASSIGN_OR_RETURN(headingYawInertia, yawInertia(input));
   }
   ContactPlanningContext ctx;
   ctx.input = &input;
@@ -279,8 +281,8 @@ ContactPlanningContext LipContactPlanner::makeContext(const ContactPlannerInput&
   ctx.nominal = &nominal;
   ctx.config = &config_;
   ctx.previousPlanShift = previousPlanShift(input);
-  ctx.previousPlan = ctx.previousPlanShift >= 0 ? &*previousPlan_ : nullptr;
-  ctx.yawInertia = layout.hasHeading ? yawInertia(input) : 1.0;
+  ctx.previousPlan = ctx.previousPlanShift >= 0 && previousPlan_.has_value() ? &*previousPlan_ : nullptr;
+  ctx.yawInertia = headingYawInertia;
   ctx.dt = dtOverride > 0.0 ? dtOverride : config_.planner.dt;
   ctx.numNodes = N;
   ctx.omega = config_.omega();
@@ -289,13 +291,14 @@ ContactPlanningContext LipContactPlanner::makeContext(const ContactPlannerInput&
   return ctx;
 }
 
-OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input) const {
+absl::StatusOr<OcpQpProblem> LipContactPlanner::buildProblem(const ContactPlannerInput& input) const {
   const HeadingNominal nominal = defaultNominal(input);
   return buildProblem(input, nominal);
 }
 
-OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input, const HeadingNominal& nominal) const {
-  return problem_.assemble(makeContext(input, nominal));
+absl::StatusOr<OcpQpProblem> LipContactPlanner::buildProblem(const ContactPlannerInput& input, const HeadingNominal& nominal) const {
+  ASSIGN_OR_RETURN(const ContactPlanningContext ctx, makeContext(input, nominal));
+  return problem_.assemble(ctx);
 }
 
 ContactPlan LipContactPlanner::decode(const ContactPlannerInput& input, const ContactPlanningContext& ctx, const MiqpResult& result) const {
@@ -324,16 +327,17 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
   const Clock::time_point start = Clock::now();
   statistics_ = Statistics();
   const HeadingNominal nominal = defaultNominal(input);
-  ContactPlanningContext ctx;
-  try {
-    ctx = makeContext(input, nominal);
-    lastProblem_ = problem_.assemble(ctx);
-  } catch (const std::exception& e) {
-    LOG(ERROR) << "[LipContactPlanner] cannot build the problem: " << e.what();
+  absl::StatusOr<ContactPlanningContext> context = makeContext(input, nominal);
+  absl::StatusOr<OcpQpProblem> assembled = context.ok() ? problem_.assemble(*context) : absl::StatusOr<OcpQpProblem>(context.status());
+  if (!assembled.ok()) {
+    LOG(ERROR) << "[LipContactPlanner] cannot build the problem: " << assembled.status().message();
     lastResult_ = MiqpResult();
-    ctx.numNodes = config_.planner.numNodes;
-    return decode(input, ctx, lastResult_);
+    ContactPlanningContext invalid;
+    invalid.numNodes = config_.planner.numNodes;
+    return decode(input, invalid, lastResult_);
   }
+  const ContactPlanningContext& ctx = *context;
+  lastProblem_ = *std::move(assembled);
   const std::vector<MiqpBinaryVariable> binaries = binaryVariables();
   const MiqpAssignment initial = initialAssignment(input);
   const ContactLogicState logicState = makeLogicState(input);
@@ -355,10 +359,12 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
   for (const std::unique_ptr<SearchStage>& stage : searchStages_) stage->beforeSearch(setup);
   miqp_->setSettings(setup.miqpSettings);
 
-  try {
-    lastResult_ = miqp_->solve(lastProblem_, binaries, initial, propagateFn, setup.warmStart ? &*setup.warmStart : nullptr, costFn);
-  } catch (const std::exception& e) {
-    LOG(ERROR) << "[LipContactPlanner] solver failure: " << e.what();
+  absl::StatusOr<MiqpResult> solved =
+      miqp_->solve(lastProblem_, binaries, initial, propagateFn, setup.warmStart ? &*setup.warmStart : nullptr, costFn);
+  if (solved.ok()) {
+    lastResult_ = *std::move(solved);
+  } else {
+    LOG(ERROR) << "[LipContactPlanner] solver failure: " << solved.status().message();
     lastResult_ = MiqpResult();
   }
   statistics_.numBranchAndBoundRelaxations = lastResult_.numNodes;
@@ -401,8 +407,9 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
   // stretched by a quarter. Nothing rejected the order: the `search` list is
   // documented as not order-sensitive and validate() imposes no order on it, and setHeadingModel(true) appends
   // heading_relinearization to a list that may already contain cadence_stretch.
-  run.assembleWithNominal = [this, &input, &run](const HeadingNominal& relinearized) {
-    return problem_.assemble(makeContext(input, relinearized, run.chosenDt));
+  run.assembleWithNominal = [this, &input, &run](const HeadingNominal& relinearized) -> absl::StatusOr<OcpQpProblem> {
+    ASSIGN_OR_RETURN(const ContactPlanningContext relinearizedContext, makeContext(input, relinearized, run.chosenDt));
+    return problem_.assemble(relinearizedContext);
   };
   // The mirror of the same mistake: this closure used to capture the nominal that defaultNominal() built on the
   // unstretched grid and hand it to a context whose dt alone had been overridden. A HeadingNominal is indexed by node,
@@ -414,17 +421,18 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
   // are linearized in was rotated away from the heading the same QP was solving for. Rebuilding the nominal on the
   // candidate grid removes that disagreement; the stretch then costs what it really costs, which is what
   // CadenceStretchStage compares against the unstretched incumbent.
-  run.assembleWithGrid = [this, &input](scalar_t nodeDuration) {
+  run.assembleWithGrid = [this, &input](scalar_t nodeDuration) -> absl::StatusOr<OcpQpProblem> {
     const HeadingNominal retimed = defaultNominal(input, nodeDuration);
-    return problem_.assemble(makeContext(input, retimed, nodeDuration));
+    ASSIGN_OR_RETURN(const ContactPlanningContext retimedContext, makeContext(input, retimed, nodeDuration));
+    return problem_.assemble(retimedContext);
   };
   run.start = start;
   run.verbose = config_.planner.verbose;
+  // A stage that fails keeps what it adopted before the failure, and the stages after it still run.
   for (size_t i = 0; i < searchStages_.size(); ++i) {
-    try {
-      searchStages_.at(i).afterSearch(run);
-    } catch (const std::exception& e) {
-      LOG(ERROR) << "[LipContactPlanner] search stage '" << searchStages_.nameAt(i) << "' failed: " << e.what();
+    const absl::Status stageStatus = searchStages_.termAt(i).afterSearch(run);
+    if (!stageStatus.ok()) {
+      LOG(ERROR) << "[LipContactPlanner] search stage '" << searchStages_.nameAt(i) << "' failed: " << stageStatus.message();
     }
   }
 

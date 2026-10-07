@@ -27,21 +27,272 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <cmath>
-#include <limits>
-#include <type_traits>
+#pragma once
 
-#include <boost/numeric/odeint.hpp>
+#include <algorithm>
+#include <cstddef>
+#include <limits>
+#include <stdexcept>
+#include <string>
 
 #include <ocs2_core/integration/Integrator.h>
-#include <ocs2_core/integration/eigenIntegration.h>
+#include <ocs2_core/integration/IntegratorBase.h>
 #include <ocs2_core/integration/steppers.h>
 
 namespace ocs2 {
 
+/*
+ * The integrate loops below are ports of odeint's integrate_const, integrate_adaptive and integrate_times (Boost
+ * Software License, Version 1.0; see the notice in ocs2_core/integration/steppers.h), as OCS2 called them: which states
+ * and times reach the observer, the number of evaluations of the system and the step-count checks are those of odeint.
+ */
+namespace integration_internal {
+
+using system_func_t = IntegratorBase::system_func_t;
+using observer_func_t = IntegratorBase::observer_func_t;
+
+/** t1 < t2 for dt > 0 and t1 > t2 for dt < 0, with epsilon accuracy (odeint's less_with_sign). */
+inline bool lessWithSign(scalar_t t1, scalar_t t2, scalar_t dt) {
+  if (dt > 0) {
+    return t2 - t1 > std::numeric_limits<scalar_t>::epsilon();
+  } else {
+    return t1 - t2 > std::numeric_limits<scalar_t>::epsilon();
+  }
+}
+
+/** t1 <= t2 for dt > 0 and t1 >= t2 for dt < 0, with epsilon accuracy (odeint's less_eq_with_sign). */
+inline bool lessEqWithSign(scalar_t t1, scalar_t t2, scalar_t dt) {
+  if (dt > 0) {
+    return t1 - t2 <= std::numeric_limits<scalar_t>::epsilon();
+  } else {
+    return t2 - t1 <= std::numeric_limits<scalar_t>::epsilon();
+  }
+}
+
+/** The one of t1 and t2 that is smaller in magnitude, for t1 and t2 of the same sign (odeint's min_abs). */
+inline scalar_t minAbs(scalar_t t1, scalar_t t2) {
+  if (t1 > 0) {
+    return std::min(t1, t2);
+  } else {
+    return std::max(t1, t2);
+  }
+}
+
+/** The one of t1 and t2 that is larger in magnitude, for t1 and t2 of the same sign (odeint's max_abs). */
+inline scalar_t maxAbs(scalar_t t1, scalar_t t2) {
+  if (t1 > 0) {
+    return std::max(t1, t2);
+  } else {
+    return std::min(t1, t2);
+  }
+}
+
+/** Throws when more than `maxSteps` steps are taken between two observations (odeint's max_step_checker). */
+class MaxStepChecker {
+ public:
+  explicit MaxStepChecker(int maxSteps = 500) : maxSteps_(maxSteps) {}
+
+  void reset() { steps_ = 0; }
+
+  void operator()() {
+    if (steps_ >= maxSteps_) {
+      throw std::runtime_error("Max number of iterations exceeded (" + std::to_string(maxSteps_) + ").");
+    }
+    ++steps_;
+  }
+
+ private:
+  const int maxSteps_;
+  int steps_ = 0;
+};
+
+/** Throws when a controlled stepper has tried more than `maxSteps` step sizes in a row (odeint's failed_step_checker). */
+class FailedStepChecker {
+ public:
+  explicit FailedStepChecker(int maxSteps = 500) : maxSteps_(maxSteps) {}
+
+  void reset() { steps_ = 0; }
+
+  void operator()() {
+    if (steps_ >= maxSteps_) {
+      throw std::runtime_error("Max number of iterations exceeded (" + std::to_string(maxSteps_) + "). A new step size was not found.");
+    }
+    ++steps_;
+  }
+
+ private:
+  const int maxSteps_;
+  int steps_ = 0;
+};
+
 /**
- * Integrator class for autonomous systems.
- * @tparam Stepper: Stepper class type to be used.
+ * Steps of constant size `dt` from `startTime` while the next step does not overshoot `endTime`, observing the state
+ * before every step and once at the end (odeint's integrate_const for a stepper). Returns the number of steps.
+ */
+template <class Stepper>
+size_t integrateConst(Stepper stepper,
+                      const system_func_t& system,
+                      vector_t& state,
+                      scalar_t startTime,
+                      scalar_t endTime,
+                      scalar_t dt,
+                      const observer_func_t& observer) {
+  scalar_t time = startTime;
+  int step = 0;
+  while (lessEqWithSign(static_cast<scalar_t>(time + dt), endTime, dt)) {
+    observer(state, time);
+    stepper.doStep(system, state, time, dt);
+    // direct computation of the time avoids error propagation happening when using time += dt
+    ++step;
+    time = startTime + static_cast<scalar_t>(step) * dt;
+  }
+  observer(state, time);
+
+  return static_cast<size_t>(step);
+}
+
+/**
+ * integrateConst(), then one last, shorter step that ends exactly at `endTime` when the constant steps fell short of it
+ * (odeint's integrate_adaptive for a stepper without step-size control).
+ */
+template <class Stepper>
+size_t integrateAdaptive(Stepper stepper,
+                         const system_func_t& system,
+                         vector_t& state,
+                         scalar_t startTime,
+                         scalar_t endTime,
+                         scalar_t dt,
+                         const observer_func_t& observer) {
+  size_t steps = integrateConst(stepper, system, state, startTime, endTime, dt, observer);
+
+  const scalar_t end = startTime + dt * static_cast<scalar_t>(steps);
+  if (lessWithSign(end, endTime, dt)) {
+    // make a last step to end exactly at endTime
+    stepper.doStep(system, state, end, endTime - end);
+    steps++;
+    observer(state, endTime);
+  }
+  return steps;
+}
+
+/**
+ * Adaptive steps from `startTime` to exactly `endTime`, observing the state before every accepted step and once at the
+ * end (odeint's integrate_adaptive for a controlled stepper). Returns the number of accepted steps.
+ */
+inline size_t integrateAdaptiveControlled(steppers::ControlledDormandPrince5 stepper,
+                                          const system_func_t& system,
+                                          vector_t& state,
+                                          scalar_t startTime,
+                                          scalar_t endTime,
+                                          scalar_t dt,
+                                          const observer_func_t& observer) {
+  FailedStepChecker failChecker;  // to throw a runtime_error if step size adjustment fails
+  size_t count = 0;
+  while (lessWithSign(startTime, endTime, dt)) {
+    observer(state, startTime);
+    if (lessWithSign(endTime, static_cast<scalar_t>(startTime + dt), dt)) {
+      dt = endTime - startTime;
+    }
+
+    steppers::StepResult result = steppers::StepResult::kFail;
+    do {
+      result = stepper.tryStep(system, state, startTime, dt);
+      failChecker();  // check number of failed steps
+    } while (result == steppers::StepResult::kFail);
+    failChecker.reset();  // if we reach here, the step was successful -> reset fail checker
+
+    ++count;
+  }
+  observer(state, startTime);
+  return count;
+}
+
+/**
+ * Integrates through the time points [beginTimeItr, endTimeItr) and observes the state at each of them, stepping at most
+ * `dt` at a time and shortening the step that would cross a time point (odeint's integrate_times for a stepper, with a
+ * max_step_checker). An empty range observes nothing.
+ */
+template <class Stepper>
+size_t integrateTimes(Stepper stepper,
+                      const system_func_t& system,
+                      vector_t& state,
+                      scalar_array_t::const_iterator beginTimeItr,
+                      scalar_array_t::const_iterator endTimeItr,
+                      scalar_t dt,
+                      const observer_func_t& observer,
+                      MaxStepChecker& checker) {
+  if (beginTimeItr == endTimeItr) {
+    return 0;
+  }
+  size_t steps = 0;
+  scalar_t currentDt = dt;
+  while (true) {
+    scalar_t currentTime = *beginTimeItr++;
+    observer(state, currentTime);
+    checker.reset();
+    if (beginTimeItr == endTimeItr) {
+      break;
+    }
+    while (lessWithSign(currentTime, static_cast<scalar_t>(*beginTimeItr), currentDt)) {
+      currentDt = minAbs(dt, *beginTimeItr - currentTime);
+      stepper.doStep(system, state, currentTime, currentDt);
+      checker();
+      currentTime += currentDt;
+      steps++;
+    }
+  }
+  return steps;
+}
+
+/**
+ * Integrates through the time points [beginTimeItr, endTimeItr) with adaptive steps and observes the state at each of
+ * them (odeint's integrate_times for a controlled stepper, with a max_step_checker). An empty range observes nothing.
+ */
+inline size_t integrateTimesControlled(steppers::ControlledDormandPrince5 stepper,
+                                       const system_func_t& system,
+                                       vector_t& state,
+                                       scalar_array_t::const_iterator beginTimeItr,
+                                       scalar_array_t::const_iterator endTimeItr,
+                                       scalar_t dt,
+                                       const observer_func_t& observer,
+                                       MaxStepChecker& checker) {
+  if (beginTimeItr == endTimeItr) {
+    return 0;
+  }
+  FailedStepChecker failChecker;  // to throw a runtime_error if step size adjustment fails
+  size_t steps = 0;
+  while (true) {
+    scalar_t currentTime = *beginTimeItr++;
+    observer(state, currentTime);
+    checker.reset();
+    if (beginTimeItr == endTimeItr) {
+      break;
+    }
+    while (lessWithSign(currentTime, static_cast<scalar_t>(*beginTimeItr), dt)) {
+      // adjust stepsize to end up exactly at the observation point
+      scalar_t currentDt = minAbs(dt, *beginTimeItr - currentTime);
+      if (stepper.tryStep(system, state, currentTime, currentDt) == steppers::StepResult::kSuccess) {
+        checker();
+        ++steps;
+        // successful step -> reset the fail counter
+        failChecker.reset();
+        // continue with the original step size if dt was reduced due to observation
+        dt = maxAbs(dt, currentDt);
+      } else {
+        failChecker();  // check for possible overflow of failed steps in step size adjustment
+        dt = currentDt;
+      }
+    }
+  }
+  return steps;
+}
+
+}  // namespace integration_internal
+
+/**
+ * Integrator with a stepper of constant step size (Euler, modified midpoint, RK4). integrateAdaptive() ignores the
+ * tolerances, as odeint did for such steppers: it steps by dtInitial and shortens the last step to end at finalTime.
+ * @tparam Stepper: one of the steppers of ocs2_core/integration/steppers.h without step-size control.
  */
 template <class Stepper>
 class Integrator final : public IntegratorBase {
@@ -49,328 +300,115 @@ class Integrator final : public IntegratorBase {
   using observer_func_t = typename IntegratorBase::observer_func_t;
   using system_func_t = typename IntegratorBase::system_func_t;
 
-  /**
-   * Default constructor
-   */
-  explicit Integrator(std::shared_ptr<SystemEventHandler> eventHandlerPtr = nullptr) : IntegratorBase(std::move(eventHandlerPtr)){};
+  explicit Integrator(std::shared_ptr<SystemEventHandler> eventHandlerPtr = nullptr) : IntegratorBase(std::move(eventHandlerPtr)) {}
 
-  /**
-   * Default destructor
-   */
   ~Integrator() override = default;
 
  private:
-  /**
-   * Equidistant integration based on initial and final time as well as step length.
-   *
-   * @param [in] system: System function
-   * @param [in] observer: Observer callback
-   * @param [in] initialState: Initial state.
-   * @param [in] startTime: Initial time.
-   * @param [in] finalTime: Final time.
-   * @param [in] dt: Time step.
-   */
-  void runIntegrateConst(system_func_t system, observer_func_t observer, const vector_t& initialState, scalar_t startTime,
-                         scalar_t finalTime, scalar_t dt) override;
+  void runIntegrateConst(system_func_t system,
+                         observer_func_t observer,
+                         const vector_t& initialState,
+                         scalar_t startTime,
+                         scalar_t finalTime,
+                         scalar_t dt) override {
+    vector_t state = initialState;
+    // Ensure that finalTime is included by adding a fraction of dt such that: N * dt <= finalTime < (N + 1) * dt.
+    finalTime += 0.1 * dt;
+    integration_internal::integrateConst(Stepper(), system, state, startTime, finalTime, dt, observer);
+  }
 
-  /**
-   * Adaptive time integration based on start time and final time.
-   *
-   * @param [in] system: System function
-   * @param [in] observer: Observer callback
-   * @param [in] initialState: Initial state.
-   * @param [in] startTime: Initial time.
-   * @param [in] finalTime: Final time.
-   * @param [in] dtInitial: Initial time step.
-   * @param [in] AbsTol: The absolute tolerance error for ode solver.
-   * @param [in] RelTol: The relative tolerance error for ode solver.
-   */
-  void runIntegrateAdaptive(system_func_t system, observer_func_t observer, const vector_t& initialState, scalar_t startTime,
-                            scalar_t finalTime, scalar_t dtInitial, scalar_t AbsTol, scalar_t RelTol) override;
+  void runIntegrateAdaptive(system_func_t system,
+                            observer_func_t observer,
+                            const vector_t& initialState,
+                            scalar_t startTime,
+                            scalar_t finalTime,
+                            scalar_t dtInitial,
+                            scalar_t /*AbsTol*/,
+                            scalar_t /*RelTol*/) override {
+    vector_t state = initialState;
+    integration_internal::integrateAdaptive(Stepper(), system, state, startTime, finalTime, dtInitial, observer);
+  }
 
-  /**
-   * Output integration based on a given time trajectory.
-   *
-   * @param [in] system: System function
-   * @param [in] observer: Observer callback
-   * @param [in] initialState: Initial state.
-   * @param [in] beginTimeItr: The iterator to the beginning of the time stamp trajectory.
-   * @param [in] endTimeItr: The iterator to the end of the time stamp trajectory.
-   * @param [in] dtInitial: Initial time step.
-   * @param [in] AbsTol: The absolute tolerance error for ode solver.
-   * @param [in] RelTol: The relative tolerance error for ode solver.
-   */
-  void runIntegrateTimes(system_func_t system, observer_func_t observer, const vector_t& initialState,
-                         typename scalar_array_t::const_iterator beginTimeItr, typename scalar_array_t::const_iterator endTimeItr,
-                         scalar_t dtInitial, scalar_t AbsTol, scalar_t RelTol) override;
-
-  /**
-   * Integrate adaptive specialized.
-   *
-   * @tparam S: stepper type.
-   * @param [in] system: System function
-   * @param [in] observer: Observer callback
-   * @param [in] initialState: Initial state.
-   * @param [in] startTime: Initial time.
-   * @param [in] finalTime: Final time.
-   * @param [in] dtInitial: Initial time step.
-   * @param [in] AbsTol: The absolute tolerance error for ode solver.
-   * @param [in] RelTol: The relative tolerance error for ode solver.
-   */
-  template <typename S>
-  typename std::enable_if<std::is_same<S, runge_kutta_dopri5_t>::value, void>::type integrateAdaptiveSpecialized(
-      system_func_t system, observer_func_t observer, vector_t& initialState, scalar_t startTime, scalar_t finalTime, scalar_t dtInitial,
-      scalar_t AbsTol, scalar_t RelTol);
-
-  /**
-   * Integrate adaptive specialized,
-   *
-   * @tparam S: stepper type.
-   * @param [in] system: System function
-   * @param [in] observer: Observer callback
-   * @param [in] initialState: Initial state.
-   * @param [in] startTime: Initial time.
-   * @param [in] finalTime: Final time.
-   * @param [in] dtInitial: Initial time step.
-   * @param [in] AbsTol: The absolute tolerance error for ode solver.
-   * @param [in] RelTol: The relative tolerance error for ode solver.
-   */
-  template <typename S>
-  typename std::enable_if<!std::is_same<S, runge_kutta_dopri5_t>::value, void>::type integrateAdaptiveSpecialized(
-      system_func_t system, observer_func_t observer, vector_t& initialState, scalar_t startTime, scalar_t finalTime, scalar_t dtInitial,
-      scalar_t AbsTol, scalar_t RelTol);
-
-  /**
-   * Integrate times specialized function
-   * @tparam S: stepper type.
-   * @param [in] system: System function
-   * @param [in] observer: Observer callback
-   * @param [in] initialState: Initial state.
-   * @param [in] beginTimeItr: The iterator to the beginning of the time stamp trajectory.
-   * @param [in] endTimeItr: The iterator to the end of the time stamp trajectory.
-   * @param [in] dtInitial: Initial time step.
-   * @param [in] AbsTol: The absolute tolerance error for ode solver.
-   * @param [in] RelTol: The relative tolerance error for ode solver.
-   */
-  template <typename S = Stepper>
-  typename std::enable_if<std::is_same<S, runge_kutta_dopri5_t>::value, void>::type integrateTimesSpecialized(
-      system_func_t system, observer_func_t observer, vector_t& initialState, typename scalar_array_t::const_iterator beginTimeItr,
-      typename scalar_array_t::const_iterator endTimeItr, scalar_t dtInitial, scalar_t AbsTol, scalar_t RelTol);
-
-  /**
-   * Integrate times specialized function
-   * @tparam S: stepper type.
-   * @param [in] system: System function
-   * @param [in] observer: Observer callback
-   * @param [in] initialState: Initial state.
-   * @param [in] beginTimeItr: The iterator to the beginning of the time stamp trajectory.
-   * @param [in] endTimeItr: The iterator to the end of the time stamp trajectory.
-   * @param [in] dtInitial: Initial time step.
-   * @param [in] AbsTol: The absolute tolerance error for ode solver.
-   * @param [in] RelTol: The relative tolerance error for ode solver.
-   */
-  template <typename S = Stepper>
-  typename std::enable_if<!std::is_same<S, runge_kutta_dopri5_t>::value, void>::type integrateTimesSpecialized(
-      system_func_t system, observer_func_t observer, vector_t& initialState, typename scalar_array_t::const_iterator beginTimeItr,
-      typename scalar_array_t::const_iterator endTimeItr, scalar_t dtInitial, scalar_t AbsTol, scalar_t RelTol);
-
-  /**
-   * Functionality to reset stepper. If we integrate with ODE45, we don't need to reset the stepper, hence specialize empty function
-   * @tparam S: stepper type.
-   * @param [in] initialState: Initial state.
-   * @param [in] t: Time.
-   * @param [in] dt: Time step.
-   */
-  template <typename S = Stepper>
-  typename std::enable_if<std::is_same<S, runge_kutta_dopri5_t>::value, void>::type initializeStepper(vector_t& initialState, scalar_t t,
-                                                                                                      scalar_t dt);
-
-  /**
-   * Functionality to reset stepper. If we integrate with some other method, e.g.
-   * adams_bashforth, we need to reset the stepper, hence specialize with initialize call
-   *
-   * @tparam S
-   * @param [in] initialState
-   * @param [in] t: Time.
-   * @param [in] dt: Time step.
-   */
-  template <typename S = Stepper>
-  typename std::enable_if<!(std::is_same<S, runge_kutta_dopri5_t>::value), void>::type initializeStepper(vector_t& initialState, scalar_t t,
-                                                                                                         scalar_t dt);
-
-  /*
-   * Variables
-   */
-  Stepper stepper_;
+  void runIntegrateTimes(system_func_t system,
+                         observer_func_t observer,
+                         const vector_t& initialState,
+                         typename scalar_array_t::const_iterator beginTimeItr,
+                         typename scalar_array_t::const_iterator endTimeItr,
+                         scalar_t dtInitial,
+                         scalar_t /*AbsTol*/,
+                         scalar_t /*RelTol*/) override {
+    vector_t state = initialState;
+    // maxNumSteps is already checked by the event handler.
+    integration_internal::MaxStepChecker maxStepChecker(std::numeric_limits<int>::max());
+    integration_internal::integrateTimes(Stepper(), system, state, beginTimeItr, endTimeItr, dtInitial, observer, maxStepChecker);
+  }
 };
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-template <class Stepper>
-inline void Integrator<Stepper>::runIntegrateConst(system_func_t system, observer_func_t observer, const vector_t& initialState,
-                                                   scalar_t startTime, scalar_t finalTime, scalar_t dt) {
-  // TODO(mspieler): initializeStepper not used, why?
-  // /*
-  //  * use a temporary state for initialization, the state returned by initialize is different
-  //  * from the real init state (already forward integrated)
-  //  */
-  // vector_t initialStateInternal_init_temp = initialState;
-  // initializeStepper(initialStateInternal_init_temp, startTime, dt);
+/**
+ * ode45: the Dormand-Prince 5(4) pair, with step-size control for integrateAdaptive() and integrateTimes() and constant
+ * steps for integrateConst() (odeint's runge_kutta_dopri5, as OCS2 used it).
+ */
+class ODE45 final : public IntegratorBase {
+ public:
+  explicit ODE45(std::shared_ptr<SystemEventHandler> eventHandlerPtr = nullptr) : IntegratorBase(std::move(eventHandlerPtr)) {}
 
-  vector_t initialStateInternal = initialState;
-  // Ensure that finalTime is included by adding a fraction of dt such that: N * dt <= finalTime < (N + 1) * dt.
-  finalTime += 0.1 * dt;
-  boost::numeric::odeint::integrate_const(stepper_, system, initialStateInternal, startTime, finalTime, dt, observer);
-}
+  ~ODE45() override = default;
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-template <class Stepper>
-inline void Integrator<Stepper>::runIntegrateAdaptive(system_func_t system, observer_func_t observer, const vector_t& initialState,
-                                                      scalar_t startTime, scalar_t finalTime, scalar_t dtInitial, scalar_t AbsTol,
-                                                      scalar_t RelTol) {
-  vector_t internalStartState = initialState;
-  integrateAdaptiveSpecialized<Stepper>(system, observer, internalStartState, startTime, finalTime, dtInitial, AbsTol, RelTol);
-}
+ private:
+  void runIntegrateConst(system_func_t system,
+                         observer_func_t observer,
+                         const vector_t& initialState,
+                         scalar_t startTime,
+                         scalar_t finalTime,
+                         scalar_t dt) override {
+    vector_t state = initialState;
+    // Ensure that finalTime is included by adding a fraction of dt such that: N * dt <= finalTime < (N + 1) * dt.
+    finalTime += 0.1 * dt;
+    integration_internal::integrateConst(steppers::DormandPrince5(), system, state, startTime, finalTime, dt, observer);
+  }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-template <class Stepper>
-inline void Integrator<Stepper>::runIntegrateTimes(system_func_t system, observer_func_t observer, const vector_t& initialState,
-                                                   typename scalar_array_t::const_iterator beginTimeItr,
-                                                   typename scalar_array_t::const_iterator endTimeItr, scalar_t dtInitial, scalar_t AbsTol,
-                                                   scalar_t RelTol) {
-  vector_t internalStartState = initialState;
-  integrateTimesSpecialized<Stepper>(system, observer, internalStartState, beginTimeItr, endTimeItr, dtInitial, AbsTol, RelTol);
-}
+  void runIntegrateAdaptive(system_func_t system,
+                            observer_func_t observer,
+                            const vector_t& initialState,
+                            scalar_t startTime,
+                            scalar_t finalTime,
+                            scalar_t dtInitial,
+                            scalar_t AbsTol,
+                            scalar_t RelTol) override {
+    vector_t state = initialState;
+    integration_internal::integrateAdaptiveControlled(steppers::ControlledDormandPrince5(AbsTol, RelTol), system, state, startTime,
+                                                      finalTime, dtInitial, observer);
+  }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-template <class Stepper>
-template <typename S>
-inline typename std::enable_if<std::is_same<S, runge_kutta_dopri5_t>::value, void>::type Integrator<Stepper>::integrateAdaptiveSpecialized(
-    system_func_t system, observer_func_t observer, vector_t& initialState, scalar_t startTime, scalar_t finalTime, scalar_t dtInitial,
-    scalar_t AbsTol, scalar_t RelTol) {
-  boost::numeric::odeint::integrate_adaptive(boost::numeric::odeint::make_controlled<S>(AbsTol, RelTol), system, initialState, startTime,
-                                             finalTime, dtInitial, observer);
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-template <class Stepper>
-template <typename S>
-inline typename std::enable_if<!std::is_same<S, runge_kutta_dopri5_t>::value, void>::type Integrator<Stepper>::integrateAdaptiveSpecialized(
-    system_func_t system, observer_func_t observer, vector_t& initialState, scalar_t startTime, scalar_t finalTime, scalar_t dtInitial,
-    scalar_t AbsTol, scalar_t RelTol) {
-  boost::numeric::odeint::integrate_adaptive(stepper_, system, initialState, startTime, finalTime, dtInitial, observer);
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-template <class Stepper>
-template <typename S>
-inline typename std::enable_if<std::is_same<S, runge_kutta_dopri5_t>::value, void>::type Integrator<Stepper>::integrateTimesSpecialized(
-    system_func_t system, observer_func_t observer, vector_t& initialState, typename scalar_array_t::const_iterator beginTimeItr,
-    typename scalar_array_t::const_iterator endTimeItr, scalar_t dtInitial, scalar_t AbsTol, scalar_t RelTol) {
-#if (BOOST_VERSION / 100000 == 1 && BOOST_VERSION / 100 % 1000 > 60)
-  boost::numeric::odeint::max_step_checker maxStepChecker(
-      std::numeric_limits<int>::max());  // maxNumSteps is already checked by event handler.
-
-  boost::numeric::odeint::integrate_times(boost::numeric::odeint::make_controlled<S>(AbsTol, RelTol), system, initialState, beginTimeItr,
-                                          endTimeItr, dtInitial, observer, maxStepChecker);
-#else
-  boost::numeric::odeint::integrate_times(boost::numeric::odeint::make_controlled<S>(AbsTol, RelTol), system, initialState, beginTimeItr,
-                                          endTimeItr, dtInitial, observer);
-#endif
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-template <class Stepper>
-template <typename S>
-inline typename std::enable_if<!std::is_same<S, runge_kutta_dopri5_t>::value, void>::type Integrator<Stepper>::integrateTimesSpecialized(
-    system_func_t system, observer_func_t observer, vector_t& initialState, typename scalar_array_t::const_iterator beginTimeItr,
-    typename scalar_array_t::const_iterator endTimeItr, scalar_t dtInitial, scalar_t AbsTol, scalar_t RelTol) {
-#if (BOOST_VERSION / 100000 == 1 && BOOST_VERSION / 100 % 1000 > 60)
-  boost::numeric::odeint::max_step_checker maxStepChecker(
-      std::numeric_limits<int>::max());  // maxNumSteps is already checked by event handler.
-
-  boost::numeric::odeint::integrate_times(stepper_, system, initialState, beginTimeItr, endTimeItr, dtInitial, observer, maxStepChecker);
-
-#else
-  boost::numeric::odeint::integrate_times(stepper_, system, initialState, beginTimeItr, endTimeItr, dtInitial, observer);
-#endif
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-template <class Stepper>
-template <typename S>
-inline typename std::enable_if<std::is_same<S, runge_kutta_dopri5_t>::value, void>::type Integrator<Stepper>::initializeStepper(
-    vector_t& initialState, scalar_t t, scalar_t dt) {
-  /**do nothing, runge_kutta_5_t does not have a init method */
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-template <class Stepper>
-template <typename S>
-typename std::enable_if<!(std::is_same<S, runge_kutta_dopri5_t>::value), void>::type Integrator<Stepper>::initializeStepper(
-    vector_t& initialState, scalar_t t, scalar_t dt) {
-  stepper_.initialize(runge_kutta_dopri5_t(), system, initialState, t, dt);
-}
+  void runIntegrateTimes(system_func_t system,
+                         observer_func_t observer,
+                         const vector_t& initialState,
+                         typename scalar_array_t::const_iterator beginTimeItr,
+                         typename scalar_array_t::const_iterator endTimeItr,
+                         scalar_t dtInitial,
+                         scalar_t AbsTol,
+                         scalar_t RelTol) override {
+    vector_t state = initialState;
+    // maxNumSteps is already checked by the event handler.
+    integration_internal::MaxStepChecker maxStepChecker(std::numeric_limits<int>::max());
+    integration_internal::integrateTimesControlled(steppers::ControlledDormandPrince5(AbsTol, RelTol), system, state, beginTimeItr,
+                                                   endTimeItr, dtInitial, observer, maxStepChecker);
+  }
+};
 
 /**
  * Euler integrator.
  */
-using IntegratorEuler = Integrator<euler_t>;
+using IntegratorEuler = Integrator<steppers::Euler>;
 
 /**
  * Modified midpoint integrator.
  */
-using IntegratorModifiedMidpoint = Integrator<modified_midpoint_t>;
+using IntegratorModifiedMidpoint = Integrator<steppers::ModifiedMidpoint>;
 
 /**
  * RK4 integrator.
  */
-using IntegratorRK4 = Integrator<runge_kutta_4_t>;
-
-/**
- * RK5 variable integrator.
- */
-using IntegratorRK5Variable = Integrator<dense_runge_kutta5_t>;
-
-/**
- * ode45 integrator.
- */
-using ODE45 = Integrator<runge_kutta_dopri5_t>;
-
-/**
- * Adams-Bashforth integrator.
- */
-template <size_t STEPS>
-using IntegratorAdamsBashforth = Integrator<adams_bashforth_uncontrolled_t<STEPS>>;
-
-/**
- * Bulirsch-Stoer integrator.
- */
-using IntegratorBulirschStoer = Integrator<bulirsch_stoer_t>;
-
-/**
- * Adams-Bashforth-Moulton integrator (works only after boost 1.56)
- */
-#if (BOOST_VERSION / 100000 == 1 && BOOST_VERSION / 100 % 1000 > 55)
-template <size_t STEPS>
-using IntegratorAdamsBashforthMoulton = Integrator<adams_bashforth_moulton_uncontrolled_t<STEPS>>;
-#endif
+using IntegratorRK4 = Integrator<steppers::RungeKutta4>;
 
 }  // namespace ocs2

@@ -1,0 +1,101 @@
+load("@operator_deps//:requirements.bzl", "requirement")
+load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
+load("@protobuf//bazel:proto_library.bzl", "proto_library")
+load("@protobuf//bazel:py_proto_library.bzl", "py_proto_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_python//python:defs.bzl", "py_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+load("//tools/nproto:nproto.bzl", "nproto_cc_library")
+
+# humanoid_mpc_config - the typed schemas of the MPC hyperparameter files (*.proto, see README.md): the task, reference,
+# joint PD gains, contact-planning and gait files, the GUI's live MPC parameter update, and the GUI metadata options.
+
+package(default_visibility = ["//visibility:public"])
+
+# The schemas are data of the tests and tools that name them in a textproto header (`# proto-file:`). The registries'
+# names (config_registries.proto) are the tuning GUI's choices of registry strings, written and checked by
+# //tools/config_registries.
+exports_files(glob(["*.proto"]) + ["config_registries.textproto"])
+
+# The schemas' sources, for the tests that read their comments (the units the field comments state).
+filegroup(
+    name = "proto_sources",
+    srcs = glob(["*.proto"]),
+)
+
+# One message (or an options-only file) per file, named after it (tools/hooks/proto_file_layout.py). The import path
+# drops the humanoid_nmpc/ directory, as humanoid_mpc_msgs does: the protos import each other as
+# "humanoid_mpc_config/task_file.proto", C++ includes "humanoid_mpc_config/task_file.pb.h" and Python imports
+# `from humanoid_mpc_config import task_file_pb2`.
+proto_library(
+    name = "config_proto",
+    srcs = glob(["*.proto"]),
+    strip_import_prefix = "/humanoid_nmpc",
+    deps = [
+        "//tools/nproto:options_proto",
+        "@protobuf//:descriptor_proto",
+    ],
+)
+
+cc_proto_library(
+    name = "config_cc_proto",
+    deps = [":config_proto"],
+)
+
+# Linked against the protobuf wheel of @operator_deps (//tools/python:python_proto_toolchain).
+py_proto_library(
+    name = "config_py_proto",
+    deps = [":config_proto"],
+)
+
+# The plain C++ structs of the schemas (ocs2::humanoid::mpc_config::<Name>) and their ToProto() / FromProto():
+# #include "humanoid_mpc_config/<file>.nproto.h" and "humanoid_mpc_config/<file>.nproto.pb.h" (tools/nproto/README.md).
+# Read a file with nproto::LoadTextprotoFile<mpc_config::TaskFile, humanoid_mpc_config::TaskFile>(path).
+nproto_cc_library(
+    name = "config_nproto",
+    deps = [":config_proto"],
+)
+
+# Every file generated for the schemas, for //tools/nproto/test:test_generated_code.
+filegroup(
+    name = "config_nproto_files",
+    srcs = [":config_nproto"],
+    output_group = "nproto_files",
+)
+
+# Every message's struct round-trips through its protobuf message, an empty file parses into each file message, and
+# the structs keep the presence the schemas ask for.
+cc_test(
+    name = "config_nproto_test",
+    size = "small",
+    srcs = ["test/testConfigNproto.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":config_cc_proto",
+        ":config_nproto",
+        "//tools/nproto:nproto_runtime",
+        "//tools/nproto/test:proto_test_values",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The layout of the package (a module per file, imports, struct names, every message reachable from a file message),
+# the retired fields, and the strict Python parser on the schemas. The .proto files are data, so that the test can
+# check that each of them has its module.
+py_test(
+    name = "config_py_test",
+    size = "small",
+    srcs = ["test/test_config_schemas.py"],
+    data = glob(["*.proto"]),
+    main = "test/test_config_schemas.py",
+    deps = [
+        ":config_py_proto",
+        "//tools/nproto:nproto_textproto",
+        "//tools/nproto:options_py_proto",
+        requirement("protobuf"),
+    ],
+)

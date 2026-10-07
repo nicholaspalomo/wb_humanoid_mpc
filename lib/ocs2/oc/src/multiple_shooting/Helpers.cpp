@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/control/FeedforwardController.h>
 #include <ocs2_core/control/LinearController.h>
+#include <ocs2_core/control/ManifoldLinearController.h>
 
 namespace ocs2 {
 namespace multiple_shooting {
@@ -116,6 +117,49 @@ PrimalSolution toPrimalSolution(const std::vector<AnnotatedTime>& time, ModeSche
   primalSolution.inputTrajectory_ = std::move(u);
   primalSolution.modeSchedule_ = std::move(modeSchedule);
   primalSolution.controllerPtr_.reset(new LinearController(primalSolution.timeTrajectory_, std::move(uff), std::move(KMatrices)));
+  return primalSolution;
+}
+
+PrimalSolution toPrimalSolution(const std::vector<AnnotatedTime>& time, ModeSchedule&& modeSchedule, vector_array_t&& x, vector_array_t&& u,
+                                matrix_array_t&& KMatrices, std::shared_ptr<const StateManifold> stateManifold) {
+  if (stateManifold == nullptr) {
+    throw std::runtime_error("[toPrimalSolution] The manifold policy needs a state manifold.");
+  }
+  // The law of node i is u*_i + K_i (x (-) xbar_i) with xbar_i = x[i]. A pre-event node has no input: it keeps the law of
+  // the node before it, which is what copying uff and K does in the flat version.
+  vector_array_t anchorStates(x.begin(), x.begin() + KMatrices.size());
+  vector_array_t nominalInputs = u;
+  for (size_t i = 0; i < KMatrices.size(); ++i) {
+    if (time[i].event == AnnotatedTime::Event::PreEvent && i > 0) {
+      anchorStates[i] = anchorStates[i - 1];
+      nominalInputs[i] = nominalInputs[i - 1];
+      KMatrices[i] = KMatrices[i - 1];
+    }
+  }
+  // Copy last one to get correct length
+  anchorStates.push_back(anchorStates.back());
+  nominalInputs.push_back(nominalInputs.back());
+  KMatrices.push_back(KMatrices.back());
+
+  // Correct for missing inputs at PreEvents and the terminal time
+  for (size_t i = 0; i < u.size(); ++i) {
+    if (time[i].event == AnnotatedTime::Event::PreEvent && i > 0) {
+      u[i] = u[i - 1];
+    }
+  }
+  // Repeat last input to make equal length vectors
+  u.push_back(u.back());
+
+  // Construct nominal time, state and input trajectories
+  PrimalSolution primalSolution;
+  primalSolution.timeTrajectory_ = toTime(time);
+  primalSolution.postEventIndices_ = toPostEventIndices(time);
+  primalSolution.stateTrajectory_ = std::move(x);
+  primalSolution.inputTrajectory_ = std::move(u);
+  primalSolution.modeSchedule_ = std::move(modeSchedule);
+  primalSolution.controllerPtr_ = std::make_unique<ManifoldLinearController>(primalSolution.timeTrajectory_, std::move(anchorStates),
+                                                                             std::move(nominalInputs), std::move(KMatrices),
+                                                                             std::move(stateManifold));
   return primalSolution;
 }
 

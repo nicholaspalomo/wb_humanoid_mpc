@@ -29,30 +29,32 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "mujoco_sim_interface/visualization/MetricsOverlay.h"
 
-#include <iomanip>
-#include <sstream>
+#include <string>
+
+#include "absl/strings/str_format.h"
 
 namespace robot::mujoco_sim_interface {
+
+std::string MetricsOverlay::text(const Metrics& metrics, double renderFps, double elapsedRealTime, double simTime) {
+  return absl::StrFormat(
+      "Render FPS: %d\n"
+      "Sim FPS: %d\n"
+      // The actual amount of time elapsed in simulation.
+      "Real Time[s]: %.3f\n"
+      "Sim  Time[s]: %.3f\n\n"
+      // Real-time tracking
+      "RTF: %.3f\n"
+      "Drift[ms]: %.3f\n"
+      "Cumulative Drift[ms]: %.3f",
+      static_cast<int>(renderFps), static_cast<int>(metrics.fpsSim), elapsedRealTime, simTime, metrics.rtfSmoothed,
+      metrics.driftTick * 1.0e3, metrics.driftCumulative * 1.0e3);
+}
 
 void MetricsOverlay::renderOverlay(const VisualizationFrame& frame) {
   if (frame.state == nullptr || frame.state->data == nullptr || frame.context == nullptr) return;
   const MjState& state = *frame.state;
-  std::ostringstream metrics;
-
-  // FPS (Simulation & Renderer)
-  metrics << "Render FPS: " << static_cast<int>(frame.renderFps) << "\n";
-  metrics << "Sim FPS: " << static_cast<int>(state.metrics.fpsSim) << "\n";
-
-  // The actual amount of time elapsed in simulation.
-  metrics << "Real Time[s]: " << std::fixed << std::setprecision(3) << frame.elapsedRealTime << "\n";
-  metrics << "Sim  Time[s]: " << std::fixed << std::setprecision(3) << state.data->time << "\n\n";
-
-  // Real-time tracking
-  metrics << "RTF: " << std::fixed << std::setprecision(3) << state.metrics.rtfSmoothed << "\n";
-  metrics << "Drift[ms]: " << std::fixed << std::setprecision(3) << state.metrics.driftTick * 1e3 << "\n";
-  metrics << "Cummulative Drift[ms]: " << std::fixed << std::setprecision(3) << state.metrics.driftCumulative * 1e3;
-
-  mjr_overlay(mjFONT_NORMAL, mjGRID_TOPLEFT, frame.viewport, metrics.str().c_str(), /*overlay2=*/nullptr, frame.context);
+  const std::string metrics = text(state.metrics, frame.renderFps, frame.elapsedRealTime, state.data->time);
+  mjr_overlay(mjFONT_NORMAL, mjGRID_TOPLEFT, frame.viewport, metrics.c_str(), /*overlay2=*/nullptr, frame.context);
 }
 
 }  // namespace robot::mujoco_sim_interface

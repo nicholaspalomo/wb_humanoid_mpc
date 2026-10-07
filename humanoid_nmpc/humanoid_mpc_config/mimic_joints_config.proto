@@ -1,0 +1,31 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "nproto/options.proto";
+
+// The knee mimic joints (formerly mimicJoints; read when hard_constraints lists knee_joint_mimic): one equality
+// constraint per leg, q_child = multiplier * q_parent, held with the gains below.
+// Next ID: 3
+message MimicJointsConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::MimicJointsConfig";
+
+  reserved 3 to max;
+
+  // One mimic joint: the joint that follows, the joint it follows, the ratio and the gains.
+  // Next ID: 6
+  message MimicJoint {
+    reserved 6 to max;
+
+    string parent_joint_name = 1 [default = ""];
+    string child_joint_name = 2 [default = ""];
+    double multiplier = 3 [default = 0.0];
+    double position_gain = 4 [default = 0.0];
+    // The whole-body MPC only; the centroidal MPC, whose constraint is on positions, refuses a non-zero one.
+    double velocity_gain = 5 [default = 0.0];
+  }
+
+  // The legs' knees, in the order of the contacts: the left leg's first.
+  MimicJoint left_knee = 1;
+  MimicJoint right_knee = 2;
+}

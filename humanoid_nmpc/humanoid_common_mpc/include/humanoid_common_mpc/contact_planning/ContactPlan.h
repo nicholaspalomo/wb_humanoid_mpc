@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -29,8 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <ocs2_core/Types.h>
-#include <ocs2_core/reference/ModeSchedule.h>
+#include "ocs2_core/Types.h"
+#include "ocs2_core/reference/ModeSchedule.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 
@@ -62,14 +66,14 @@ struct ContactPlannerInput {
   // [kg m^2] the whole-body inertia about the vertical, filled from the robot model at every plan
   // (ContactPlanningReferenceManager::makePlannerInput reads I_zz out of pinocchio::ccrba, which is positive definite
   // for any physical model in any configuration). It must be strictly positive whenever the heading model is on:
-  // LipContactPlanner::yawInertia throws on a non-positive value, plan() catches that and degrades to an invalid plan,
-  // and the reference manager then keeps the previous schedule for that frame.
+  // LipContactPlanner::yawInertia returns an InvalidArgument for a non-positive value, plan() logs it and degrades to an
+  // invalid plan, and the reference manager then keeps the previous schedule for that frame.
   //
   // This comment used to read "<= 0: configured value", promising a fallback that has never existed - there is no yaw
-  // inertia anywhere in ContactPlanningConfig and none in any shipped contact_planning.yaml - and it contradicted the
-  // two neighboring contracts that state the real one, LipContactPlanner.h ("from the input (the robot model). Throws
-  // if it is not positive") and ContactPlanningModelParameters.h ("taken from the model at every plan and is not part
-  // of this"). A caller who believed it would leave the field at its default and silently get no plan at all.
+  // inertia anywhere in ContactPlanningConfig and none in any shipped contact_planning.textproto - and it contradicted the
+  // two neighboring contracts that state the real one, LipContactPlanner.h ("from the input (the robot model); an
+  // InvalidArgument if it is not positive") and ContactPlanningModelParameters.h ("taken from the model at every plan
+  // and is not part of this"). A caller who believed it would leave the field at its default and silently get no plan at all.
   scalar_t yawInertia = 0.0;
   feet_array_t<scalar_t> footYaws = makeFeetArray(0.0);  // [rad] foot yaws at planning time, unwrapped near `heading`
 };

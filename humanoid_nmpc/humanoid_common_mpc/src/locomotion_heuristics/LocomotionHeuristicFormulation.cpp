@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFormulation.h"
 
 #include <algorithm>
+#include <string>
+#include <vector>
 
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/ascii.h"
@@ -48,18 +50,18 @@ std::string joinNames(const std::vector<std::string>& names) {
 }  // namespace
 
 const std::array<HeuristicKind, kNumHeuristicKinds>& allHeuristicKinds() {
-  static const std::array<HeuristicKind, kNumHeuristicKinds> kinds{HeuristicKind::BASE_POSE, HeuristicKind::FOOTHOLD,
-                                                                   HeuristicKind::WRENCH};
-  return kinds;
+  static const std::array<HeuristicKind, kNumHeuristicKinds> kKinds{HeuristicKind::kBasePose, HeuristicKind::kFoothold,
+                                                                    HeuristicKind::kWrench};
+  return kKinds;
 }
 
 absl::string_view heuristicKindName(HeuristicKind kind) {
   switch (kind) {
-    case HeuristicKind::BASE_POSE:
+    case HeuristicKind::kBasePose:
       return "base_pose";
-    case HeuristicKind::FOOTHOLD:
+    case HeuristicKind::kFoothold:
       return "foothold";
-    case HeuristicKind::WRENCH:
+    case HeuristicKind::kWrench:
       return "wrench";
   }
   return "base_pose";
@@ -81,24 +83,25 @@ const std::vector<std::string>& knownHeuristicNames(HeuristicKind kind) {
   // Table C.1 before the data-extracted ones of Table C.2 within each kind, because that is the order the
   // dissertation introduces them and the order the README derives them.
   // LINT.IfChange(known_heuristic_names)
-  static const std::vector<std::string> basePose{heuristic::kOrientationCompensation, heuristic::kPeriodicOrientation,
-                                                 heuristic::kHeightCompensation};
-  static const std::vector<std::string> foothold{heuristic::kHipCenteredStepping, heuristic::kCapturePoint,
-                                                 heuristic::kTranslationalStepping, heuristic::kInPlaceTurning,
-                                                 heuristic::kHighSpeedTurning};
-  static const std::vector<std::string> wrench{heuristic::kImpulseScaling, heuristic::kCentripetalAcceleration};
+  static const std::vector<std::string>& kBasePose =
+      *new std::vector<std::string>{heuristic::kOrientationCompensation, heuristic::kPeriodicOrientation, heuristic::kHeightCompensation};
+  static const std::vector<std::string>& kFoothold =
+      *new std::vector<std::string>{heuristic::kHipCenteredStepping, heuristic::kCapturePoint, heuristic::kTranslationalStepping,
+                                    heuristic::kInPlaceTurning, heuristic::kHighSpeedTurning};
+  static const std::vector<std::string>& kWrench =
+      *new std::vector<std::string>{heuristic::kImpulseScaling, heuristic::kCentripetalAcceleration};
   // clang-format off
-  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/locomotion_heuristics/LocomotionHeuristicFactory.cpp:heuristic_factory, //humanoid_nmpc/humanoid_common_mpc/src/locomotion_heuristics/LocomotionHeuristicConfig.cpp:locomotion_heuristic_keys, //tools/locomotion_heuristics/derive_parameters.py:derived_heuristic_keys, //tools/locomotion_heuristics/test_derive_parameters.py:expected_heuristic_names, //humanoid_nmpc/docs/locomotion_heuristics/README.md:heuristic_summary_table)
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/locomotion_heuristics/LocomotionHeuristicFactory.cpp:heuristic_factory, //tools/locomotion_heuristics/derive_parameters.py:derived_heuristic_keys, //tools/locomotion_heuristics/test_derive_parameters.py:expected_heuristic_names, //humanoid_nmpc/docs/locomotion_heuristics/README.md:heuristic_summary_table, //humanoid_nmpc/humanoid_mpc_config/locomotion_heuristics_config.proto:locomotion_heuristic_keys)
   // clang-format on
   switch (kind) {
-    case HeuristicKind::BASE_POSE:
-      return basePose;
-    case HeuristicKind::FOOTHOLD:
-      return foothold;
-    case HeuristicKind::WRENCH:
-      return wrench;
+    case HeuristicKind::kBasePose:
+      return kBasePose;
+    case HeuristicKind::kFoothold:
+      return kFoothold;
+    case HeuristicKind::kWrench:
+      return kWrench;
   }
-  return basePose;
+  return kBasePose;
 }
 
 std::string canonicalHeuristicName(HeuristicKind kind, absl::string_view name) {
@@ -118,11 +121,11 @@ std::optional<HeuristicKind> heuristicKindOf(absl::string_view name) {
 
 std::vector<std::string>& LocomotionHeuristicFormulation::list(HeuristicKind kind) {
   switch (kind) {
-    case HeuristicKind::BASE_POSE:
+    case HeuristicKind::kBasePose:
       return basePose;
-    case HeuristicKind::FOOTHOLD:
+    case HeuristicKind::kFoothold:
       return foothold;
-    case HeuristicKind::WRENCH:
+    case HeuristicKind::kWrench:
       return wrench;
   }
   return basePose;
@@ -180,7 +183,7 @@ std::vector<std::string> LocomotionHeuristicFormulation::warnings() const {
   // hip_centered_stepping is the base term of Bledt's foot placement, the one the velocity-dependent heuristics are
   // summed on top of (section 4.3, figures 4-8 to 4-11). Neither half of that sum on its own is a configuration the
   // dissertation validates, and each fails in its own way, so both halves are reported.
-  const bool hasAnchor = listed(HeuristicKind::FOOTHOLD, heuristic::kHipCenteredStepping);
+  const bool hasAnchor = listed(HeuristicKind::kFoothold, heuristic::kHipCenteredStepping);
   if (hasAnchor && foothold.size() == 1) {
     out.push_back(
         "locomotion_heuristics.foothold lists only 'hip_centered_stepping'. That places each foot under its own hip "
@@ -192,7 +195,7 @@ std::vector<std::string> LocomotionHeuristicFormulation::warnings() const {
     out.push_back(
         "locomotion_heuristics.foothold does not list 'hip_centered_stepping'. The other foothold heuristics are "
         "corrections that Bledt sums onto the hip placement; here they are summed onto the base predicted at touch-down, "
-        "with the lateral separation taken from the stance foot plus model_settings.nominal_foothold.stepWidth instead "
+        "with the lateral separation taken from the stance foot plus nominal_foothold.step_width instead "
         "of from the hips. Along the heading that IS the dissertation's anchor, so the leads mean what they mean there; "
         "across it the stance width is this controller's, not the hips'.");
   }

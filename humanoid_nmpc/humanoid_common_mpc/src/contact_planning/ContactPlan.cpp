@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -27,9 +31,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <string>
+#include <vector>
 
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
+
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
@@ -37,14 +44,14 @@ namespace ocs2::humanoid {
 
 namespace {
 // [s] a continuous-time phase shorter than this is not a phase of the mode schedule (it has no duration to execute).
-constexpr scalar_t kMinModeDuration = 1e-6;
+constexpr scalar_t kMinModeDuration = 1.0e-6;
 // [s] how close to an event a time must be to count as at or after it.
-constexpr scalar_t kEventTimeTolerance = 1e-9;
+constexpr scalar_t kEventTimeTolerance = 1.0e-9;
 }  // namespace
 
 std::string ContactPlan::describe() const {
   std::string out = absl::StrFormat("plan t=%.3f%s J=%.3f relaxations=%d solve=%.3fms%s%s%s", startTime, valid ? " valid" : " INVALID",
-                                    objective, numBranchAndBoundNodes, solveTime * 1e3, optimal ? " optimal" : "",
+                                    objective, numBranchAndBoundNodes, solveTime * 1.0e3, optimal ? " optimal" : "",
                                     nodeLimitHit ? " NODE-LIMIT" : "", timeLimitHit ? " TIME-LIMIT" : "");
   // A step the reach clip had to cut is no longer the deadbeat step, so it is worth seeing in the log.
   if (numClippedSteps > 0) absl::StrAppend(&out, " CLIPPED-STEPS=", numClippedSteps);
@@ -53,7 +60,7 @@ std::string ContactPlan::describe() const {
                           comVelocity.back().y());
   }
   const int N = numIntervals();
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     absl::StrAppend(&out, " | ", foot == 0 ? "L" : "R", ":");
     int k = 0;
     while (k < N) {
@@ -93,7 +100,7 @@ std::string ContactPlan::describe() const {
 
 int ContactPlan::intervalIndex(scalar_t time) const {
   if (contacts.empty()) return 0;
-  const int k = static_cast<int>(std::floor((time - startTime) / dt + 1e-9));
+  const int k = static_cast<int>(std::floor((time - startTime) / dt + 1.0e-9));
   return std::clamp(k, 0, numIntervals() - 1);
 }
 
@@ -191,14 +198,14 @@ ModeSchedule ContactPlan::toModeSchedule() const {
         modeSequence.push_back(mode);
       }
     }
-    if (modeSequence.back() != ModeNumber::STANCE) {
+    if (modeSequence.back() != ModeNumber::kStance) {
       eventTimes.push_back(std::max(endTime(), eventTimes.empty() ? startTime : eventTimes.back() + kMinModeDuration));
-      modeSequence.push_back(ModeNumber::STANCE);
+      modeSequence.push_back(ModeNumber::kStance);
     }
     return ModeSchedule(eventTimes, modeSequence);
   }
   if (contacts.empty()) {
-    modeSequence.push_back(ModeNumber::STANCE);
+    modeSequence.push_back(ModeNumber::kStance);
     return ModeSchedule(eventTimes, modeSequence);
   }
   modeSequence.push_back(stanceLeg2ModeNumber(contacts.front()));
@@ -209,9 +216,9 @@ ModeSchedule ContactPlan::toModeSchedule() const {
       modeSequence.push_back(mode);
     }
   }
-  if (modeSequence.back() != ModeNumber::STANCE) {
+  if (modeSequence.back() != ModeNumber::kStance) {
     eventTimes.push_back(endTime());
-    modeSequence.push_back(ModeNumber::STANCE);
+    modeSequence.push_back(ModeNumber::kStance);
   }
   return ModeSchedule(eventTimes, modeSequence);
 }
@@ -237,7 +244,7 @@ ModeSchedule mergeModeSchedules(
   }
 
   // Part 2: the plan from commitTime on.
-  const size_t planModeAtCommit = plan.modeAtTime(commitTime + 1e-9);
+  const size_t planModeAtCommit = plan.modeAtTime(commitTime + 1.0e-9);
   if (planModeAtCommit != modeSequence.back()) {
     eventTimes.push_back(commitTime);
     modeSequence.push_back(planModeAtCommit);
@@ -254,21 +261,21 @@ ModeSchedule mergeModeSchedules(
 
   // The swing planner needs every swing phase to be preceded and followed by a contact phase of the same foot. A leading
   // STANCE placed before the first event guarantees a lift-off, a trailing STANCE guarantees a touch-down.
-  if (modeSequence.front() != ModeNumber::STANCE) {
+  if (modeSequence.front() != ModeNumber::kStance) {
     const scalar_t firstTime = eventTimes.empty() ? lowerBoundTime : std::min(lowerBoundTime, eventTimes.front());
     eventTimes.insert(eventTimes.begin(), firstTime - 1.0);
-    modeSequence.insert(modeSequence.begin(), ModeNumber::STANCE);
+    modeSequence.insert(modeSequence.begin(), ModeNumber::kStance);
   }
-  if (modeSequence.back() != ModeNumber::STANCE) {
-    const scalar_t lastTime = eventTimes.empty() ? upperBoundTime : std::max(upperBoundTime, eventTimes.back() + 1e-3);
+  if (modeSequence.back() != ModeNumber::kStance) {
+    const scalar_t lastTime = eventTimes.empty() ? upperBoundTime : std::max(upperBoundTime, eventTimes.back() + 1.0e-3);
     eventTimes.push_back(lastTime);
-    modeSequence.push_back(ModeNumber::STANCE);
+    modeSequence.push_back(ModeNumber::kStance);
   }
   // The swing trajectory planner rejects a schedule without events (it needs a preceding and a following phase for every
   // subsystem), so an all-stance schedule is expressed as two stance phases, like the initial schedule of the reference file.
   if (eventTimes.empty()) {
     eventTimes.push_back(upperBoundTime);
-    modeSequence.push_back(ModeNumber::STANCE);
+    modeSequence.push_back(ModeNumber::kStance);
   }
   return ModeSchedule(eventTimes, modeSequence);
 }

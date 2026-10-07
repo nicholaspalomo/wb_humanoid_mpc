@@ -1,0 +1,46 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/joint_value.proto";
+import "humanoid_mpc_config/xyz.proto";
+import "humanoid_mpc_config/yaw_pitch_roll.proto";
+import "nproto/options.proto";
+import "nproto/retired_field_options.proto";
+
+// A state addressed by name (the task file's initial_state, formerly the column vector initialState by "(i,0)"
+// index): the blocks of StateWeights, without a factor. A value a block leaves out is 0.
+//
+// As for StateWeights, each MPC requires every block of its state (`{}` is a block of zeros) and each of its joints
+// exactly once in each of its joint lists, in any order, and refuses a block of the other MPC's state, a fixed joint
+// and a name its model does not have. The base orientation stays in Euler angles also where the MPC's orientation is a
+// quaternion (yaw_pitch_roll.proto).
+// Next ID: 9
+message StateValues {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::StateValues";
+  option (nproto.retired_field) = {
+    name: "scaling"
+    replacement: "write the values themselves: initial_state holds no factor"
+  };
+  option (nproto.retired_field) = {
+    name: "default"
+    replacement: "name every value: a value a block leaves out is 0"
+  };
+
+  reserved 9 to max;
+
+  // Centroidal MPC: [m/s] the linear and [m^2/s] the angular momentum of the robot about its center of mass, each
+  // divided by the robot's mass.
+  Xyz normalized_linear_momentum = 1 [(nproto.optional_message) = true];
+  Xyz normalized_angular_momentum = 2 [(nproto.optional_message) = true];
+  // Both MPCs: [m] the position of the floating base in the world frame and [rad] its orientation, Euler ZYX.
+  Xyz base_position = 3 [(nproto.optional_message) = true];
+  YawPitchRoll base_orientation = 4 [(nproto.optional_message) = true];
+  // Both MPCs: [rad] the joint positions, by joint name.
+  repeated JointValue joint_positions = 5;
+  // Whole-body MPC: [m/s] the linear velocity of the floating base, [rad/s] the rates of its Euler ZYX angles and the
+  // joint velocities, by joint name.
+  Xyz base_linear_velocity = 6 [(nproto.optional_message) = true];
+  YawPitchRoll base_angular_velocity = 7 [(nproto.optional_message) = true];
+  repeated JointValue joint_velocities = 8;
+}

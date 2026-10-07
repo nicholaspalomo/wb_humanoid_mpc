@@ -69,11 +69,5 @@ CentroidalModelInfo createCentroidalModelInfo(const PinocchioInterface& interfac
                                               const vector_t& nominalJointAngles, const std::vector<std::string>& threeDofContactNames,
                                               const std::vector<std::string>& sixDofContactNames);
 
-/** Load CentroidalModelType for a config file */
-CentroidalModelType loadCentroidalType(const std::string& configFilePath, const std::string& fieldName = "centroidalModelType");
-
-/** Load default joint state for a config file */
-vector_t loadDefaultJointState(size_t numJointState, const std::string& configFilePath, const std::string& fieldName = "defaultJointState");
-
 }  // namespace centroidal_model
 }  // namespace ocs2

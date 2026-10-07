@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package humanoid_rerun_viewer_proto;
+
+import "nproto/options.proto";
+
+// A plot configuration for humanoid_rerun_viewer: the topics, signals, wildcards, or tabs/panels to plot on 2D line
+// graphs in Rerun.
+//
+// Next ID: 5
+message PlotConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::rerun::PlotConfig";
+
+  reserved 5 to max;
+
+  // The signals, telemetry/status paths (e.g. "base_pose/position_x", "status/mpc/*"), wildcards (e.g. "joints/*"),
+  // or contract tab/panel titles (e.g. "Base Pose & Euler", "Joint Positions & Targets") to plot on 2D line graphs.
+  repeated string signals = 1;
+
+  // Optional custom title for the tab containing arbitrary or custom signals not matching existing contract tabs.
+  // Defaults to "Signals" when empty.
+  string custom_tab_title = 2;
+
+  // The robot model instances to draw in the 3D scene (e.g. "measured", "terminal_state").
+  // When empty, defaults to ("measured", "terminal_state").
+  repeated string robot_instances = 3;
+
+  // Whether to draw the end-of-trajectory / horizon robot visualization ("terminal_state").
+  // Defaults to true when unset.
+  optional bool draw_terminal_state = 4;
+}

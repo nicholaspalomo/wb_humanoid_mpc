@@ -27,50 +27,47 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>
+#include "pinocchio/fwd.hpp"
 
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 
-#include <pinocchio/algorithm/frames.hpp>
-#include <pinocchio/multibody/data.hpp>
-#include <pinocchio/multibody/model.hpp>
+#include <cmath>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <utility>
+
+#include "absl/base/nullability.h"
+#include "absl/log/absl_check.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/multibody/data.hpp"
+#include "pinocchio/multibody/model.hpp"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/PinocchioFrameConversions.h"
 
-#include <cmath>
-#include <cstdint>
-#include <exception>
-#include <string>
-
-#include <boost/optional.hpp>
-#include <boost/property_tree/ptree.hpp>
-
-#include <ocs2_core/misc/LoadData.h>
-
-#include "absl/log/check.h"
-#include "absl/log/log.h"
-#include "absl/strings/str_cat.h"
-
 namespace ocs2::humanoid {
 
 namespace {
 
-static constexpr size_t kExtraConstraintsCount = 7;
-static constexpr size_t kWrenchForceDim = 3;
-static constexpr size_t kWrenchMomentDim = 3;
+constexpr size_t kExtraConstraintsCount = 7;
+constexpr size_t kWrenchForceDim = 3;
+constexpr size_t kWrenchMomentDim = 3;
 
-static constexpr size_t kForceXIdx = 0;
-static constexpr size_t kForceYIdx = 1;
-static constexpr size_t kForceZIdx = 2;
+constexpr size_t kForceXIdx = 0;
+constexpr size_t kForceYIdx = 1;
+constexpr size_t kForceZIdx = 2;
 
-static constexpr size_t kMomentXIdx = 0;
-static constexpr size_t kMomentYIdx = 1;
-static constexpr size_t kMomentZIdx = 2;
+constexpr size_t kMomentXIdx = 0;
+constexpr size_t kMomentYIdx = 1;
+constexpr size_t kMomentZIdx = 2;
 
-static constexpr scalar_t kPatchOffsetZeroThreshold = 1e-9;
-static constexpr scalar_t kHalf = 0.5;
+constexpr scalar_t kPatchOffsetZeroThreshold = 1.0e-9;
+constexpr scalar_t kHalf = 0.5;
 
 /** The cross-product matrix [v]x, with [v]x w = v x w. */
 matrix3_t skewSymmetric(const vector3_t& v) {
@@ -85,10 +82,10 @@ matrix3_t skewSymmetric(const vector3_t& v) {
  * probe per state entry, at construction, is all it costs.
  */
 matrix_t generalizedCoordinatesStateJacobian(const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
-  const long stateDim = static_cast<long>(mpcRobotModel.getStateDim());
+  const Eigen::Index stateDim = static_cast<Eigen::Index>(mpcRobotModel.getStateDim());
   const vector_t atZero = mpcRobotModel.getGeneralizedCoordinates(vector_t::Zero(stateDim));
   matrix_t jacobian(atZero.size(), stateDim);
-  for (long index = 0; index < stateDim; ++index) {
+  for (Eigen::Index index = 0; index < stateDim; ++index) {
     jacobian.col(index) = mpcRobotModel.getGeneralizedCoordinates(vector_t::Unit(stateDim, index)) - atZero;
   }
   return jacobian;
@@ -102,13 +99,15 @@ absl::Status ContactWrenchConeConstraint::checkWrenchSpaceInput(const MpcRobotMo
   const size_t forceStart = mpcRobotModel.getContactForceStartIndices(contactPointIndex);
   const size_t momentStart = mpcRobotModel.getContactMomentStartIndices(contactPointIndex);
   const size_t inputDim = mpcRobotModel.getContactInputDim(contactPointIndex);
-  if (inputDim != CONTACT_WRENCH_DIM || forceStart != wrenchStart || momentStart != wrenchStart + kWrenchForceDim) {
+  if (inputDim != kContactWrenchDim || forceStart != wrenchStart || momentStart != wrenchStart + kWrenchForceDim) {
     return absl::InvalidArgumentError(absl::StrCat(
         "[ContactWrenchConeConstraint] contact ", contactPointIndex, " is parameterized by ", inputDim, " inputs starting at ", wrenchStart,
         " (force at ", forceStart, ", moment at ", momentStart,
         "), not by its six-entry wrench. This term reads the wrench in the world frame and writes its Jacobian at the force and moment "
-        "start indices, which is only right for a wrench-space model; with contactInputParameterization: basis_vectors the cone is "
-        "enforced structurally by the non-negativity of the basis scalings instead (humanoid_nmpc/docs/contact_basis_vectors/README.md)."));
+        "start indices, which is only right for a wrench-space model; with ",
+        R"(contact_input_parameterization: "basis_vectors")",
+        " the cone is enforced structurally by the non-negativity of the basis scalings instead "
+        "(humanoid_nmpc/docs/contact_basis_vectors/README.md)."));
   }
   return absl::OkStatus();
 }
@@ -159,51 +158,27 @@ ContactWrenchConeConstraint::ContactWrenchConeConstraint(const SwitchedModelRefe
 
 namespace {
 
-/**
- * The value of `<ContactWrenchConeConstraint::kConfigBlock>.<key>`, required. A missing key and one that does not parse
- * as a T are both an InvalidArgument naming the key.
- */
-template <typename T>
-absl::StatusOr<T> requiredConeValue(const boost::property_tree::ptree& pt, absl::string_view key) {
-  const std::string path = absl::StrCat(ContactWrenchConeConstraint::kConfigBlock, ".", key);
-  const boost::optional<const boost::property_tree::ptree&> child = pt.get_child_optional(path);
-  if (!child) {
-    return absl::InvalidArgumentError(absl::StrCat(
-        "[ContactWrenchConeConstraint] ", path,
-        " is missing from the task file. The contact wrench cone block is the ground of the whole-body constraints: the wrench "
-        "cone, the generators of the basis-vector contact inputs and the online contact planner all read it, and none of them "
-        "falls back to a library default. Write the block with frictionCoefficient, torsionalFrictionCoefficient, minNormalForce, "
-        "gripperForce and numBasisVectors."));
-  }
-  const boost::optional<T> value = child->get_value_optional<T>();
-  if (!value) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("[ContactWrenchConeConstraint] ", path, " is '", child->data(), "', which is not a number of the expected type."));
-  }
-  return *value;
-}
-
-/** InvalidArgument naming `<kConfigBlock>.<key>` unless `inRange`. */
-absl::Status checkConeValue(bool inRange, absl::string_view key, scalar_t value, absl::string_view requirement) {
+/** InvalidArgument naming `<kConfigField>.<field>` unless `inRange`. */
+absl::Status checkConeValue(bool inRange, absl::string_view field, scalar_t value, absl::string_view requirement) {
   if (inRange) {
     return absl::OkStatus();
   }
-  return absl::InvalidArgumentError(absl::StrCat("[ContactWrenchConeConstraint] ", ContactWrenchConeConstraint::kConfigBlock, ".", key,
+  return absl::InvalidArgumentError(absl::StrCat("[ContactWrenchConeConstraint] ", ContactWrenchConeConstraint::kConfigField, ".", field,
                                                  " is ", value, " but must be ", requirement, "."));
 }
 
 }  // namespace
 
 absl::Status ContactWrenchConeConstraint::validateConfig(const Config& config) {
-  RETURN_IF_ERROR(checkConeValue(config.numBasisVectors >= 3, "numBasisVectors", static_cast<scalar_t>(config.numBasisVectors),
+  RETURN_IF_ERROR(checkConeValue(config.numBasisVectors >= 3, "num_basis_vectors", static_cast<scalar_t>(config.numBasisVectors),
                                  "at least 3 (the facets of the friction pyramid)"));
-  RETURN_IF_ERROR(checkConeValue(std::isfinite(config.frictionCoefficient) && config.frictionCoefficient > 0.0, "frictionCoefficient",
+  RETURN_IF_ERROR(checkConeValue(std::isfinite(config.frictionCoefficient) && config.frictionCoefficient > 0.0, "friction_coefficient",
                                  config.frictionCoefficient, "finite and positive"));
   RETURN_IF_ERROR(checkConeValue(std::isfinite(config.torsionalFrictionCoefficient) && config.torsionalFrictionCoefficient >= 0.0,
-                                 "torsionalFrictionCoefficient", config.torsionalFrictionCoefficient, "finite and non-negative"));
-  RETURN_IF_ERROR(checkConeValue(std::isfinite(config.minNormalForce) && config.minNormalForce >= 0.0, "minNormalForce",
+                                 "torsional_friction_coefficient", config.torsionalFrictionCoefficient, "finite and non-negative"));
+  RETURN_IF_ERROR(checkConeValue(std::isfinite(config.minNormalForce) && config.minNormalForce >= 0.0, "min_normal_force",
                                  config.minNormalForce, "finite and non-negative"));
-  RETURN_IF_ERROR(checkConeValue(std::isfinite(config.gripperForce) && config.gripperForce >= 0.0, "gripperForce", config.gripperForce,
+  RETURN_IF_ERROR(checkConeValue(std::isfinite(config.gripperForce) && config.gripperForce >= 0.0, "gripper_force", config.gripperForce,
                                  "finite and non-negative"));
   if (!config.patchOffset.allFinite()) {
     return absl::InvalidArgumentError(absl::StrCat("[ContactWrenchConeConstraint] the torsional reference point (Config::patchOffset) is [",
@@ -213,38 +188,6 @@ absl::Status ContactWrenchConeConstraint::validateConfig(const Config& config) {
   return absl::OkStatus();
 }
 
-absl::StatusOr<ContactWrenchConeConstraint::Config> ContactWrenchConeConstraint::loadConfig(const std::string& taskFile, bool verbose) {
-  boost::property_tree::ptree pt;
-  try {
-    loadData::readPropertyTree(taskFile, pt);
-  } catch (const std::exception& error) {
-    return absl::NotFoundError(absl::StrCat("[ContactWrenchConeConstraint] failed to read the task file '", taskFile, "': ", error.what()));
-  }
-
-  // LINT.IfChange(contact_wrench_cone_config_keys)
-  ASSIGN_OR_RETURN(const scalar_t frictionCoefficient, requiredConeValue<scalar_t>(pt, "frictionCoefficient"));
-  ASSIGN_OR_RETURN(const scalar_t torsionalFrictionCoefficient, requiredConeValue<scalar_t>(pt, "torsionalFrictionCoefficient"));
-  ASSIGN_OR_RETURN(const scalar_t minNormalForce, requiredConeValue<scalar_t>(pt, "minNormalForce"));
-  ASSIGN_OR_RETURN(const scalar_t gripperForce, requiredConeValue<scalar_t>(pt, "gripperForce"));
-  ASSIGN_OR_RETURN(const int64_t numBasisVectors, requiredConeValue<int64_t>(pt, "numBasisVectors"));
-  // clang-format off
-  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:contact_wrench_cone_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:contact_wrench_cone_config)
-  // clang-format on
-
-  // Checked before the conversion to size_t, which would turn a negative count into a huge one.
-  RETURN_IF_ERROR(checkConeValue(numBasisVectors >= 3, "numBasisVectors", static_cast<scalar_t>(numBasisVectors),
-                                 "at least 3 (the facets of the friction pyramid)"));
-  const Config config(static_cast<size_t>(numBasisVectors), frictionCoefficient, torsionalFrictionCoefficient, minNormalForce,
-                      gripperForce);
-  RETURN_IF_ERROR(validateConfig(config));
-  if (verbose) {
-    LOG(INFO) << "[ContactWrenchConeConstraint] " << kConfigBlock << ": frictionCoefficient " << config.frictionCoefficient
-              << ", torsionalFrictionCoefficient " << config.torsionalFrictionCoefficient << ", minNormalForce " << config.minNormalForce
-              << " N, gripperForce " << config.gripperForce << " N, numBasisVectors " << config.numBasisVectors << ".";
-  }
-  return config;
-}
-
 ContactWrenchConeConstraint::Config ContactWrenchConeConstraint::withoutLoadedFootOffsets(Config config) {
   // `minNormalForce` and `gripperForce` are the only two entries of `b` (the others are homogeneous rows). Both are
   // statements about a foot the mode schedule has declared loaded: the first demands a normal force the foot cannot
@@ -252,9 +195,9 @@ ContactWrenchConeConstraint::Config ContactWrenchConeConstraint::withoutLoadedFo
   // zero wrench would report `-minNormalForce`, i.e. a permanent violation, and the penalty would buy it off by
   // inventing a normal force. Dropping them leaves the homogeneous cone, which the zero wrench satisfies exactly.
   if (config.minNormalForce > 0.0 || config.gripperForce > 0.0) {
-    LOG(WARNING) << "[ContactWrenchConeConstraint] the contact-implicit formulation drops "
-                 << "contacts.contactWrenchConeSoftConstraint.minNormalForce (" << config.minNormalForce << " N) and .gripperForce ("
-                 << config.gripperForce << " N): an always-active cone cannot demand either of a foot in flight. "
+    LOG(WARNING) << "[ContactWrenchConeConstraint] the contact-implicit formulation drops " << kConfigField << ".min_normal_force ("
+                 << config.minNormalForce << " N) and .gripper_force (" << config.gripperForce
+                 << " N): an always-active cone cannot demand either of a foot in flight. "
                  << "The homogeneous friction, center-of-pressure and torsional limits are unchanged.";
   }
   config.minNormalForce = 0.0;
@@ -262,21 +205,7 @@ ContactWrenchConeConstraint::Config ContactWrenchConeConstraint::withoutLoadedFo
   return config;
 }
 
-ContactWrenchConeConstraint::ContactWrenchConeConstraint(const ContactWrenchConeConstraint& other)
-    : StateInputConstraint(other),
-      referenceManagerPtr_(other.referenceManagerPtr_),
-      pinocchioInterfacePtr_(other.pinocchioInterfacePtr_),
-      mpcRobotModelPtr_(other.mpcRobotModelPtr_),
-      contactRectangle_(other.contactRectangle_),
-      contactPointIndex_(other.contactPointIndex_),
-      config_(other.config_),
-      numConstraints_(other.numConstraints_),
-      isActive_(other.isActive_),
-      scheduleGated_(other.scheduleGated_),
-      A_f_local_(other.A_f_local_),
-      A_tau_local_(other.A_tau_local_),
-      b_local_(other.b_local_),
-      generalizedCoordinatesStateJacobian_(other.generalizedCoordinatesStateJacobian_) {}
+ContactWrenchConeConstraint::ContactWrenchConeConstraint(const ContactWrenchConeConstraint& other) = default;
 
 bool ContactWrenchConeConstraint::isActive(scalar_t time) const {
   if (!isActive_) {
@@ -323,35 +252,35 @@ ContactWrenchConeRows buildLocalWrenchConeRows(const ContactWrenchConeConstraint
     rows.A_f(constraintIdx, kForceYIdx) = -std::sin(theta_k);
     rows.A_f(constraintIdx, kForceZIdx) = config.frictionCoefficient;
     rows.b(constraintIdx) = effectiveGripperNormal;
-    constraintIdx++;
+    ++constraintIdx;
   }
 
   // 2. Normal force limit: Fz - minNormalForce >= 0
   rows.A_f(constraintIdx, kForceZIdx) = 1.0;
   rows.b(constraintIdx) = -config.minNormalForce;
-  constraintIdx++;
+  ++constraintIdx;
 
   // 3. Center of Pressure (CoP) / Moment constraints (Bounds relative to local foot contact frame)
   const PolygonBounds& bounds = contactRectangle.getBounds();
   // tau_x - y_min * Fz >= 0
   rows.A_f(constraintIdx, kForceZIdx) = -bounds.y_min;
   rows.A_tau(constraintIdx, kMomentXIdx) = 1.0;
-  constraintIdx++;
+  ++constraintIdx;
 
   // -tau_x + y_max * Fz >= 0
   rows.A_f(constraintIdx, kForceZIdx) = bounds.y_max;
   rows.A_tau(constraintIdx, kMomentXIdx) = -1.0;
-  constraintIdx++;
+  ++constraintIdx;
 
   // -tau_y - x_min * Fz >= 0
   rows.A_f(constraintIdx, kForceZIdx) = -bounds.x_min;
   rows.A_tau(constraintIdx, kMomentYIdx) = -1.0;
-  constraintIdx++;
+  ++constraintIdx;
 
   // tau_y + x_max * Fz >= 0
   rows.A_f(constraintIdx, kForceZIdx) = bounds.x_max;
   rows.A_tau(constraintIdx, kMomentYIdx) = 1.0;
-  constraintIdx++;
+  ++constraintIdx;
 
   // 4. Torsional yaw friction moment about the contact patch center
   const vector3_t offset = contactPatchReferencePoint(config, contactRectangle);
@@ -364,7 +293,7 @@ ContactWrenchConeRows buildLocalWrenchConeRows(const ContactWrenchConeConstraint
   rows.A_f(constraintIdx, kForceZIdx) = config.torsionalFrictionCoefficient;
   rows.A_tau(constraintIdx, kMomentZIdx) = 1.0;
   rows.b(constraintIdx) = effectiveTorsionalGripper;
-  constraintIdx++;
+  ++constraintIdx;
 
   // mu_torsion * (Fz + F_grip) - tau_patch_z >= 0
   // -tau_patch_z = -offset.y * Fx + offset.x * Fy - tau_z
@@ -373,9 +302,9 @@ ContactWrenchConeRows buildLocalWrenchConeRows(const ContactWrenchConeConstraint
   rows.A_f(constraintIdx, kForceZIdx) = config.torsionalFrictionCoefficient;
   rows.A_tau(constraintIdx, kMomentZIdx) = -1.0;
   rows.b(constraintIdx) = effectiveTorsionalGripper;
-  constraintIdx++;
+  ++constraintIdx;
 
-  assert(constraintIdx == numRows);
+  ABSL_CHECK_EQ(constraintIdx, numRows) << "buildLocalWrenchConeRows(): filled another number of rows than it sized";
   return rows;
 }
 
@@ -387,10 +316,10 @@ void ContactWrenchConeConstraint::initializeLocalConstraintMatrix() {
   b_local_ = rows.b;
 }
 
-vector_t ContactWrenchConeConstraint::getValue(scalar_t time,
+vector_t ContactWrenchConeConstraint::getValue(scalar_t /*time*/,
                                                const vector_t& state,
                                                const vector_t& input,
-                                               const PreComputation& preComp) const {
+                                               const PreComputation& /*preComp*/) const {
   const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
   pinocchio::Data data = pinocchioInterfacePtr_->getData();
   updateFramePlacements(mpcRobotModelPtr_->getGeneralizedCoordinates(state), model, data);
@@ -408,10 +337,10 @@ vector_t ContactWrenchConeConstraint::getValue(scalar_t time,
   return A_f_local_ * forceInLocal + A_tau_local_ * momentInLocal + b_local_;
 }
 
-VectorFunctionLinearApproximation ContactWrenchConeConstraint::getLinearApproximation(scalar_t time,
+VectorFunctionLinearApproximation ContactWrenchConeConstraint::getLinearApproximation(scalar_t /*time*/,
                                                                                       const vector_t& state,
                                                                                       const vector_t& input,
-                                                                                      const PreComputation& preComp) const {
+                                                                                      const PreComputation& /*preComp*/) const {
   const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
   pinocchio::Data data = pinocchioInterfacePtr_->getData();
   const vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(state);

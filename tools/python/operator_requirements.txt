@@ -1,0 +1,27 @@
+# Python dependencies of the operator tools that run on the laptop: the remote_control GUI, keyboard and Xbox
+# teleoperation, the Rerun bridge, tools/ipc and the Python side of the IPC bus (robot_runtime/robot_ipc/python).
+# Bazel hub: @operator_deps (MODULE.bazel). After editing this file, regenerate the lock in the dev container with
+#   bazel run //tools/python:operator_requirements.update
+
+# IPC bus: ZeroMQ sockets and the humanoid_mpc_msgs Protocol Buffers runtime.
+pyzmq
+# The runtime must be at least as new as the Python gencode of the protoc that MODULE.bazel's protobuf module ships
+# (protoc 36.0 generates 7.36.0) and share its major version.
+# LINT.IfChange(protobuf_version)
+protobuf==7.36.0
+# LINT.ThenChange(//MODULE.bazel:protobuf_version)
+
+# Visualization (humanoid_rerun_viewer). Bazel targets depend on @operator_deps//rerun_sdk:rerun, not on
+# requirement("rerun-sdk") (see the rerun_sdk whl_mods in MODULE.bazel). numpy is the array type of both the bridge and
+# the SDK; rerun-sdk 0.38 requires numpy >= 2.
+# LINT.IfChange(rerun_version)
+rerun-sdk==0.38.1
+# LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/scalar_batcher.py:scalars_column_metadata, //humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/rerun_sinks.py)
+numpy>=2
+
+# YAML reading in the developer tools: .clang-tidy and clang-tidy's exported fix-its (tools/clang_tidy), and the
+# docker-compose files that tools/deploy's tests check. The configuration files are textprotos and need no YAML.
+pyyaml
+
+# The remote_control GUI's Xbox controller support.
+pygame

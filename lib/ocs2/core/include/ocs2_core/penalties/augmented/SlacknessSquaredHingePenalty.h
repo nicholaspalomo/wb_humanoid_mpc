@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include "ocs2_core/penalties/augmented/AugmentedPenaltyBase.h"
 
 namespace ocs2 {
@@ -79,7 +81,7 @@ class SlacknessSquaredHingePenalty final : public AugmentedPenaltyBase {
   }
 
   ~SlacknessSquaredHingePenalty() override = default;
-  SlacknessSquaredHingePenalty* clone() const override { return new SlacknessSquaredHingePenalty(*this); }
+  SlacknessSquaredHingePenalty* absl_nonnull clone() const override { return new SlacknessSquaredHingePenalty(*this); }
   std::string name() const override { return "SlacknessSquaredHingePenalty"; }
 
   scalar_t getValue(scalar_t t, scalar_t l, scalar_t h) const override {

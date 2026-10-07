@@ -3,7 +3,38 @@
   IndentWidth: 2
   BreakBeforeBraces: Attach
   DerivePointerAlignment: false
+  # LINT.IfChange(attribute_macros)
+  AttributeMacros: [__capability, absl_nonnull, absl_nullable, absl_nullability_unknown]
+  # LINT.ThenChange(//tools/hooks/pointer_nullability.py:rules, //AGENTS.md:nullability)
   PointerAlignment: Left
   AllowShortFunctionsOnASingleLine: Inline
-  IncludeBlocks: Preserve
   BinPackParameters: false
+  # No RemoveParentheses (G: Return values, `return x;` rather than `return (x);`): every value but Leave also strips the
+  # double parentheses that keep a template comma out of a macro's argument list, `EXPECT_TRUE((m.block<3, 3>(0, 0)
+  # .isZero()))`, and the code no longer compiles.
+  # G: Names and order of includes. The main header (priority 0), C system headers, the C++ standard library, other
+  # libraries and then this project, each in its own block. Only system headers use angle brackets
+  # (tools/hooks/include_style.py), so the bracket decides the first two groups.
+  # LINT.IfChange(include_categories)
+  IncludeBlocks: Regroup
+  IncludeCategories:
+    # First of all, Pinocchio's CppADCodeGen support: it specializes Eigen::NumTraits for the CppAD types, which no
+    # header may use before (ocs2_pinocchio_interface/implementation/PinocchioInterface.h has the same order).
+    - Regex: '^"pinocchio/codegen/cppadcg\.hpp"$'
+      Priority: -2
+    # Then the Pinocchio forward declarations: they set the Boost MPL limits that every later Pinocchio header needs.
+    - Regex: '^"pinocchio/fwd\.hpp"$'
+      Priority: -1
+    # C, POSIX and Linux system headers.
+    - Regex: '^<([a-z0-9_]+\.h|(sys|linux|netinet|arpa|asm|bits|net)/.+)>$'
+      Priority: 1
+    # The C++ standard library.
+    - Regex: '^<[a-z0-9_]+>$'
+      Priority: 2
+    # Other libraries, the vendored OCS2 included; the headers cppzmq, libzmq, HPIPM and BLASFEO install flat.
+    - Regex: '^"(absl|Eigen|unsupported|pinocchio|gtest|gmock|google|yaml-cpp|rerun|urdf_[a-z]+|urdfdom|GL|GLFW|mujoco|cppad|tinyxml2|ocs2_[a-z0-9_]+|rules_cc)/|^"(zmq|zmq_addon)\.hpp"$|^"zmq\.h"$|^"(hpipm|blasfeo)_[a-z0-9_]+\.h"$'
+      Priority: 3
+    # This project.
+    - Regex: '.*'
+      Priority: 4
+  # LINT.ThenChange(//tools/hooks/include_style.py:directoryless_third_party)

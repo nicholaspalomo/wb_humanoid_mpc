@@ -32,22 +32,39 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <stdexcept>
+
+#include "absl/log/absl_check.h"
+#include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
 ContactWrenchGate::ContactWrenchGate() : ContactWrenchGate(Config()) {}
 
 ContactWrenchGate::ContactWrenchGate(const Config& config) {
-  setConfig(config);
+  const absl::Status valid = validateConfig(config);
+  ABSL_CHECK(valid.ok()) << valid.message();
+  config_ = config;
   reset();
 }
 
-void ContactWrenchGate::setConfig(const Config& config) {
-  if (!(config.debounceTime >= 0.0) || !(config.rampTime >= 0.0)) {
-    throw std::invalid_argument("ContactWrenchGate: debounceTime and rampTime must be non-negative");
+bool ContactWrenchGate::isValidConfig(const Config& config) {
+  // Negated, so that NaN is refused too.
+  return config.debounceTime >= 0.0 && config.rampTime >= 0.0;
+}
+
+absl::Status ContactWrenchGate::validateConfig(const Config& config) {
+  if (!isValidConfig(config)) {
+    return absl::InvalidArgumentError(absl::StrCat("ContactWrenchGate: the debounce time (", config.debounceTime, " s) and the ramp time (",
+                                                   config.rampTime, " s) must be non-negative"));
   }
+  return absl::OkStatus();
+}
+
+bool ContactWrenchGate::setConfig(const Config& config) {
+  if (!isValidConfig(config)) return false;
   config_ = config;
+  return true;
 }
 
 void ContactWrenchGate::reset() {

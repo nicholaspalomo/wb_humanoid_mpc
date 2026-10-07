@@ -1,4 +1,4 @@
-# Put symlinks inside hidden .bazel/ dir so colcon ignores them
+# Put the convenience symlinks (bin, out, testlogs) inside the hidden .bazel/ directory instead of the checkout's root.
 # LINT.IfChange(symlink_prefix)
 build --symlink_prefix=.bazel/
 # LINT.ThenChange(//setup_env.sh:symlink_prefix)
@@ -6,19 +6,22 @@ build --symlink_prefix=.bazel/
 # --- C++ Standard & Compiler Flags ---
 build --cxxopt=-std=c++20
 build --host_cxxopt=-std=c++20
-build --copt=-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS
-build --copt=-DBOOST_MPL_LIMIT_LIST_SIZE=50
-build --copt=-DBOOST_VARIANT_LIMIT_TYPES=50
-build --copt=-DBOOST_FUSION_INVOKE_MAX_ARITY=10
-build --copt=-DPINOCCHIO_URDFDOM_TYPEDEF_SHARED_PTR
-build --copt=-DPINOCCHIO_URDFDOM_USE_STD_SHARED_PTR
+# The headers of external repositories (Abseil, protobuf, googletest, and the system_libs wrappers of Eigen, Pinocchio,
+# ...) reach first-party code as -isystem instead of -iquote / -I: GCC then reports the warnings of
+# bazel/copts.bzl in first-party code, not in thousands of third-party lines that bury it. lib/ocs2 does the same for
+# its vendored headers (system_include_paths in lib/ocs2/BUILD.bazel).
+# LINT.IfChange(external_include_paths)
+build --features=external_include_paths
+# LINT.ThenChange(//bazel/copts.bzl:first_party_copts)
+# Pinocchio's Boost and urdfdom defines are not set here: the @pinocchio target carries them as `defines`
+# (bazel/system_libs.bzl), so they reach exactly the targets that depend on Pinocchio.
 
 # --- Parallelism & Resource Limits ---
 # Parallelism is bounded by MEMORY, not by cores. A translation unit that includes Pinocchio, CppAD and OCS2 peaks at
 # 2-3 GB, so a fixed job count that suits one machine overcommits the next: the old `--jobs=12` put twelve of them next
-# to the simulator, RViz and the tests' own CppAD code generation on a 32 GB workstation, which went into swap and had
-# to be power-cycled. One action per 4 GB of RAM (HOST_RAM is in MB): 7 on 32 GB, 3 on a 16 GB CI runner. Tests get
-# half of that, because a test that tapes a CppAD model runs a compiler of its own.
+# to the simulator, the 3D visualizer and the tests' own CppAD code generation on a 32 GB workstation, which went into
+# swap and had to be power-cycled. One action per 4 GB of RAM (HOST_RAM is in MB): 7 on 32 GB, 3 on a 16 GB CI runner.
+# Tests get half of that, because a test that tapes a CppAD model runs a compiler of its own.
 # LINT.IfChange(bazel_memory_bound)
 build --jobs=HOST_RAM*.00025
 test --local_test_jobs=HOST_RAM*.000125
@@ -35,16 +38,21 @@ build --linkopt=-lpthread
 build --linkopt=-ldl
 
 # --- Sandboxing ---
-# Allow access to system headers/libraries needed by ROS2 and system deps
+# The tests that tape CppAD models compile and load them under /tmp.
 build --sandbox_writable_path=/tmp
 
 # --- Environment Variables ---
-# Propagate ROS2 & CUDA GPU environment to build actions
-build --action_env=ROS_DISTRO
-build --action_env=AMENT_PREFIX_PATH
-build --action_env=CMAKE_PREFIX_PATH
-build --action_env=PYTHONPATH
-build --action_env=LD_LIBRARY_PATH
+# Every variable passed here is part of every action's cache key, so only what an action needs is passed:
+# - PATH, for the tools the actions run (cmake and make for rules_foreign_cc's MuJoCo build, the compiler);
+# - HOME, which some of those tools read their configuration from;
+# - the CUDA / NVIDIA device selection of a GPU container (docker-compose.gpu.yaml).
+# Deliberately not passed:
+# - LD_LIBRARY_PATH, here or to the tests: every library is found through the RUNPATH Bazel links with, and a value
+#   from the shell would outrank it (robotpkg's /opt/openrobots/lib, for one, holds a libblasfeo.so of another version);
+# - PYTHONPATH: the hermetic interpreter must not import what a shell points at (robotpkg's Python 3.12 bindings);
+# - CMAKE_PREFIX_PATH: the MuJoCo build must not find robotpkg's CMake packages.
+# The tests and tools read their data files from their runfiles (robot_runtime/robot_core/include/robot_core/
+# ResourcePaths.h), so no variable of the shell locates them.
 build --action_env=PATH
 build --action_env=HOME
 build --action_env=CUDA_VISIBLE_DEVICES
@@ -69,10 +77,19 @@ build:relwithdebinfo --compilation_mode=opt
 build:relwithdebinfo --copt=-g
 build:relwithdebinfo --strip=never
 
+# --- clang-tidy (tools/clang_tidy/README.md): a Bazel aspect, so it runs inside --jobs and the machine lock ---
+# No --jobs and no --keep_going here: the Makefile's lint-tidy targets pass --keep_going, and --jobs stays the RAM bound
+# above (tools/resource_limits/test_resource_limits.py). The aspect does not change the build configuration, so the
+# analysis cache and the generated files are shared with plain builds. clang-tidy-fix lints with the same checks and
+# also builds their fix-its.
+# LINT.IfChange(clang_tidy_config)
+build:clang-tidy --aspects=//tools/clang_tidy:clang_tidy.bzl%clang_tidy_aspect
+build:clang-tidy --output_groups=clang_tidy
+build:clang-tidy-fix --aspects=//tools/clang_tidy:clang_tidy.bzl%clang_tidy_aspect
+build:clang-tidy-fix --output_groups=clang_tidy,clang_tidy_fixes
+# LINT.ThenChange(//Makefile:lint_tidy, //.github/workflows/build_test.yml:lint_tidy, //tools/ci_local.sh:lint_tidy)
+
 # --- Test Configuration ---
 test --test_output=errors
 test --test_verbose_timeout_warnings
-test --test_env=LD_LIBRARY_PATH
-test --test_env=AMENT_PREFIX_PATH
-test --test_env=ROS_DISTRO
 test --test_env=CUDA_VISIBLE_DEVICES

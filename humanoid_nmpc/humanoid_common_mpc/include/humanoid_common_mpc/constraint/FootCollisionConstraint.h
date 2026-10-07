@@ -30,12 +30,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <pinocchio/fwd.hpp>
+#include "pinocchio/fwd.hpp"
 
-#include <ocs2_core/constraint/StateConstraintCppAd.h>
-#include <ocs2_core/cost/StateCost.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-#include <pinocchio/algorithm/frames.hpp>
+#include <string>
+
+#include "absl/base/nullability.h"
+#include "absl/status/statusor.h"
+#include "ocs2_core/constraint/StateConstraintCppAd.h"
+#include "ocs2_core/cost/StateCost.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/algorithm/frames.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -46,8 +50,10 @@ namespace ocs2::humanoid {
 
 /**
  * Implements the constraint h(t,x,u) >= 0 to prevent collisions of the feet.
+ *
+ * Added once to the MPC's state inequality constraints; the reference manager and the robot model must outlive it. Like
+ * every OCS2 term it is cloned for each solver thread, and a single instance is not thread-safe.
  */
-
 class FootCollisionConstraint final : public StateConstraintCppAd {
  public:
   struct Config {
@@ -55,21 +61,22 @@ class FootCollisionConstraint final : public StateConstraintCppAd {
     std::string leftAnkleFrame;
     std::string rightAnkleFrame;
 
-    std::string leftFootCenterFrame{"foot_l_contact"};
-    std::string rightFootCenterFrame{"foot_r_contact"};
+    std::string leftFootCenterFrame = "foot_l_contact";
+    std::string rightFootCenterFrame = "foot_r_contact";
 
-    std::string leftFootFrame1{"foot_l_contact_collision_p_1"};
-    std::string rightFootFrame1{"foot_r_contact_collision_p_1"};
+    std::string leftFootFrame1 = "foot_l_contact_collision_p_1";
+    std::string rightFootFrame1 = "foot_r_contact_collision_p_1";
 
-    std::string leftFootFrame2{"foot_l_contact_collision_p_2"};
-    std::string rightFootFrame2{"foot_r_contact_collision_p_2"};
+    std::string leftFootFrame2 = "foot_l_contact_collision_p_2";
+    std::string rightFootFrame2 = "foot_r_contact_collision_p_2";
 
-    scalar_t footCollisionSphereRadius;
+    // 0 when the task file does not set it (the loader leaves a missing key at its default).
+    scalar_t footCollisionSphereRadius = 0.0;
 
     // Knee
     std::string leftKneeFrame;
     std::string rightKneeFrame;
-    scalar_t kneeCollisionSphereRadius;
+    scalar_t kneeCollisionSphereRadius = 0.0;
   };
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -77,44 +84,35 @@ class FootCollisionConstraint final : public StateConstraintCppAd {
                           const PinocchioInterface& pinocchioInterface,
                           const MpcRobotModelBase<ad_scalar_t>& mpcRobotModel,
                           const Config& config,
-                          std::string costName,
+                          const std::string& costName,
                           const ModelSettings& modelSettings);
 
   ~FootCollisionConstraint() override = default;
-  FootCollisionConstraint* clone() const override { return new FootCollisionConstraint(*this); }
+  FootCollisionConstraint& operator=(const FootCollisionConstraint&) = delete;
+  FootCollisionConstraint(FootCollisionConstraint&&) = delete;
+  FootCollisionConstraint& operator=(FootCollisionConstraint&&) = delete;
+  FootCollisionConstraint* absl_nonnull clone() const override { return new FootCollisionConstraint(*this); }
 
   bool isActive(scalar_t time) const override;
   bool getActive() const { return isActive_; }
   void setActive(bool active) { isActive_ = active; }
 
-  size_t getNumConstraints(scalar_t time) const override { return numConstraints_; };
+  size_t getNumConstraints(scalar_t /*time*/) const override { return numConstraints_; };
 
-  vector_t getParameters(scalar_t time, const PreComputation& preComputation) const override {
+  vector_t getParameters(scalar_t /*time*/, const PreComputation& /*preComputation*/) const override {
     vector_t parameters(2);
     parameters << cfg_.footCollisionSphereRadius, cfg_.kneeCollisionSphereRadius;
     return parameters;
   };
-
-  void setSphereRadii(scalar_t footCollisionSphereRadius, scalar_t kneeCollisionSphereRadius) {
-    cfg_.footCollisionSphereRadius = footCollisionSphereRadius;
-    cfg_.kneeCollisionSphereRadius = kneeCollisionSphereRadius;
-  }
-
-  void getSphereRadii(scalar_t& footCollisionSphereRadius, scalar_t& kneeCollisionSphereRadius) const {
-    footCollisionSphereRadius = cfg_.footCollisionSphereRadius;
-    kneeCollisionSphereRadius = cfg_.kneeCollisionSphereRadius;
-  }
-
-  static Config loadFootCollisionConstraintConfig(const std::string taskFile, bool verbose = false);
 
  private:
   ad_vector_t constraintFunction(ad_scalar_t time, const ad_vector_t& state, const ad_vector_t& parameters) const override;
 
   FootCollisionConstraint(const FootCollisionConstraint& other);
 
-  const SwitchedModelReferenceManager* referenceManagerPtr_;
+  const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
   PinocchioInterfaceCppAd pinocchioInterfaceCppAd_;
-  const MpcRobotModelBase<ad_scalar_t>* const mpcRobotModelPtr_;
+  const MpcRobotModelBase<ad_scalar_t>* absl_nonnull const mpcRobotModelPtr_;
   Config cfg_;
 
   const size_t numConstraints_ = 16;

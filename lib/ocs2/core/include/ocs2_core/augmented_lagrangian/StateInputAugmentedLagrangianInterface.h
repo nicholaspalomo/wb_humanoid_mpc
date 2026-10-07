@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/PreComputation.h>
 #include <ocs2_core/Types.h>
 #include <ocs2_core/constraint/StateInputConstraint.h>
@@ -42,7 +44,7 @@ class StateInputAugmentedLagrangianInterface {
  public:
   StateInputAugmentedLagrangianInterface() = default;
   virtual ~StateInputAugmentedLagrangianInterface() = default;
-  virtual StateInputAugmentedLagrangianInterface* clone() const = 0;
+  virtual StateInputAugmentedLagrangianInterface* absl_nonnull clone() const = 0;
 
   /** Check penalty's activity */
   virtual bool isActive(scalar_t time) const = 0;

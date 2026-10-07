@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 
+#include "absl/base/nullability.h"
+
 #include "ocs2_core/penalties/augmented/AugmentedPenaltyBase.h"
 
 namespace ocs2 {
@@ -75,7 +77,7 @@ class QuadraticPenalty final : public AugmentedPenaltyBase {
   static std::unique_ptr<QuadraticPenalty> create(Config config) { return std::make_unique<QuadraticPenalty>(std::move(config)); }
 
   ~QuadraticPenalty() override = default;
-  QuadraticPenalty* clone() const override { return new QuadraticPenalty(*this); }
+  QuadraticPenalty* absl_nonnull clone() const override { return new QuadraticPenalty(*this); }
   std::string name() const override { return "QuadraticPenalty"; }
 
   scalar_t getValue(scalar_t t, scalar_t l, scalar_t h) const override { return -l * h + 0.5 * config_.scale * h * h; }

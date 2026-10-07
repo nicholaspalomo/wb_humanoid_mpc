@@ -30,7 +30,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_core/constraint/StateInputConstraint.h>
+#include <memory>
+
+#include "absl/base/nullability.h"
+#include "ocs2_core/constraint/StateInputConstraint.h"
 
 #include "humanoid_common_mpc/constraint/EndEffectorKinematicsTwistConstraint.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
@@ -60,14 +63,18 @@ class ZeroVelocityConstraintCppAd final : public StateInputConstraint {
                               EndEffectorKinematicsTwistConstraint::Config config = EndEffectorKinematicsTwistConstraint::Config());
 
   ~ZeroVelocityConstraintCppAd() override = default;
-  ZeroVelocityConstraintCppAd* clone() const override { return new ZeroVelocityConstraintCppAd(*this); }
+  ZeroVelocityConstraintCppAd* absl_nonnull clone() const override { return new ZeroVelocityConstraintCppAd(*this); }
+  // Copied only by clone(), whose copy constructor is private; never assigned or moved.
+  ZeroVelocityConstraintCppAd& operator=(const ZeroVelocityConstraintCppAd&) = delete;
+  ZeroVelocityConstraintCppAd(ZeroVelocityConstraintCppAd&&) = delete;
+  ZeroVelocityConstraintCppAd& operator=(ZeroVelocityConstraintCppAd&&) = delete;
 
   bool isActive(scalar_t time) const override;
   void setActive(bool isActive) override { isActive_ = isActive; }
   bool getActive() const override { return isActive_; }
   /** Access the inner twist constraint to allow runtime config updates (e.g. foot error gains). */
   EndEffectorKinematicsTwistConstraint& getTwistConstraint() { return *eeTwistConstraintPtr_; }
-  size_t getNumConstraints(scalar_t time) const override { return numConstraints_; }
+  size_t getNumConstraints(scalar_t /*time*/) const override { return numConstraints_; }
   vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
   VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
                                                            const vector_t& state,
@@ -77,7 +84,7 @@ class ZeroVelocityConstraintCppAd final : public StateInputConstraint {
  private:
   ZeroVelocityConstraintCppAd(const ZeroVelocityConstraintCppAd& rhs);
 
-  const SwitchedModelReferenceManager* referenceManagerPtr_;
+  const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
   std::unique_ptr<EndEffectorKinematicsTwistConstraint> eeTwistConstraintPtr_;
   const size_t contactPointIndex_;
   size_t numConstraints_;

@@ -1,0 +1,51 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "humanoid_mpc_config/task_space_weights.proto";
+import "nproto/options.proto";
+import "nproto/retired_field_options.proto";
+
+// A task-space cost of the task file, in one of its two uses:
+//
+//   task_space_foot_cost   the swing-foot cost (formerly task_space_foot_cost_weights, whose weights sat next to
+//                          activeInStance): active_phases and the weights. A name or a link_name is refused.
+//   task_space_costs       a cost on a named link (formerly a map from the name to link_name and weights), one entry
+//                          per cost: name, link_name and the weights. Each name at most once; an active_phases other
+//                          than "swing" is refused.
+//
+// Read while costs lists task_space_foot_cost or task_space_torso_cost (MpcFormulationConfig).
+// Next ID: 6
+message TaskSpaceCostConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::TaskSpaceCostConfig";
+  option (nproto.retired_layout_hint) = "(The weights are a block of their own, weights { pos_x: ... }, where task_space_foot_cost_weights wrote them next to activeInStance and a task_space_costs entry under its name; a named cost gives its name with name: \"torso\".)";
+  option (nproto.retired_field) = {
+    name: "active_in_stance"
+    replacement: "the phases the foot cost weighs a foot in are selected by name: active_phases: \"swing_and_stance\" where it was true, \"swing\" (the default) where it was false"
+  };
+
+  reserved 6 to max;
+  // 4 was active_in_stance, now the name active_phases.
+  reserved 4;
+
+  TaskSpaceWeights weights = 1;
+  // task_space_costs only: the cost's name, which names its term "<name>_TaskSpaceKinematicsCost" (required there).
+  // An added, removed or renamed entry changes the terms the problem is assembled with: it takes effect at the next
+  // start, while a reload applies the weights of the entries the running problem carries.
+  string name = 2 [default = "", (humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP }];
+  // task_space_costs only: the Pinocchio frame the cost tracks (required there), whose kinematics the CppAD library of
+  // the cost was generated for: a change takes effect at the next start.
+  string link_name = 3 [default = "", (humanoid_mpc_config.tuning) = { reload: RELOAD_START_UP }];
+  // task_space_foot_cost only: the contact phases in which the cost weighs a foot, by name: "swing" (a swing foot only)
+  // or "swing_and_stance" (every foot; the centroidal MPC's foot cost only).
+  // LINT.IfChange(active_phases)
+  string active_phases = 5 [
+    default = "swing",
+    (humanoid_mpc_config.tuning) = {
+      registry: "foot_cost_phases"
+      exclude_reason: "a selection of the foot cost alone, refused in a named link cost that the same message describes: set it in the file"
+    }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/costs/TaskSpaceCostFromConfig.h:foot_cost_phases_names)
+}

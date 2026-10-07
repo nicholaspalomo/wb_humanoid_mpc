@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "nproto/options.proto";
+
+// The robot's MpcResetSupervisor counters (humanoid_common_mpc/mrt/MpcResetSupervisor.h). They only ever grow, so the
+// latest observation carries every reset requested so far and a lost message loses nothing: the MPC serves a reset
+// whenever `requested` exceeds the requests it has served, a full one when `full_requested` does.
+// Next ID: 3
+message ResetRequests {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::ResetRequests";
+
+  reserved 3 to max;
+
+  uint64 requested = 1;
+  uint64 full_requested = 2;
+}

@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -31,14 +35,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include <ocs2_core/reference/ModeSchedule.h>
+#include "ocs2_core/reference/ModeSchedule.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 
 /**
- * Adaptive execution of a planned contact schedule, generic in the number of feet (N_CONTACTS).
+ * Adaptive execution of a planned contact schedule, generic in the number of feet (kNumContacts).
  *
  * The mixed-integer planner decides the contact sequence on a coarse grid and re-plans at a few Hz. Between plans the
  * executed schedule is adapted to what the robot actually does, using only the measured contact state and the
@@ -261,9 +265,10 @@ struct SwingTimingLatch {
   scalar_t plannedTouchDownTime() const { return nominalTouchDownTime + cadenceShift; }
 };
 
+/** What the schedule adaptation did to one foot in one control cycle. Passive data. */
 struct ContactEventReport {
-  enum class Type { NONE, EARLY_TOUCH_DOWN, LATE_TOUCH_DOWN, CADENCE_SHIFT };
-  Type type = Type::NONE;
+  enum class Type { kNone, kEarlyTouchDown, kLateTouchDown, kCadenceShift };
+  Type type = Type::kNone;
   scalar_t touchDownTime = 0.0;  // touch-down after the update
   scalar_t timeShift = 0.0;      // shift applied to the touch-down and every later event (0 for an early touch-down)
 };
@@ -292,6 +297,7 @@ feet_array_t<ContactEventReport> adaptScheduleToContactEvents(ModeSchedule& sche
 
 /*============================================ LIP helpers =================================================*/
 
+/** The state of the linear inverted pendulum at one instant: CoM position and velocity, and the ZMP. Passive data. */
 struct LipState {
   vector2_t com = vector2_t::Zero();
   vector2_t comVelocity = vector2_t::Zero();

@@ -37,6 +37,8 @@ extern "C" {
 #include <hpipm_d_ocp_qp_ipm.h>
 #include <hpipm_d_ocp_qp_sol.h>
 #include <hpipm_timing.h>
+
+#include "absl/base/nullability.h"
 }
 
 namespace {
@@ -67,7 +69,7 @@ class MemoryBlock {
   }
 
   /** Get pointer to the memory, might be nullptr */
-  void* get() { return ptr_; };
+  void* absl_nullable get() { return ptr_; };
 
   // Prevents copies
   MemoryBlock(const MemoryBlock&) = delete;
@@ -78,7 +80,7 @@ class MemoryBlock {
   MemoryBlock& operator=(MemoryBlock&&) = default;
 
  private:
-  void* ptr_;
+  void* absl_nullable ptr_;
   size_t size_;
 };
 }  // namespace
@@ -143,9 +145,10 @@ class HpipmInterface::Impl {
     d_ocp_qp_ipm_arg_set_ric_alg(&settings.ric_alg, &arg_);
   }
 
-  void verifySizes(const vector_t& x0, std::vector<VectorFunctionLinearApproximation>& dynamics,
+  void verifySizes(const vector_t& x0,
+                   std::vector<VectorFunctionLinearApproximation>& dynamics,
                    std::vector<ScalarFunctionQuadraticApproximation>& cost,
-                   std::vector<VectorFunctionLinearApproximation>* constraints) const {
+                   std::vector<VectorFunctionLinearApproximation>* absl_nullable constraints) const {
     if (dynamics.size() != ocpSize_.numStages) {
       throw std::runtime_error("[HpipmInterface] Inconsistent size of dynamics: " + std::to_string(dynamics.size()) + " with " +
                                std::to_string(ocpSize_.numStages) + " number of stages.");
@@ -163,16 +166,20 @@ class HpipmInterface::Impl {
     // TODO: expand with state-input size checks
   }
 
-  hpipm_status solve(const vector_t& x0, std::vector<VectorFunctionLinearApproximation>& dynamics,
-                     std::vector<ScalarFunctionQuadraticApproximation>& cost, std::vector<VectorFunctionLinearApproximation>* constraints,
-                     vector_array_t& stateTrajectory, vector_array_t& inputTrajectory, bool verbose) {
+  hpipm_status solve(const vector_t& x0,
+                     std::vector<VectorFunctionLinearApproximation>& dynamics,
+                     std::vector<ScalarFunctionQuadraticApproximation>& cost,
+                     std::vector<VectorFunctionLinearApproximation>* absl_nullable constraints,
+                     vector_array_t& stateTrajectory,
+                     vector_array_t& inputTrajectory,
+                     bool verbose) {
     const int N = ocpSize_.numStages;
     verifySizes(x0, dynamics, cost, constraints);
 
     // === Dynamics ===
-    std::vector<scalar_t*> AA(N, nullptr);
-    std::vector<scalar_t*> BB(N, nullptr);
-    std::vector<scalar_t*> bb(N, nullptr);
+    std::vector<scalar_t* absl_nullable> AA(N, nullptr);
+    std::vector<scalar_t* absl_nullable> BB(N, nullptr);
+    std::vector<scalar_t* absl_nullable> bb(N, nullptr);
 
     // k = 0. Absorb initial state into dynamics
     // The initial state is removed from the decision variables
@@ -194,11 +201,11 @@ class HpipmInterface::Impl {
     }
 
     // === Costs ===
-    std::vector<scalar_t*> QQ(N + 1, nullptr);
-    std::vector<scalar_t*> RR(N + 1, nullptr);
-    std::vector<scalar_t*> SS(N + 1, nullptr);
-    std::vector<scalar_t*> qq(N + 1, nullptr);
-    std::vector<scalar_t*> rr(N + 1, nullptr);
+    std::vector<scalar_t* absl_nullable> QQ(N + 1, nullptr);
+    std::vector<scalar_t* absl_nullable> RR(N + 1, nullptr);
+    std::vector<scalar_t* absl_nullable> SS(N + 1, nullptr);
+    std::vector<scalar_t* absl_nullable> qq(N + 1, nullptr);
+    std::vector<scalar_t* absl_nullable> rr(N + 1, nullptr);
 
     // k = 0. Elimination of initial state requires cost adaptation
     // numState[0] = 0 --> No need to specify Q[0], S[0], q[0] here
@@ -223,10 +230,10 @@ class HpipmInterface::Impl {
     // === Constraints ===
     // for ocs2 --> C*dx + D*du + e = 0
     // for hpipm --> ug >= C*dx + D*du >= lg
-    std::vector<scalar_t*> CC(N + 1, nullptr);
-    std::vector<scalar_t*> DD(N + 1, nullptr);
-    std::vector<scalar_t*> llg(N + 1, nullptr);
-    std::vector<scalar_t*> uug(N + 1, nullptr);
+    std::vector<scalar_t* absl_nullable> CC(N + 1, nullptr);
+    std::vector<scalar_t* absl_nullable> DD(N + 1, nullptr);
+    std::vector<scalar_t* absl_nullable> llg(N + 1, nullptr);
+    std::vector<scalar_t* absl_nullable> uug(N + 1, nullptr);
     std::vector<ocs2::vector_t> boundData;  // Declare at this scope to keep the data alive while HPIPM has the pointers
 
     if (constraints != nullptr) {
@@ -264,19 +271,19 @@ class HpipmInterface::Impl {
     }
 
     // === Unused ===
-    int** hidxbx = nullptr;
-    scalar_t** hlbx = nullptr;
-    scalar_t** hubx = nullptr;
-    int** hidxbu = nullptr;
-    scalar_t** hlbu = nullptr;
-    scalar_t** hubu = nullptr;
-    scalar_t** hZl = nullptr;
-    scalar_t** hZu = nullptr;
-    scalar_t** hzl = nullptr;
-    scalar_t** hzu = nullptr;
-    int** hidxs = nullptr;
-    scalar_t** hlls = nullptr;
-    scalar_t** hlus = nullptr;
+    int* absl_nullable* absl_nullable hidxbx = nullptr;
+    scalar_t* absl_nullable* absl_nullable hlbx = nullptr;
+    scalar_t* absl_nullable* absl_nullable hubx = nullptr;
+    int* absl_nullable* absl_nullable hidxbu = nullptr;
+    scalar_t* absl_nullable* absl_nullable hlbu = nullptr;
+    scalar_t* absl_nullable* absl_nullable hubu = nullptr;
+    scalar_t* absl_nullable* absl_nullable hZl = nullptr;
+    scalar_t* absl_nullable* absl_nullable hZu = nullptr;
+    scalar_t* absl_nullable* absl_nullable hzl = nullptr;
+    scalar_t* absl_nullable* absl_nullable hzu = nullptr;
+    int* absl_nullable* absl_nullable hidxs = nullptr;
+    scalar_t* absl_nullable* absl_nullable hlls = nullptr;
+    scalar_t* absl_nullable* absl_nullable hlus = nullptr;
 
     // === Set and solve ===
     d_ocp_qp_set_all(AA.data(), BB.data(), bb.data(), QQ.data(), SS.data(), RR.data(), qq.data(), rr.data(), hidxbx, hlbx, hubx, hidxbu,
@@ -483,7 +490,7 @@ class HpipmInterface::Impl {
     d_ocp_qp_ipm_get_max_res_ineq(&workspace_, &res_ineq);
     scalar_t res_comp;
     d_ocp_qp_ipm_get_max_res_comp(&workspace_, &res_comp);
-    scalar_t* stat;
+    scalar_t* absl_nonnull stat;
     d_ocp_qp_ipm_get_stat(&workspace_, &stat);
     int stat_m;
     d_ocp_qp_ipm_get_stat_m(&workspace_, &stat_m);
@@ -531,10 +538,13 @@ void HpipmInterface::resize(OcpSize ocpSize) {
   pImpl_->initializeMemory(std::move(ocpSize));
 }
 
-hpipm_status HpipmInterface::solve(const vector_t& x0, std::vector<VectorFunctionLinearApproximation>& dynamics,
+hpipm_status HpipmInterface::solve(const vector_t& x0,
+                                   std::vector<VectorFunctionLinearApproximation>& dynamics,
                                    std::vector<ScalarFunctionQuadraticApproximation>& cost,
-                                   std::vector<VectorFunctionLinearApproximation>* constraints, vector_array_t& stateTrajectory,
-                                   vector_array_t& inputTrajectory, bool verbose) {
+                                   std::vector<VectorFunctionLinearApproximation>* absl_nullable constraints,
+                                   vector_array_t& stateTrajectory,
+                                   vector_array_t& inputTrajectory,
+                                   bool verbose) {
   return pImpl_->solve(x0, dynamics, cost, constraints, stateTrajectory, inputTrajectory, verbose);
 }
 

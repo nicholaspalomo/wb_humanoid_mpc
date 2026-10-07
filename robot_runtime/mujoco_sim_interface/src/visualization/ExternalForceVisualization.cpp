@@ -32,29 +32,31 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstring>
 
+#include "absl/base/nullability.h"
+
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 
 namespace robot::mujoco_sim_interface {
 
 void ExternalForceVisualization::addSceneGeoms(const VisualizationFrame& frame) {
   if (frame.sim == nullptr || frame.state == nullptr || frame.scene == nullptr) return;
-  const mjModel* model = frame.sim->getModel();
-  const mjData* data = frame.state->data;
+  const mjModel* absl_nonnull model = frame.sim->getModel();
+  const mjData* absl_nullable data = frame.state->data;
   mjvScene& scene = *frame.scene;
-  if (model == nullptr || data == nullptr) return;
+  if (data == nullptr) return;
 
   for (int body_id = 0; body_id < model->nbody; ++body_id) {
-    const double* force = &data->xfrc_applied[6 * body_id];
+    const double* absl_nonnull force = &data->xfrc_applied[6 * body_id];
     const double fx = force[0];
     const double fy = force[1];
     const double fz = force[2];
 
     const double magnitude = std::sqrt(fx * fx + fy * fy + fz * fz);
-    if (magnitude < 1e-6) continue;
+    if (magnitude < 1.0e-6) continue;
     if (scene.ngeom >= scene.maxgeom) return;  // out of geom space
 
-    const double* xpos = &data->xpos[3 * body_id];
-    mjvGeom* arrow = &scene.geoms[scene.ngeom++];
+    const double* absl_nonnull xpos = &data->xpos[3 * body_id];
+    mjvGeom* absl_nonnull arrow = &scene.geoms[scene.ngeom++];
     std::memset(arrow, 0, sizeof(mjvGeom));
 
     // Scale factor that grows with force magnitude

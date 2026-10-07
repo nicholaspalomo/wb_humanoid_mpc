@@ -1,0 +1,236 @@
+load("@operator_deps//:requirements.bzl", "requirement")
+load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
+load("@protobuf//bazel:proto_library.bzl", "proto_library")
+load("@protobuf//bazel:py_proto_library.bzl", "py_proto_library")
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+
+# robot_ipc - the ZeroMQ bus of the distributed runtime (humanoid_nmpc/docs/distributed_runtime/README.md), in C++
+# and in Python. Generic: it knows nothing of the humanoid's topics or messages, which live in humanoid_nmpc.
+
+package(default_visibility = ["//visibility:public"])
+
+# ==============================================================================
+# The network file's schema
+# ==============================================================================
+
+# robot_ipc_proto.NetworkConfig, the schema of config/ipc/network.textproto. The import path drops the directory, so
+# that C++ includes "robot_ipc_proto/network_config.pb.h" and Python imports `from robot_ipc_proto import
+# network_config_pb2` (a top-level name of its own: the Python package robot_ipc would hide a robot_ipc/ directory of
+# generated modules).
+proto_library(
+    name = "network_config_proto",
+    srcs = ["proto/network_config.proto"],
+    import_prefix = "robot_ipc_proto",
+    strip_import_prefix = "/robot_runtime/robot_ipc/proto",
+    deps = ["//tools/nproto:options_proto"],
+)
+
+cc_proto_library(
+    name = "network_config_cc_proto",
+    deps = [":network_config_proto"],
+)
+
+# Linked against the protobuf wheel of @operator_deps (//tools/python:python_proto_toolchain).
+py_proto_library(
+    name = "network_config_py_proto",
+    deps = [":network_config_proto"],
+)
+
+# ==============================================================================
+# C++
+# ==============================================================================
+
+# The strict textproto parser of the network file: an error names the file, the line and the column. Private to the
+# package; the configuration files of the rest of the repository can share it once it moves to a package of its own.
+cc_library(
+    name = "textproto",
+    srcs = ["src/Textproto.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    hdrs = ["src/Textproto.h"],
+    visibility = ["//visibility:private"],
+    deps = [
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/strings",
+        "@protobuf",
+    ],
+)
+
+cc_library(
+    name = "robot_ipc",
+    srcs = [
+        "src/Bus.cpp",
+        "src/Delivery.cpp",
+        "src/NetworkConfig.cpp",
+        "src/StatusMacros.h",
+    ],
+    copts = FIRST_PARTY_COPTS,
+    hdrs = glob(["include/robot_ipc/*.h"]),
+    includes = ["include"],
+    deps = [
+        ":network_config_cc_proto",
+        ":textproto",
+        "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        # cppzmq's target carries only the headers of libzmq; @libzmq is the library itself.
+        "@cppzmq",
+        "@libzmq",
+        "@protobuf",
+    ],
+)
+
+# ==============================================================================
+# Python
+# ==============================================================================
+
+# `import robot_ipc`: the package directory is python/robot_ipc.
+py_library(
+    name = "robot_ipc_py",
+    srcs = glob(["python/robot_ipc/*.py"]),
+    imports = ["python"],
+    deps = [
+        ":network_config_py_proto",
+        requirement("protobuf"),
+        requirement("pyzmq"),
+    ],
+)
+
+# ==============================================================================
+# Tests
+# ==============================================================================
+
+# Test-only messages, one per file (tools/hooks/proto_file_layout.py). Imported as "robot_ipc_test/<file>.proto":
+# C++ includes "robot_ipc_test/test_sample.pb.h", Python imports `from robot_ipc_test import test_sample_pb2`.
+proto_library(
+    name = "test_messages_proto",
+    testonly = True,
+    srcs = [
+        "test/test_event.proto",
+        "test/test_sample.proto",
+        "test/test_settings.proto",
+    ],
+    import_prefix = "robot_ipc_test",
+    strip_import_prefix = "/robot_runtime/robot_ipc/test",
+    deps = ["//tools/nproto:options_proto"],
+)
+
+cc_proto_library(
+    name = "test_messages_cc_proto",
+    testonly = True,
+    deps = [":test_messages_proto"],
+)
+
+py_proto_library(
+    name = "test_messages_py_proto",
+    testonly = True,
+    deps = [":test_messages_proto"],
+)
+
+cc_test(
+    name = "network_config_test",
+    size = "small",
+    srcs = ["test/testNetworkConfig.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = ["//config/ipc:network.textproto"],
+    deps = [
+        ":robot_ipc",
+        "@abseil-cpp//absl/base:nullability",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "textproto_test",
+    size = "small",
+    srcs = ["test/testTextproto.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":test_messages_cc_proto",
+        ":textproto",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "bus_test",
+    size = "small",
+    srcs = ["test/testBus.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":robot_ipc",
+        ":test_messages_cc_proto",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        "@cppzmq",
+        "@googletest//:gtest_main",
+        "@libzmq",
+    ],
+)
+
+# The C++ side of :cross_language_test: subscribes to TestSample on one topic and publishes each one back on another.
+cc_binary(
+    name = "bus_echo",
+    testonly = True,
+    srcs = ["test/BusEchoMain.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":robot_ipc",
+        ":test_messages_cc_proto",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/flags:flag",
+        "@abseil-cpp//absl/flags:parse",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/status",
+    ],
+)
+
+py_test(
+    name = "network_config_py_test",
+    size = "small",
+    srcs = ["test/test_network_config.py"],
+    data = ["//config/ipc:network.textproto"],
+    main = "test/test_network_config.py",
+    deps = [":robot_ipc_py"],
+)
+
+py_test(
+    name = "bus_py_test",
+    size = "small",
+    srcs = ["test/test_bus.py"],
+    main = "test/test_bus.py",
+    deps = [
+        ":robot_ipc_py",
+        ":test_messages_py_proto",
+        requirement("pyzmq"),
+    ],
+)
+
+# Python publishes and the C++ bus answers, and the other way round: the two buses frame messages identically.
+py_test(
+    name = "cross_language_test",
+    size = "small",
+    srcs = ["test/test_cross_language.py"],
+    data = [":bus_echo"],
+    env = {"BUS_ECHO": "$(rootpath :bus_echo)"},
+    main = "test/test_cross_language.py",
+    deps = [
+        ":robot_ipc_py",
+        ":test_messages_py_proto",
+    ],
+)

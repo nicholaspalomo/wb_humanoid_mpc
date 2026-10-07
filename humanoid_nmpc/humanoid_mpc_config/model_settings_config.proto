@@ -1,0 +1,124 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "nproto/options.proto";
+import "nproto/retired_field_options.proto";
+
+// The robot model the MPC is formulated on (the task file's model_settings block, ModelSettings): the robot's name, the
+// gains of the foot constraints, the CppAD flags, the joints the MPC leaves out, the 6-DoF contacts and the joints they
+// are attached to, and the joints of the procedural arm swing. Joints and contacts are URDF and Pinocchio names;
+// ModelSettings::Create() reads the rest of the model, the joints and their order, off the URDF.
+// Next ID: 10
+message ModelSettingsConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::ModelSettingsConfig";
+  // The folder used to be a key that nothing read; the old loader warned about it.
+  option (nproto.retired_field) = {
+    name: "model_folder_cpp_ad"
+    replacement: "the CppAD libraries are built under cppad_code_gen/cppad_<mpc><robot_name>, derived from the robot (the centroidal MPC adds a sub-folder per contact input parameterization); delete the key"
+  };
+
+  reserved 10 to max;
+
+  // The gains of the swing- and stance-foot constraints, the weights of their soft forms and the rows of the stance
+  // constraint (ModelSettings::FootConstraintConfig).
+  // Next ID: 14
+  message FootConstraintConfig {
+    option (nproto.retired_field) = {
+      name: "constrain_orientation"
+      replacement: "the rows of the stance constraint are selected by name: stance_constraint: \"position\" where it was false, \"position_and_tilt\" where it was true, \"position_and_orientation\" where constrain_yaw_rate_about_contact_normal was true as well"
+    };
+    option (nproto.retired_field) = {
+      name: "constrain_yaw_rate_about_contact_normal"
+      replacement: "the rows of the stance constraint are selected by name: stance_constraint: \"position_and_orientation\" where it was true (with constrain_orientation true), \"position_and_tilt\" where it was false"
+    };
+
+    reserved 14 to max;
+    // 11 and 12 were constrain_orientation and constrain_yaw_rate_about_contact_normal, now the name stance_constraint.
+    reserved 11, 12;
+
+    // [1/s] The swing foot's vertical servo of the normal_velocity constraint,
+    // v_z = zdot_ref + position_error_gain_z * (z_ref - z).
+    double position_error_gain_z = 1 [default = 1.0, (humanoid_mpc_config.tuning) = { unit: "1/s" }];
+    // The gains of the stance foot's zero_velocity constraint: orientation, velocity and acceleration errors.
+    double orientation_error_gain = 2 [default = 1.0];
+    double linear_velocity_error_gain_z = 3 [default = 1.0];
+    double linear_velocity_error_gain_xy = 4 [default = 1.0];
+    double angular_velocity_error_gain = 5 [default = 1.0];
+    // The acceleration-error gains: the whole-body MPC's, whose foot constraints act on the foot's acceleration.
+    double linear_acceleration_error_gain_z = 6 [default = 1.0, (humanoid_mpc_config.tuning) = { formulations: "whole_body" }];
+    double linear_acceleration_error_gain_xy = 7 [default = 1.0, (humanoid_mpc_config.tuning) = { formulations: "whole_body" }];
+    double angular_acceleration_error_gain = 8 [default = 1.0, (humanoid_mpc_config.tuning) = { formulations: "whole_body" }];
+    // The weight of the soft zero_velocity term, when soft_constraints lists it.
+    double soft_constraint_weight = 9 [default = 10.0];
+    // The weight of the soft normal_velocity term, when soft_constraints lists it: the swing-foot vertical servo
+    // priced instead of imposed.
+    double normal_velocity_soft_constraint_weight = 10 [default = 500.0];
+    // What the stance foot's zero_velocity constraint holds, by name: "position" (3-D: the foot may tilt and pivot),
+    // "position_and_tilt" (6-D, whose orientation rows see the foot's tilt only: it may pivot about the contact normal)
+    // or "position_and_orientation" (6-D with the yaw rate about the contact normal: a stance foot cannot pivot on the
+    // spot, which removes one input degree of freedom per stance foot).
+    // The centroidal MPC's; the whole-body MPC's stance constraint always holds all six rows.
+    // LINT.IfChange(stance_constraint)
+    string stance_constraint = 13 [
+      default = "position_and_tilt",
+      (humanoid_mpc_config.tuning) = {
+        registry: "stance_constraint"
+        formulations: "centroidal"
+      }
+    ];
+    // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/model/ModelSettingsFromConfig.h:stance_constraint_names)
+  }
+
+  // The four joints the procedural arm swing drives, by URDF name: all four, or none. A legs-only robot leaves the
+  // block out, which disables the arm swing; a name that is not an active joint of the MPC model is refused.
+  // Next ID: 5
+  message ArmJointNames {
+    reserved 5 to max;
+
+    string left_shoulder_y = 1 [default = ""];
+    string right_shoulder_y = 2 [default = ""];
+    string left_elbow_y = 3 [default = ""];
+    string right_elbow_y = 4 [default = ""];
+  }
+
+  // The robot, by the name the ACoM network registry dispatches on (AngularCenterOfMass.cpp); it also names the CppAD
+  // library folder.
+  string robot_name = 1 [default = ""];
+  FootConstraintConfig foot_constraint = 2 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  // [s]
+  double phase_transition_stance_time = 3 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "s" }];
+  // Whether CppAD reports what it compiles, and whether it compiles the model libraries again although they exist.
+  bool verbose_cpp_ad = 4 [
+    default = true,
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "a log switch of the CppAD code generation, not a tuning parameter"
+    }
+  ];
+  bool recompile_libraries_cpp_ad = 5 [
+    default = true,
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "a build switch of the CppAD code generation, not a tuning parameter"
+    }
+  ];
+  // The URDF joints the MPC model leaves out; absent: none.
+  repeated string fixed_joint_names = 6 [
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "the joints of the MPC model: they fix the problem's dimensions"
+    }
+  ];
+  // The Pinocchio frames of the 6-DoF contacts (formerly contactNames6DoF).
+  repeated string contact_names_6dof = 7 [
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "frame names of the robot model"
+    }
+  ];
+  // The joints the contact frames are attached to, one per contact, in its order.
+  repeated string contact_parent_joint_names = 8 [
+    (humanoid_mpc_config.tuning) = {
+      exclude_reason: "joint names of the robot model"
+    }
+  ];
+  ArmJointNames arm_joint_names = 9;
+}

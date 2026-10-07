@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -29,15 +33,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdint>
 #include <deque>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <utility>
 
-#include <ocs2_core/thread_support/BufferedValue.h>
-
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/thread_support/BufferedValue.h"
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
@@ -143,7 +148,12 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
    * with no bound on its age, precisely in the situation where the planner has stopped producing plans - a thread
    * that died, a solver that started failing - which is when being steered by a stale one is least safe.
    */
-  bool planReferencesUsableAt(scalar_t time) const { return hasActivePlan() && time < activePlan_->endTime(); }
+  bool planReferencesUsableAt(scalar_t time) const { return usablePlanAt(time) != nullptr; }
+
+  /** The active plan when planReferencesUsableAt(`time`), null otherwise. Only meaningful on the solver thread. */
+  const ContactPlan* absl_nullable usablePlanAt(scalar_t time) const {
+    return activePlan_.has_value() && activePlan_->valid && time < activePlan_->endTime() ? &*activePlan_ : nullptr;
+  }
 
   /**
    * The same question at the last solve time, for the const accessors the whole-body MPC calls between solves.
@@ -152,9 +162,6 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
    * updated until part-way through that function, so asking here would answer for the previous control cycle.
    */
   bool planReferencesUsable() const { return planReferencesUsableAt(lastSolveTime_); }
-
-  /** The mode schedule most recently produced by modifyReferences(). */
-  const ModeSchedule& getAppliedModeSchedule() const { return appliedSchedule_; }
 
   /**
    * Builds the planner input from the current state: CoM position / velocity, foot positions, and everything
@@ -174,7 +181,7 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   /**
    * Installs the ACoM evaluator the running configuration's heading model needs (`dynamics` lists
    * heading_double_integrator: ContactPlanningConfig::usesHeadingModel()), from the network registered for
-   * model_settings.robotName, checked against the MPC model's joints. CentroidalMpcInterface calls it once, from its
+   * model_settings.robot_name, checked against the MPC model's joints. CentroidalMpcInterface calls it once, from its
    * Status-returning set-up; from then on setConfigStatus() does the same for every configuration it is handed, so
    * switching the heading model on by a hot reload gets the same heading as a start with that file.
    *
@@ -254,11 +261,6 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   absl::Status setConfigStatus(const ContactPlanningConfig& config);
   ContactPlanningConfig getConfig() const;
 
-  /** The listed execution rules, in order (solver thread only). */
-  const TermCollection<ExecutionRule>& getExecutionRules() const { return executionRules_; }
-  /** One line per rule with its description, for the start-up print. */
-  std::string executionSummary() const;
-
   /**
    * Time up to which the applied schedule is treated as fixed when planning from / merging at `time`: at least
    * `time + commitTime`, extended to the touch-down of any swing phase that has started or starts within that window, so
@@ -273,10 +275,8 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
    */
   void setPredictedTrajectory(const scalar_array_t& times, const vector_array_t& states);
 
-  /** Predicted CoM position / velocity at the current solver time, when a prediction covering it was available. */
+  /** True when a prediction covering the current solver time was available. */
   bool hasPredictedComState() const { return hasPredictedComState_; }
-  const vector2_t& getPredictedComPosition() const { return predictedComState_[0]; }
-  const vector2_t& getPredictedComVelocity() const { return predictedComState_[1]; }
 
   /** True once after a contact event re-timed the schedule (thread-safe); the planner module then plans immediately. */
   bool consumeReplanRequest() { return replanRequested_.exchange(false); }
@@ -376,7 +376,7 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   mutable std::mutex configMutex_;
   ContactPlanningConfig config_;
   TermCollection<ExecutionRule> executionRules_;  // solver thread
-  // The swing trajectory planner's swingTimeScale the last swingTimeScale check ran against (solver thread). A task.yaml
+  // The swing trajectory planner's swingTimeScale the last swingTimeScale check ran against (solver thread). A task-file
   // reload replaces the swing planner's configuration without passing through this manager, so modifyReferences()
   // repeats the check once whenever the value it finds differs from this one.
   std::optional<scalar_t> checkedSwingTimeScale_;

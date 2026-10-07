@@ -1,0 +1,124 @@
+{
+  "schema": "humanoid_mpc_validation.closed_loop_metrics.v1",
+  "label": "M0_main",
+  "robot": "unitree_r1",
+  "formulation": "centroidal",
+  "scenario": "walk_0p3",
+  "provenance": {
+    "git_commit": "b41650f060e24cee9b29dec4561a6dc957bc57f1",
+    "worktree_state": "36 changed paths, diff sha256 61aac8ea80ef8f10",
+    "machine": "Intel(R) Core(TM) Ultra 7 265K, 20 logical cores, 30.2 GiB",
+    "configuration_sha256": {
+      "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto": "7109a93bb8efdb67ffcea4c51d5f6ff03ea65dd4233a653a3040c25120530af5",
+      "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/command/reference.textproto": "25dbb8dfdfc385f14b505a36c2f8a93c90a4fc2d6142b69ffd7a25241cd21e56",
+      "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto": "656f852101595179bec1c5959eabb12e25407cac2b2ed0bb0fed4fdfa3acca47",
+      "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/controller/joint_pd_gains.textproto": "76705347b3c34ba67d0cb8470269f6cb555f3f651a20725a8492367fdd2af321",
+      "robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf": "61abc014c2b5fedce720cc3558f069aeda463ea27966f8e3cf5529e034a7b29c",
+      "robot_models/unitree_r1/unitree_r1_description/urdf/R1.xml": "46474a797903ecb4d24a23b55eb69f825ec8b390790c7e2a01e71ac44ad93cff"
+    }
+  },
+  "settings": {
+    "mpc_frequency_hz": 80,
+    "mrt_frequency_hz": 100,
+    "simulation_time_step_s": 0.0005,
+    "control_period_s": 0.01,
+    "solver_threads": 4,
+    "solve_latency": "none: a solve's policy is in use from the next control cycle",
+    "joint_pd_settle_time_s": 1,
+    "entry_end_time_s": 1.029999999999942,
+    "gantry_release_time_s": 1.529999999999887,
+    "standing_time_s": 2,
+    "command_start_time_s": 3.530000000000346,
+    "command_duration_s": 17,
+    "command_limits": [2, 1, 1],
+    "command_saturated": false,
+    "scenario_description": "0.3 m/s forward for 15 s, then at rest (the slower walking variant)"
+  },
+  "evaluation": {
+    "start_time_s": 3.5305000000003464,
+    "end_time_s": 20.520499999997526,
+    "control_cycles": 1700,
+    "solves": 1360
+  },
+  "survival": {
+    "survived": true,
+    "fall_time_s": null,
+    "fall_reason": ""
+  },
+  "base_height": {
+    "mean_m": 0.7085461651364194,
+    "std_m": 0.01078938624929177,
+    "rms_error_m": 0.033726227451727896
+  },
+  "tilt": {
+    "rms_rad": 0.0480445137235821,
+    "max_rad": 0.09668980562481133
+  },
+  "velocity": {
+    "rms_error_mps": 0.23695353784960616
+  },
+  "yaw_rate": {
+    "rms_error_radps": 0.2727163209364119
+  },
+  "heading": {
+    "cumulative_final_rad": -0.7755090729856107,
+    "cumulative_max_rad": 0.11226799694907462,
+    "cumulative_min_rad": -0.8079110318956533
+  },
+  "stance_foot_slip": {
+    "max_m": 0.0072244724495131,
+    "rms_m": 0.0030859946573497587,
+    "stance_phases": 43
+  },
+  "joint_torque": {
+    "rms_nm": 7.660702256863214
+  },
+  "initial_state_gap": {
+    "max_rotation_rad": 0.020466358461734484,
+    "max_rotation_time_s": 19.12050000000079,
+    "max_norm": 0.14958400919652193
+  },
+  "quaternion_norm": {
+    "max_deviation": null
+  },
+  "non_finite_values": 0,
+  "solve_time_ms": {
+    "total": {
+      "mean": 7.185184176470596,
+      "p50": 7.178867,
+      "p99": 7.911376,
+      "max": 10.024012
+    },
+    "lq_approximation": {
+      "mean": 4.45275579411764,
+      "p50": 4.418362,
+      "p99": 4.967287,
+      "max": 6.863426
+    },
+    "solve_qp": {
+      "mean": 2.2494124176470587,
+      "p50": 2.246905,
+      "p99": 2.524751,
+      "max": 2.780036
+    },
+    "linesearch": {
+      "mean": 0.4125767213235293,
+      "p50": 0.42085,
+      "p99": 0.479646,
+      "max": 0.65437
+    },
+    "compute_controller": {
+      "mean": 0.020369804411764694,
+      "p50": 0.020148,
+      "p99": 0.026881,
+      "max": 0.056557
+    }
+  },
+  "failures": {
+    "failed_solves": 0,
+    "resets_served": 0,
+    "full_resets_served": 0,
+    "simulator_resets": 0,
+    "unhealthy_cycles": 0
+  }
+}

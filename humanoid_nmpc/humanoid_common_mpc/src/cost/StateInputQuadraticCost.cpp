@@ -30,10 +30,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/cost/StateInputQuadraticCost.h"
 
-#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
-
 #include <cmath>
 #include <numbers>
+#include <utility>
+
+#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 namespace ocs2::humanoid {
 
@@ -50,8 +51,7 @@ StateInputQuadraticCost::StateInputQuadraticCost(matrix_t Q,
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-StateInputQuadraticCost::StateInputQuadraticCost(const StateInputQuadraticCost& rhs)
-    : QuadraticStateInputCost(rhs), referenceManagerPtr_(rhs.referenceManagerPtr_), mpcRobotModelPtr_(rhs.mpcRobotModelPtr_) {}
+StateInputQuadraticCost::StateInputQuadraticCost(const StateInputQuadraticCost& rhs) = default;
 
 /******************************************************************************************************/
 /******************************************************************************************************/

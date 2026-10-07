@@ -34,6 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <mutex>
 #include <vector>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 #include <ocs2_core/control/ControllerBase.h>
 
@@ -89,7 +91,11 @@ class SolverBase {
    * are possible: either the internal controller is already available (such as the MPC case where the warm starting option is set true) or
    * the internal controller is empty in which instead of performing a rollout the operating trajectories will be used.
    */
-  void run(scalar_t initTime, const vector_t& initState, size_t initMode, scalar_t finalTime, const ControllerBase* externalControllerPtr);
+  void run(scalar_t initTime,
+           const vector_t& initState,
+           size_t initMode,
+           scalar_t finalTime,
+           const ControllerBase* absl_nullable externalControllerPtr);
 
   /**
    * The main routine of solver which runs the optimizer for a given initial state, initial time, final time, and
@@ -192,7 +198,7 @@ class SolverBase {
    * @param [in] finalTime: The final time.
    * @param [out] primalSolutionPtr: The primal problem's solution.
    */
-  virtual void getPrimalSolution(scalar_t finalTime, PrimalSolution* primalSolutionPtr) const = 0;
+  virtual void getPrimalSolution(scalar_t finalTime, PrimalSolution* absl_nonnull primalSolutionPtr) const = 0;
 
   /**
    * @brief Returns the optimized policy data.
@@ -207,7 +213,7 @@ class SolverBase {
    *
    * @return: The dual problem's solution.
    */
-  virtual const DualSolution* getDualSolution() const { return nullptr; }
+  virtual const DualSolution* absl_nullable getDualSolution() const { return nullptr; }
 
   /**
    * @brief Returns the optimized value of the Metrics.
@@ -267,7 +273,10 @@ class SolverBase {
  private:
   virtual void runImpl(scalar_t initTime, const vector_t& initState, scalar_t finalTime) = 0;
 
-  virtual void runImpl(scalar_t initTime, const vector_t& initState, scalar_t finalTime, const ControllerBase* externalControllerPtr) = 0;
+  virtual void runImpl(scalar_t initTime,
+                       const vector_t& initState,
+                       scalar_t finalTime,
+                       const ControllerBase* absl_nullable externalControllerPtr) = 0;
 
   virtual void runImpl(scalar_t initTime, const vector_t& initState, scalar_t finalTime, const PrimalSolution& primalSolution) = 0;
 

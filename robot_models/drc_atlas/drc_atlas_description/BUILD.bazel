@@ -1,5 +1,5 @@
 load("//bazel:robot_files.bzl", "ROBOT_FILE_EXCLUDES")
-# drc_atlas_description - URDF, meshes, launch, rviz data files for DRC Atlas
+# drc_atlas_description - URDF and mesh data files for DRC Atlas
 
 package(default_visibility = ["//visibility:public"])
 
@@ -8,8 +8,10 @@ filegroup(
     srcs = glob([
         "urdf/**",
         "meshes/**",
-        "launch/**",
-        "rviz/**",
         "materials/**",
     ], exclude = ROBOT_FILE_EXCLUDES, allow_empty = True),
 )
+
+# The model sandbox's launch file (launch/sandbox.textproto): the URDF in Rerun at its nominal or slider-set joint
+# positions, `make launch-<robot>-sandbox`.
+exports_files(["launch/sandbox.textproto"])

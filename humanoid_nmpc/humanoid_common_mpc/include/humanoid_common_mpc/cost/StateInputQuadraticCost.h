@@ -30,12 +30,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_core/cost/QuadraticStateInputCost.h>
+#include <utility>
+
+#include "absl/base/nullability.h"
+#include "ocs2_core/cost/QuadraticStateInputCost.h"
+
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
 
+/**
+ * The quadratic state-input regularization of the MPC around the target trajectories, with the input reference that
+ * carries the robot's weight on the feet in contact.
+ *
+ * The reference manager and the robot model must outlive it. Like every OCS2 term it is cloned for each solver thread,
+ * and a single instance is not thread-safe.
+ */
 class StateInputQuadraticCost final : public QuadraticStateInputCost {
  public:
   StateInputQuadraticCost(matrix_t Q,
@@ -44,7 +55,10 @@ class StateInputQuadraticCost final : public QuadraticStateInputCost {
                           const MpcRobotModelBase<scalar_t>& mpcRobotModel);
 
   ~StateInputQuadraticCost() override = default;
-  StateInputQuadraticCost* clone() const override { return new StateInputQuadraticCost(*this); };
+  StateInputQuadraticCost& operator=(const StateInputQuadraticCost&) = delete;
+  StateInputQuadraticCost(StateInputQuadraticCost&&) = delete;
+  StateInputQuadraticCost& operator=(StateInputQuadraticCost&&) = delete;
+  StateInputQuadraticCost* absl_nonnull clone() const override { return new StateInputQuadraticCost(*this); };
 
  private:
   StateInputQuadraticCost(const StateInputQuadraticCost& rhs);
@@ -54,8 +68,8 @@ class StateInputQuadraticCost final : public QuadraticStateInputCost {
                                                        const vector_t& input,
                                                        const TargetTrajectories& targetTrajectories) const override;
 
-  const SwitchedModelReferenceManager* referenceManagerPtr_;
-  const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
+  const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
+  const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModelPtr_;
 };
 
 }  // namespace ocs2::humanoid

@@ -1,0 +1,1709 @@
+# Golden printout of testSqpFlatParity.cpp. Lines starting with '#' are provenance and are not compared.
+# Recorded: 2026-10-02 on the main line (wb_humanoid_mpc at HEAD c331ddd with the ROS removal and the merged quaternion
+#   phase A, uncommitted) in the container wbmpc-noros-dev, with HPIPM and BLASFEO built by bazel/system_libs.bzl for
+#   TARGET=GENERIC. A re-record for the HPIPM build only: rk4_projected_feedback and rk4_unconstrained_feedforward are
+#   the original recording (sqp_flat_parity_golden_colcon_hpipm.txt, made before the manifold support against the colcon
+#   HPIPM built for TARGET=AVX) line for line, and rk2_hpipm_constrained_feedback agrees with it to 1e-9 relative but
+#   for its feedback policy (TheRecordingIsTheOriginalOneButForTheHpipmBuildSensitiveGains).
+# Reproduced before the manifold support: on 2026-10-02 the solver of the pre-merge main line (HEAD c331ddd with the ROS
+#   removal, before quaternion phase A was merged: SqpSolver, the multiple-shooting helpers, OptimalControlProblem and
+#   the other ocs2 sources without the Step 4 edits, the manifold sources removed), built in a copy of the checkout in
+#   wbmpc-noros-dev with the same TARGET=GENERIC HPIPM, printed this data line for line
+#   (SolveWithoutManifoldIsBitwiseIdenticalToTheRecordedSolve passed against it). The data is therefore the printout
+#   of the solver before the manifold support on this toolchain, and the comparison is one before and after it.
+# Data hash (FNV-1a 64 of the non-comment lines): 0x131bb9bff9606ddf
+configuration rk4_projected_feedback
+rk4_projected_feedback solve0 iterations 3
+rk4_projected_feedback solve0 performance0 0.86212494252700811 0.86212494252700811 0 7.1346892648023999e-06 9.1770561464865806e-33 0 0 0
+rk4_projected_feedback solve0 performance1 0.85142994673498118 0.85142994673498118 0 9.39241068705378e-12 4.882232381288251e-33 0 0 0
+rk4_projected_feedback solve0 performance2 0.85142568716432154 0.85142568716432154 0 3.4852620483680199e-18 3.4955628482924587e-33 0 0 0
+rk4_projected_feedback solve0 time 0 0.050000000000000003 0.10000000000000001 0.15000000000000002 0.20000000000000001 0.25 0.29999999999999999 0.34999999999999998 0.34999999999999998 0.39999999999999997 0.44999999999999996 0.49999999999999994 0.54999999999999993 0.59999999999999998 0.65000000000000002 0.70000000000000007 0.75000000000000011 0.80000000000000016 0.8500000000000002 0.90000000000000024 0.95000000000000029 1
+rk4_projected_feedback solve0 state0 0.10000000000000001 0.29999999999999999 0 0
+rk4_projected_feedback solve0 input0 2.0339484467756401 -3.82789689355128
+rk4_projected_feedback solve0 state1 0.10254016270461194 0.29184636181376561 0.1015976069406305 -0.32504297073343119
+rk4_projected_feedback solve0 input1 1.7599471692133328 -3.2788782733448207
+rk4_projected_feedback solve0 state2 0.10982285152601322 0.26831684677267786 0.18980991803763964 -0.61398811406128972
+rk4_projected_feedback solve0 input2 1.5467807768387121 -2.849632413067019
+rk4_projected_feedback solve0 state3 0.12126662607896839 0.23123071127920536 0.26805565702058975 -0.86632175628918395
+rk4_projected_feedback solve0 input3 1.3955500248088255 -2.5425933991860634
+rk4_projected_feedback solve0 state4 0.13644822580716892 0.18241927375955705 0.33924988033593029 -1.0820904403392748
+rk4_projected_feedback solve0 input4 1.3033694472136925 -2.3521596041045174
+rk4_projected_feedback solve0 state5 0.15507435862029484 0.12370342381489538 0.40570019301605076 -1.2616852163021646
+rk4_projected_feedback solve0 input5 1.2618770375909345 -2.2617243317337508
+rk4_projected_feedback solve0 state6 0.17694863391855717 0.05688658864035865 0.46900827700890213 -1.4054336425929066
+rk4_projected_feedback solve0 input6 1.2565301025223479 -2.2422807514772729
+rk4_projected_feedback solve0 state7 0.20193378884685079 -0.01622869120537726 0.5299743288370633 -1.5130634105575818
+rk4_projected_feedback solve0 input7 1.2565301025223479 -2.2422807514772729
+rk4_projected_feedback solve0 state8 0.20193378884685079 -0.01622869120537726 0.37098203018594428 0.7549089073882429
+rk4_projected_feedback solve0 input8 0.29601366370405197 -0.31125381186936363
+rk4_projected_feedback solve0 state9 0.22080519581635802 0.020986112972021784 0.38391451365376522 0.73068806137284359
+rk4_projected_feedback solve0 input9 0.083758240892793448 0.12080559654095634
+rk4_projected_feedback solve0 state10 0.24006404067694179 0.057084099317555849 0.38648100840586475 0.71032142049849667
+rk4_projected_feedback solve0 input10 -0.0776493958135894 0.45132440789795553
+rk4_projected_feedback solve0 state11 0.25925573829829357 0.092142967541706103 0.38122849518489493 0.68920667060593044
+rk4_projected_feedback solve0 input11 -0.19609782244017404 0.69589794019966555
+rk4_projected_feedback solve0 state12 0.2780428561099435 0.12603041789593189 0.37029436689848982 0.66356474968737555
+rk4_projected_feedback solve0 input12 -0.28105214645342108 0.87332143535081952
+rk4_projected_feedback solve0 state13 0.29618247082843951 0.15845208265047811 0.35532120888960228 0.63070510618136333
+rk4_projected_feedback solve0 input13 -0.34159436770752072 1.0016617237464172
+rk4_projected_feedback solve0 state14 0.31350190846727843 0.18900678064952406 0.33747721389972157 0.58905323284854616
+rk4_projected_feedback solve0 input14 -0.38521664657024579 1.095834056527403
+rk4_projected_feedback solve0 state15 0.32987717987768489 0.21723920249360526 0.31754325817890594 0.53802106088008472
+rk4_projected_feedback solve0 input15 -0.41758464780160065 1.1671201675542753
+rk4_projected_feedback solve0 state16 0.34521617529515192 0.2426847927670186 0.29601572392633058 0.4778254861464345
+rk4_projected_feedback solve0 input16 -0.44280360273625058 1.2236936755905619
+rk4_projected_feedback solve0 state17 0.35944670424624253 0.26490569048227197 0.27319699451011892 0.40931322437763967
+rk4_projected_feedback solve0 input17 -0.46382503143034892 1.2714287445591947
+rk4_projected_feedback solve0 state18 0.37250851564952664 0.2835185617467576 0.24926373170648206 0.3338125597896095
+rk4_projected_feedback solve0 input18 -0.48278133884028485 1.3145660839403803
+rk4_projected_feedback solve0 state19 0.3843482177342647 0.29821562363494364 0.22431429159180269 0.25300998441859651
+rk4_projected_feedback solve0 input19 -0.50119057108218235 1.3561204292580706
+rk4_projected_feedback solve0 state20 0.39491618076544965 0.30877988716625732 0.19840050597451117 0.16884288893845928
+rk4_projected_feedback solve0 input20 -0.52012326665504593 1.3982130056162716
+rk4_projected_feedback solve0 state21 0.40416468123858396 0.31509539873562942 0.1715456473709181 0.083407187125516244
+rk4_projected_feedback solve0 input21 -0.52012326665504593 1.3982130056162716
+rk4_projected_feedback solve0 intermediate0 cost 0.031345078011876498
+rk4_projected_feedback solve0 intermediate0 dynamicsViolation 2.2437052216162101e-12 -3.9388492467651304e-12 1.7320200829118448e-10 -3.1039759651463328e-10
+rk4_projected_feedback solve0 intermediate0 stateInputEq0 9.7144514654701197e-17
+rk4_projected_feedback solve0 intermediate1 cost 0.02310628366999622
+rk4_projected_feedback solve0 intermediate1 dynamicsViolation 1.5950782361606741e-11 -2.078381911019278e-11 6.9370048594308287e-10 -9.9781694018474809e-10
+rk4_projected_feedback solve0 intermediate1 stateInputEq0 6.9388939039072284e-17
+rk4_projected_feedback solve0 intermediate2 cost 0.017521290925401212
+rk4_projected_feedback solve0 intermediate2 dynamicsViolation 1.6199583341425239e-11 -1.3490597527976433e-12 5.4118765024924187e-10 -2.7812085967582334e-11
+rk4_projected_feedback solve0 intermediate2 stateInputEq0 -6.9388939039072284e-17
+rk4_projected_feedback solve0 intermediate3 cost 0.014150003701352417
+rk4_projected_feedback solve0 intermediate3 dynamicsViolation -2.9896640718618528e-12 4.8718251655088807e-11 -2.5457963515052029e-10 2.0179009574405882e-09
+rk4_projected_feedback solve0 intermediate3 stateInputEq0 1.1102230246251565e-16
+rk4_projected_feedback solve0 intermediate4 cost 0.012777692822405312
+rk4_projected_feedback solve0 intermediate4 dynamicsViolation -1.683614359038188e-11 8.2636314457928961e-11 -6.6638228268800503e-10 3.2235771829647319e-09
+rk4_projected_feedback solve0 intermediate4 stateInputEq0 2.7755575615628914e-17
+rk4_projected_feedback solve0 intermediate5 cost 0.013350444654167183
+rk4_projected_feedback solve0 intermediate5 dynamicsViolation -5.559247506781162e-12 7.9564889399197369e-11 -4.2451431259138417e-11 2.8882294333953951e-09
+rk4_projected_feedback solve0 intermediate5 stateInputEq0 1.3877787807814457e-16
+rk4_projected_feedback solve0 intermediate6 cost 0.01587790103512143
+rk4_projected_feedback solve0 intermediate6 dynamicsViolation 2.6595531332773703e-11 3.8906135257921193e-11 1.2653675884877202e-09 1.1259142507213937e-09
+rk4_projected_feedback solve0 intermediate6 stateInputEq0 -2.7755575615628914e-17
+rk4_projected_feedback solve0 intermediate7 cost 0.0029532865092548174
+rk4_projected_feedback solve0 intermediate7 dynamicsViolation 1.2649742364700955e-11 1.6586523821082721e-12 5.3009280298610406e-10 4.5890735655973458e-11
+rk4_projected_feedback solve0 intermediate7 stateInputEq0 0
+rk4_projected_feedback solve0 intermediate8 cost 0.0030237889571185185
+rk4_projected_feedback solve0 intermediate8 dynamicsViolation 1.4882900467583227e-11 1.7245788130892947e-12 5.864961849511019e-10 9.0018437148842168e-11
+rk4_projected_feedback solve0 intermediate8 stateInputEq0 0
+rk4_projected_feedback solve0 intermediate9 cost 0.0036415459590764579
+rk4_projected_feedback solve0 intermediate9 dynamicsViolation 1.0993594923291994e-11 1.8480009189580926e-11 3.8058384221884012e-10 8.2109774535155111e-10
+rk4_projected_feedback solve0 intermediate9 stateInputEq0 0
+rk4_projected_feedback solve0 intermediate10 cost 0.0043970333949461104
+rk4_projected_feedback solve0 intermediate10 dynamicsViolation 6.233902283270254e-14 5.8579557871141219e-11 -8.1244899696741868e-11 2.4638706630497609e-09
+rk4_projected_feedback solve0 intermediate10 stateInputEq0 0
+rk4_projected_feedback solve0 intermediate11 cost 0.0050768411505572372
+rk4_projected_feedback solve0 intermediate11 dynamicsViolation -9.6764263268767081e-12 9.3190732908254859e-11 -3.8696718052122492e-10 3.7662776231073281e-09
+rk4_projected_feedback solve0 intermediate11 stateInputEq0 -2.7755575615628914e-17
+rk4_projected_feedback solve0 intermediate12 cost 0.0056065299078441773
+rk4_projected_feedback solve0 intermediate12 dynamicsViolation -2.9923841182721844e-12 6.7921335222820289e-11 1.4378942481130252e-11 2.6301780753357207e-09
+rk4_projected_feedback solve0 intermediate12 stateInputEq0 -5.5511151231257827e-17
+rk4_projected_feedback solve0 intermediate13 cost 0.0059889342103943231
+rk4_projected_feedback solve0 intermediate13 dynamicsViolation 1.7778334360230019e-11 2.7123581158861043e-12 8.2684054047987843e-10 9.508716036776832e-11
+rk4_projected_feedback solve0 intermediate13 stateInputEq0 0
+rk4_projected_feedback solve0 intermediate14 cost 0.0062609002753142295
+rk4_projected_feedback solve0 intermediate14 dynamicsViolation 2.8589686174029794e-11 -2.0384804955142499e-11 1.1117088916101636e-09 -6.3649285841904657e-10
+rk4_projected_feedback solve0 intermediate14 stateInputEq0 0
+rk4_projected_feedback solve0 intermediate15 cost 0.0064705529628613298
+rk4_projected_feedback solve0 intermediate15 dynamicsViolation 2.0101587061560622e-11 7.8463346930846001e-12 7.0365713256137497e-10 5.2622833868198882e-10
+rk4_projected_feedback solve0 intermediate15 stateInputEq0 -5.5511151231257827e-17
+rk4_projected_feedback solve0 intermediate16 cost 0.0066687928747354358
+rk4_projected_feedback solve0 intermediate16 dynamicsViolation 6.9668160129765511e-12 3.1099178787741266e-11 2.1865850796665143e-10 1.3464385717476546e-09
+rk4_projected_feedback solve0 intermediate16 stateInputEq0 -5.5511151231257827e-17
+rk4_projected_feedback solve0 intermediate17 cost 0.0069075636784921611
+rk4_projected_feedback solve0 intermediate17 dynamicsViolation 6.326050794314142e-13 3.1451119486547441e-11 1.5892037685816263e-11 1.2696333984152375e-09
+rk4_projected_feedback solve0 intermediate17 stateInputEq0 0
+rk4_projected_feedback solve0 intermediate18 cost 0.0072400979147277285
+rk4_projected_feedback solve0 intermediate18 dynamicsViolation 1.3540280008328409e-12 3.7731984203759339e-11 9.4832836028402312e-11 1.4403146453290105e-09
+rk4_projected_feedback solve0 intermediate18 stateInputEq0 2.7755575615628914e-17
+rk4_projected_feedback solve0 intermediate19 cost 0.007722746416386787
+rk4_projected_feedback solve0 intermediate19 dynamicsViolation 1.8677448476722702e-11 5.7592264290917683e-11 1.0854698528905971e-09 1.7183394845909916e-09
+rk4_projected_feedback solve0 intermediate19 stateInputEq0 -8.3266726846886741e-17
+rk4_projected_feedback solve0 preJump0 cost 0.1722872281062065
+rk4_projected_feedback solve0 preJump0 dynamicsViolation 0 0 0 5.0253134986633086e-12
+rk4_projected_feedback solve0 final cost 0.47905115002608561
+rk4_projected_feedback solve0 final dynamicsViolation
+rk4_projected_feedback solve0 policy0a nominal 2.0339484467756401 -3.82789689355128
+rk4_projected_feedback solve0 policy0a perturbed 1.8623105287571122 -3.4806210575142247
+rk4_projected_feedback solve0 policy0b nominal 1.9567973813346167 -3.6732899431446793
+rk4_projected_feedback solve0 policy0b perturbed 1.7803404850077793 -3.316376150491005
+rk4_projected_feedback solve0 policy1a nominal 1.7599471692133328 -3.2788782733448207
+rk4_projected_feedback solve0 policy1a perturbed 1.572245990167108 -2.899475915252371
+rk4_projected_feedback solve0 policy1b nominal 1.7016362796444144 -3.1613825715484154
+rk4_projected_feedback solve0 policy1b perturbed 1.5088341069802027 -2.7717782262199924
+rk4_projected_feedback solve0 policy2a nominal 1.5467807768387123 -2.8496324130670194
+rk4_projected_feedback solve0 policy2a perturbed 1.3420762857325306 -2.4362234308546555
+rk4_projected_feedback solve0 policy2b nominal 1.5086350603853176 -2.771967727213875
+rk4_projected_feedback solve0 policy2b perturbed 1.2983521581668931 -2.347401922777026
+rk4_projected_feedback solve0 policy3a nominal 1.3955500248088253 -2.5425933991860639
+rk4_projected_feedback solve0 policy3a perturbed 1.1722508299951682 -2.0919950095587501
+rk4_projected_feedback solve0 policy3b nominal 1.3796719562179767 -2.5090154700369816
+rk4_projected_feedback solve0 policy3b perturbed 1.1491823212076278 -2.0440362000162837
+rk4_projected_feedback solve0 policy4a nominal 1.3033694472136927 -2.352159604104517
+rk4_projected_feedback solve0 policy4a perturbed 1.0561021184110615 -1.853624946499254
+rk4_projected_feedback solve0 policy4b nominal 1.315762425107609 -2.3747104239547738
+rk4_projected_feedback solve0 policy4b perturbed 1.0558261042748973 -1.8508377822893509
+rk4_projected_feedback solve0 policy5a nominal 1.2618770375909341 -2.2617243317337508
+rk4_projected_feedback solve0 policy5a perturbed 0.9723797353546999 -1.6787297272612811
+rk4_projected_feedback solve0 policy5b nominal 1.3262866381995888 -2.3879186199152702
+rk4_projected_feedback solve0 policy5b perturbed 1.0052612971852977 -1.7418679378866866
+rk4_projected_feedback solve0 policy6a nominal 1.2565301025223476 -2.2422807514772742
+rk4_projected_feedback solve0 policy6a perturbed 0.86193933769258813 -1.4490992218177539
+rk4_projected_feedback solve0 policy6b nominal 0.90296541684392473 -1.5321531615290311
+rk4_projected_feedback solve0 policy6b perturbed 0.50837465201416521 -0.73897163186951076
+rk4_projected_feedback solve0 policy7a nominal 0.077981150260937326 0.12481121501686587
+rk4_projected_feedback solve0 policy7a perturbed -0.31660961456882397 0.91799274467638625
+rk4_projected_feedback solve0 policy7b nominal 0.077981150260937326 0.12481121501686587
+rk4_projected_feedback solve0 policy7b perturbed -0.31660961456882397 0.91799274467638625
+rk4_projected_feedback solve0 policy8a nominal 0.077981150260937326 0.12481121501686587
+rk4_projected_feedback solve0 policy8a perturbed -0.31660961456882397 0.91799274467638625
+rk4_projected_feedback solve0 policy8b nominal 0.23336570850080274 -0.18369333262652421
+rk4_projected_feedback solve0 policy8b perturbed -0.0090786329574770175 0.30519535029003486
+rk4_projected_feedback solve0 policy9a nominal 0.083758240892793434 0.12080559654095635
+rk4_projected_feedback solve0 policy9a perturbed -0.13565193084292787 0.56362594001239896
+rk4_projected_feedback solve0 policy9b nominal 0.035575485629513182 0.219482168450787
+rk4_projected_feedback solve0 policy9b perturbed -0.1768468059886068 0.64832675168702703
+rk4_projected_feedback solve0 policy10a nominal -0.077649395813589428 0.45132440789795547
+rk4_projected_feedback solve0 policy10a perturbed -0.27376663382397248 0.84755888391872114
+rk4_projected_feedback solve0 policy10b nominal -0.11402082297885496 0.52637026594304892
+rk4_projected_feedback solve0 policy10b perturbed -0.30631960877140496 0.91496783752814936
+rk4_projected_feedback solve0 policy11a nominal -0.19609782244017415 0.69589794019966544
+rk4_projected_feedback solve0 policy11a perturbed -0.37948688639111416 1.0666760681015455
+rk4_projected_feedback solve0 policy11b nominal -0.22351859546485953 0.75299394038643452
+rk4_projected_feedback solve0 policy11b perturbed -0.40585439112629884 1.1216655317093127
+rk4_projected_feedback solve0 policy12a nominal -0.28105214645342103 0.87332143535081963
+rk4_projected_feedback solve0 policy12a perturbed -0.46093031610602542 1.2370777746560289
+rk4_projected_feedback solve0 policy12b nominal -0.30197675395537193 0.91734740412094062
+rk4_projected_feedback solve0 policy12b perturbed -0.48263798622388454 1.2826698686579658
+rk4_projected_feedback solve0 policy13a nominal -0.34159436770752083 1.0016617237464169
+rk4_projected_feedback solve0 policy13a perturbed -0.52408274607981897 1.3706384804910128
+rk4_projected_feedback solve0 policy13b nominal -0.35779559922939175 1.0361425193068188
+rk4_projected_feedback solve0 policy13b perturbed -0.54168045607498683 1.4079122329980094
+rk4_projected_feedback solve0 policy14a nominal -0.38521664657024601 1.0958340565274032
+rk4_projected_feedback solve0 policy14a perturbed -0.57235995318686794 1.4741206697606475
+rk4_projected_feedback solve0 policy14b nominal -0.39784536109869428 1.123056518153549
+rk4_projected_feedback solve0 policy14b perturbed -0.58571005515492347 1.5027859062660074
+rk4_projected_feedback solve0 policy15a nominal -0.41758464780160076 1.1671201675542755
+rk4_projected_feedback solve0 policy15a perturbed -0.60713257921691333 1.5502160303849006
+rk4_projected_feedback solve0 policy15b nominal -0.42733901751788372 1.1884695864369368
+rk4_projected_feedback solve0 policy15b perturbed -0.61575078602509814 1.5692931234513656
+rk4_projected_feedback solve0 policy16a nominal -0.44280360273625075 1.2236936755905621
+rk4_projected_feedback solve0 policy16a perturbed -0.62856432445790245 1.5992151190338659
+rk4_projected_feedback solve0 policy16b nominal -0.45012998208766608 1.2400540977675232
+rk4_projected_feedback solve0 policy16b perturbed -0.63204692557361564 1.6078879847394223
+rk4_projected_feedback solve0 policy17a nominal -0.46382503143034892 1.271428744559195
+rk4_projected_feedback solve0 policy17a perturbed -0.63677315903299392 1.6213249997644841
+rk4_projected_feedback solve0 policy17b nominal -0.46909490708290291 1.2835359132326967
+rk4_projected_feedback solve0 policy17b perturbed -0.63539878262037042 1.6201436643076317
+rk4_projected_feedback solve0 policy18a nominal -0.48278133884028485 1.3145660839403801
+rk4_projected_feedback solve0 policy18a perturbed -0.63358195955900531 1.6201673253778215
+rk4_projected_feedback solve0 policy18b nominal -0.48633785559279064 1.3230998816955606
+rk4_projected_feedback solve0 policy18b perturbed -0.62874414327689054 1.6119124570637604
+rk4_projected_feedback solve0 policy19a nominal -0.50119057108218246 1.3561204292580709
+rk4_projected_feedback solve0 policy19a perturbed -0.62401008168549998 1.6057594504647059
+rk4_projected_feedback solve0 policy19b nominal -0.50330245933606654 1.3616123613295814
+rk4_projected_feedback solve0 policy19b perturbed -0.61802870847051095 1.59506485959847
+rk4_projected_feedback solve0 policy20a nominal -0.52012326665504593 1.3982130056162716
+rk4_projected_feedback solve0 policy20a perturbed -0.61596523902878619 1.5938969503637521
+rk4_projected_feedback solve0 policy20b nominal -0.54750919662105302 1.4540946856050618
+rk4_projected_feedback solve0 policy20b perturbed -0.64335116899479328 1.6497786303525424
+rk4_projected_feedback solve1 iterations 3
+rk4_projected_feedback solve1 performance0 0.85266343494432617 0.85266343494432617 0 1.2865222081940129e-06 1.8585223924818225e-33 0 0 0
+rk4_projected_feedback solve1 performance1 0.84834695597676979 0.84834695597676979 0 1.1205824435062925e-11 3.1392657900918935e-33 0 0 0
+rk4_projected_feedback solve1 performance2 0.84834309231709915 0.84834309231709915 0 6.9958724741068012e-18 4.4103795664837942e-33 0 0 0
+rk4_projected_feedback solve1 time 0.050000000000000003 0.10000000000000001 0.15000000000000002 0.20000000000000001 0.25 0.29999999999999999 0.34999999999999998 0.34999999999999998 0.39999999999999997 0.44999999999999996 0.49999999999999994 0.54999999999999993 0.59999999999999998 0.65000000000000002 0.70000000000000007 0.75000000000000011 0.80000000000000016 0.8500000000000002 0.90000000000000024 0.95000000000000029 1.0000000000000002 1.05
+rk4_projected_feedback solve1 state0 0.10754016270461195 0.2818463618137656 0.1165976069406305 -0.3300429707334312
+rk4_projected_feedback solve1 input0 1.90321071920364 -3.5634053733254349
+rk4_projected_feedback solve1 state1 0.11574982166796748 0.25783440881253167 0.21188482645262649 -0.62823925965345684
+rk4_projected_feedback solve1 input1 1.6762599865478909 -3.106220044428595
+rk4_projected_feedback solve1 state2 0.12845641279872563 0.21984702759558034 0.2964863341847625 -0.88804344660772594
+rk4_projected_feedback solve1 input2 1.5070788976197211 -2.762775230119952
+rk4_projected_feedback solve1 state3 0.14519472711210701 0.16981922793425538 0.37307188456829682 -1.1089184456010903
+rk4_projected_feedback solve1 input3 1.3927649821895676 -2.5274520735342922
+rk4_projected_feedback solve1 state4 0.16561652666522866 0.1097044163797837 0.44367785801202708 -1.2906907002547212
+rk4_projected_feedback solve1 input4 1.3251763485172343 -2.384106086368377
+rk4_projected_feedback solve1 state5 0.18945710386615583 0.041464975328599434 0.50964771679558984 -1.433201027969264
+rk4_projected_feedback solve1 input5 1.2903193345469526 -2.3048558275474429
+rk4_projected_feedback solve1 state6 0.21649942366412328 -0.032916968388795008 0.57158743952174884 -1.5358448819292569
+rk4_projected_feedback solve1 input6 1.2903193345469526 -2.3048558275474429
+rk4_projected_feedback solve1 state7 0.21649942366412328 -0.032916968388795008 0.40011120766522418 0.76463133853163978
+rk4_projected_feedback solve1 input7 0.4240188373348438 -0.56143790520403836
+rk4_projected_feedback solve1 state8 0.23697982642323009 0.0046721759057377138 0.41914338132804868 0.73591379742044527
+rk4_projected_feedback solve1 input8 0.15782078486121132 -0.020849639153130577
+rk4_projected_feedback solve1 state9 0.25808499937885693 0.041051962880022712 0.42510479815791136 0.71634348670364578
+rk4_projected_feedback solve1 input9 -0.048771801704979106 0.40077760316150096
+rk4_projected_feedback solve1 state10 0.27923637434700227 0.076542168793691481 0.42099466800623042 0.70039421505907218
+rk4_projected_feedback solve1 input10 -0.2005782696119929 0.71285108896278671
+rk4_projected_feedback solve1 state11 0.2999992223545318 0.11119561096830637 0.40956431164139401 0.6829388524804112
+rk4_projected_feedback solve1 input11 -0.30723258171854323 0.9344648523788992
+rk4_projected_feedback solve1 state12 0.3200638544788213 0.14483413824394026 0.39306239439495494 0.65988564478465106
+rk4_projected_feedback solve1 input12 -0.38027495070835687 1.0885754432082422
+rk4_projected_feedback solve1 state13 0.33921793571396114 0.17710803139364867 0.37313427745598149 0.62847687283251719
+rk4_projected_feedback solve1 input13 -0.42996981951832569 1.1956268133222359
+rk4_projected_feedback solve1 state14 0.35731795931988097 0.2075612031980042 0.35088886983039314 0.58722245381443439
+rk4_projected_feedback solve1 input14 -0.46401600565899531 1.2709591950459431
+rk4_projected_feedback solve1 state15 0.37426584894838905 0.23568888839570329 0.3270364667955325 0.53566712657725957
+rk4_projected_feedback solve1 input15 -0.48775180602843865 1.3252099516362328
+rk4_projected_feedback solve1 state16 0.38999230061640855 0.26098349280765204 0.30202000341857282 0.47415094898594429
+rk4_projected_feedback solve1 input16 -0.50481095020012767 1.3656188206468189
+rk4_projected_feedback solve1 state17 0.40444589432615063 0.28296960029913765 0.27611407755645451 0.4036162474066427
+rk4_projected_feedback solve1 input17 -0.51770636520490021 1.3971910881402607
+rk4_projected_feedback solve1 state18 0.41758637932586545 0.30123043989794562 0.24949242806392649 0.32545998621965189
+rk4_projected_feedback solve1 input18 -0.52823320154179099 1.4235009548139281
+rk4_projected_feedback solve1 state19 0.42938072088278428 0.31542775889740621 0.22227061198604461 0.24141834790157968
+rk4_projected_feedback solve1 input19 -0.53757727985053494 1.4469068480541836
+rk4_projected_feedback solve1 state20 0.43980099956087482 0.32531609435323977 0.19453730553793583 0.15345866554319801
+rk4_projected_feedback solve1 input20 -0.54705319436262945 1.4700267885496088
+rk4_projected_feedback solve1 state21 0.44882280171633249 0.33075336493769913 0.16634277980578593 0.063740471963567691
+rk4_projected_feedback solve1 input21 -0.54705319436262945 1.4700267885496088
+rk4_projected_feedback solve1 intermediate0 cost 0.025989077447454698
+rk4_projected_feedback solve1 intermediate0 dynamicsViolation 8.4249274223680004e-13 -1.5128454045054696e-12 6.2979316206579483e-11 -1.1754475170988599e-10
+rk4_projected_feedback solve1 intermediate0 stateInputEq0 1.8041124150158794e-16
+rk4_projected_feedback solve1 intermediate1 cost 0.019828008592879334
+rk4_projected_feedback solve1 intermediate1 dynamicsViolation 4.9834303350593245e-12 -6.8798855501484013e-12 2.0310714221594139e-10 -3.2413172146306124e-10
+rk4_projected_feedback solve1 intermediate1 stateInputEq0 -1.2490009027033011e-16
+rk4_projected_feedback solve1 intermediate2 cost 0.016083376503320364
+rk4_projected_feedback solve1 intermediate2 dynamicsViolation 2.3024637751944965e-12 2.7060298446457409e-12 3.8389458278942357e-11 1.2558865059020263e-10
+rk4_projected_feedback solve1 intermediate2 stateInputEq0 2.7755575615628914e-17
+rk4_projected_feedback solve1 intermediate3 cost 0.014505563755362107
+rk4_projected_feedback solve1 intermediate3 dynamicsViolation -5.2960691387937686e-12 2.316563607607236e-11 -2.3639318280643806e-10 9.1804497337477642e-10
+rk4_projected_feedback solve1 intermediate3 stateInputEq0 2.7755575615628914e-17
+rk4_projected_feedback solve1 intermediate4 cost 0.014982249198295546
+rk4_projected_feedback solve1 intermediate4 dynamicsViolation -3.6151359683600504e-12 3.0544330953397036e-11 -6.6561867129166785e-11 1.087756107409632e-09
+rk4_projected_feedback solve1 intermediate4 stateInputEq0 1.1102230246251565e-16
+rk4_projected_feedback solve1 intermediate5 cost 0.017452200185960172
+rk4_projected_feedback solve1 intermediate5 dynamicsViolation 1.1076278783050952e-11 1.0634548797128218e-11 5.195913699296284e-10 2.1970603114596088e-10
+rk4_projected_feedback solve1 intermediate5 stateInputEq0 -5.5511151231257827e-17
+rk4_projected_feedback solve1 intermediate6 cost 0.0038690617587781883
+rk4_projected_feedback solve1 intermediate6 dynamicsViolation 6.400019403329793e-12 4.7672595038239507e-12 3.1256297550186218e-10 1.4311285490009595e-10
+rk4_projected_feedback solve1 intermediate6 stateInputEq0 -5.5511151231257827e-17
+rk4_projected_feedback solve1 intermediate7 cost 0.0035403263560152671
+rk4_projected_feedback solve1 intermediate7 dynamicsViolation 1.5078271964341639e-11 -4.3030856655690286e-13 6.4792371468058718e-10 -2.3771762336366464e-11
+rk4_projected_feedback solve1 intermediate7 stateInputEq0 0
+rk4_projected_feedback solve1 intermediate8 cost 0.0042114346383243422
+rk4_projected_feedback solve1 intermediate8 dynamicsViolation 1.8351764552448913e-11 1.3134854315310918e-11 6.9907096778010214e-10 6.1222726888132684e-10
+rk4_projected_feedback solve1 intermediate8 stateInputEq0 -2.7755575615628914e-17
+rk4_projected_feedback solve1 intermediate9 cost 0.0052303086472917813
+rk4_projected_feedback solve1 intermediate9 dynamicsViolation 9.3818286472924228e-12 4.6125755992498796e-11 2.7823854331643361e-10 1.9910751936080828e-09
+rk4_projected_feedback solve1 intermediate9 stateInputEq0 -2.7755575615628914e-17
+rk4_projected_feedback solve1 intermediate10 cost 0.0062005335786986162
+rk4_projected_feedback solve1 intermediate10 dynamicsViolation -4.1935899197653725e-12 7.3923894783334276e-11 -2.1993085130844747e-10 3.0449477383953649e-09
+rk4_projected_feedback solve1 intermediate10 stateInputEq0 0
+rk4_projected_feedback solve1 intermediate11 cost 0.0069551251136855136
+rk4_projected_feedback solve1 intermediate11 dynamicsViolation -6.5789040881725214e-12 6.9522804180266462e-11 -1.9390589134360425e-10 2.744095173312644e-09
+rk4_projected_feedback solve1 intermediate11 stateInputEq0 -5.5511151231257827e-17
+rk4_projected_feedback solve1 intermediate12 cost 0.0074698834008475792
+rk4_projected_feedback solve1 intermediate12 dynamicsViolation 8.4479645501289724e-12 3.4202946030958969e-11 4.8639464678146282e-10 1.2740843935432622e-09
+rk4_projected_feedback solve1 intermediate12 stateInputEq0 0
+rk4_projected_feedback solve1 intermediate13 cost 0.007782718971318746
+rk4_projected_feedback solve1 intermediate13 dynamicsViolation 2.9634406040202066e-11 -5.2260973326667681e-13 1.2814098115931927e-09 -1.8130164036733731e-11
+rk4_projected_feedback solve1 intermediate13 stateInputEq0 5.5511151231257827e-17
+rk4_projected_feedback solve1 intermediate14 cost 0.0079491846034617127
+rk4_projected_feedback solve1 intermediate14 dynamicsViolation 3.7261249641318273e-11 6.1818883345665654e-12 1.429563356580843e-09 4.4899017836996791e-10
+rk4_projected_feedback solve1 intermediate14 stateInputEq0 -5.5511151231257827e-17
+rk4_projected_feedback solve1 intermediate15 cost 0.0080257553150526444
+rk4_projected_feedback solve1 intermediate15 dynamicsViolation 2.2085167028507158e-11 7.1297634463007853e-11 7.188906137045592e-10 3.1452225268679967e-09
+rk4_projected_feedback solve1 intermediate15 stateInputEq0 8.3266726846886741e-17
+rk4_projected_feedback solve1 intermediate16 cost 0.0080664271994150705
+rk4_projected_feedback solve1 intermediate16 dynamicsViolation 2.2311041902867146e-12 1.5599410652100687e-10 8.5167539687347471e-11 6.2316631299630387e-09
+rk4_projected_feedback solve1 intermediate16 stateInputEq0 0
+rk4_projected_feedback solve1 intermediate17 cost 0.0081241868578666668
+rk4_projected_feedback solve1 intermediate17 dynamicsViolation 2.4284629862592055e-11 1.6170187411290726e-10 1.496964940894685e-09 5.5975612756054005e-09
+rk4_projected_feedback solve1 intermediate17 stateInputEq0 -2.7755575615628914e-17
+rk4_projected_feedback solve1 intermediate18 cost 0.0082496172997332546
+rk4_projected_feedback solve1 intermediate18 dynamicsViolation 8.6229134943494046e-11 1.1401990462900358e-13 3.4767238810129442e-09 1.227393187086534e-11
+rk4_projected_feedback solve1 intermediate18 stateInputEq0 -2.7755575615628914e-17
+rk4_projected_feedback solve1 intermediate19 cost 0.0085095781718236285
+rk4_projected_feedback solve1 intermediate19 dynamicsViolation 7.8122841529193465e-11 5.1772752751588769e-11 2.9183727934256609e-09 2.3942412219479792e-09
+rk4_projected_feedback solve1 intermediate19 stateInputEq0 -2.7755575615628914e-17
+rk4_projected_feedback solve1 preJump0 cost 0.1901473361986353
+rk4_projected_feedback solve1 preJump0 dynamicsViolation 0 0 0 2.2001289678996727e-12
+rk4_projected_feedback solve1 final cost 0.45517113852287849
+rk4_projected_feedback solve1 final dynamicsViolation
+rk4_projected_feedback solve1 policy0a nominal 1.9032107192036398 -3.5634053733254349
+rk4_projected_feedback solve1 policy0a perturbed 1.7145679581971653 -3.1821198513124864
+rk4_projected_feedback solve1 policy0b nominal 1.8422877235014696 -3.4405742228454912
+rk4_projected_feedback solve1 policy0b perturbed 1.6478549915045972 -3.0477087588517469
+rk4_projected_feedback solve1 policy1a nominal 1.6762599865478911 -3.106220044428595
+rk4_projected_feedback solve1 policy1a perturbed 1.4683173222400905 -2.6863347158129933
+rk4_projected_feedback solve1 policy1b nominal 1.6346220691264119 -3.0214194186499457
+rk4_projected_feedback solve1 policy1b perturbed 1.4202375830948393 -2.5886504465868008
+rk4_projected_feedback solve1 policy2a nominal 1.5070788976197211 -2.762775230119952
+rk4_projected_feedback solve1 policy2a perturbed 1.2776634942326819 -2.2999444233458739
+rk4_projected_feedback solve1 policy2b nominal 1.4869524738006321 -2.7205137847641669
+rk4_projected_feedback solve1 policy2b perturbed 1.249310254013968 -2.2412293451908383
+rk4_projected_feedback solve1 policy3a nominal 1.3927649821895671 -2.5274520735342918
+rk4_projected_feedback solve1 policy3a perturbed 1.1359268574704462 -2.0097758240960495
+rk4_projected_feedback solve1 policy3b nominal 1.4006638900740938 -2.5407992733569706
+rk4_projected_feedback solve1 policy3b perturbed 1.1298577349824788 -1.9951869631737402
+rk4_projected_feedback solve1 policy4a nominal 1.3251763485172345 -2.3841060863683765
+rk4_projected_feedback solve1 policy4a perturbed 1.0217781225564684 -1.7733096344468429
+rk4_projected_feedback solve1 policy4b nominal 1.3866064362544614 -2.5041053925787207
+rk4_projected_feedback solve1 policy4b perturbed 1.0495937708289418 -1.8260800617276836
+rk4_projected_feedback solve1 policy5a nominal 1.2903193345469521 -2.304855827547442
+rk4_projected_feedback solve1 policy5a perturbed 0.87487297703701294 -1.4699631125275658
+rk4_projected_feedback solve1 policy5b nominal 0.91126232008767083 -1.543496720253124
+rk4_projected_feedback solve1 policy5b perturbed 0.49581596257773164 -0.70860400523324429
+rk4_projected_feedback solve1 policy6a nominal 0.026795953016018004 0.23300786343361324
+rk4_projected_feedback solve1 policy6a perturbed -0.38865040449392296 1.067900578453493
+rk4_projected_feedback solve1 policy6b nominal 0.026795953016018004 0.23300786343361324
+rk4_projected_feedback solve1 policy6b perturbed -0.38865040449392296 1.067900578453493
+rk4_projected_feedback solve1 policy7a nominal 0.026795953016018004 0.23300786343361324
+rk4_projected_feedback solve1 policy7a perturbed -0.38865040449392296 1.067900578453493
+rk4_projected_feedback solve1 policy7b nominal 0.34679058380771766 -0.40452374981869355
+rk4_projected_feedback solve1 policy7b perturbed 0.076752057226601833 0.13955330334353855
+rk4_projected_feedback solve1 policy8a nominal 0.15782078486121143 -0.020849639153130539
+rk4_projected_feedback solve1 policy8a perturbed -0.082953563330004254 0.46469905722930038
+rk4_projected_feedback solve1 policy8b nominal 0.097918911970520051 0.10148672738292741
+rk4_projected_feedback solve1 policy8b perturbed -0.13234157115034939 0.5660076936246663
+rk4_projected_feedback solve1 policy9a nominal -0.048771801704979106 0.40077760316150096
+rk4_projected_feedback solve1 policy9a perturbed -0.25449993299503826 0.81623386574161927
+rk4_projected_feedback solve1 policy9b nominal -0.093269564800612006 0.49231129434894427
+rk4_projected_feedback solve1 policy9b perturbed -0.29146091201614055 0.89269398878000183
+rk4_projected_feedback solve1 policy10a nominal -0.20057826961199288 0.71285108896278659
+rk4_projected_feedback solve1 policy10a perturbed -0.38118378732028435 1.0780621243793691
+rk4_projected_feedback solve1 policy10b nominal -0.23277278821577074 0.77973166793124582
+rk4_projected_feedback solve1 policy10b perturbed -0.40894302548987083 1.1360721424794464
+rk4_projected_feedback solve1 policy11a nominal -0.30723258171854317 0.9344648523788992
+rk4_projected_feedback solve1 policy11a perturbed -0.4730538313128636 1.2701073515675403
+rk4_projected_feedback solve1 policy11b nominal -0.33052692622599533 0.98346129724871822
+rk4_projected_feedback solve1 policy11b perturbed -0.49446304593517776 1.3153335366670833
+rk4_projected_feedback solve1 policy12a nominal -0.38027495070835693 1.0885754432082422
+rk4_projected_feedback solve1 policy12a perturbed -0.5398124340188839 1.4116504098292961
+rk4_projected_feedback solve1 policy12b nominal -0.39744214136618883 1.1252083142721223
+rk4_projected_feedback solve1 policy12b perturbed -0.55672709906841233 1.4477782296765689
+rk4_projected_feedback solve1 policy13a nominal -0.42996981951832569 1.1956268133222356
+rk4_projected_feedback solve1 policy13a perturbed -0.58866555080117422 1.5170182758879323
+rk4_projected_feedback solve1 policy13b nominal -0.44286535396550497 1.2235898850493045
+rk4_projected_feedback solve1 policy13b perturbed -0.6018810644203858 1.5456213059590662
+rk4_projected_feedback solve1 policy14a nominal -0.46401600565899548 1.2709591950459433
+rk4_projected_feedback solve1 policy14a perturbed -0.62377833418195205 1.5944838520918565
+rk4_projected_feedback solve1 policy14b nominal -0.47375645063316307 1.2924738317497
+rk4_projected_feedback solve1 policy14b perturbed -0.63332781727437748 1.6156165650321288
+rk4_projected_feedback solve1 policy15a nominal -0.48775180602843871 1.3252099516362326
+rk4_projected_feedback solve1 policy15a perturbed -0.64687759494558894 1.6474615294705326
+rk4_projected_feedback solve1 policy15b nominal -0.49500025989036889 1.3415940335602548
+rk4_projected_feedback solve1 policy15b perturbed -0.65246844586993724 1.6605304055193919
+rk4_projected_feedback solve1 policy16a nominal -0.50481095020012767 1.3656188206468189
+rk4_projected_feedback solve1 policy16a perturbed -0.65841139599200638 1.6768197122305764
+rk4_projected_feedback solve1 policy16b nominal -0.51000099077232175 1.3777333330363759
+rk4_projected_feedback solve1 policy16b perturbed -0.65990809826168717 1.6815475480151072
+rk4_projected_feedback solve1 policy17a nominal -0.5177063652049001 1.3971910881402607
+rk4_projected_feedback solve1 policy17a perturbed -0.65899568332173608 1.6837697243739327
+rk4_projected_feedback solve1 policy17b nominal -0.52115251733624435 1.405660250602915
+rk4_projected_feedback solve1 policy17b perturbed -0.65680212457781306 1.6809594650860524
+rk4_projected_feedback solve1 policy18a nominal -0.52823320154179099 1.4235009548139284
+rk4_projected_feedback solve1 policy18a perturbed -0.65072348340773534 1.6724815185458168
+rk4_projected_feedback solve1 policy18b nominal -0.52958328263673216 1.4276164379906415
+rk4_projected_feedback solve1 policy18b perturbed -0.6466373884030987 1.6657246495233746
+rk4_projected_feedback solve1 policy19a nominal -0.53757727985053494 1.4469068480541836
+rk4_projected_feedback solve1 policy19a perturbed -0.64194697471788664 1.6596462377888868
+rk4_projected_feedback solve1 policy19b nominal -0.53738973653941735 1.4477821948733192
+rk4_projected_feedback solve1 policy19b perturbed -0.63583010811301954 1.6486629380205233
+rk4_projected_feedback solve1 policy20a nominal -0.54705319436262945 1.4700267885496088
+rk4_projected_feedback solve1 policy20a perturbed -0.63165847825081645 1.6432373563259828
+rk4_projected_feedback solve1 policy20b nominal -0.57233150274094746 1.5216660215648998
+rk4_projected_feedback solve1 policy20b perturbed -0.65693678662913446 1.6948765893412738
+rk4_projected_feedback solve2 iterations 4
+rk4_projected_feedback solve2 performance0 1.5211504428523464 1.5211504428523464 0 1.1503448172600239e-05 9.0518707386200044e-33 0 0 0
+rk4_projected_feedback solve2 performance1 1.3117084222922948 1.3117084222922948 0 3.4992962844422149e-08 6.8563106020185613e-33 0 0 0
+rk4_projected_feedback solve2 performance2 1.3080175915567513 1.3080175915567513 0 1.199013084003857e-12 5.9703828276004325e-33 0 0 0
+rk4_projected_feedback solve2 performance3 1.3080064730687919 1.3080064730687919 0 1.7005380646985009e-16 8.3200173597528622e-33 0 0 0
+rk4_projected_feedback solve2 time 0.40000000000000002 0.45000000000000001 0.5 0.55000000000000004 0.60000000000000009 0.65000000000000013 0.70000000000000018 0.75000000000000022 0.80000000000000027 0.85000000000000031 0.90000000000000036 0.9500000000000004 1.0000000000000004 1.0500000000000005 1.1000000000000005 1.1500000000000006 1.2000000000000006 1.2500000000000007 1.3000000000000007 1.3500000000000008 1.3999999999999999
+rk4_projected_feedback solve2 state0 0.24197982642323013 -0.0053278240942622457 0.43414338132804875 0.73091379742044527
+rk4_projected_feedback solve2 input0 3.6209855803983393 -6.945179230227386
+rk4_projected_feedback solve2 state1 0.26815198245605237 0.022317616932257731 0.6126090244230834 0.37325876435763788
+rk4_projected_feedback solve2 input1 2.1246183016758287 -3.9419758103692368
+rk4_projected_feedback solve2 state2 0.30135826273657168 0.035640390716584397 0.7155508896042716 0.15893588859269903
+rk4_projected_feedback solve2 input2 0.77748817116747415 -1.2344330372403196
+rk4_projected_feedback solve2 state3 0.33801700329919004 0.041547031704838429 0.75076775325186895 0.076987272600865936
+rk4_projected_feedback solve2 input3 -0.21982402100066467 0.77485484332100529
+rk4_projected_feedback solve2 state4 0.37518748881485664 0.045817463897013889 0.73606430392103117 0.093453290097120098
+rk4_projected_feedback solve2 input4 -0.58589260176575642 1.5218601990574556
+rk4_projected_feedback solve2 state5 0.41116792485887688 0.051779205598858714 0.70318223476261044 0.14444185291569697
+rk4_projected_feedback solve2 input5 -0.74906616674558824 1.8625995034347274
+rk4_projected_feedback solve2 state6 0.44530508194438423 0.060617041864271914 0.66234194025705218 0.20823762799549955
+rk4_projected_feedback solve2 input6 -0.88717203730988192 2.1524661073975175
+rk4_projected_feedback solve2 state7 0.47723372786415985 0.072866489206957694 0.61485121664744569 0.28060783268855183
+rk4_projected_feedback solve2 input7 -0.99770873648118674 2.3863109641080373
+rk4_projected_feedback solve2 state8 0.50665726644432973 0.088839997239939267 0.56214813050795587 0.3568808067387671
+rk4_projected_feedback solve2 input8 -1.0786751588812922 2.5600132243403162
+rk4_projected_feedback solve2 state9 0.53335366961498165 0.10860916105094526 0.50577726686291424 0.43211389300387826
+rk4_projected_feedback solve2 input9 -1.128699020158793 2.6707395081635785
+rk4_projected_feedback solve2 state10 0.55717996292191785 0.13199593042592803 0.44735515453357944 0.50128514109059641
+rk4_projected_feedback solve2 input10 -1.1472006212165153 2.7172732276017979
+rk4_projected_feedback solve2 state11 0.57807461748408018 0.1585740503508192 0.38852086201239139 0.5595103154342852
+rk4_projected_feedback solve2 input11 -1.1345633056628699 2.700356458319372
+rk4_projected_feedback solve2 state12 0.59605708571328819 0.18768189974001098 0.33087141687368071 0.60228077735088603
+rk4_projected_feedback solve2 input12 -1.0922614561483763 2.6229457465820678
+rk4_projected_feedback solve2 state13 0.61122384591164014 0.2184474401209632 0.27588762006004613 0.6257083570706512
+rk4_projected_feedback solve2 input13 -1.0228894414622807 2.4902684212892177
+rk4_projected_feedback solve2 state14 0.62374075704549259 0.24982503853111554 0.22486195256316524 0.62675336572965812
+rk4_projected_feedback solve2 input14 -0.93004809971117097 2.3095925022405392
+rk4_projected_feedback solve2 state15 0.63383220838010146 0.28064257433110429 0.17884373778539009 0.60340587519964883
+rk4_projected_feedback solve2 input15 -0.81807932675202599 2.0896915368560927
+rk4_projected_feedback solve2 state16 0.6417682824520804 0.30965577844522918 0.13861514914336379 0.5547923143007929
+rk4_projected_feedback solve2 input16 -0.69168460059475623 1.8400765141703446
+rk4_projected_feedback solve2 state17 0.64785166345853229 0.33560562110936365 0.10470458691948745 0.48119056774949159
+rk4_projected_feedback solve2 input17 -0.55550349643192898 1.5701476582472709
+rk4_projected_feedback solve2 state18 0.65240608761543417 0.3572741613840128 0.077433466043818344 0.38395446106309178
+rk4_projected_feedback solve2 input18 -0.36357131531271308 1.1881050656715999
+rk4_projected_feedback solve2 state19 0.65583014975378551 0.37341815298238346 0.059477200907706029 0.26072358438461024
+rk4_projected_feedback solve2 input19 0.10578600199536667 0.25076005591078093
+rk4_projected_feedback solve2 state20 0.65893452833984112 0.38217997926464564 0.064639158050460443 0.089364009446524909
+rk4_projected_feedback solve2 input20 0.10578600199536667 0.25076005591078093
+rk4_projected_feedback solve2 intermediate0 cost 0.089563442255331568
+rk4_projected_feedback solve2 intermediate0 dynamicsViolation 5.5511151231257827e-17 -1.0408340855860843e-17 2.1094237467877974e-15 -1.3322676295501878e-15
+rk4_projected_feedback solve2 intermediate0 stateInputEq0 2.2204460492503131e-16
+rk4_projected_feedback solve2 intermediate1 cost 0.029249704910763574
+rk4_projected_feedback solve2 intermediate1 dynamicsViolation 8.2711615334574162e-15 -1.2712053631958042e-14 6.5836225360271783e-13 -9.1346374908596317e-13
+rk4_projected_feedback solve2 intermediate1 stateInputEq0 -2.4980018054066022e-16
+rk4_projected_feedback solve2 intermediate2 cost 0.0062447448076645967
+rk4_projected_feedback solve2 intermediate2 dynamicsViolation 1.3594680936535042e-13 -2.4819729604885765e-13 7.6910700030907719e-12 -1.3051310032707875e-11
+rk4_projected_feedback solve2 intermediate2 stateInputEq0 0
+rk4_projected_feedback solve2 intermediate3 cost 0.0094647373133814779
+rk4_projected_feedback solve2 intermediate3 dynamicsViolation 5.7887028503955662e-13 -8.1677720142891985e-13 2.7618685116692632e-11 -3.873505682872036e-11
+rk4_projected_feedback solve2 intermediate3 stateInputEq0 -5.5511151231257827e-17
+rk4_projected_feedback solve2 intermediate4 cost 0.017245339163916913
+rk4_projected_feedback solve2 intermediate4 dynamicsViolation 1.2475021016200571e-12 -7.660400092035502e-13 5.3938631339178755e-11 -3.4964364736822517e-11
+rk4_projected_feedback solve2 intermediate4 stateInputEq0 5.5511151231257827e-17
+rk4_projected_feedback solve2 intermediate5 cost 0.023841761300144385
+rk4_projected_feedback solve2 intermediate5 dynamicsViolation 1.9212409441138334e-12 -1.3913314944602462e-12 8.212541757757208e-11 -6.1281452135020231e-11
+rk4_projected_feedback solve2 intermediate5 stateInputEq0 5.5511151231257827e-17
+rk4_projected_feedback solve2 intermediate6 cost 0.031447388399888636
+rk4_projected_feedback solve2 intermediate6 dynamicsViolation 2.7232660571030465e-12 -1.8309104232727691e-12 1.136715166438762e-10 -7.8285766758057207e-11
+rk4_projected_feedback solve2 intermediate6 stateInputEq0 0
+rk4_projected_feedback solve2 intermediate7 cost 0.038845195294665395
+rk4_projected_feedback solve2 intermediate7 dynamicsViolation 3.3050229220066285e-12 -1.5646928197554644e-12 1.3334600090786353e-10 -6.3841432140776533e-11
+rk4_projected_feedback solve2 intermediate7 stateInputEq0 -5.5511151231257827e-17
+rk4_projected_feedback solve2 intermediate8 cost 0.044960615303486474
+rk4_projected_feedback solve2 intermediate8 dynamicsViolation 3.1815661216683111e-12 2.0825008384406374e-13 1.2174505847895034e-10 1.4435730388839829e-11
+rk4_projected_feedback solve2 intermediate8 stateInputEq0 -2.7755575615628914e-17
+rk4_projected_feedback solve2 intermediate9 cost 0.048955462610398549
+rk4_projected_feedback solve2 intermediate9 dynamicsViolation 1.982303210468217e-12 4.150402244107454e-12 6.6606442583605485e-11 1.8092516373968692e-10
+rk4_projected_feedback solve2 intermediate9 stateInputEq0 -5.5511151231257827e-17
+rk4_projected_feedback solve2 intermediate10 cost 0.050307676395833043
+rk4_projected_feedback solve2 intermediate10 dynamicsViolation -1.368904989362818e-13 1.0216077983571381e-11 -2.0508705844690667e-11 4.2881043160747367e-10
+rk4_projected_feedback solve2 intermediate10 stateInputEq0 2.7755575615628914e-17
+rk4_projected_feedback solve2 intermediate11 cost 0.048863460021913281
+rk4_projected_feedback solve2 intermediate11 dynamicsViolation -2.1448398612733399e-12 1.7200463275912625e-11 -9.2055141287517017e-11 7.0337136115483645e-10
+rk4_projected_feedback solve2 intermediate11 stateInputEq0 5.5511151231257827e-17
+rk4_projected_feedback solve2 intermediate12 cost 0.044846252766313599
+rk4_projected_feedback solve2 intermediate12 dynamicsViolation -2.1291857166261252e-12 2.2757323803190843e-11 -6.7451433327647692e-11 9.053876537379324e-10
+rk4_projected_feedback solve2 intermediate12 stateInputEq0 -8.3266726846886741e-17
+rk4_projected_feedback solve2 intermediate13 cost 0.038811557730472922
+rk4_projected_feedback solve2 intermediate13 dynamicsViolation 2.2191137816207629e-12 2.3692658945861922e-11 1.4443793383556169e-10 9.0578122780016201e-10
+rk4_projected_feedback solve2 intermediate13 stateInputEq0 1.1102230246251565e-16
+rk4_projected_feedback solve2 intermediate14 cost 0.031549200905748892
+rk4_projected_feedback solve2 intermediate14 dynamicsViolation 1.2719825193130418e-11 1.7160828313933507e-11 6.0853416750106248e-10 5.9518645567635531e-10
+rk4_projected_feedback solve2 intermediate14 stateInputEq0 1.1102230246251565e-16
+rk4_projected_feedback solve2 intermediate15 cost 0.023951265832619532
+rk4_projected_feedback solve2 intermediate15 dynamicsViolation 2.9780400367940274e-11 1.5429879596240426e-12 1.3288913858211515e-09 -8.2220230623875068e-11
+rk4_projected_feedback solve2 intermediate15 stateInputEq0 2.7755575615628914e-17
+rk4_projected_feedback solve2 intermediate16 cost 0.016876783600340065
+rk4_projected_feedback solve2 intermediate16 dynamicsViolation 5.193034890993431e-11 -2.3346602429086261e-11 2.2347895062280188e-09 -1.1242731190463928e-09
+rk4_projected_feedback solve2 intermediate16 stateInputEq0 -2.7755575615628914e-17
+rk4_projected_feedback solve2 intermediate17 cost 0.011045792175916853
+rk4_projected_feedback solve2 intermediate17 dynamicsViolation 7.6252892888817314e-11 -5.8548277337422405e-11 3.2063775384783e-09 -2.5726212826704398e-09
+rk4_projected_feedback solve2 intermediate17 stateInputEq0 0
+rk4_projected_feedback solve2 intermediate18 cost 0.005819743013937749
+rk4_projected_feedback solve2 intermediate18 dynamicsViolation 3.2125524462855992e-11 1.4217210742017983e-09 1.3924008751553529e-09 5.6532929393338094e-08
+rk4_projected_feedback solve2 intermediate18 stateInputEq0 2.7755575615628914e-17
+rk4_projected_feedback solve2 intermediate19 cost -8.1655966118869913e-05
+rk4_projected_feedback solve2 intermediate19 dynamicsViolation 7.3017480950454683e-11 -3.5228853167978968e-10 2.3563575674012682e-09 -1.2935515936174369e-08
+rk4_projected_feedback solve2 intermediate19 stateInputEq0 2.7755575615628914e-17
+rk4_projected_feedback solve2 final cost 0.69619800523217323
+rk4_projected_feedback solve2 final dynamicsViolation
+rk4_projected_feedback solve2 policy0a nominal 3.6209855803983393 -6.945179230227386
+rk4_projected_feedback solve2 policy0a perturbed 3.2129492502007704 -6.1251065698322478
+rk4_projected_feedback solve2 policy0b nominal 3.2032751447768395 -6.1066177002604478
+rk4_projected_feedback solve2 policy0b perturbed 2.792250609534471 -5.2805686297757095
+rk4_projected_feedback solve2 policy1a nominal 2.1246183016758291 -3.9419758103692377
+rk4_projected_feedback solve2 policy1a perturbed 1.7066212879955938 -3.1019817830087675
+rk4_projected_feedback solve2 policy1b nominal 1.7502101195549731 -3.1891746924938662
+rk4_projected_feedback solve2 policy1b perturbed 1.3278666146754441 -2.3404876827348069
+rk4_projected_feedback solve2 policy2a nominal 0.77748817116747393 -1.2344330372403203
+rk4_projected_feedback solve2 policy2a perturbed 0.34500285348959636 -0.36546240188456558
+rk4_projected_feedback solve2 policy2b nominal 0.46208619649347327 -0.59923003902480509
+rk4_projected_feedback solve2 policy2b perturbed 0.057977594102375463 0.21298716575739185
+rk4_projected_feedback solve2 policy3a nominal -0.21982402100066434 0.7748548433210054
+rk4_projected_feedback solve2 policy3a perturbed -0.5577202877226064 1.4546473767648891
+rk4_projected_feedback solve2 policy3b nominal -0.33650166038820206 1.0126705803579608
+rk4_projected_feedback solve2 policy3b perturbed -0.60981612871307522 1.5632995170077084
+rk4_projected_feedback solve2 policy4a nominal -0.58589260176575642 1.5218601990574556
+rk4_projected_feedback solve2 policy4a perturbed -0.70851620716413755 1.7711074098542183
+rk4_projected_feedback solve2 policy4b nominal -0.63493022429773838 1.6242530964467026
+rk4_projected_feedback solve2 policy4b perturbed -0.75337692836525028 1.8651465045817259
+rk4_projected_feedback solve2 policy5a nominal -0.74906616674558824 1.8625995034347274
+rk4_projected_feedback solve2 policy5a perturbed -0.85776676770773719 2.084000705359025
+rk4_projected_feedback solve2 policy5b nominal -0.79071750485445347 1.9499986385027193
+rk4_projected_feedback solve2 policy5b perturbed -0.89568635789611228 2.1639363445860367
+rk4_projected_feedback solve2 policy6a nominal -0.88717203730988192 2.1524661073975175
+rk4_projected_feedback solve2 policy6a perturbed -0.98343347853706486 2.348988989851883
+rk4_projected_feedback solve2 policy6b nominal -0.92091558373360682 2.2237846377553403
+rk4_projected_feedback solve2 policy6b perturbed -1.0143035892038941 2.4145606486959155
+rk4_projected_feedback solve2 policy7a nominal -0.99770873648118674 2.3863109641080373
+rk4_projected_feedback solve2 policy7a perturbed -1.0843920585187199 2.5636776081831028
+rk4_projected_feedback solve2 policy7b nominal -1.0231598122910148 2.4407439403573137
+rk4_projected_feedback solve2 policy7b perturbed -1.1081290063853246 2.6146823285459333
+rk4_projected_feedback solve2 policy8a nominal -1.0786751588812922 2.5600132243403162
+rk4_projected_feedback solve2 policy8a perturbed -1.1596447211080814 2.7259523487938941
+rk4_projected_feedback solve2 policy8b nominal -1.0955726671126236 2.5970118091834573
+rk4_projected_feedback solve2 policy8b perturbed -1.1761565750460654 2.762179625050341
+rk4_projected_feedback solve2 policy9a nominal -1.128699020158793 2.6707395081635785
+rk4_projected_feedback solve2 policy9a perturbed -1.2083830680744241 2.8341076039948403
+rk4_projected_feedback solve2 policy9b nominal -1.1369122206123965 2.6900250642676178
+rk4_projected_feedback solve2 policy9b perturbed -1.2175665620350264 2.8553337471128777
+rk4_projected_feedback solve2 policy10a nominal -1.1472006212165153 2.7172732276017983
+rk4_projected_feedback solve2 policy10a perturbed -1.2301189808221427 2.8871099468130526
+rk4_projected_feedback solve2 policy10b nominal -1.1467481743129901 2.7188756923422068
+rk4_projected_feedback solve2 policy10b perturbed -1.2318574628680188 2.8930942694522646
+rk4_projected_feedback solve2 policy11a nominal -1.1345633056628701 2.700356458319372
+rk4_projected_feedback solve2 policy11a perturbed -1.224784761766502 2.8847993705266362
+rk4_projected_feedback solve2 policy11b nominal -1.125632599592985 2.6846529423671068
+rk4_projected_feedback solve2 policy11b perturbed -1.2189207558897204 2.8752292549605776
+rk4_projected_feedback solve2 policy12a nominal -1.0922614561483763 2.6229457465820678
+rk4_projected_feedback solve2 policy12a perturbed -1.1927052462290191 2.8278333267433533
+rk4_projected_feedback solve2 policy12b nominal -1.0752242347520196 2.5906913150131556
+rk4_projected_feedback solve2 policy12b perturbed -1.1789885074023314 2.8022198603137798
+rk4_projected_feedback solve2 policy13a nominal -1.0228894414622809 2.4902684212892177
+rk4_projected_feedback solve2 policy13a perturbed -1.1344015067751545 2.7172925519149644
+rk4_projected_feedback solve2 policy13b nominal -0.99832468822511378 2.4426409441509449
+rk4_projected_feedback solve2 policy13b perturbed -1.1124682488765332 2.6749280654537841
+rk4_projected_feedback solve2 policy14a nominal -0.93004809971117108 2.3095925022405397
+rk4_projected_feedback solve2 policy14a perturbed -1.0503318161525308 2.5541599351232587
+rk4_projected_feedback solve2 policy14b nominal -0.89878319208029112 2.2482736611389322
+rk4_projected_feedback solve2 policy14b perturbed -1.0198267870442073 2.494360851066765
+rk4_projected_feedback solve2 policy15a nominal -0.81807932675202588 2.0896915368560931
+rk4_projected_feedback solve2 policy15a perturbed -0.94089597160190785 2.3393248265558562
+rk4_projected_feedback solve2 policy15b nominal -0.78121418849957092 2.0169135892398202
+rk4_projected_feedback solve2 policy15b perturbed -0.90181315160163211 2.2621115154439422
+rk4_projected_feedback solve2 policy16a nominal -0.69168460059475612 1.8400765141703443
+rk4_projected_feedback solve2 policy16a perturbed -0.80710897295190165 2.0749252588846359
+rk4_projected_feedback solve2 policy16b nominal -0.65048940428950308 1.7584161272806131
+rk4_projected_feedback solve2 policy16b perturbed -0.76019816115461691 1.9818336410108404
+rk4_projected_feedback solve2 policy17a nominal -0.55550349643192898 1.5701476582472709
+rk4_projected_feedback solve2 policy17a perturbed -0.65187581714896758 1.7668922996813481
+rk4_projected_feedback solve2 policy17b nominal -0.49234696936992428 1.4443811350220899
+rk4_projected_feedback solve2 policy17b perturbed -0.60008497867509636 1.663857153632434
+rk4_projected_feedback solve2 policy18a nominal -0.36357131531271314 1.1881050656715999
+rk4_projected_feedback solve2 policy18a perturbed -0.49782926465686317 1.4606209643598995
+rk4_projected_feedback solve2 policy18b nominal -0.17172400205534055 0.80482132661345718
+rk4_projected_feedback solve2 policy18b perturbed -0.3242873608371708 1.1139480441771177
+rk4_projected_feedback solve2 policy19a nominal 0.1057860019953667 0.25076005591078099
+rk4_projected_feedback solve2 policy19a perturbed -0.089489978807717363 0.645312017516949
+rk4_projected_feedback solve2 policy19b nominal -0.086953623017014592 0.63661183136587018
+rk4_projected_feedback solve2 policy19b perturbed -0.28222960382009865 1.0311637929720383
+configuration rk2_hpipm_constrained_feedback
+rk2_hpipm_constrained_feedback solve0 iterations 3
+rk2_hpipm_constrained_feedback solve0 performance0 0.86265937742905563 0.86265937742905563 0 7.2707244651268845e-06 1.1541766613615068e-25 0 0 0
+rk2_hpipm_constrained_feedback solve0 performance1 0.85184847845447353 0.85184847845447353 0 1.0030109960745293e-11 3.7555633915551099e-33 0 0 0
+rk2_hpipm_constrained_feedback solve0 performance2 0.85184393474584974 0.85184393474584974 0 4.0151664874947368e-18 5.2385294448814205e-33 0 0 0
+rk2_hpipm_constrained_feedback solve0 time 0 0.050000000000000003 0.10000000000000001 0.15000000000000002 0.20000000000000001 0.25 0.29999999999999999 0.34999999999999998 0.34999999999999998 0.39999999999999997 0.44999999999999996 0.49999999999999994 0.54999999999999993 0.59999999999999998 0.65000000000000002 0.70000000000000007 0.75000000000000011 0.80000000000000016 0.8500000000000002 0.90000000000000024 0.95000000000000029 1
+rk2_hpipm_constrained_feedback solve0 state0 0.10000000000000001 0.29999999999999999 0 0
+rk2_hpipm_constrained_feedback solve0 input0 2.0328942206890948 -3.8257884413781893
+rk2_hpipm_constrained_feedback solve0 state1 0.10254111777586138 0.29180753934366088 0.10162861002106313 -0.32605993412229745
+rk2_hpipm_constrained_feedback solve0 input1 1.7570146098722643 -3.2730127726341838
+rk2_hpipm_constrained_feedback solve0 state2 0.10981758237228932 0.26814002528596237 0.18976697296246373 -0.61570257315035359
+rk2_hpipm_constrained_feedback solve0 input2 1.5423692236817075 -2.8408114144144991
+rk2_hpipm_constrained_feedback solve0 state3 0.12124783493163917 0.23083589531387824 0.26785036639371729 -0.86839564674798675
+rk2_hpipm_constrained_feedback solve0 input3 1.3902839967135907 -2.532068859454526
+rk2_hpipm_constrained_feedback solve0 state4 0.13640942721768823 0.18174652447573525 0.33881848653517788 -1.08419995948554
+rk2_hpipm_constrained_feedback solve0 input4 1.2979568415303966 -2.3413499121737176
+rk2_hpipm_constrained_feedback solve0 state5 0.15501012039806691 0.12271267545080201 0.40500574326730249 -1.2635431714688901
+rk2_hpipm_constrained_feedback solve0 input5 1.2569666896538516 -2.2519293311484767
+rk2_hpipm_constrained_feedback solve0 state6 0.1768542744192898 0.055556667892706052 0.46803859160185923 -1.4067976170398864
+rk2_hpipm_constrained_feedback solve0 input6 1.2525869766984152 -2.2344322436291146
+rk2_hpipm_constrained_feedback solve0 state7 0.20180464279252019 -0.017901156315087541 0.5287370597108435 -1.5137281872109969
+rk2_hpipm_constrained_feedback solve0 input7 1.2525869766984152 -2.2344322436291146
+rk2_hpipm_constrained_feedback solve0 state8 0.20180464279252019 -0.017901156315087541 0.37011594179759039 0.75507407357405865
+rk2_hpipm_constrained_feedback solve0 input8 0.3021338950103552 -0.32354593290370226
+rk2_hpipm_constrained_feedback solve0 state9 0.2206380152767094 0.01947891169041973 0.38334431411589487 0.73094516036129431
+rk2_hpipm_constrained_feedback solve0 input9 0.088286885293688153 0.11168143552330755
+rk2_hpipm_constrained_feedback solve0 state10 0.23987157399073397 0.055744163678564135 0.38613086423922188 0.71076113923023321
+rk2_hpipm_constrained_feedback solve0 input10 -0.07445360478724368 0.44485583917078098
+rk2_hpipm_constrained_feedback solve0 state11 0.25904733869902963 0.090976527551009295 0.38103529886977816 0.68987381586110585
+rk2_hpipm_constrained_feedback solve0 input11 -0.19392863720204198 0.69147620988369585
+rk2_hpipm_constrained_feedback solve0 state12 0.27782527782163791 0.12504445920476706 0.3702102641128901 0.66445452976850106
+rk2_hpipm_constrained_feedback solve0 input12 -0.27962419238923314 0.87037849590712146
+rk2_hpipm_constrained_feedback solve0 state13 0.29596063326757077 0.1576511854864554 0.35531238342839533 0.63176977362303899
+rk2_hpipm_constrained_feedback solve0 input13 -0.3406862248813689 0.99975670306976616
+rk2_hpipm_constrained_feedback solve0 state14 0.31327947942055567 0.18839073007169505 0.3375203689788186 0.59021502875808673
+rk2_hpipm_constrained_feedback solve0 input14 -0.38467689125652876 1.0946655742812799
+rk2_hpipm_constrained_feedback solve0 state15 0.32965692636725735 0.21680154900749773 0.31762181092423647 0.53918635698968931
+rk2_hpipm_constrained_feedback solve0 input15 -0.41731781560929415 1.1664984017654911
+rk2_hpipm_constrained_feedback solve0 state16 0.34500011802537695 0.24241230785122775 0.29611684485887013 0.47889722036653332
+rk2_hpipm_constrained_feedback solve0 input16 -0.44275182538240865 1.2235036979749681
+rk2_hpipm_constrained_feedback solve0 state17 0.35923615056358749 0.2647785547664136 0.27330977459773065 0.4102007150810798
+rk2_hpipm_constrained_feedback solve0 input17 -0.46395205603868983 1.2715985723028147
+rk2_hpipm_constrained_feedback solve0 state18 0.3723040482798175 0.28351110363740234 0.24937835287132809 0.3344387154052888
+rk2_hpipm_constrained_feedback solve0 input18 -0.48306061009579304 1.3150428395035132
+rk2_hpipm_constrained_feedback solve0 state19 0.38414970064086518 0.29829744298090527 0.22442193094014701 0.25331622815448746
+rk2_hpipm_constrained_feedback solve0 input19 -0.5015971099257488 1.3568541001078436
+rk2_hpipm_constrained_feedback solve0 state20 0.39472282013515492 0.30891722544093242 0.19849368105665027 0.1687921597593191
+rk2_hpipm_constrained_feedback solve0 input20 -0.52062674624514516 1.3991426205443522
+rk2_hpipm_constrained_feedback solve0 state21 0.40397515728132416 0.31525264042639928 0.17161883410412243 0.082985186019049695
+rk2_hpipm_constrained_feedback solve0 input21 -0.52062674624514516 1.3991426205443522
+rk2_hpipm_constrained_feedback solve0 intermediate0 cost 0.031315997053830633
+rk2_hpipm_constrained_feedback solve0 intermediate0 dynamicsViolation 0 0 3.0574234810565315e-10 0
+rk2_hpipm_constrained_feedback solve0 intermediate0 stateInputEq0 9.7144514654701197e-17
+rk2_hpipm_constrained_feedback solve0 intermediate1 cost 0.023038742692216039
+rk2_hpipm_constrained_feedback solve0 intermediate1 dynamicsViolation 1.3930079312274302e-11 -1.3547607480290935e-11 7.8061887509583983e-10 -9.9646191298319309e-10
+rk2_hpipm_constrained_feedback solve0 intermediate1 stateInputEq0 1.5265566588595902e-16
+rk2_hpipm_constrained_feedback solve0 intermediate2 cost 0.017433522103952642
+rk2_hpipm_constrained_feedback solve0 intermediate2 dynamicsViolation 2.2735840987664346e-11 -1.0039191700172978e-12 5.6822913041543188e-10 6.172296007633804e-11
+rk2_hpipm_constrained_feedback solve0 intermediate2 stateInputEq0 4.163336342344337e-17
+rk2_hpipm_constrained_feedback solve0 intermediate3 cost 0.01405688930219375
+rk2_hpipm_constrained_feedback solve0 intermediate3 dynamicsViolation 4.8087644977101718e-12 4.9868859042234703e-11 -2.6289104226862037e-10 2.3323381004303201e-09
+rk2_hpipm_constrained_feedback solve0 intermediate3 stateInputEq0 -1.2490009027033011e-16
+rk2_hpipm_constrained_feedback solve0 intermediate4 cost 0.01269128308710557
+rk2_hpipm_constrained_feedback solve0 intermediate4 dynamicsViolation -1.6352447174128315e-11 9.1446572536568738e-11 -6.4378785635810232e-10 3.5710947532407999e-09
+rk2_hpipm_constrained_feedback solve0 intermediate4 stateInputEq0 1.3877787807814457e-16
+rk2_hpipm_constrained_feedback solve0 intermediate5 cost 0.013282346918663548
+rk2_hpipm_constrained_feedback solve0 intermediate5 dynamicsViolation -1.3620077288223342e-11 9.7015603883754409e-11 5.3590576420958769e-11 3.1200293459932027e-09
+rk2_hpipm_constrained_feedback solve0 intermediate5 stateInputEq0 -1.3877787807814457e-16
+rk2_hpipm_constrained_feedback solve0 intermediate6 cost 0.015840991605101693
+rk2_hpipm_constrained_feedback solve0 intermediate6 dynamicsViolation 1.5715539980476478e-11 6.262336482709685e-11 1.3900898210295054e-09 1.2322090015004505e-09
+rk2_hpipm_constrained_feedback solve0 intermediate6 stateInputEq0 -5.5511151231257827e-17
+rk2_hpipm_constrained_feedback solve0 intermediate7 cost 0.0029950131945912844
+rk2_hpipm_constrained_feedback solve0 intermediate7 dynamicsViolation 1.204489286088517e-11 2.9106196619554936e-12 5.6052984476195888e-10 5.6120996738684426e-11
+rk2_hpipm_constrained_feedback solve0 intermediate7 stateInputEq0 2.7755575615628914e-17
+rk2_hpipm_constrained_feedback solve0 intermediate8 cost 0.0030382779522304358
+rk2_hpipm_constrained_feedback solve0 intermediate8 dynamicsViolation 1.5724255231219786e-11 8.0478679276296816e-13 6.0897353826305789e-10 1.0520284643433797e-10
+rk2_hpipm_constrained_feedback solve0 intermediate8 stateInputEq0 2.7755575615628914e-17
+rk2_hpipm_constrained_feedback solve0 intermediate9 cost 0.0036439140635221119
+rk2_hpipm_constrained_feedback solve0 intermediate9 dynamicsViolation 1.4210299603689691e-11 1.4413720217376635e-11 3.8901748489195143e-10 8.6013596245493318e-10
+rk2_hpipm_constrained_feedback solve0 intermediate9 stateInputEq0 2.7755575615628914e-17
+rk2_hpipm_constrained_feedback solve0 intermediate10 cost 0.004395759872938252
+rk2_hpipm_constrained_feedback solve0 intermediate10 dynamicsViolation 4.9180659544845184e-12 5.2027854247072014e-11 -7.7645945228965729e-11 2.5615654042354663e-09
+rk2_hpipm_constrained_feedback solve0 intermediate10 stateInputEq0 0
+rk2_hpipm_constrained_feedback solve0 intermediate11 cost 0.0050757230291958826
+rk2_hpipm_constrained_feedback solve0 intermediate11 dynamicsViolation -8.2363560416354176e-12 9.0275453779042891e-11 -3.712750107354168e-10 3.9292074038854707e-09
+rk2_hpipm_constrained_feedback solve0 intermediate11 stateInputEq0 0
+rk2_hpipm_constrained_feedback solve0 intermediate12 cost 0.0056068771186623505
+rk2_hpipm_constrained_feedback solve0 intermediate12 dynamicsViolation -8.796463557558809e-12 7.1879308061184588e-11 2.9854341221380309e-11 2.7418658454791967e-09
+rk2_hpipm_constrained_feedback solve0 intermediate12 stateInputEq0 0
+rk2_hpipm_constrained_feedback solve0 intermediate13 cost 0.0059910942019459979
+rk2_hpipm_constrained_feedback solve0 intermediate13 dynamicsViolation 1.1337486505169636e-11 3.2166769248220817e-12 8.2405005041863433e-10 9.1588736594871989e-11
+rk2_hpipm_constrained_feedback solve0 intermediate13 stateInputEq0 2.7755575615628914e-17
+rk2_hpipm_constrained_feedback solve0 intermediate14 cost 0.006264990878741411
+rk2_hpipm_constrained_feedback solve0 intermediate14 dynamicsViolation 2.941169530146226e-11 -3.1239177911146498e-11 1.1142172740008505e-09 -6.2935134881314525e-10
+rk2_hpipm_constrained_feedback solve0 intermediate14 stateInputEq0 -5.5511151231257827e-17
+rk2_hpipm_constrained_feedback solve0 intermediate15 cost 0.0064766898450463383
+rk2_hpipm_constrained_feedback solve0 intermediate15 dynamicsViolation 2.5337121289936704e-11 -6.1656235672558068e-12 7.2720840460505087e-10 5.9856819500936354e-10
+rk2_hpipm_constrained_feedback solve0 intermediate15 stateInputEq0 0
+rk2_hpipm_constrained_feedback solve0 intermediate16 cost 0.0066770896839607186
+rk2_hpipm_constrained_feedback solve0 intermediate16 dynamicsViolation 1.0575207376462004e-11 2.2989943282425429e-11 2.4466861869854029e-10 1.4051840802054016e-09
+rk2_hpipm_constrained_feedback solve0 intermediate16 stateInputEq0 0
+rk2_hpipm_constrained_feedback solve0 intermediate17 cost 0.0069180763239708185
+rk2_hpipm_constrained_feedback solve0 intermediate17 dynamicsViolation 1.6015522241730196e-12 2.8709923327596698e-11 3.4157399131373722e-11 1.2885093547687632e-09
+rk2_hpipm_constrained_feedback solve0 intermediate17 stateInputEq0 5.5511151231257827e-17
+rk2_hpipm_constrained_feedback solve0 intermediate18 cost 0.0072527905672389046
+rk2_hpipm_constrained_feedback solve0 intermediate18 dynamicsViolation 5.3956838996782608e-14 3.8273217928264103e-11 1.2283507544452732e-10 1.474840916060316e-09
+rk2_hpipm_constrained_feedback solve0 intermediate18 stateInputEq0 -5.5511151231257827e-17
+rk2_hpipm_constrained_feedback solve0 intermediate19 cost 0.0077374508919321166
+rk2_hpipm_constrained_feedback solve0 intermediate19 dynamicsViolation 5.7728821722946577e-12 7.4268868832660928e-11 1.2327446563542566e-09 2.1191521315522266e-09
+rk2_hpipm_constrained_feedback solve0 intermediate19 stateInputEq0 -2.7755575615628914e-17
+rk2_hpipm_constrained_feedback solve0 preJump0 cost 0.17275940396059086
+rk2_hpipm_constrained_feedback solve0 preJump0 dynamicsViolation 0 0 5.5511151231257827e-17 5.9084959147526206e-12
+rk2_hpipm_constrained_feedback solve0 final cost 0.47935101039821831
+rk2_hpipm_constrained_feedback solve0 final dynamicsViolation
+rk2_hpipm_constrained_feedback solve0 policy0a nominal 2.0328942206890948 -3.8257884413781893
+rk2_hpipm_constrained_feedback solve0 policy0a perturbed 1.8603236184028513 -3.4806472368058614
+rk2_hpipm_constrained_feedback solve0 policy0b nominal 1.9553282868126802 -3.6705650933854015
+rk2_hpipm_constrained_feedback solve0 policy0b perturbed 1.7782527995061244 -3.3152141187724391
+rk2_hpipm_constrained_feedback solve0 policy1a nominal 1.7570146098722643 -3.2730127726341838
+rk2_hpipm_constrained_feedback solve0 policy1a perturbed 1.5694277241849801 -2.8938390012597415
+rk2_hpipm_constrained_feedback solve0 policy1b nominal 1.6982490405369375 -3.1546084582119285
+rk2_hpipm_constrained_feedback solve0 policy1b perturbed 1.5055369330655912 -2.7651842432693581
+rk2_hpipm_constrained_feedback solve0 policy2a nominal 1.5423692236817075 -2.8408114144144991
+rk2_hpipm_constrained_feedback solve0 policy2a perturbed 1.337698265380884 -2.4274694978129618
+rk2_hpipm_constrained_feedback solve0 policy2b nominal 1.5040105046238053 -2.7627223459915391
+rk2_hpipm_constrained_feedback solve0 policy2b perturbed 1.2936969024371883 -2.3380951416184161
+rk2_hpipm_constrained_feedback solve0 policy3a nominal 1.3902839967135907 -2.532068859454526
+rk2_hpipm_constrained_feedback solve0 policy3a perturbed 1.1668042254601225 -2.0811093169477033
+rk2_hpipm_constrained_feedback solve0 policy3b nominal 1.374379301825885 -2.4984400786047498
+rk2_hpipm_constrained_feedback solve0 policy3b perturbed 1.1436340204274038 -2.0329495158079096
+rk2_hpipm_constrained_feedback solve0 policy4a nominal 1.2979568415303961 -2.3413499121737171
+rk2_hpipm_constrained_feedback solve0 policy4a perturbed 1.0502587031268846 -1.8419536353668349
+rk2_hpipm_constrained_feedback solve0 policy4b nominal 1.3103458760934408 -2.3638958981181091
+rk2_hpipm_constrained_feedback solve0 policy4b perturbed 1.0499531708552858 -1.8391104876419586
+rk2_hpipm_constrained_feedback solve0 policy5a nominal 1.2569666896538516 -2.2519293311484763
+rk2_hpipm_constrained_feedback solve0 policy5a perturbed 0.96695332846819593 -1.6679026087773625
+rk2_hpipm_constrained_feedback solve0 policy5b nominal 1.3215558918449135 -2.3784864370479788
+rk2_hpipm_constrained_feedback solve0 policy5b perturbed 0.99992627093346975 -1.7312271952253209
+rk2_hpipm_constrained_feedback solve0 policy6a nominal 1.2525869766984155 -2.2344322436291151
+rk2_hpipm_constrained_feedback solve0 policy6a perturbed 0.85718608309346322 -1.4396304564195148
+rk2_hpipm_constrained_feedback solve0 policy6b nominal 0.89908435934519915 -1.5244329647181338
+rk2_hpipm_constrained_feedback solve0 policy6b perturbed 0.50368346574024869 -0.72963117750853357
+rk2_hpipm_constrained_feedback solve0 policy7a nominal 0.074244918854363462 0.13223201940749263
+rk2_hpipm_constrained_feedback solve0 policy7a perturbed -0.32115597475058699 0.92703380661709289
+rk2_hpipm_constrained_feedback solve0 policy7b nominal 0.074244918854363462 0.13223201940749263
+rk2_hpipm_constrained_feedback solve0 policy7b perturbed -0.32115597475058699 0.92703380661709289
+rk2_hpipm_constrained_feedback solve0 policy8a nominal 0.074244918854363462 0.13223201940749263
+rk2_hpipm_constrained_feedback solve0 policy8a perturbed -0.32115597475058699 0.92703380661709289
+rk2_hpipm_constrained_feedback solve0 policy8b nominal 0.23903720535358941 -0.19509254889205385
+rk2_hpipm_constrained_feedback solve0 policy8b perturbed -0.0043086604629829495 0.29559918273974928
+rk2_hpipm_constrained_feedback solve0 policy9a nominal 0.088286885293688167 0.11168143552330756
+rk2_hpipm_constrained_feedback solve0 policy9a perturbed -0.13166673493162057 0.5555886759726425
+rk2_hpipm_constrained_feedback solve0 policy9b nominal 0.039731694896833758 0.21109984336271698
+rk2_hpipm_constrained_feedback solve0 policy9b perturbed -0.17312977217925224 0.6408227775136397
+rk2_hpipm_constrained_feedback solve0 policy10a nominal -0.074453604787243666 0.44485583917078086
+rk2_hpipm_constrained_feedback solve0 policy10a perturbed -0.27076671451514306 0.84148205862540859
+rk2_hpipm_constrained_feedback solve0 policy10b nominal -0.1110987045127747 0.52044713038685941
+rk2_hpipm_constrained_feedback solve0 policy10b perturbed -0.30346666158563429 0.90918304453144483
+rk2_hpipm_constrained_feedback solve0 policy11a nominal -0.1939286372020419 0.69147620988369596
+rk2_hpipm_constrained_feedback solve0 policy11a perturbed -0.37709123807980882 1.0618014116381849
+rk2_hpipm_constrained_feedback solve0 policy11b nominal -0.2215649667298365 0.74900222163402042
+rk2_hpipm_constrained_feedback solve0 policy11b perturbed -0.40362357183741515 1.1171194318481719
+rk2_hpipm_constrained_feedback solve0 policy12a nominal -0.27962419238923308 0.87037849590712124
+rk2_hpipm_constrained_feedback solve0 policy12a perturbed -0.45910680736637244 1.2333437258604847
+rk2_hpipm_constrained_feedback solve0 policy12b nominal -0.30072113951265078 0.91474863280749075
+rk2_hpipm_constrained_feedback solve0 policy12b perturbed -0.48098716383744122 1.2792806814561937
+rk2_hpipm_constrained_feedback solve0 policy13a nominal -0.3406862248813689 0.99975670306976605
+rk2_hpipm_constrained_feedback solve0 policy13a perturbed -0.52278020435067796 1.3679446620075932
+rk2_hpipm_constrained_feedback solve0 policy13b nominal -0.35703243853888011 1.0345273919231679
+rk2_hpipm_constrained_feedback solve0 policy13b perturbed -0.54056320968274596 1.405588934210142
+rk2_hpipm_constrained_feedback solve0 policy14a nominal -0.38467689125652882 1.0946655742812803
+rk2_hpipm_constrained_feedback solve0 policy14a perturbed -0.57156017630769362 1.4724321443829309
+rk2_hpipm_constrained_feedback solve0 policy14b nominal -0.39742957618431762 1.1221362377704804
+rk2_hpipm_constrained_feedback solve0 policy14b perturbed -0.58509101455614898 1.5014591145134912
+rk2_hpipm_constrained_feedback solve0 policy15a nominal -0.41731781560929426 1.1664984017654909
+rk2_hpipm_constrained_feedback solve0 policy15a perturbed -0.6067949450626815 1.5494526606716761
+rk2_hpipm_constrained_feedback solve0 policy15b nominal -0.42717773524843761 1.1880594240427671
+rk2_hpipm_constrained_feedback solve0 policy15b perturbed -0.61558470060570203 1.5688733547567271
+rk2_hpipm_constrained_feedback solve0 policy16a nominal -0.44275182538240876 1.2235036979749685
+rk2_hpipm_constrained_feedback solve0 policy16a perturbed -0.62866174118205476 1.5993235295737342
+rk2_hpipm_constrained_feedback solve0 policy16b nominal -0.4501599347988674 1.2400282407124825
+rk2_hpipm_constrained_feedback solve0 policy16b perturbed -0.63225554475579049 1.6082194606258122
+rk2_hpipm_constrained_feedback solve0 policy17a nominal -0.46395205603868983 1.2715985723028149
+rk2_hpipm_constrained_feedback solve0 policy17a perturbed -0.63714761902926109 1.6219896982834614
+rk2_hpipm_constrained_feedback solve0 policy17b nominal -0.46927714339878479 1.2838168947489623
+rk2_hpipm_constrained_feedback solve0 policy17b perturbed -0.63581508456523395 1.6208927770813637
+rk2_hpipm_constrained_feedback solve0 policy18a nominal -0.48306061009579304 1.3150428395035132
+rk2_hpipm_constrained_feedback solve0 policy18a perturbed -0.63406410033929117 1.6210498199900094
+rk2_hpipm_constrained_feedback solve0 policy18b nominal -0.48664315995839191 1.3236294175120458
+rk2_hpipm_constrained_feedback solve0 policy18b perturbed -0.62920157350750805 1.6127462446097667
+rk2_hpipm_constrained_feedback solve0 policy19a nominal -0.5015971099257488 1.3568541001078436
+rk2_hpipm_constrained_feedback solve0 policy19a perturbed -0.62445034452130654 1.6065605692984224
+rk2_hpipm_constrained_feedback solve0 policy19b nominal -0.50370025558995513 1.3623291657755807
+rk2_hpipm_constrained_feedback solve0 policy19b perturbed -0.61839536048483157 1.5957193755647769
+rk2_hpipm_constrained_feedback solve0 policy20a nominal -0.52062674624514516 1.3991426205443522
+rk2_hpipm_constrained_feedback solve0 policy20a perturbed -0.61628621517176474 1.5944615583969874
+rk2_hpipm_constrained_feedback solve0 policy20b nominal -0.54830663992666917 1.4556126883651919
+rk2_hpipm_constrained_feedback solve0 policy20b perturbed -0.64396610885328898 1.6509316262178271
+rk2_hpipm_constrained_feedback solve1 iterations 3
+rk2_hpipm_constrained_feedback solve1 performance0 0.8531142036119288 0.8531142036119288 0 1.3738513204638985e-06 3.2837105513283771e-33 0 0 0
+rk2_hpipm_constrained_feedback solve1 performance1 0.84868484575132075 0.84868484575132075 0 1.387968838092499e-11 4.7185283637487237e-33 0 0 0
+rk2_hpipm_constrained_feedback solve1 performance2 0.84868197133130829 0.84868197133130829 0 8.8122333965657381e-18 3.0140803629660245e-33 0 0 0
+rk2_hpipm_constrained_feedback solve1 time 0.050000000000000003 0.10000000000000001 0.15000000000000002 0.20000000000000001 0.25 0.29999999999999999 0.34999999999999998 0.34999999999999998 0.39999999999999997 0.44999999999999996 0.49999999999999994 0.54999999999999993 0.59999999999999998 0.65000000000000002 0.70000000000000007 0.75000000000000011 0.80000000000000016 0.8500000000000002 0.90000000000000024 0.95000000000000029 1.0000000000000002 1.05
+rk2_hpipm_constrained_feedback solve1 state0 0.10754111777586138 0.28180753934366087 0.11662861002106313 -0.33105993412229745
+rk2_hpipm_constrained_feedback solve1 input0 1.9001772186721944 -3.5573379902340445
+rk2_hpipm_constrained_feedback solve1 state1 0.11574462089015677 0.25765592970274487 0.21183853059674557 -0.6299737376422585
+rk2_hpipm_constrained_feedback solve1 input1 1.6715878320424733 -3.0968778157288837
+rk2_hpipm_constrained_feedback solve1 state2 0.12843747518953605 0.219446760590636 0.29626445562398518 -0.89013529168304262
+rk2_hpipm_constrained_feedback solve1 input2 1.501338131470507 -2.7513012728651995
+rk2_hpipm_constrained_feedback solve1 state3 0.14515501923322402 0.16913646049627756 0.3725973583482613 -1.1110128508421577
+rk2_hpipm_constrained_feedback solve1 input3 1.3866253187439774 -2.5151886297946651
+rk2_hpipm_constrained_feedback solve1 state4 0.16554951145831531 0.10870028720161629 0.44289838382825791 -1.2924628788896932
+rk2_hpipm_constrained_feedback solve1 input4 1.3192660415981243 -2.3723122786129225
+rk2_hpipm_constrained_feedback solve1 state5 0.18935610921383786 0.040122056627896877 0.50853564738561463 -1.4343679045057334
+rk2_hpipm_constrained_feedback solve1 input5 1.2851001853771251 -2.2944579270687151
+rk2_hpipm_constrained_feedback solve1 state6 0.21635664631708443 -0.034595374054539697 0.57013712568372965 -1.5361621009497879
+rk2_hpipm_constrained_feedback solve1 input6 1.2851001853771251 -2.2944579270687151
+rk2_hpipm_constrained_feedback solve1 state7 0.21635664631708443 -0.034595374054539697 0.39909598797861073 0.76462220311115292
+rk2_hpipm_constrained_feedback solve1 input7 0.43252463348778031 -0.57850660844872681
+rk2_hpipm_constrained_feedback solve1 state8 0.23679463081744262 0.0031460203893164764 0.41854189082386051 0.73574850458210717
+rk2_hpipm_constrained_feedback solve1 input8 0.1641007030279604 -0.033483553728943745
+rk2_hpipm_constrained_feedback solve1 state9 0.25787517212040695 0.039669076245884824 0.42480910255234094 0.71620775223529598
+rk2_hpipm_constrained_feedback solve1 input9 -0.044503285698903688 0.39215664024597019
+rk2_hpipm_constrained_feedback solve1 state10 0.27901452562948315 0.075303907589796673 0.42090701948377118 0.70043293443453292
+rk2_hpipm_constrained_feedback solve1 input10 -0.19792823161634585 0.70746227348448498
+rk2_hpipm_constrained_feedback solve1 state11 0.29977369404614407 0.11010972601307073 0.40960671319846437 0.68323390962366615
+rk2_hpipm_constrained_feedback solve1 input11 -0.30574307926051419 0.93139563613948606
+rk2_hpipm_constrained_feedback solve1 state12 0.31983988615448578 0.14391031309321137 0.39317995814728973 0.66045082390442644
+rk2_hpipm_constrained_feedback solve1 input12 -0.37955242178744197 1.0870407980366783
+rk2_hpipm_constrained_feedback solve1 state13 0.33899875475547941 0.17635388096125881 0.37329176451137303 0.62926991601153026
+rk2_hpipm_constrained_feedback solve1 input13 -0.42973703958127851 1.1950735810647488
+rk2_hpipm_constrained_feedback solve1 state14 0.35710556194982807 0.20697938413304118 0.35106447929569101 0.58816416803740312
+rk2_hpipm_constrained_feedback solve1 input14 -0.46409800941630458 1.2710382436125405
+rk2_hpipm_constrained_feedback solve1 state15 0.37406143970402772 0.23527543684853769 0.32721635647384301 0.536659300719185
+rk2_hpipm_constrained_feedback solve1 input15 -0.48804307002899272 1.3257107159395964
+rk2_hpipm_constrained_feedback solve1 state16 0.38979647785606281 0.26072719986669085 0.30219461448340051 0.47509043568637604
+rk2_hpipm_constrained_feedback solve1 input16 -0.5052476170653335 1.3664138252730922
+rk2_hpipm_constrained_feedback solve1 state17 0.40425869388510388 0.28285217300915078 0.27627607915884406 0.40440538980170349
+rk2_hpipm_constrained_feedback solve1 input17 -0.51824744782563592 1.3981983732053134
+rk2_hpipm_constrained_feedback solve1 state18 0.41740727064235739 0.30122722925008533 0.24963582624737113 0.32601413971902243
+rk2_hpipm_constrained_feedback solve1 input18 -0.52884873366523333 1.4246603755874097
+rk2_hpipm_constrained_feedback solve1 state19 0.42920862180949904 0.3155088823561697 0.22239060404854169 0.24167112725240772
+rk2_hpipm_constrained_feedback solve1 input19 -0.53823802101818863 1.4481594907601769
+rk2_hpipm_constrained_feedback solve1 state20 0.43963435172151705 0.32544780920187 0.19463069196179364 0.1533650293605486
+rk2_hpipm_constrained_feedback solve1 input20 -0.54773883307011739 1.4713314068288417
+rk2_hpipm_constrained_feedback solve1 state21 0.44865970399744098 0.33089961417237795 0.16640788333782905 0.063279652101900896
+rk2_hpipm_constrained_feedback solve1 input21 -0.54773883307011739 1.4713314068288417
+rk2_hpipm_constrained_feedback solve1 intermediate0 cost 0.025912566038107456
+rk2_hpipm_constrained_feedback solve1 intermediate0 dynamicsViolation 0 0 1.0778389292198653e-10 0
+rk2_hpipm_constrained_feedback solve1 intermediate0 stateInputEq0 -1.8041124150158794e-16
+rk2_hpipm_constrained_feedback solve1 intermediate1 cost 0.019726262794847235
+rk2_hpipm_constrained_feedback solve1 intermediate1 dynamicsViolation 4.5854708918824372e-12 -4.425571020760799e-12 2.1370694103239884e-10 -3.0705082920690074e-10
+rk2_hpipm_constrained_feedback solve1 intermediate1 stateInputEq0 1.1102230246251565e-16
+rk2_hpipm_constrained_feedback solve1 intermediate2 cost 0.015973126034089121
+rk2_hpipm_constrained_feedback solve1 intermediate2 dynamicsViolation 5.0798254491724038e-12 2.1119772597444353e-12 3.5036695766876846e-11 1.4513235058188911e-10
+rk2_hpipm_constrained_feedback solve1 intermediate2 stateInputEq0 0
+rk2_hpipm_constrained_feedback solve1 intermediate3 cost 0.014400415722587526
+rk2_hpipm_constrained_feedback solve1 intermediate3 dynamicsViolation -3.3261449150501221e-12 2.3586993469493223e-11 -2.2317309111841155e-10 9.8043284602056247e-10
+rk2_hpipm_constrained_feedback solve1 intermediate3 stateInputEq0 8.3266726846886741e-17
+rk2_hpipm_constrained_feedback solve1 intermediate4 cost 0.014894284372777372
+rk2_hpipm_constrained_feedback solve1 intermediate4 dynamicsViolation -6.9377004141557563e-12 3.7077077519320767e-11 -2.0661028443669238e-11 1.1543650479950429e-09
+rk2_hpipm_constrained_feedback solve1 intermediate4 stateInputEq0 0
+rk2_hpipm_constrained_feedback solve1 intermediate5 cost 0.017393416714660662
+rk2_hpipm_constrained_feedback solve1 intermediate5 dynamicsViolation 5.3420046164376345e-12 2.2097677854215902e-11 5.5808990762074018e-10 2.3891222333816131e-10
+rk2_hpipm_constrained_feedback solve1 intermediate5 stateInputEq0 0
+rk2_hpipm_constrained_feedback solve1 intermediate6 cost 0.0039314156946059437
+rk2_hpipm_constrained_feedback solve1 intermediate6 dynamicsViolation 4.2895131890929861e-12 7.2278099304268206e-12 3.2652180959047428e-10 1.4182421903541353e-10
+rk2_hpipm_constrained_feedback solve1 intermediate6 stateInputEq0 0
+rk2_hpipm_constrained_feedback solve1 intermediate7 cost 0.0035572185032184561
+rk2_hpipm_constrained_feedback solve1 intermediate7 dynamicsViolation 1.2931822279682592e-11 -3.0503377601576176e-14 6.6543864862822488e-10 -2.2110202557712455e-11
+rk2_hpipm_constrained_feedback solve1 intermediate7 stateInputEq0 0
+rk2_hpipm_constrained_feedback solve1 intermediate8 cost 0.0042092451416915677
+rk2_hpipm_constrained_feedback solve1 intermediate8 dynamicsViolation 1.9919066396312246e-11 8.812173213357255e-12 7.0960870512948304e-10 6.4528415943954087e-10
+rk2_hpipm_constrained_feedback solve1 intermediate8 stateInputEq0 0
+rk2_hpipm_constrained_feedback solve1 intermediate9 cost 0.0052252529752054603
+rk2_hpipm_constrained_feedback solve1 intermediate9 dynamicsViolation 1.4665935132995855e-11 3.8485187259240661e-11 2.8698354803680104e-10 2.0948787149421833e-09
+rk2_hpipm_constrained_feedback solve1 intermediate9 stateInputEq0 0
+rk2_hpipm_constrained_feedback solve1 intermediate10 cost 0.0061996444920984729
+rk2_hpipm_constrained_feedback solve1 intermediate10 dynamicsViolation -3.8075098629519744e-13 6.8928224239428459e-11 -2.0398799316367899e-10 3.1981358672439342e-09
+rk2_hpipm_constrained_feedback solve1 intermediate10 stateInputEq0 0
+rk2_hpipm_constrained_feedback solve1 intermediate11 cost 0.006959797814389262
+rk2_hpipm_constrained_feedback solve1 intermediate11 dynamicsViolation -8.7122531411409909e-12 7.0758066073040027e-11 -1.645654168491717e-10 2.8637847648838033e-09
+rk2_hpipm_constrained_feedback solve1 intermediate11 stateInputEq0 0
+rk2_hpipm_constrained_feedback solve1 intermediate12 cost 0.0074793107505608698
+rk2_hpipm_constrained_feedback solve1 intermediate12 dynamicsViolation 1.8835488724278093e-12 3.8430369997399794e-11 5.2865084532172091e-10 1.3064987980371257e-09
+rk2_hpipm_constrained_feedback solve1 intermediate12 stateInputEq0 0
+rk2_hpipm_constrained_feedback solve1 intermediate13 cost 0.0077957312424655357
+rk2_hpipm_constrained_feedback solve1 intermediate13 dynamicsViolation 2.519706665538024e-11 -8.9137031089592256e-13 1.3268823262357898e-09 -2.1517898574074934e-11
+rk2_hpipm_constrained_feedback solve1 intermediate13 stateInputEq0 5.5511151231257827e-17
+rk2_hpipm_constrained_feedback solve1 intermediate14 cost 0.0079648439438050576
+rk2_hpipm_constrained_feedback solve1 intermediate14 dynamicsViolation 4.0775827159222899e-11 -3.8372638400119286e-12 1.4712850382458953e-09 5.7481314152951768e-10
+rk2_hpipm_constrained_feedback solve1 intermediate14 stateInputEq0 -5.5511151231257827e-17
+rk2_hpipm_constrained_feedback solve1 intermediate15 cost 0.0080433974117318854
+rk2_hpipm_constrained_feedback solve1 intermediate15 dynamicsViolation 3.1999070060351187e-11 5.6525062408496751e-11 7.8286932492233063e-10 3.6022161920001849e-09
+rk2_hpipm_constrained_feedback solve1 intermediate15 stateInputEq0 2.7755575615628914e-17
+rk2_hpipm_constrained_feedback solve1 intermediate16 cost 0.0080855486397902708
+rk2_hpipm_constrained_feedback solve1 intermediate16 dynamicsViolation 6.7388872260210064e-12 1.5440693168500275e-10 2.5802712744216194e-10 7.1048050220845482e-09
+rk2_hpipm_constrained_feedback solve1 intermediate16 stateInputEq0 -2.7755575615628914e-17
+rk2_hpipm_constrained_feedback solve1 intermediate17 cost 0.0081443402970724742
+rk2_hpipm_constrained_feedback solve1 intermediate17 dynamicsViolation 6.1918803417881918e-12 1.9818069407762096e-10 1.9160384390204399e-09 6.6972458412362101e-09
+rk2_hpipm_constrained_feedback solve1 intermediate17 stateInputEq0 0
+rk2_hpipm_constrained_feedback solve1 intermediate18 cost 0.008270273274257214
+rk2_hpipm_constrained_feedback solve1 intermediate18 dynamicsViolation 8.874750934140252e-11 -1.3274381593930684e-12 3.6403119962891139e-09 6.6884692229152165e-11
+rk2_hpipm_constrained_feedback solve1 intermediate18 stateInputEq0 0
+rk2_hpipm_constrained_feedback solve1 intermediate19 cost 0.0085305147923461829
+rk2_hpipm_constrained_feedback solve1 intermediate19 dynamicsViolation 9.0240426242615968e-11 3.9366288007158801e-11 2.9799689937881624e-09 2.7854105411062591e-09
+rk2_hpipm_constrained_feedback solve1 intermediate19 stateInputEq0 2.7755575615628914e-17
+rk2_hpipm_constrained_feedback solve1 preJump0 cost 0.19059242957418834
+rk2_hpipm_constrained_feedback solve1 preJump0 dynamicsViolation 0 0 0 2.3959723094435503e-12
+rk2_hpipm_constrained_feedback solve1 final cost 0.45539293510681195
+rk2_hpipm_constrained_feedback solve1 final dynamicsViolation
+rk2_hpipm_constrained_feedback solve1 policy0a nominal 1.9001772186721944 -3.5573379902340445
+rk2_hpipm_constrained_feedback solve1 policy0a perturbed 1.7102941111604519 -3.1775717752106782
+rk2_hpipm_constrained_feedback solve1 policy0b nominal 1.8385375764361198 -3.4337633796497515
+rk2_hpipm_constrained_feedback solve1 policy0b perturbed 1.6432255202682855 -3.0419392673141967
+rk2_hpipm_constrained_feedback solve1 policy1a nominal 1.6715878320424733 -3.0968778157288837
+rk2_hpipm_constrained_feedback solve1 policy1a perturbed 1.4636082290104246 -2.6769186096648907
+rk2_hpipm_constrained_feedback solve1 policy1b nominal 1.6296500823471425 -3.0114791738222619
+rk2_hpipm_constrained_feedback solve1 policy1b perturbed 1.4151719464452426 -2.5785229020185674
+rk2_hpipm_constrained_feedback solve1 policy2a nominal 1.501338131470507 -2.7513012728651995
+rk2_hpipm_constrained_feedback solve1 policy2a perturbed 1.2716967522056213 -2.288018514335536
+rk2_hpipm_constrained_feedback solve1 policy2b nominal 1.4810365079140526 -2.7086919204670057
+rk2_hpipm_constrained_feedback solve1 policy2b perturbed 1.2431219450130691 -2.2288627946651562
+rk2_hpipm_constrained_feedback solve1 policy3a nominal 1.3866253187439774 -2.5151886297946646
+rk2_hpipm_constrained_feedback solve1 policy3a perturbed 1.1294066606920992 -1.9967513136910462
+rk2_hpipm_constrained_feedback solve1 policy3b nominal 1.3945605883446932 -2.5286118299290301
+rk2_hpipm_constrained_feedback solve1 policy3b perturbed 1.123294655735807 -1.9820799647114153
+rk2_hpipm_constrained_feedback solve1 policy4a nominal 1.3192660415981248 -2.372312278612922
+rk2_hpipm_constrained_feedback solve1 policy4a perturbed 1.0152231350228877 -1.7602264654626474
+rk2_hpipm_constrained_feedback solve1 policy4b nominal 1.3804485863326077 -2.491820576351147
+rk2_hpipm_constrained_feedback solve1 policy4b perturbed 1.0428456148583285 -1.8126146334028199
+rk2_hpipm_constrained_feedback solve1 policy5a nominal 1.2851001853771251 -2.2944579270687164
+rk2_hpipm_constrained_feedback solve1 policy5a perturbed 0.86919039580508084 -1.4586383479249392
+rk2_hpipm_constrained_feedback solve1 policy5b nominal 0.90664612493909935 -1.5343097417405325
+rk2_hpipm_constrained_feedback solve1 policy5b perturbed 0.49073633536705508 -0.69849016259675167
+rk2_hpipm_constrained_feedback solve1 policy6a nominal 0.023586650583709456 0.23936935735856579
+rk2_hpipm_constrained_feedback solve1 policy6a perturbed -0.39232313898833304 1.0751889365023466
+rk2_hpipm_constrained_feedback solve1 policy6b nominal 0.023586650583709456 0.23936935735856579
+rk2_hpipm_constrained_feedback solve1 policy6b perturbed -0.39232313898833304 1.0751889365023466
+rk2_hpipm_constrained_feedback solve1 policy7a nominal 0.023586650583709456 0.23936935735856579
+rk2_hpipm_constrained_feedback solve1 policy7a perturbed -0.39232313898833304 1.0751889365023466
+rk2_hpipm_constrained_feedback solve1 policy7b nominal 0.35465975272385974 -0.42032428878082984
+rk2_hpipm_constrained_feedback solve1 policy7b perturbed 0.083223967681576694 0.12654728130231074
+rk2_hpipm_constrained_feedback solve1 policy8a nominal 0.16410070302796043 -0.03348355372894396
+rk2_hpipm_constrained_feedback solve1 policy8a perturbed -0.077810438634146051 0.45433872959388388
+rk2_hpipm_constrained_feedback solve1 policy8b nominal 0.10365296804925872 0.089941581184831865
+rk2_hpipm_constrained_feedback solve1 policy8b perturbed -0.12757848525685989 0.55640448779570928
+rk2_hpipm_constrained_feedback solve1 policy9a nominal -0.044503285698903688 0.39215664024597019
+rk2_hpipm_constrained_feedback solve1 policy9a perturbed -0.25081546617438211 0.80878100119563068
+rk2_hpipm_constrained_feedback solve1 policy9b nominal -0.089427388394985791 0.4845415680592442
+rk2_hpipm_constrained_feedback solve1 policy9b perturbed -0.28805522479474421 0.885797240857499
+rk2_hpipm_constrained_feedback solve1 policy10a nominal -0.19792823161634587 0.70746227348448487
+rk2_hpipm_constrained_feedback solve1 policy10a perturbed -0.37862593183942506 1.0728576739294602
+rk2_hpipm_constrained_feedback solve1 policy10b nominal -0.23042906148724418 0.7749550334363029
+rk2_hpipm_constrained_feedback solve1 policy10b perturbed -0.40659340374167086 1.1312837179440112
+rk2_hpipm_constrained_feedback solve1 policy11a nominal -0.30574307926051425 0.93139563613948595
+rk2_hpipm_constrained_feedback solve1 policy11a perturbed -0.47132958625475152 1.2665686501269042
+rk2_hpipm_constrained_feedback solve1 policy11b nominal -0.32924765289154889 0.98081272645457895
+rk2_hpipm_constrained_feedback solve1 policy11b perturbed -0.49289458522669616 1.3121065911238556
+rk2_hpipm_constrained_feedback solve1 policy12a nominal -0.37955242178744197 1.0870407980366781
+rk2_hpipm_constrained_feedback solve1 policy12a perturbed -0.53867367991804604 1.4092833142969567
+rk2_hpipm_constrained_feedback solve1 policy12b nominal -0.39687409535375329 1.1239832094014419
+rk2_hpipm_constrained_feedback solve1 policy12b perturbed -0.55574175588257502 1.4457185304581919
+rk2_hpipm_constrained_feedback solve1 policy13a nominal -0.42973703958127851 1.195073581064749
+rk2_hpipm_constrained_feedback solve1 policy13a perturbed -0.58801297237260841 1.5156254466465979
+rk2_hpipm_constrained_feedback solve1 policy13b nominal -0.44275182202720909 1.2232759628199528
+rk2_hpipm_constrained_feedback solve1 policy13b perturbed -0.60137393921029947 1.5445201971853546
+rk2_hpipm_constrained_feedback solve1 policy14a nominal -0.46409800941630475 1.2710382436125403
+rk2_hpipm_constrained_feedback solve1 policy14a perturbed -0.62352789018017041 1.5938980051395637
+rk2_hpipm_constrained_feedback solve1 policy14b nominal -0.47393341099330755 1.2927437520970684
+rk2_hpipm_constrained_feedback solve1 policy14b perturbed -0.63320284266702798 1.6152826154438271
+rk2_hpipm_constrained_feedback solve1 policy15a nominal -0.48804307002899261 1.325710715939596
+rk2_hpipm_constrained_feedback solve1 policy15a perturbed -0.64693812049237409 1.647500816865735
+rk2_hpipm_constrained_feedback solve1 policy15b nominal -0.4953692931853575 1.342251366830586
+rk2_hpipm_constrained_feedback solve1 policy15b perturbed -0.65264967445434907 1.6608121293679612
+rk2_hpipm_constrained_feedback solve1 policy16a nominal -0.5052476170653335 1.3664138252730917
+rk2_hpipm_constrained_feedback solve1 policy16a perturbed -0.65876043688074826 1.6774394649033519
+rk2_hpipm_constrained_feedback solve1 policy16b nominal -0.51049718319005577 1.3786484234460348
+rk2_hpipm_constrained_feedback solve1 policy16b perturbed -0.66032964021052254 1.6823133374864074
+rk2_hpipm_constrained_feedback solve1 policy17a nominal -0.51824744782563581 1.3981983732053136
+rk2_hpipm_constrained_feedback solve1 policy17a perturbed -0.65949239165789164 1.684688260869283
+rk2_hpipm_constrained_feedback solve1 policy17b nominal -0.52173388046893709 1.4067490677027963
+rk2_hpipm_constrained_feedback solve1 policy17b perturbed -0.65732904874529141 1.6819394042549618
+rk2_hpipm_constrained_feedback solve1 policy18a nominal -0.52884873366523322 1.4246603755874097
+rk2_hpipm_constrained_feedback solve1 policy18a perturbed -0.65126109231115059 1.6734850928787002
+rk2_hpipm_constrained_feedback solve1 policy18b nominal -0.53019775485969522 1.4287745801163991
+rk2_hpipm_constrained_feedback solve1 policy18b perturbed -0.64717942596929723 1.6667379223350516
+rk2_hpipm_constrained_feedback solve1 policy19a nominal -0.53823802101818863 1.4481594907601769
+rk2_hpipm_constrained_feedback solve1 policy19a perturbed -0.64254808787638851 1.660779624476008
+rk2_hpipm_constrained_feedback solve1 policy19b nominal -0.53803816637756208 1.4490108690683754
+rk2_hpipm_constrained_feedback solve1 policy19b perturbed -0.63636358032954843 1.6496616969717632
+rk2_hpipm_constrained_feedback solve1 policy20a nominal -0.54773883307011739 1.4713314068288417
+rk2_hpipm_constrained_feedback solve1 policy20a perturbed -0.63210005690760562 1.6440538545031949
+rk2_hpipm_constrained_feedback solve1 policy20b nominal -0.57324687815700415 1.5234305392759833
+rk2_hpipm_constrained_feedback solve1 policy20b perturbed -0.65760810199449238 1.6961529869503364
+rk2_hpipm_constrained_feedback solve2 iterations 4
+rk2_hpipm_constrained_feedback solve2 performance0 1.5131602080795901 1.5131602080795901 0 1.2138128459395181e-05 1.5985218538414058e-32 0 0 0
+rk2_hpipm_constrained_feedback solve2 performance1 1.3045210492110528 1.3045210492110528 0 3.7772195022489878e-08 9.4370567274974639e-33 0 0 0
+rk2_hpipm_constrained_feedback solve2 performance2 1.3008682868436887 1.3008682868436887 0 1.445905920803765e-12 2.623116584255415e-32 0 0 0
+rk2_hpipm_constrained_feedback solve2 performance3 1.3008566115910278 1.3008566115910278 0 2.5367880479759903e-16 1.1093356479670487e-32 0 0 0
+rk2_hpipm_constrained_feedback solve2 time 0.40000000000000002 0.45000000000000001 0.5 0.55000000000000004 0.60000000000000009 0.65000000000000013 0.70000000000000018 0.75000000000000022 0.80000000000000027 0.85000000000000031 0.90000000000000036 0.9500000000000004 1.0000000000000004 1.0500000000000005 1.1000000000000005 1.1500000000000006 1.2000000000000006 1.2500000000000007 1.3000000000000007 1.3500000000000008 1.3999999999999999
+rk2_hpipm_constrained_feedback solve2 state0 0.24179463081744265 -0.0068539796106834826 0.43354189082386052 0.73074850458210716
+rk2_hpipm_constrained_feedback solve2 input0 3.6224971671477668 -6.9482764819685565
+rk2_hpipm_constrained_feedback solve2 state1 0.26794428159956907 0.020899663161847368 0.61205637502682753 0.3722666829057058
+rk2_hpipm_constrained_feedback solve2 input1 2.132596105659879 -3.9580144986799302
+rk2_hpipm_constrained_feedback solve2 state2 0.30113742447974667 0.034217229538828345 0.71539621280455579 0.15698797844512785
+rk2_hpipm_constrained_feedback solve2 input2 0.78880810724378625 -1.2571612446956735
+rk2_hpipm_constrained_feedback solve2 state3 0.33780413689992711 0.040037342858537717 0.75117808337202729 0.074308158721522119
+rk2_hpipm_constrained_feedback solve2 input3 -0.21132825240221756 0.75777815956440631
+rk2_hpipm_constrained_feedback solve2 state4 0.37500506637294617 0.044189810601981606 0.736895999302148 0.090789787373155129
+rk2_hpipm_constrained_feedback solve2 input4 -0.5830203813869852 1.5160427893231492
+rk2_hpipm_constrained_feedback solve2 state5 0.41102911540861403 0.050058104827216794 0.70415287551926586 0.14255612262911718
+rk2_hpipm_constrained_feedback solve2 input5 -0.74596481253129499 1.8563412712260359
+rk2_hpipm_constrained_feedback solve2 state6 0.44521666538349813 0.058854210664512838 0.66346228230949655 0.20719114360181373
+rk2_hpipm_constrained_feedback solve2 input6 -0.88400345547550085 2.1460935771044012
+rk2_hpipm_constrained_feedback solve2 state7 0.47720278928386123 0.071118659133021109 0.61612408977749722 0.28043478736071981
+rk2_hpipm_constrained_feedback solve2 input7 -0.99461386846480904 2.3801088526431626
+rk2_hpipm_constrained_feedback solve2 state8 0.50669080654225707 0.087166547536685846 0.56356984476799221 0.35758208674513603
+rk2_hpipm_constrained_feedback solve2 input8 -1.0757666486742417 2.5542096199653863
+rk2_hpipm_constrained_feedback solve2 state9 0.53345831852484538 0.10706936999731866 0.50733947770316046 0.43365195873489759
+rk2_hpipm_constrained_feedback solve2 input9 -1.1260550890571042 2.6654935055241467
+rk2_hpipm_constrained_feedback solve2 state10 0.55736184225276875 0.13064591101700299 0.44904698369557539 0.50358029454030995
+rk2_hpipm_constrained_feedback solve2 input10 -1.1448633409407125 2.7126714187825329
+rk2_hpipm_constrained_feedback solve2 state11 0.57833937016343773 0.15746348105747093 0.39033084754557762 0.56243930057951874
+rk2_hpipm_constrained_feedback solve2 input11 -1.1325438173861231 2.6964233828376214
+rk2_hpipm_constrained_feedback solve2 state12 0.59641004369759876 0.18685073955330483 0.33278875391251433 0.60567894048861293
+rk2_hpipm_constrained_feedback solve2 input12 -1.090552756584781 2.6196695306486015
+rk2_hpipm_constrained_feedback solve2 state13 0.61167024715614404 0.21792290877111706 0.27790224834390315 0.62937643890501593
+rk2_hpipm_constrained_feedback solve2 input13 -1.0214845921917877 2.4876372832460332
+rk2_hpipm_constrained_feedback solve2 state14 0.6242858813674288 0.24961920957029618 0.22696336811323797 0.63046928271855895
+rk2_hpipm_constrained_feedback solve2 input14 -0.92895914085368947 2.3076326342543507
+rk2_hpipm_constrained_feedback solve2 state15 0.63448130328481545 0.28075092876660251 0.1810188617180768 0.60694069919283145
+rk2_hpipm_constrained_feedback solve2 input15 -0.81735108860904737 2.088494698532021
+rk2_hpipm_constrained_feedback solve2 state16 0.64252620596268661 0.31005697521973691 0.14084598435211951 0.55792847001931489
+rk2_hpipm_constrained_feedback solve2 input16 -0.69139882821213616 1.8398081388093472
+rk2_hpipm_constrained_feedback solve2 state17 0.64872226715771486 0.33626256857963716 0.10696653153027663 0.48373954348868037
+rk2_hpipm_constrained_feedback solve2 input17 -0.55577191940254023 1.5710327456681665
+rk2_hpipm_constrained_feedback solve2 state18 0.65339146253916369 0.35813626836250828 0.079694938411444233 0.38577141485558286
+rk2_hpipm_constrained_feedback solve2 input18 -0.3658054379794255 1.1929674609745167
+rk2_hpipm_constrained_feedback solve2 state19 0.65692855281050966 0.37442662325993559 0.061637531169355532 0.2618214662681474
+rk2_hpipm_constrained_feedback solve2 input19 0.097032201955955702 0.26870701721229251
+rk2_hpipm_constrained_feedback solve2 state20 0.66013341665976155 0.38327998082396875 0.066380840945980166 0.090147298942259577
+rk2_hpipm_constrained_feedback solve2 input20 0.097032201955955702 0.26870701721229251
+rk2_hpipm_constrained_feedback solve2 intermediate0 cost 0.089688567009328091
+rk2_hpipm_constrained_feedback solve2 intermediate0 dynamicsViolation 5.5511151231257827e-17 0 1.9984014443252818e-15 -5.5511151231257827e-17
+rk2_hpipm_constrained_feedback solve2 intermediate0 stateInputEq0 2.7755575615628914e-17
+rk2_hpipm_constrained_feedback solve2 intermediate1 cost 0.029513203742709208
+rk2_hpipm_constrained_feedback solve2 intermediate1 dynamicsViolation 1.6653345369377348e-16 -1.9845236565174673e-15 8.9583895857003881e-13 -2.6290081223123707e-13
+rk2_hpipm_constrained_feedback solve2 intermediate1 stateInputEq0 1.1102230246251565e-16
+rk2_hpipm_constrained_feedback solve2 intermediate2 cost 0.0063662273893156027
+rk2_hpipm_constrained_feedback solve2 intermediate2 dynamicsViolation 4.6462833580562801e-14 -1.1882855810441129e-13 8.4174889281030119e-12 -1.0293432772812139e-11
+rk2_hpipm_constrained_feedback solve2 intermediate2 stateInputEq0 1.6653345369377348e-16
+rk2_hpipm_constrained_feedback solve2 intermediate3 cost 0.0094134345096805998
+rk2_hpipm_constrained_feedback solve2 intermediate3 dynamicsViolation 3.7148062403957738e-13 -5.2310239473385423e-13 2.7410074210365565e-11 -3.4913572033445917e-11
+rk2_hpipm_constrained_feedback solve2 intermediate3 stateInputEq0 1.6653345369377348e-16
+rk2_hpipm_constrained_feedback solve2 intermediate4 cost 0.017230632501035383
+rk2_hpipm_constrained_feedback solve2 intermediate4 dynamicsViolation 1.0160761121369433e-12 -5.8274912673184076e-13 5.3115400966419202e-11 -3.6254527158163796e-11
+rk2_hpipm_constrained_feedback solve2 intermediate4 stateInputEq0 1.3877787807814457e-16
+rk2_hpipm_constrained_feedback solve2 intermediate5 cost 0.02377934273373641
+rk2_hpipm_constrained_feedback solve2 intermediate5 dynamicsViolation 1.6330270469211428e-12 -1.1146569778297533e-12 8.198730583330871e-11 -6.2010147017232953e-11
+rk2_hpipm_constrained_feedback solve2 intermediate5 stateInputEq0 1.3877787807814457e-16
+rk2_hpipm_constrained_feedback solve2 intermediate6 cost 0.031345634548254966
+rk2_hpipm_constrained_feedback solve2 intermediate6 dynamicsViolation 2.4490409700206328e-12 -1.6078527398377673e-12 1.1423051393677497e-10 -8.1969819820670864e-11
+rk2_hpipm_constrained_feedback solve2 intermediate6 stateInputEq0 1.1102230246251565e-16
+rk2_hpipm_constrained_feedback solve2 intermediate7 cost 0.038718169019703368
+rk2_hpipm_constrained_feedback solve2 intermediate7 dynamicsViolation 3.2071012512346897e-12 -1.5749068715820158e-12 1.3476575411175418e-10 -7.1266381684864655e-11
+rk2_hpipm_constrained_feedback solve2 intermediate7 stateInputEq0 2.7755575615628914e-17
+rk2_hpipm_constrained_feedback solve2 intermediate8 cost 0.044824323584891211
+rk2_hpipm_constrained_feedback solve2 intermediate8 dynamicsViolation 3.4371394619370221e-12 -2.2665203047722571e-13 1.2375900304562037e-10 4.3911541069974191e-12
+rk2_hpipm_constrained_feedback solve2 intermediate8 stateInputEq0 8.3266726846886741e-17
+rk2_hpipm_constrained_feedback solve2 intermediate9 cost 0.048824371649245857
+rk2_hpipm_constrained_feedback solve2 intermediate9 dynamicsViolation 2.648881114453161e-12 3.2246427750237672e-12 6.8501482264338165e-11 1.7215173730988909e-10
+rk2_hpipm_constrained_feedback solve2 intermediate9 stateInputEq0 8.3266726846886741e-17
+rk2_hpipm_constrained_feedback solve2 intermediate10 cost 0.050192239475502151
+rk2_hpipm_constrained_feedback solve2 intermediate10 dynamicsViolation 7.2863937106149024e-13 9.0084883996865983e-12 -1.9381329874335051e-11 4.273021936285204e-10
+rk2_hpipm_constrained_feedback solve2 intermediate10 stateInputEq0 1.9428902930940239e-16
+rk2_hpipm_constrained_feedback solve2 intermediate11 cost 0.04876925356546815
+rk2_hpipm_constrained_feedback solve2 intermediate11 dynamicsViolation -1.6225909504896663e-12 1.6259216195635418e-11 -9.1132268398297356e-11 7.1455830141786691e-10
+rk2_hpipm_constrained_feedback solve2 intermediate11 stateInputEq0 5.5511151231257827e-17
+rk2_hpipm_constrained_feedback solve2 intermediate12 cost 0.044774761578143023
+rk2_hpipm_constrained_feedback solve2 intermediate12 dynamicsViolation -2.7094992915976945e-12 2.2887330919374449e-11 -6.3580696263443315e-11 9.3092977770936614e-10
+rk2_hpipm_constrained_feedback solve2 intermediate12 stateInputEq0 0
+rk2_hpipm_constrained_feedback solve2 intermediate13 cost 0.038761926403341841
+rk2_hpipm_constrained_feedback solve2 intermediate13 dynamicsViolation -1.5443202272535927e-13 2.5789231861139683e-11 1.5799217489842476e-10 9.4323215904523749e-10
+rk2_hpipm_constrained_feedback solve2 intermediate13 stateInputEq0 1.1102230246251565e-16
+rk2_hpipm_constrained_feedback solve2 intermediate14 cost 0.031519799430424968
+rk2_hpipm_constrained_feedback solve2 intermediate14 dynamicsViolation 8.3044682241961709e-12 2.1738943978277803e-11 6.4259597643001598e-10 6.3067751021606e-10
+rk2_hpipm_constrained_feedback solve2 intermediate14 stateInputEq0 1.1102230246251565e-16
+rk2_hpipm_constrained_feedback solve2 intermediate15 cost 0.023940063516045468
+rk2_hpipm_constrained_feedback solve2 intermediate15 dynamicsViolation 2.3791302261599867e-11 8.4204865302694998e-12 1.3974944812478185e-09 -7.4905526226132224e-11
+rk2_hpipm_constrained_feedback solve2 intermediate15 stateInputEq0 0
+rk2_hpipm_constrained_feedback solve2 intermediate16 cost 0.016880270474755599
+rk2_hpipm_constrained_feedback solve2 intermediate16 dynamicsViolation 4.5540793358611609e-11 -1.5089762772646509e-11 2.3521866676645686e-09 -1.1798834687049009e-09
+rk2_hpipm_constrained_feedback solve2 intermediate16 stateInputEq0 1.1102230246251565e-16
+rk2_hpipm_constrained_feedback solve2 intermediate17 cost 0.011057082028025481
+rk2_hpipm_constrained_feedback solve2 intermediate17 dynamicsViolation 7.0846328803497727e-11 -4.9454662587322673e-11 3.3772691171440883e-09 -2.6961329280261737e-09
+rk2_hpipm_constrained_feedback solve2 intermediate17 stateInputEq0 5.5511151231257827e-17
+rk2_hpipm_constrained_feedback solve2 intermediate18 cost 0.0058529263051993428
+rk2_hpipm_constrained_feedback solve2 intermediate18 dynamicsViolation 9.7203578519611256e-11 1.3836036205638891e-09 4.1698713648674612e-09 6.9706001970537557e-08
+rk2_hpipm_constrained_feedback solve2 intermediate18 stateInputEq0 8.3266726846886741e-17
+rk2_hpipm_constrained_feedback solve2 intermediate19 cost -4.9297807767652855e-05
+rk2_hpipm_constrained_feedback solve2 intermediate19 dynamicsViolation 1.126864157541263e-10 -4.4028153345365695e-10 2.7249287964936642e-09 -1.2519083159023836e-08
+rk2_hpipm_constrained_feedback solve2 intermediate19 stateInputEq0 0
+rk2_hpipm_constrained_feedback solve2 final cost 0.68945367993398887
+rk2_hpipm_constrained_feedback solve2 final dynamicsViolation
+rk2_hpipm_constrained_feedback solve2 policy0a nominal 3.6224971671477668 -6.9482764819685574
+rk2_hpipm_constrained_feedback solve2 policy0a perturbed 3.2141831573510418 -6.1316484623762495
+rk2_hpipm_constrained_feedback solve2 policy0b nominal 3.2059215564195078 -6.1141838730838636
+rk2_hpipm_constrained_feedback solve2 policy0b perturbed 2.7947940052293703 -5.2907287707047725
+rk2_hpipm_constrained_feedback solve2 policy1a nominal 2.1325961056598786 -3.9580144986799297
+rk2_hpipm_constrained_feedback solve2 policy1a perturbed 1.7149036245517806 -3.1186295364650096
+rk2_hpipm_constrained_feedback solve2 policy1b nominal 1.7593277159590661 -3.2074945421326451
+rk2_hpipm_constrained_feedback solve2 policy1b perturbed 1.3370977168158014 -2.3590345438474394
+rk2_hpipm_constrained_feedback solve2 policy2a nominal 0.78880810724378669 -1.2571612446956735
+rk2_hpipm_constrained_feedback solve2 policy2a perturbed 0.35599056601846168 -0.38752616224646808
+rk2_hpipm_constrained_feedback solve2 policy2b nominal 0.47331453754560293 -0.62177409980881038
+rk2_hpipm_constrained_feedback solve2 policy2b perturbed 0.067784561999270743 0.19328585128230991
+rk2_hpipm_constrained_feedback solve2 policy3a nominal -0.21132825240221731 0.7577781595644062
+rk2_hpipm_constrained_feedback solve2 policy3a perturbed -0.55318724136423825 1.4454961374866588
+rk2_hpipm_constrained_feedback solve2 policy3b nominal -0.33016763931638504 0.99992104492952194
+rk2_hpipm_constrained_feedback solve2 policy3b perturbed -0.60645777155230007 1.5565013093994473
+rk2_hpipm_constrained_feedback solve2 policy4a nominal -0.5830203813869852 1.5160427893231492
+rk2_hpipm_constrained_feedback solve2 policy4a perturbed -0.70631651459532052 1.7666350557376478
+rk2_hpipm_constrained_feedback solve2 policy4b nominal -0.6319970261652097 1.6183189647638891
+rk2_hpipm_constrained_feedback solve2 policy4b perturbed -0.75109025899795601 1.860505430427231
+rk2_hpipm_constrained_feedback solve2 policy5a nominal -0.74596481253129499 1.8563412712260359
+rk2_hpipm_constrained_feedback solve2 policy5a perturbed -0.85525127782099908 2.078914201803344
+rk2_hpipm_constrained_feedback solve2 policy5b nominal -0.78759832284676079 1.9437107978539698
+rk2_hpipm_constrained_feedback solve2 policy5b perturbed -0.89310138177075593 2.158716915699892
+rk2_hpipm_constrained_feedback solve2 policy6a nominal -0.88400345547550085 2.1460935771044012
+rk2_hpipm_constrained_feedback solve2 policy6a perturbed -0.98067856621284133 2.3434437985770908
+rk2_hpipm_constrained_feedback solve2 policy6b nominal -0.91776723297751683 2.2174594669764995
+rk2_hpipm_constrained_feedback solve2 policy6b perturbed -1.0115026186377898 2.4089302382950928
+rk2_hpipm_constrained_feedback solve2 policy7a nominal -0.99461386846480904 2.3801088526431626
+rk2_hpipm_constrained_feedback solve2 policy7a perturbed -1.0814898956119237 2.5578609069355354
+rk2_hpipm_constrained_feedback solve2 policy7b nominal -1.020125694183124 2.4346710661508268
+rk2_hpipm_constrained_feedback solve2 policy7b perturbed -1.1052237769262798 2.6088672316353283
+rk2_hpipm_constrained_feedback solve2 policy8a nominal -1.0757666486742417 2.5542096199653863
+rk2_hpipm_constrained_feedback solve2 policy8a perturbed -1.1567161944748281 2.7201087115648566
+rk2_hpipm_constrained_feedback solve2 policy8b nominal -1.09275633949433 2.5914011030435029
+rk2_hpipm_constrained_feedback solve2 policy8b perturbed -1.173262549135907 2.7564135223250026
+rk2_hpipm_constrained_feedback solve2 policy9a nominal -1.1260550890571042 2.6654935055241467
+rk2_hpipm_constrained_feedback solve2 policy9a perturbed -1.2055268476609928 2.8284370227303821
+rk2_hpipm_constrained_feedback solve2 policy9b nominal -1.1343853246382274 2.685022399533775
+rk2_hpipm_constrained_feedback solve2 policy9b perturbed -1.2147829642795438 2.8498176788149143
+rk2_hpipm_constrained_feedback solve2 policy10a nominal -1.1448633409407125 2.7126714187825325
+rk2_hpipm_constrained_feedback solve2 policy10a perturbed -1.2274213696693601 2.8817874762384479
+rk2_hpipm_constrained_feedback solve2 policy10b nominal -1.1445514347952581 2.7145649098409343
+rk2_hpipm_constrained_feedback solve2 policy10b perturbed -1.2292787003148851 2.888019440878856
+rk2_hpipm_constrained_feedback solve2 policy11a nominal -1.1325438173861231 2.6964233828376214
+rk2_hpipm_constrained_feedback solve2 policy11a perturbed -1.2223326354180355 2.8800010189002228
+rk2_hpipm_constrained_feedback solve2 policy11b nominal -1.1237711965396622 2.6810466219688283
+rk2_hpipm_constrained_feedback solve2 policy11b perturbed -1.216631777379467 2.8707677836472589
+rk2_hpipm_constrained_feedback solve2 policy12a nominal -1.090552756584781 2.6196695306486015
+rk2_hpipm_constrained_feedback solve2 policy12a perturbed -1.1905807839763352 2.8237255854306333
+rk2_hpipm_constrained_feedback solve2 policy12b nominal -1.0736901786226416 2.5877755991393752
+rk2_hpipm_constrained_feedback solve2 policy12b perturbed -1.1770751578317751 2.7985455575566047
+rk2_hpipm_constrained_feedback solve2 policy13a nominal -1.0214845921917877 2.4876372832460332
+rk2_hpipm_constrained_feedback solve2 policy13a perturbed -1.1327024589752726 2.7140730168120575
+rk2_hpipm_constrained_feedback solve2 policy13b nominal -0.99710148776851426 2.4403849505048631
+rk2_hpipm_constrained_feedback solve2 policy13b perturbed -1.1110085455594216 2.6721990660857675
+rk2_hpipm_constrained_feedback solve2 policy14a nominal -0.92895914085368969 2.3076326342543507
+rk2_hpipm_constrained_feedback solve2 policy14a perturbed -1.0491409776619172 2.5519963078699748
+rk2_hpipm_constrained_feedback solve2 policy14b nominal -0.89788453931556944 2.2467068818082172
+rk2_hpipm_constrained_feedback solve2 policy14b perturbed -1.0188968047509812 2.4927314126782383
+rk2_hpipm_constrained_feedback solve2 policy15a nominal -0.81735108860904737 2.088494698532021
+rk2_hpipm_constrained_feedback solve2 policy15a perturbed -0.94030102084122213 2.3383945629956346
+rk2_hpipm_constrained_feedback solve2 policy15b nominal -0.78068033072352772 2.0161185710823442
+rk2_hpipm_constrained_feedback solve2 policy15b perturbed -0.9014707101553816 2.2616993299453378
+rk2_hpipm_constrained_feedback solve2 policy16a nominal -0.69139882821213616 1.8398081388093468
+rk2_hpipm_constrained_feedback solve2 policy16a perturbed -0.80715025110990712 2.0753109846042275
+rk2_hpipm_constrained_feedback solve2 policy16b nominal -0.65040293042435326 1.7585598705771992
+rk2_hpipm_constrained_feedback solve2 policy16b perturbed -0.76046547660167896 1.9826849629312053
+rk2_hpipm_constrained_feedback solve2 policy17a nominal -0.55577191940254034 1.5710327456681665
+rk2_hpipm_constrained_feedback solve2 policy17a perturbed -0.65256041989882596 1.7686097466601329
+rk2_hpipm_constrained_feedback solve2 policy17b nominal -0.49318101197329933 1.44641123425547
+rk2_hpipm_constrained_feedback solve2 policy17b perturbed -0.6010026870816163 1.6660545844715218
+rk2_hpipm_constrained_feedback solve2 policy18a nominal -0.36580543797942555 1.1929674609745167
+rk2_hpipm_constrained_feedback solve2 policy18a perturbed -0.49937118718248197 1.4640989593801046
+rk2_hpipm_constrained_feedback solve2 policy18b nominal -0.17562941369688567 0.8130398632419884
+rk2_hpipm_constrained_feedback solve2 policy18b perturbed -0.32750477305543679 1.1207905819585795
+rk2_hpipm_constrained_feedback solve2 policy19a nominal 0.097032201955955744 0.26870701721229251
+rk2_hpipm_constrained_feedback solve2 policy19a perturbed -0.097565581098749909 0.6619025833212232
+rk2_hpipm_constrained_feedback solve2 policy19b nominal -0.095076320747869203 0.65330864628219665
+rk2_hpipm_constrained_feedback solve2 policy19b perturbed -0.28967410380257463 1.0465042123911272
+configuration rk4_unconstrained_feedforward
+rk4_unconstrained_feedforward solve0 iterations 3
+rk4_unconstrained_feedforward solve0 performance0 0.59657318209981858 0.59657318209981858 0 4.77053487422807e-06 0 0 0 0
+rk4_unconstrained_feedforward solve0 performance1 0.57091384185039895 0.57091384185039895 0 5.9074854762325895e-10 0 0 0 0
+rk4_unconstrained_feedforward solve0 performance2 0.57093499175711071 0.57093499175711071 0 1.4707843424332906e-16 0 0 0 0
+rk4_unconstrained_feedforward solve0 time 0 0.050000000000000003 0.10000000000000001 0.15000000000000002 0.20000000000000001 0.25 0.29999999999999999 0.34999999999999998 0.34999999999999998 0.39999999999999997 0.44999999999999996 0.49999999999999994 0.54999999999999993 0.59999999999999998 0.65000000000000002 0.70000000000000007 0.75000000000000011 0.80000000000000016 0.8500000000000002 0.90000000000000024 0.95000000000000029 1
+rk4_unconstrained_feedforward solve0 state0 0.10000000000000001 0.29999999999999999 0 0
+rk4_unconstrained_feedforward solve0 input0 2.5630280003268942 -2.2094114437830967
+rk4_unconstrained_feedforward solve0 state1 0.10319959789216737 0.29376997636804886 0.12792181129779664 -0.24833428531230797
+rk4_unconstrained_feedforward solve0 input1 2.1642997718074466 -1.7598026642577724
+rk4_unconstrained_feedforward solve0 state2 0.11229191911583405 0.27583395875307049 0.23578502146182373 -0.46741035202529829
+rk4_unconstrained_feedforward solve0 input2 1.7891587270320277 -1.378990210398463
+rk4_unconstrained_feedforward solve0 state3 0.12631249541368075 0.24769579354218302 0.32507812475156206 -0.65566823518387163
+rk4_unconstrained_feedforward solve0 input3 1.4336147817532714 -1.0610090917491519
+rk4_unconstrained_feedforward solve0 state4 0.14435889408436725 0.21093226293356504 0.39679931773239491 -0.81176554309508508
+rk4_unconstrained_feedforward solve0 input4 1.0937958097247293 -0.79756558214847839
+rk4_unconstrained_feedforward solve0 state5 0.16556766332717135 0.16718182763953346 0.45152427612042401 -0.93459594166681337
+rk4_unconstrained_feedforward solve0 input5 0.76586446847860756 -0.57822776245449647
+rk4_unconstrained_feedforward solve0 state6 0.18909575461274239 0.11813236094218943 0.4895130139239911 -1.0233076438182231
+rk4_unconstrained_feedforward solve0 input6 0.44596064749649428 -0.3908530564580347
+rk4_unconstrained_feedforward solve0 state7 0.21410773028981356 0.065507957545475642 0.51082992590600185 -1.0773194430161779
+rk4_unconstrained_feedforward solve0 input7 0.44596064749649428 -0.3908530564580347
+rk4_unconstrained_feedforward solve0 state8 0.21410773028981356 0.065507957545475642 0.35758094813420122 0.54520583358459163
+rk4_unconstrained_feedforward solve0 input8 1.9687040631262598 1.1117191539817133
+rk4_unconstrained_feedforward solve0 state9 0.23440739713223047 0.093101723688448254 0.45434832062468894 0.55626220916524005
+rk4_unconstrained_feedforward solve0 input9 1.5501723074827138 1.2685895991282834
+rk4_unconstrained_feedforward solve0 state10 0.25901457550489482 0.12109871330862805 0.52989903796589233 0.56130654721518247
+rk4_unconstrained_feedforward solve0 input10 1.1493953849438101 1.3719103436061781
+rk4_unconstrained_feedforward solve0 state11 0.28689309364191645 0.14912872701327629 0.58521587532947328 0.55759135015319272
+rk4_unconstrained_feedforward solve0 input11 0.76156890022875223 1.437812165037111
+rk4_unconstrained_feedforward solve0 state12 0.31704935023858188 0.17671040546319999 0.62101881804343928 0.54342568680088266
+rk4_unconstrained_feedforward solve0 input12 0.38197527011016036 1.4784471306394897
+rk4_unconstrained_feedforward solve0 state13 0.34851931506793565 0.20330003615071238 0.6377714584266404 0.51801012282417325
+rk4_unconstrained_feedforward solve0 input13 0.0059444371139440316 1.4994203314073027
+rk4_unconstrained_feedforward solve0 state14 0.3803559112218563 0.22832838413971168 0.63568967264878173 0.48112410800468458
+rk4_unconstrained_feedforward solve0 input14 -0.37118402753711893 1.5036271135902255
+rk4_unconstrained_feedforward solve0 state15 0.41161686682478194 0.2512262911027453 0.61475155170857987 0.4329899385131592
+rk4_unconstrained_feedforward solve0 input15 -0.75409679476517133 1.4914182159772733
+rk4_unconstrained_feedforward solve0 state16 0.44135306880219266 0.27144341285876561 0.57470725153101576 0.37413503180492153
+rk4_unconstrained_feedforward solve0 input16 -1.1475403341973109 1.4607488262831809
+rk4_unconstrained_feedforward solve0 state17 0.46859737118233868 0.28846009781921195 0.51508702036212994 0.30525597393292009
+rk4_unconstrained_feedforward solve0 input17 -1.5563523154664496 1.406423196149569
+rk4_unconstrained_feedforward solve0 state18 0.49235372573045072 0.30179150593720971 0.43520581581322754 0.22704489512122011
+rk4_unconstrained_feedforward solve0 input18 -1.985491421715158 1.3178630373295033
+rk4_unconstrained_feedforward solve0 state19 0.51158643477383436 0.31098045128037743 0.33416345666207814 0.13991314629840454
+rk4_unconstrained_feedforward solve0 input19 -2.4400664155651373 1.1745278399818204
+rk4_unconstrained_feedforward solve0 state20 0.52520929762038593 0.31557121897822771 0.21084033665883037 0.043508250622060415
+rk4_unconstrained_feedforward solve0 input20 -2.9253652953979965 0.94411770126561589
+rk4_unconstrained_feedforward solve0 state21 0.5320744651614111 0.31505750522856707 0.063890493626868591 -0.063836652696463506
+rk4_unconstrained_feedforward solve0 input21 -2.9253652953979965 0.94411770126561589
+rk4_unconstrained_feedforward solve0 intermediate0 cost 0.026838040794324048
+rk4_unconstrained_feedforward solve0 intermediate0 dynamicsViolation 1.2605888555228262e-12 -2.2130075549853245e-12 9.7948898991617739e-11 -1.7481449621215006e-10
+rk4_unconstrained_feedforward solve0 intermediate1 cost 0.019192995524350432
+rk4_unconstrained_feedforward solve0 intermediate1 dynamicsViolation 1.4228229705537387e-11 -2.9985680605193465e-11 7.1880762453346847e-10 -1.5118504226308005e-09
+rk4_unconstrained_feedforward solve0 intermediate2 cost 0.013482010471931434
+rk4_unconstrained_feedforward solve0 intermediate2 dynamicsViolation 4.063110958796301e-11 -9.9622171623181544e-11 1.7751183301051299e-09 -4.4955966727044938e-09
+rk4_unconstrained_feedforward solve0 intermediate3 cost 0.0093247941178334296
+rk4_unconstrained_feedforward solve0 intermediate3 dynamicsViolation 5.71790392811522e-11 -1.9374640780611685e-10 2.1760819812755017e-09 -8.2646550714216005e-09
+rk4_unconstrained_feedforward solve0 intermediate4 cost 0.006509910810152013
+rk4_unconstrained_feedforward solve0 intermediate4 dynamicsViolation 1.831590434875352e-11 -2.7481159015074752e-10 4.9665715984303915e-11 -1.1247653808332814e-08
+rk4_unconstrained_feedforward solve0 intermediate5 cost 0.0049434203610342082
+rk4_unconstrained_feedforward solve0 intermediate5 dynamicsViolation -1.2186218700804829e-10 -3.1261726540776635e-10 -6.3375248382513405e-09 -1.2286908157577159e-08
+rk4_unconstrained_feedforward solve0 intermediate6 cost 0.0046050590799740767
+rk4_unconstrained_feedforward solve0 intermediate6 dynamicsViolation -3.8680772473931313e-10 -2.9187653682871684e-10 -1.7761164428087284e-08 -1.0838478337049651e-08
+rk4_unconstrained_feedforward solve0 intermediate7 cost 0.015247665827713653
+rk4_unconstrained_feedforward solve0 intermediate7 dynamicsViolation -1.3512241325841501e-10 -3.7526186325020916e-10 -5.0395213002651928e-09 -1.5255027796534648e-08
+rk4_unconstrained_feedforward solve0 intermediate8 cost 0.013939020181347258
+rk4_unconstrained_feedforward solve0 intermediate8 dynamicsViolation -1.0481421286456793e-10 3.3161504098266903e-10 -4.0970536963058635e-09 1.3584022462431733e-08
+rk4_unconstrained_feedforward solve0 intermediate9 cost 0.013212451906946285
+rk4_unconstrained_feedforward solve0 intermediate9 dynamicsViolation -7.2397421391201533e-11 -8.5571494334857334e-10 -2.6076725223589392e-09 -3.4151290129180722e-08
+rk4_unconstrained_feedforward solve0 intermediate10 cost 0.012841569687508783
+rk4_unconstrained_feedforward solve0 intermediate10 dynamicsViolation -3.8743286356890394e-11 -1.0753045676104023e-10 -1.4674929049718344e-09 -4.2637340325057949e-09
+rk4_unconstrained_feedforward solve0 intermediate11 cost 0.012716135205286763
+rk4_unconstrained_feedforward solve0 intermediate11 dynamicsViolation -2.5488666732798038e-11 1.2382561642709788e-10 -8.9243978873554397e-10 4.9422546055666317e-09
+rk4_unconstrained_feedforward solve0 intermediate12 cost 0.012764053232451731
+rk4_unconstrained_feedforward solve0 intermediate12 dynamicsViolation -2.1105339698124226e-12 1.2591042097831462e-10 1.6660994806017015e-10 4.913625117897169e-09
+rk4_unconstrained_feedforward solve0 intermediate13 cost 0.012968534348445779
+rk4_unconstrained_feedforward solve0 intermediate13 dynamicsViolation 3.6690539495509711e-11 8.4509788056408297e-11 1.786616521393114e-09 3.1981768344735428e-09
+rk4_unconstrained_feedforward solve0 intermediate14 cost 0.013359888088307499
+rk4_unconstrained_feedforward solve0 intermediate14 dynamicsViolation 8.3282047924626568e-11 4.546318876919031e-11 3.6516014656484685e-09 1.6202400532350225e-09
+rk4_unconstrained_feedforward solve0 intermediate15 cost 0.014019179529096076
+rk4_unconstrained_feedforward solve0 intermediate15 dynamicsViolation 1.2057249643149248e-10 -7.6149087036014862e-12 4.9133760393615944e-09 -2.0722085158908499e-10
+rk4_unconstrained_feedforward solve0 intermediate16 cost 0.015082534262791639
+rk4_unconstrained_feedforward solve0 intermediate16 dynamicsViolation 9.448386517618701e-11 9.6189001208557556e-11 3.1656086640907688e-09 4.9642975286090518e-09
+rk4_unconstrained_feedforward solve0 intermediate17 cost 0.016744964822289526
+rk4_unconstrained_feedforward solve0 intermediate17 dynamicsViolation 1.2476797373039972e-11 4.1451453380858538e-10 4.1510084258788993e-10 1.6667412866544495e-08
+rk4_unconstrained_feedforward solve0 intermediate18 cost 0.019272392436786665
+rk4_unconstrained_feedforward solve0 intermediate18 dynamicsViolation 1.7203127811171726e-11 -8.4325213478564365e-11 5.7414864529370391e-10 -3.1391446247974741e-09
+rk4_unconstrained_feedforward solve0 intermediate19 cost 0.023094275085467623
+rk4_unconstrained_feedforward solve0 intermediate19 dynamicsViolation 1.3845036228588015e-11 6.2659044619550741e-11 7.2904905723536473e-10 2.1938521554965007e-09
+rk4_unconstrained_feedforward solve0 preJump0 cost 0.096854821672479746
+rk4_unconstrained_feedforward solve0 preJump0 dynamicsViolation 0 0 5.5511151231257827e-17 -5.4689019979292652e-10
+rk4_unconstrained_feedforward solve0 final cost 0.19392127431059197
+rk4_unconstrained_feedforward solve0 final dynamicsViolation
+rk4_unconstrained_feedforward solve0 policy0a nominal 2.5630280003268942 -2.2094114437830967
+rk4_unconstrained_feedforward solve0 policy0a perturbed 2.5630280003268942 -2.2094114437830967
+rk4_unconstrained_feedforward solve0 policy0b nominal 2.44340953177106 -2.0745288099254995
+rk4_unconstrained_feedforward solve0 policy0b perturbed 2.44340953177106 -2.0745288099254995
+rk4_unconstrained_feedforward solve0 policy1a nominal 2.1642997718074466 -1.7598026642577724
+rk4_unconstrained_feedforward solve0 policy1a perturbed 2.1642997718074466 -1.7598026642577724
+rk4_unconstrained_feedforward solve0 policy1b nominal 2.051757458374821 -1.6455589280999798
+rk4_unconstrained_feedforward solve0 policy1b perturbed 2.051757458374821 -1.6455589280999798
+rk4_unconstrained_feedforward solve0 policy2a nominal 1.7891587270320277 -1.378990210398463
+rk4_unconstrained_feedforward solve0 policy2a perturbed 1.7891587270320277 -1.378990210398463
+rk4_unconstrained_feedforward solve0 policy2b nominal 1.6824955434484008 -1.2835958748036698
+rk4_unconstrained_feedforward solve0 policy2b perturbed 1.6824955434484008 -1.2835958748036698
+rk4_unconstrained_feedforward solve0 policy3a nominal 1.4336147817532714 -1.0610090917491519
+rk4_unconstrained_feedforward solve0 policy3a perturbed 1.4336147817532714 -1.0610090917491519
+rk4_unconstrained_feedforward solve0 policy3b nominal 1.3316690901447088 -0.98197603886894991
+rk4_unconstrained_feedforward solve0 policy3b perturbed 1.3316690901447088 -0.98197603886894991
+rk4_unconstrained_feedforward solve0 policy4a nominal 1.0937958097247293 -0.79756558214847839
+rk4_unconstrained_feedforward solve0 policy4a perturbed 1.0937958097247293 -0.79756558214847839
+rk4_unconstrained_feedforward solve0 policy4b nominal 0.99541640735089287 -0.73176423624028386
+rk4_unconstrained_feedforward solve0 policy4b perturbed 0.99541640735089287 -0.73176423624028386
+rk4_unconstrained_feedforward solve0 policy5a nominal 0.76586446847860756 -0.57822776245449647
+rk4_unconstrained_feedforward solve0 policy5a perturbed 0.76586446847860756 -0.57822776245449647
+rk4_unconstrained_feedforward solve0 policy5b nominal 0.66989332218397335 -0.52201535065555782
+rk4_unconstrained_feedforward solve0 policy5b perturbed 0.66989332218397335 -0.52201535065555782
+rk4_unconstrained_feedforward solve0 policy6a nominal 0.44596064749649428 -0.3908530564580347
+rk4_unconstrained_feedforward solve0 policy6a perturbed 0.44596064749649428 -0.3908530564580347
+rk4_unconstrained_feedforward solve0 policy6b nominal 0.44596064749649428 -0.3908530564580347
+rk4_unconstrained_feedforward solve0 policy6b perturbed 0.44596064749649428 -0.3908530564580347
+rk4_unconstrained_feedforward solve0 policy7a nominal 0.44596064749649428 -0.3908530564580347
+rk4_unconstrained_feedforward solve0 policy7a perturbed 0.44596064749649428 -0.3908530564580347
+rk4_unconstrained_feedforward solve0 policy7b nominal 0.44596064749649428 -0.3908530564580347
+rk4_unconstrained_feedforward solve0 policy7b perturbed 0.44596064749649428 -0.3908530564580347
+rk4_unconstrained_feedforward solve0 policy8a nominal 0.44596064749649428 -0.3908530564580347
+rk4_unconstrained_feedforward solve0 policy8a perturbed 0.44596064749649428 -0.3908530564580347
+rk4_unconstrained_feedforward solve0 policy8b nominal 1.8431445364331958 1.1587802875256843
+rk4_unconstrained_feedforward solve0 policy8b perturbed 1.8431445364331958 1.1587802875256843
+rk4_unconstrained_feedforward solve0 policy9a nominal 1.5501723074827138 1.2685895991282834
+rk4_unconstrained_feedforward solve0 policy9a perturbed 1.5501723074827138 1.2685895991282834
+rk4_unconstrained_feedforward solve0 policy9b nominal 1.4299392307210426 1.2995858224716519
+rk4_unconstrained_feedforward solve0 policy9b perturbed 1.4299392307210426 1.2995858224716519
+rk4_unconstrained_feedforward solve0 policy10a nominal 1.1493953849438101 1.3719103436061781
+rk4_unconstrained_feedforward solve0 policy10a perturbed 1.1493953849438101 1.3719103436061781
+rk4_unconstrained_feedforward solve0 policy10b nominal 1.0330474395292926 1.391680890035458
+rk4_unconstrained_feedforward solve0 policy10b perturbed 1.0330474395292926 1.391680890035458
+rk4_unconstrained_feedforward solve0 policy11a nominal 0.76156890022875223 1.437812165037111
+rk4_unconstrained_feedforward solve0 policy11a perturbed 0.76156890022875223 1.437812165037111
+rk4_unconstrained_feedforward solve0 policy11b nominal 0.64769081119317495 1.4500026547178244
+rk4_unconstrained_feedforward solve0 policy11b perturbed 0.64769081119317495 1.4500026547178244
+rk4_unconstrained_feedforward solve0 policy12a nominal 0.38197527011016036 1.4784471306394897
+rk4_unconstrained_feedforward solve0 policy12a perturbed 0.38197527011016036 1.4784471306394897
+rk4_unconstrained_feedforward solve0 policy12b nominal 0.26916602021129543 1.4847390908698337
+rk4_unconstrained_feedforward solve0 policy12b perturbed 0.26916602021129543 1.4847390908698337
+rk4_unconstrained_feedforward solve0 policy13a nominal 0.0059444371139440316 1.4994203314073027
+rk4_unconstrained_feedforward solve0 policy13a perturbed 0.0059444371139440316 1.4994203314073027
+rk4_unconstrained_feedforward solve0 policy13b nominal -0.10719410228137487 1.5006823660621795
+rk4_unconstrained_feedforward solve0 policy13b perturbed -0.10719410228137487 1.5006823660621795
+rk4_unconstrained_feedforward solve0 policy14a nominal -0.37118402753711893 1.5036271135902255
+rk4_unconstrained_feedforward solve0 policy14a perturbed -0.37118402753711893 1.5036271135902255
+rk4_unconstrained_feedforward solve0 policy14b nominal -0.48605785770553467 1.4999644443063398
+rk4_unconstrained_feedforward solve0 policy14b perturbed -0.48605785770553467 1.4999644443063398
+rk4_unconstrained_feedforward solve0 policy15a nominal -0.75409679476517133 1.4914182159772733
+rk4_unconstrained_feedforward solve0 policy15a perturbed -0.75409679476517133 1.4914182159772733
+rk4_unconstrained_feedforward solve0 policy15b nominal -0.87212985659481324 1.4822173990690455
+rk4_unconstrained_feedforward solve0 policy15b perturbed -0.87212985659481324 1.4822173990690455
+rk4_unconstrained_feedforward solve0 policy16a nominal -1.1475403341973109 1.4607488262831809
+rk4_unconstrained_feedforward solve0 policy16a perturbed -1.1475403341973109 1.4607488262831809
+rk4_unconstrained_feedforward solve0 policy16b nominal -1.2701839285780525 1.4444511372430973
+rk4_unconstrained_feedforward solve0 policy16b perturbed -1.2701839285780525 1.4444511372430973
+rk4_unconstrained_feedforward solve0 policy17a nominal -1.5563523154664496 1.406423196149569
+rk4_unconstrained_feedforward solve0 policy17a perturbed -1.5563523154664496 1.406423196149569
+rk4_unconstrained_feedforward solve0 policy17b nominal -1.6850940473410621 1.3798551485035493
+rk4_unconstrained_feedforward solve0 policy17b perturbed -1.6850940473410621 1.3798551485035493
+rk4_unconstrained_feedforward solve0 policy18a nominal -1.985491421715158 1.3178630373295033
+rk4_unconstrained_feedforward solve0 policy18a perturbed -1.985491421715158 1.3178630373295033
+rk4_unconstrained_feedforward solve0 policy18b nominal -2.1218639198701519 1.2748624781251985
+rk4_unconstrained_feedforward solve0 policy18b perturbed -2.1218639198701519 1.2748624781251985
+rk4_unconstrained_feedforward solve0 policy19a nominal -2.4400664155651373 1.1745278399818204
+rk4_unconstrained_feedforward solve0 policy19a perturbed -2.4400664155651373 1.1745278399818204
+rk4_unconstrained_feedforward solve0 policy19b nominal -2.5856560795149948 1.105404798366959
+rk4_unconstrained_feedforward solve0 policy19b perturbed -2.5856560795149948 1.105404798366959
+rk4_unconstrained_feedforward solve0 policy20a nominal -2.9253652953979965 0.94411770126561589
+rk4_unconstrained_feedforward solve0 policy20a perturbed -2.9253652953979965 0.94411770126561589
+rk4_unconstrained_feedforward solve0 policy20b nominal -2.9253652953979961 0.94411770126561589
+rk4_unconstrained_feedforward solve0 policy20b perturbed -2.9253652953979961 0.94411770126561589
+rk4_unconstrained_feedforward solve1 iterations 3
+rk4_unconstrained_feedforward solve1 performance0 0.58421978624869975 0.58421978624869975 0 8.2149873339527486e-08 0 0 0 0
+rk4_unconstrained_feedforward solve1 performance1 0.58155603785717536 0.58155603785717536 0 4.9903240952103234e-13 0 0 0 0
+rk4_unconstrained_feedforward solve1 performance2 0.58153808237666871 0.58153808237666871 0 8.9572166801219539e-17 0 0 0 0
+rk4_unconstrained_feedforward solve1 time 0.050000000000000003 0.10000000000000001 0.15000000000000002 0.20000000000000001 0.25 0.29999999999999999 0.34999999999999998 0.34999999999999998 0.39999999999999997 0.44999999999999996 0.49999999999999994 0.54999999999999993 0.59999999999999998 0.65000000000000002 0.70000000000000007 0.75000000000000011 0.80000000000000016 0.8500000000000002 0.90000000000000024 0.95000000000000029 1.0000000000000002 1.05
+rk4_unconstrained_feedforward solve1 state0 0.10819959789216738 0.28376997636804885 0.14292181129779663 -0.25333428531230795
+rk4_unconstrained_feedforward solve1 input0 2.0044286371609314 -2.1154740603620952
+rk4_unconstrained_feedforward solve1 state1 0.11784079798485124 0.26527188919738048 0.24275190071880187 -0.48483858056603862
+rk4_unconstrained_feedforward solve1 input1 1.6641875834961839 -1.6502216235451201
+rk4_unconstrained_feedforward solve1 state2 0.13205384469686898 0.23606347580275283 0.32581755988317418 -0.68096169144645868
+rk4_unconstrained_feedforward solve1 input2 1.3420163273322101 -1.2433712488803093
+rk4_unconstrained_feedforward solve1 state3 0.15002374699527288 0.19796003464292658 0.39299816791417624 -0.83995986058788896
+rk4_unconstrained_feedforward solve1 input3 1.0344564015151383 -0.88818397750121147
+rk4_unconstrained_feedforward solve1 state4 0.17096851777239863 0.15285462234910968 0.44475381417168647 -0.96049050235619415
+rk4_unconstrained_feedforward solve1 input4 0.73806294819367135 -0.57646833024884225
+rk4_unconstrained_feedforward solve1 state5 0.19412147468379509 0.10269568036189923 0.48126114918045693 -1.0417039540004576
+rk4_unconstrained_feedforward solve1 input5 0.44935315857333469 -0.29898597291648621
+rk4_unconstrained_feedforward solve1 state6 0.21872072620983721 0.049460312012634171 0.50255841244602217 -1.0833214558003019
+rk4_unconstrained_feedforward solve1 input6 0.44935315857333469 -0.29898597291648621
+rk4_unconstrained_feedforward solve1 state7 0.21872072620983721 0.049460312012634171 0.35179088871221548 0.54660474284527349
+rk4_unconstrained_feedforward solve1 input7 1.982122810947035 1.0319549217681308
+rk4_unconstrained_feedforward solve1 state8 0.23874661689742871 0.077221155112445289 0.44918742039295279 0.56152888810192814
+rk4_unconstrained_feedforward solve1 input8 1.5938992464127573 1.2499542300484066
+rk4_unconstrained_feedforward solve1 state9 0.26314940525482006 0.10565118629933475 0.52688515063008456 0.57331614610470882
+rk4_unconstrained_feedforward solve1 input9 1.2240143400773693 1.3877062736257857
+rk4_unconstrained_feedforward solve1 state10 0.29096967112981803 0.13448593604372944 0.58590145770160695 0.57769136584977077
+rk4_unconstrained_feedforward solve1 input10 0.86805900166194394 1.4752054397894032
+rk4_unconstrained_feedforward solve1 state11 0.32129279643990366 0.16328997125116065 0.62701040205539949 0.57210320097361811
+rk4_unconstrained_feedforward solve1 input11 0.5217218358354393 1.5323349812610152
+rk4_unconstrained_feedforward solve1 state12 0.35323686847385904 0.19153188726180903 0.6507463803650323 0.55527028415243229
+rk4_unconstrained_feedforward solve1 input12 0.18075208416086311 1.5723122180237357
+rk4_unconstrained_feedforward solve1 state13 0.38594085224165497 0.21864008637997689 0.65741119419121463 0.52686781565350382
+rk4_unconstrained_feedforward solve1 input13 -0.1590765237314882 1.5947539512886515
+rk4_unconstrained_feedforward solve1 state14 0.41855317684447241 0.2440339432263961 0.647083061380054 0.48685960427580238
+rk4_unconstrained_feedforward solve1 input14 -0.5020002220180585 1.5988126056269667
+rk4_unconstrained_feedforward solve1 state15 0.45022078477509248 0.26713765844620502 0.61962613725464988 0.43547353550758372
+rk4_unconstrained_feedforward solve1 input15 -0.85229754707082706 1.5842105402180682
+rk4_unconstrained_feedforward solve1 state16 0.48007866375666669 0.2873939047159918 0.57470006886314273 0.37321775043624772
+rk4_unconstrained_feedforward solve1 input16 -1.2143192750709195 1.5511956007561936
+rk4_unconstrained_feedforward solve1 state17 0.50723982682383872 0.30427796199838603 0.51176805591505203 0.3008841425707961
+rk4_unconstrained_feedforward solve1 input17 -1.5925160643288971 1.5004821548111351
+rk4_unconstrained_feedforward solve1 state18 0.53078562015329644 0.31731171288459398 0.43010157313885333 0.21953948601872139
+rk4_unconstrained_feedforward solve1 input18 -1.9914643805197438 1.4242744640761125
+rk4_unconstrained_feedforward solve1 state19 0.54975614074753454 0.32606640204798104 0.32877968038183075 0.13008692513008238
+rk4_unconstrained_feedforward solve1 input19 -2.4158918111428216 1.3021561639954693
+rk4_unconstrained_feedforward solve1 state20 0.56314046823728436 0.3301389328102724 0.20668249405631428 0.032648101332746496
+rk4_unconstrained_feedforward solve1 input20 -2.8707029869787117 1.0902105669380182
+rk4_unconstrained_feedforward solve1 state21 0.56986647445105798 0.32908498651989637 0.062481525309576166 -0.0745427063373999
+rk4_unconstrained_feedforward solve1 input21 -2.8707029869787117 1.0902105669380182
+rk4_unconstrained_feedforward solve1 intermediate0 cost 0.018198973924554451
+rk4_unconstrained_feedforward solve1 intermediate0 dynamicsViolation 3.6778080581001404e-12 -6.5612515420809814e-12 2.7916913225567441e-10 -5.1285559132807634e-10
+rk4_unconstrained_feedforward solve1 intermediate1 cost 0.012555755435774744
+rk4_unconstrained_feedforward solve1 intermediate1 dynamicsViolation 2.6530111441047666e-11 -4.2872344563349429e-11 1.1723063630952879e-09 -2.0704683523220524e-09
+rk4_unconstrained_feedforward solve1 intermediate2 cost 0.00855056415408708
+rk4_unconstrained_feedforward solve1 intermediate2 dynamicsViolation 3.0958069441311409e-11 -4.7905096556277726e-11 1.0837230557392274e-09 -2.0375692244556376e-09
+rk4_unconstrained_feedforward solve1 intermediate3 cost 0.005978164117155813
+rk4_unconstrained_feedforward solve1 intermediate3 dynamicsViolation -3.6763370125925121e-12 6.5091820822260615e-12 -4.8540832464638584e-10 3.2991687159977801e-10
+rk4_unconstrained_feedforward solve1 intermediate4 cost 0.0047350372909847139
+rk4_unconstrained_feedforward solve1 intermediate4 dynamicsViolation -5.2137683059783058e-11 7.8064221753493257e-11 -2.3164887785753763e-09 3.1084228524491664e-09
+rk4_unconstrained_feedforward solve1 intermediate5 cost 0.0047768571737311274
+rk4_unconstrained_feedforward solve1 intermediate5 dynamicsViolation -7.1347122654330519e-11 1.0108936604469321e-10 -2.7580220329781469e-09 3.7345588843606947e-09
+rk4_unconstrained_feedforward solve1 intermediate6 cost 0.014926342686471892
+rk4_unconstrained_feedforward solve1 intermediate6 dynamicsViolation -2.2064849947156517e-12 -1.5969561784068276e-10 1.5021056620767581e-10 -6.8063420455288792e-09
+rk4_unconstrained_feedforward solve1 intermediate7 cost 0.01425412472078667
+rk4_unconstrained_feedforward solve1 intermediate7 dynamicsViolation 2.5350943566593287e-11 -7.5112679964739471e-11 1.0618294021824681e-09 -3.1271556455436667e-09
+rk4_unconstrained_feedforward solve1 intermediate8 cost 0.013998762331128263
+rk4_unconstrained_feedforward solve1 intermediate8 dynamicsViolation 2.8512026073457264e-11 -3.0595692646073758e-11 1.0963094876359492e-09 -1.2164236284917251e-09
+rk4_unconstrained_feedforward solve1 intermediate9 cost 0.013961806944596186
+rk4_unconstrained_feedforward solve1 intermediate9 dynamicsViolation 1.9220347535764404e-11 1.1670553412557183e-11 6.7087857491543446e-10 5.4793625192672835e-10
+rk4_unconstrained_feedforward solve1 intermediate10 cost 0.014067561193326123
+rk4_unconstrained_feedforward solve1 intermediate10 dynamicsViolation 3.6493030819428895e-12 5.4914017777463187e-11 3.8869352181336581e-11 2.305246438183417e-09
+rk4_unconstrained_feedforward solve1 intermediate11 cost 0.014311678545509481
+rk4_unconstrained_feedforward solve1 intermediate11 dynamicsViolation -1.1278811218318197e-11 1.044602182531662e-10 -5.1997361971700684e-10 4.2719958681658454e-09
+rk4_unconstrained_feedforward solve1 intermediate12 cost 0.014592327019706768
+rk4_unconstrained_feedforward solve1 intermediate12 dynamicsViolation -1.8031021120634705e-11 1.5067230796361741e-10 -6.9938344005038289e-10 6.0510582100548049e-09
+rk4_unconstrained_feedforward solve1 intermediate13 cost 0.014868067066054813
+rk4_unconstrained_feedforward solve1 intermediate13 dynamicsViolation -9.0037421962563258e-12 1.807929916886053e-10 -2.0675272605075179e-10 7.1334372853115724e-09
+rk4_unconstrained_feedforward solve1 intermediate14 cost 0.015177991571437401
+rk4_unconstrained_feedforward solve1 intermediate14 dynamicsViolation 2.0845214443454552e-11 1.8380930111305815e-10 1.1305107960879468e-09 7.097048060344946e-09
+rk4_unconstrained_feedforward solve1 intermediate15 cost 0.015647653156040074
+rk4_unconstrained_feedforward solve1 intermediate15 dynamicsViolation 7.1563421855103115e-11 1.5420625887330175e-10 3.2746628741975314e-09 5.7528723451660824e-09
+rk4_unconstrained_feedforward solve1 intermediate16 cost 0.016494748225164505
+rk4_unconstrained_feedforward solve1 intermediate16 dynamicsViolation 1.3384260366677836e-10 7.3109629461498571e-11 5.7424996979804632e-09 2.5044040730115569e-09
+rk4_unconstrained_feedforward solve1 intermediate17 cost 0.017921701948001804
+rk4_unconstrained_feedforward solve1 intermediate17 dynamicsViolation 1.9319190691646781e-10 1.1798173549237845e-11 8.1048553424167835e-09 -6.9652145162635293e-11
+rk4_unconstrained_feedforward solve1 intermediate18 cost 0.020131133186191918
+rk4_unconstrained_feedforward solve1 intermediate18 dynamicsViolation 8.4636075925459409e-11 8.7694435046969943e-10 2.3254557446339419e-09 3.6767108475832533e-08
+rk4_unconstrained_feedforward solve1 intermediate19 cost 0.023369265969219601
+rk4_unconstrained_feedforward solve1 intermediate19 dynamicsViolation 7.9276141207174078e-11 2.9278357516204778e-11 3.300918087478788e-09 9.3764278286112557e-10
+rk4_unconstrained_feedforward solve1 preJump0 cost 0.099728773707702334
+rk4_unconstrained_feedforward solve1 preJump0 dynamicsViolation 0 0 0 -9.5083940720996907e-11
+rk4_unconstrained_feedforward solve1 final cost 0.20329079200904304
+rk4_unconstrained_feedforward solve1 final dynamicsViolation
+rk4_unconstrained_feedforward solve1 policy0a nominal 2.0044286371609314 -2.1154740603620952
+rk4_unconstrained_feedforward solve1 policy0a perturbed 2.0044286371609314 -2.1154740603620952
+rk4_unconstrained_feedforward solve1 policy0b nominal 1.9023563210615073 -1.9758983293170027
+rk4_unconstrained_feedforward solve1 policy0b perturbed 1.9023563210615073 -1.9758983293170027
+rk4_unconstrained_feedforward solve1 policy1a nominal 1.6641875834961839 -1.6502216235451201
+rk4_unconstrained_feedforward solve1 policy1a perturbed 1.6641875834961839 -1.6502216235451201
+rk4_unconstrained_feedforward solve1 policy1b nominal 1.5675362066469916 -1.5281665111456768
+rk4_unconstrained_feedforward solve1 policy1b perturbed 1.5675362066469916 -1.5281665111456768
+rk4_unconstrained_feedforward solve1 policy2a nominal 1.3420163273322101 -1.2433712488803093
+rk4_unconstrained_feedforward solve1 policy2a perturbed 1.3420163273322101 -1.2433712488803093
+rk4_unconstrained_feedforward solve1 policy2b nominal 1.2497483495870885 -1.13681506746658
+rk4_unconstrained_feedforward solve1 policy2b perturbed 1.2497483495870885 -1.13681506746658
+rk4_unconstrained_feedforward solve1 policy3a nominal 1.0344564015151383 -0.88818397750121147
+rk4_unconstrained_feedforward solve1 policy3a perturbed 1.0344564015151383 -0.88818397750121147
+rk4_unconstrained_feedforward solve1 policy3b nominal 0.94553836551869819 -0.7946692833255008
+rk4_unconstrained_feedforward solve1 policy3b perturbed 0.94553836551869819 -0.7946692833255008
+rk4_unconstrained_feedforward solve1 policy4a nominal 0.73806294819367135 -0.57646833024884225
+rk4_unconstrained_feedforward solve1 policy4a perturbed 0.73806294819367135 -0.57646833024884225
+rk4_unconstrained_feedforward solve1 policy4b nominal 0.6514500113075703 -0.49322362304913531
+rk4_unconstrained_feedforward solve1 policy4b perturbed 0.6514500113075703 -0.49322362304913531
+rk4_unconstrained_feedforward solve1 policy5a nominal 0.44935315857333469 -0.29898597291648621
+rk4_unconstrained_feedforward solve1 policy5a perturbed 0.44935315857333469 -0.29898597291648621
+rk4_unconstrained_feedforward solve1 policy5b nominal 0.44935315857333469 -0.29898597291648621
+rk4_unconstrained_feedforward solve1 policy5b perturbed 0.44935315857333469 -0.29898597291648621
+rk4_unconstrained_feedforward solve1 policy6a nominal 0.44935315857333469 -0.29898597291648621
+rk4_unconstrained_feedforward solve1 policy6a perturbed 0.44935315857333469 -0.29898597291648621
+rk4_unconstrained_feedforward solve1 policy6b nominal 0.44935315857333469 -0.29898597291648621
+rk4_unconstrained_feedforward solve1 policy6b perturbed 0.44935315857333469 -0.29898597291648621
+rk4_unconstrained_feedforward solve1 policy7a nominal 0.44935315857333469 -0.29898597291648621
+rk4_unconstrained_feedforward solve1 policy7a perturbed 0.44935315857333469 -0.29898597291648621
+rk4_unconstrained_feedforward solve1 policy7b nominal 1.8656557415867516 1.0973547142522135
+rk4_unconstrained_feedforward solve1 policy7b perturbed 1.8656557415867516 1.0973547142522135
+rk4_unconstrained_feedforward solve1 policy8a nominal 1.5938992464127573 1.2499542300484066
+rk4_unconstrained_feedforward solve1 policy8a perturbed 1.5938992464127573 1.2499542300484066
+rk4_unconstrained_feedforward solve1 policy8b nominal 1.4829337745121407 1.2912798431216204
+rk4_unconstrained_feedforward solve1 policy8b perturbed 1.4829337745121407 1.2912798431216204
+rk4_unconstrained_feedforward solve1 policy9a nominal 1.2240143400773693 1.3877062736257857
+rk4_unconstrained_feedforward solve1 policy9a perturbed 1.2240143400773693 1.3877062736257857
+rk4_unconstrained_feedforward solve1 policy9b nominal 1.1172277385527416 1.4139560234748709
+rk4_unconstrained_feedforward solve1 policy9b perturbed 1.1172277385527416 1.4139560234748709
+rk4_unconstrained_feedforward solve1 policy10a nominal 0.86805900166194394 1.4752054397894032
+rk4_unconstrained_feedforward solve1 policy10a perturbed 0.86805900166194394 1.4752054397894032
+rk4_unconstrained_feedforward solve1 policy10b nominal 0.76415785191399277 1.4923443022308867
+rk4_unconstrained_feedforward solve1 policy10b perturbed 0.76415785191399277 1.4923443022308867
+rk4_unconstrained_feedforward solve1 policy11a nominal 0.5217218358354393 1.5323349812610152
+rk4_unconstrained_feedforward solve1 policy11a perturbed 0.5217218358354393 1.5323349812610152
+rk4_unconstrained_feedforward solve1 policy11b nominal 0.41943091033306645 1.5443281522898311
+rk4_unconstrained_feedforward solve1 policy11b perturbed 0.41943091033306645 1.5443281522898311
+rk4_unconstrained_feedforward solve1 policy12a nominal 0.18075208416086311 1.5723122180237357
+rk4_unconstrained_feedforward solve1 policy12a perturbed 0.18075208416086311 1.5723122180237357
+rk4_unconstrained_feedforward solve1 policy12b nominal 0.078803501793157704 1.5790447380032102
+rk4_unconstrained_feedforward solve1 policy12b perturbed 0.078803501793157704 1.5790447380032102
+rk4_unconstrained_feedforward solve1 policy13a nominal -0.1590765237314882 1.5947539512886515
+rk4_unconstrained_feedforward solve1 policy13a perturbed -0.1590765237314882 1.5947539512886515
+rk4_unconstrained_feedforward solve1 policy13b nominal -0.26195363321745935 1.5959715475901461
+rk4_unconstrained_feedforward solve1 policy13b perturbed -0.26195363321745935 1.5959715475901461
+rk4_unconstrained_feedforward solve1 policy14a nominal -0.5020002220180585 1.5988126056269667
+rk4_unconstrained_feedforward solve1 policy14a perturbed -0.5020002220180585 1.5988126056269667
+rk4_unconstrained_feedforward solve1 policy14b nominal -0.60708941953388906 1.594431986004297
+rk4_unconstrained_feedforward solve1 policy14b perturbed -0.60708941953388906 1.594431986004297
+rk4_unconstrained_feedforward solve1 policy15a nominal -0.85229754707082706 1.5842105402180682
+rk4_unconstrained_feedforward solve1 policy15a perturbed -0.85229754707082706 1.5842105402180682
+rk4_unconstrained_feedforward solve1 policy15b nominal -0.96090406547085483 1.5743060583795057
+rk4_unconstrained_feedforward solve1 policy15b perturbed -0.96090406547085483 1.5743060583795057
+rk4_unconstrained_feedforward solve1 policy16a nominal -1.2143192750709195 1.5511956007561936
+rk4_unconstrained_feedforward solve1 policy16a perturbed -1.2143192750709195 1.5511956007561936
+rk4_unconstrained_feedforward solve1 policy16b nominal -1.3277783118483129 1.535981566972676
+rk4_unconstrained_feedforward solve1 policy16b perturbed -1.3277783118483129 1.535981566972676
+rk4_unconstrained_feedforward solve1 policy17a nominal -1.5925160643288971 1.5004821548111351
+rk4_unconstrained_feedforward solve1 policy17a perturbed -1.5925160643288971 1.5004821548111351
+rk4_unconstrained_feedforward solve1 policy17b nominal -1.7122005591861513 1.4776198475906284
+rk4_unconstrained_feedforward solve1 policy17b perturbed -1.7122005591861513 1.4776198475906284
+rk4_unconstrained_feedforward solve1 policy18a nominal -1.9914643805197438 1.4242744640761125
+rk4_unconstrained_feedforward solve1 policy18a perturbed -1.9914643805197438 1.4242744640761125
+rk4_unconstrained_feedforward solve1 policy18b nominal -2.1187926097066669 1.3876389740519195
+rk4_unconstrained_feedforward solve1 policy18b perturbed -2.1187926097066669 1.3876389740519195
+rk4_unconstrained_feedforward solve1 policy19a nominal -2.4158918111428216 1.3021561639954693
+rk4_unconstrained_feedforward solve1 policy19a perturbed -2.4158918111428216 1.3021561639954693
+rk4_unconstrained_feedforward solve1 policy19b nominal -2.5523351638935887 1.2385724848782338
+rk4_unconstrained_feedforward solve1 policy19b perturbed -2.5523351638935887 1.2385724848782338
+rk4_unconstrained_feedforward solve1 policy20a nominal -2.8707029869787117 1.0902105669380182
+rk4_unconstrained_feedforward solve1 policy20a perturbed -2.8707029869787117 1.0902105669380182
+rk4_unconstrained_feedforward solve1 policy20b nominal -2.8707029869787117 1.0902105669380182
+rk4_unconstrained_feedforward solve1 policy20b perturbed -2.8707029869787117 1.0902105669380182
+rk4_unconstrained_feedforward solve2 iterations 4
+rk4_unconstrained_feedforward solve2 performance0 1.3648738808326766 1.3648738808326766 0 2.1494127895720135e-06 0 0 0 0
+rk4_unconstrained_feedforward solve2 performance1 1.0878198144539322 1.0878198144539322 0 1.065695206267158e-07 0 0 0 0
+rk4_unconstrained_feedforward solve2 performance2 1.0792084128900929 1.0792084128900929 0 2.5048920873291964e-11 0 0 0 0
+rk4_unconstrained_feedforward solve2 performance3 1.0791988365857574 1.0791988365857574 0 1.6235621669811149e-17 0 0 0 0
+rk4_unconstrained_feedforward solve2 time 0.40000000000000002 0.45000000000000001 0.5 0.55000000000000004 0.60000000000000009 0.65000000000000013 0.70000000000000018 0.75000000000000022 0.80000000000000027 0.85000000000000031 0.90000000000000036 0.9500000000000004 1.0000000000000004 1.0500000000000005 1.1000000000000005 1.1500000000000006 1.2000000000000006 1.2500000000000007 1.3000000000000007 1.3500000000000008 1.3999999999999999
+rk4_unconstrained_feedforward solve2 state0 0.24374661689742874 0.067221155112445322 0.46418742039295291 0.55652888810192813
+rk4_unconstrained_feedforward solve2 input0 1.4112132659001462 -2.7453522485451027
+rk4_unconstrained_feedforward solve2 state1 0.26866609586725276 0.090573380437436415 0.5325147972286034 0.37600400636736597
+rk4_unconstrained_feedforward solve2 input1 1.1968666691625844 -0.35319576131150193
+rk4_unconstrained_feedforward solve2 state2 0.29672347403399585 0.10766350459037773 0.58972590683320181 0.30633473829942609
+rk4_unconstrained_feedforward solve2 input2 0.99663561838485426 1.1008515976833202
+rk4_unconstrained_feedforward solve2 state3 0.3273838246612738 0.12289137842834082 0.63665166196587841 0.30153814097641957
+rk4_unconstrained_feedforward solve2 input3 0.80811272806818624 1.5669984340716834
+rk4_unconstrained_feedforward solve2 state4 0.3601498885990933 0.13826951982780283 0.67396552892026762 0.31229961916544163
+rk4_unconstrained_feedforward solve2 input4 0.62898832267914295 1.8623914299643625
+rk4_unconstrained_feedforward solve2 state5 0.3945544352633239 0.15435442282656417 0.70220097050032781 0.32973294496100419
+rk4_unconstrained_feedforward solve2 input5 0.45702792452810065 2.1367864368716045
+rk4_unconstrained_feedforward solve2 state6 0.4301540081187285 0.17144027602299686 0.72177673261427822 0.35223903720460625
+rk4_unconstrained_feedforward solve2 input6 0.29005529200208835 2.3827493305881826
+rk4_unconstrained_feedforward solve2 state7 0.46652338611714533 0.18972909135562394 0.73300335378296355 0.37773828105308777
+rk4_unconstrained_feedforward solve2 input7 0.12593647773671832 2.5933585920002731
+rk4_unconstrained_feedforward solve2 state8 0.50325019476840616 0.20930876839186258 0.73608379077189823 0.40375617836258604
+rk4_unconstrained_feedforward solve2 input8 -0.037436425875723801 2.7624602331839476
+rk4_unconstrained_feedforward solve2 state9 0.53992949092144404 0.23013607426610988 0.7311117069639036 0.42753398725315611
+rk4_unconstrained_feedforward solve2 input9 -0.20216230579756425 2.8849422158236919
+rk4_unconstrained_feedforward solve2 state10 0.57615820230413084 0.25202574988703885 0.71806742912404387 0.44616261180924016
+rk4_unconstrained_feedforward solve2 input10 -0.37034926273265478 2.9570054025844943
+rk4_unconstrained_feedforward solve2 state11 0.61152931803869803 0.27464679750137666 0.6968122100970795 0.45673522316283482
+rk4_unconstrained_feedforward solve2 input11 -0.54413434898032353 2.9763960985429851
+rk4_unconstrained_feedforward solve2 state12 0.64562577740236027 0.29752669004162469 0.66708220484118208 0.45651054547342962
+rk4_unconstrained_feedforward solve2 input12 -0.72570473975888072 2.9425572354316092
+rk4_unconstrained_feedforward solve2 state13 0.67801409179995498 0.32006374624077882 0.62848420533187255 0.44307508384019245
+rk4_unconstrained_feedforward solve2 input13 -0.91731974786130155 2.8566565725972066
+rk4_unconstrained_feedforward solve2 state14 0.70823784364367703 0.34154725905949851 0.58049532049039954 0.41448990861382401
+rk4_unconstrained_feedforward solve2 input14 -1.1213325357532349 2.721464693235351
+rk4_unconstrained_feedforward solve2 state15 0.73581130241330006 0.36118422968447988 0.52246812648299978 0.36940718058882366
+rk4_unconstrained_feedforward solve2 input15 -1.340209991111553 2.5410827415962265
+rk4_unconstrained_feedforward solve2 state16 0.76021343988483903 0.37813087966349113 0.45364130300770034 0.30714426064344025
+rk4_unconstrained_feedforward solve2 input16 -1.5765492266660714 2.3205547188926667
+rk4_unconstrained_feedforward solve2 state17 0.780882577389442 0.39152664607679849 0.37315373495127907 0.22770899861299093
+rk4_unconstrained_feedforward solve2 input17 -1.8330896768312883 2.0654314877029742
+rk4_unconstrained_feedforward solve2 state18 0.79721174640890236 0.40052823810822946 0.28005811953970722 0.13177755687511816
+rk4_unconstrained_feedforward solve2 input18 -2.1127207677711191 1.7813732724589562
+rk4_unconstrained_feedforward solve2 state19 0.80854461202273531 0.40434160327205826 0.17332895236416535 0.020634070744323305
+rk4_unconstrained_feedforward solve2 input19 -2.4184864382803832 1.4726257137369001
+rk4_unconstrained_feedforward solve2 state20 0.81417154789398349 0.40224884753392054 0.051859822909592825 -0.10396936486574293
+rk4_unconstrained_feedforward solve2 input20 -2.4184864382803832 1.4726257137369001
+rk4_unconstrained_feedforward solve2 intermediate0 cost 0.011415659852954143
+rk4_unconstrained_feedforward solve2 intermediate0 dynamicsViolation 3.2207569944375791e-13 -4.601041769802805e-13 2.7967850257937243e-11 -3.9048320132906156e-11
+rk4_unconstrained_feedforward solve2 intermediate1 cost 0.0041758180104795491
+rk4_unconstrained_feedforward solve2 intermediate1 dynamicsViolation 2.6993407509223744e-12 -2.9820590441431705e-13 1.1531053889513032e-10 -1.3881729099551876e-11
+rk4_unconstrained_feedforward solve2 intermediate2 cost 0.0098146767171535879
+rk4_unconstrained_feedforward solve2 intermediate2 dynamicsViolation 7.9218298587591107e-12 -2.4256555097856847e-11 4.3471548583084996e-10 -1.1385727916035648e-09
+rk4_unconstrained_feedforward solve2 intermediate3 cost 0.014899003980699725
+rk4_unconstrained_feedforward solve2 intermediate3 dynamicsViolation 2.1968593610921516e-11 2.5442981055334712e-12 8.9281626536319436e-10 1.1417400358482155e-10
+rk4_unconstrained_feedforward solve2 intermediate4 cost 0.020409175505799182
+rk4_unconstrained_feedforward solve2 intermediate4 dynamicsViolation 2.3471280474751666e-11 4.3810510774733302e-12 9.3867502659605861e-10 1.9007317941799329e-10
+rk4_unconstrained_feedforward solve2 intermediate5 cost 0.02734822024089132
+rk4_unconstrained_feedforward solve2 intermediate5 dynamicsViolation 2.2349788686426564e-11 1.0541789663420786e-11 8.7371920809431458e-10 4.4845460678288873e-10
+rk4_unconstrained_feedforward solve2 intermediate6 cost 0.035037446678993972
+rk4_unconstrained_feedforward solve2 intermediate6 dynamicsViolation 1.798933224606003e-11 2.41804631873066e-11 6.7715877349883158e-10 1.012550820966851e-09
+rk4_unconstrained_feedforward solve2 intermediate7 cost 0.042711882802856573
+rk4_unconstrained_feedforward solve2 intermediate7 dynamicsViolation 1.0512146708663295e-11 4.6068093784157327e-11 3.6368230649230782e-10 1.9033490339381842e-09
+rk4_unconstrained_feedforward solve2 intermediate8 cost 0.049592586566461844
+rk4_unconstrained_feedforward solve2 intermediate8 dynamicsViolation 1.7761347947953254e-12 7.2579664500693752e-11 2.1864732246967833e-11 2.9604816931261269e-09
+rk4_unconstrained_feedforward solve2 intermediate9 cost 0.054968692065991448
+rk4_unconstrained_feedforward solve2 intermediate9 dynamicsViolation -4.2463810245862987e-12 9.5232655095145446e-11 -1.7787116224354804e-10 3.8312088501690766e-09
+rk4_unconstrained_feedforward solve2 intermediate10 cost 0.058279652647571949
+rk4_unconstrained_feedforward solve2 intermediate10 dynamicsViolation -2.400635246146976e-12 1.033493846058775e-10 -3.1272540113036484e-11 4.088714589123299e-09
+rk4_unconstrained_feedforward solve2 intermediate11 cost 0.059185994004587544
+rk4_unconstrained_feedforward solve2 intermediate11 dynamicsViolation 1.1159739798927149e-11 8.997397271670593e-11 5.9292859511117513e-10 3.476884558040183e-09
+rk4_unconstrained_feedforward solve2 intermediate12 cost 0.057616769489429329
+rk4_unconstrained_feedforward solve2 intermediate12 dynamicsViolation 3.5963343414380233e-11 5.7885141124813799e-11 1.6382977197082482e-09 2.1450901055430904e-09
+rk4_unconstrained_feedforward solve2 intermediate13 cost 0.053784858974350161
+rk4_unconstrained_feedforward solve2 intermediate13 dynamicsViolation 6.5889849132361178e-11 2.1060653221383063e-11 2.8274314001208722e-09 6.8530447983050635e-10
+rk4_unconstrained_feedforward solve2 intermediate14 cost 0.04816738434385387
+rk4_unconstrained_feedforward solve2 intermediate14 dynamicsViolation 9.1120222478480173e-11 -1.423583473325607e-12 3.758816924381847e-09 -1.3066442372533515e-10
+rk4_unconstrained_feedforward solve2 intermediate15 cost 0.041456474294365268
+rk4_unconstrained_feedforward solve2 intermediate15 dynamicsViolation 1.0222267476933666e-10 6.5450422859214541e-12 4.07982975181298e-09 3.1464059135899447e-10
+rk4_unconstrained_feedforward solve2 intermediate16 cost 0.034492794917013014
+rk4_unconstrained_feedforward solve2 intermediate16 dynamicsViolation 9.4714347476099192e-11 4.8310355715841524e-11 3.6598505892548872e-09 2.1013546180892462e-09
+rk4_unconstrained_feedforward solve2 intermediate17 cost 0.028197814837429024
+rk4_unconstrained_feedforward solve2 intermediate17 dynamicsViolation 7.1550099178807613e-11 1.0963402408137313e-10 2.6655317952872792e-09 4.6071282899795563e-09
+rk4_unconstrained_feedforward solve2 intermediate18 cost 0.023519118772421979
+rk4_unconstrained_feedforward solve2 intermediate18 dynamicsViolation 4.1862069366516153e-11 1.6251222589858116e-10 1.484324302358786e-09 6.6910913719409049e-09
+rk4_unconstrained_feedforward solve2 intermediate19 cost 0.021380052300584533
+rk4_unconstrained_feedforward solve2 intermediate19 dynamicsViolation 1.4866885500453009e-11 2.7352303755279195e-10 4.5152930699954297e-10 1.1067542979303902e-08
+rk4_unconstrained_feedforward solve2 final cost 0.38274475958186938
+rk4_unconstrained_feedforward solve2 final dynamicsViolation
+rk4_unconstrained_feedforward solve2 policy0a nominal 1.4112132659001462 -2.7453522485451027
+rk4_unconstrained_feedforward solve2 policy0a perturbed 1.4112132659001462 -2.7453522485451027
+rk4_unconstrained_feedforward solve2 policy0b nominal 1.3469092868788777 -2.0277053023750216
+rk4_unconstrained_feedforward solve2 policy0b perturbed 1.3469092868788777 -2.0277053023750216
+rk4_unconstrained_feedforward solve2 policy1a nominal 1.1968666691625844 -0.35319576131150193
+rk4_unconstrained_feedforward solve2 policy1a perturbed 1.1968666691625844 -0.35319576131150193
+rk4_unconstrained_feedforward solve2 policy1b nominal 1.1367973539292653 0.083018446386945277
+rk4_unconstrained_feedforward solve2 policy1b perturbed 1.1367973539292653 0.083018446386945277
+rk4_unconstrained_feedforward solve2 policy2a nominal 0.99663561838485426 1.1008515976833202
+rk4_unconstrained_feedforward solve2 policy2a perturbed 0.99663561838485426 1.1008515976833202
+rk4_unconstrained_feedforward solve2 policy2b nominal 0.94007875128985385 1.2406956485998291
+rk4_unconstrained_feedforward solve2 policy2b perturbed 0.94007875128985385 1.2406956485998291
+rk4_unconstrained_feedforward solve2 policy3a nominal 0.80811272806818624 1.5669984340716834
+rk4_unconstrained_feedforward solve2 policy3a perturbed 0.80811272806818624 1.5669984340716834
+rk4_unconstrained_feedforward solve2 policy3b nominal 0.75437540645147327 1.6556163328394871
+rk4_unconstrained_feedforward solve2 policy3b perturbed 0.75437540645147327 1.6556163328394871
+rk4_unconstrained_feedforward solve2 policy4a nominal 0.62898832267914295 1.8623914299643625
+rk4_unconstrained_feedforward solve2 policy4a perturbed 0.62898832267914295 1.8623914299643625
+rk4_unconstrained_feedforward solve2 policy4b nominal 0.57740020323383023 1.9447099320365351
+rk4_unconstrained_feedforward solve2 policy4b perturbed 0.57740020323383023 1.9447099320365351
+rk4_unconstrained_feedforward solve2 policy5a nominal 0.45702792452810065 2.1367864368716045
+rk4_unconstrained_feedforward solve2 policy5a perturbed 0.45702792452810065 2.1367864368716045
+rk4_unconstrained_feedforward solve2 policy5b nominal 0.40693613477029694 2.2105753049865777
+rk4_unconstrained_feedforward solve2 policy5b perturbed 0.40693613477029694 2.2105753049865777
+rk4_unconstrained_feedforward solve2 policy6a nominal 0.29005529200208835 2.3827493305881826
+rk4_unconstrained_feedforward solve2 policy6a perturbed 0.29005529200208835 2.3827493305881826
+rk4_unconstrained_feedforward solve2 policy6b nominal 0.24081964772247733 2.4459321090118098
+rk4_unconstrained_feedforward solve2 policy6b perturbed 0.24081964772247733 2.4459321090118098
+rk4_unconstrained_feedforward solve2 policy7a nominal 0.12593647773671832 2.5933585920002731
+rk4_unconstrained_feedforward solve2 policy7a perturbed 0.12593647773671832 2.5933585920002731
+rk4_unconstrained_feedforward solve2 policy7b nominal 0.076924606652985672 2.6440890843553753
+rk4_unconstrained_feedforward solve2 policy7b perturbed 0.076924606652985672 2.6440890843553753
+rk4_unconstrained_feedforward solve2 policy8a nominal -0.037436425875723801 2.7624602331839476
+rk4_unconstrained_feedforward solve2 policy8a perturbed -0.037436425875723801 2.7624602331839476
+rk4_unconstrained_feedforward solve2 policy8b nominal -0.086854189852275943 2.7992048279758706
+rk4_unconstrained_feedforward solve2 policy8b perturbed -0.086854189852275943 2.7992048279758706
+rk4_unconstrained_feedforward solve2 policy9a nominal -0.20216230579756425 2.8849422158236919
+rk4_unconstrained_feedforward solve2 policy9a perturbed -0.20216230579756425 2.8849422158236919
+rk4_unconstrained_feedforward solve2 policy9b nominal -0.2526183928780914 2.9065611718519326
+rk4_unconstrained_feedforward solve2 policy9b perturbed -0.2526183928780914 2.9065611718519326
+rk4_unconstrained_feedforward solve2 policy10a nominal -0.37034926273265478 2.9570054025844943
+rk4_unconstrained_feedforward solve2 policy10a perturbed -0.37034926273265478 2.9570054025844943
+rk4_unconstrained_feedforward solve2 policy10b nominal -0.42248478860695537 2.9628226113720415
+rk4_unconstrained_feedforward solve2 policy10b perturbed -0.42248478860695537 2.9628226113720415
+rk4_unconstrained_feedforward solve2 policy11a nominal -0.54413434898032353 2.9763960985429851
+rk4_unconstrained_feedforward solve2 policy11a perturbed -0.54413434898032353 2.9763960985429851
+rk4_unconstrained_feedforward solve2 policy11b nominal -0.59860546621389066 2.9662444396095724
+rk4_unconstrained_feedforward solve2 policy11b perturbed -0.59860546621389066 2.9662444396095724
+rk4_unconstrained_feedforward solve2 policy12a nominal -0.72570473975888072 2.9425572354316092
+rk4_unconstrained_feedforward solve2 policy12a perturbed -0.72570473975888072 2.9425572354316092
+rk4_unconstrained_feedforward solve2 policy12b nominal -0.78318924218960739 2.916787036581288
+rk4_unconstrained_feedforward solve2 policy12b perturbed -0.78318924218960739 2.916787036581288
+rk4_unconstrained_feedforward solve2 policy13a nominal -0.91731974786130155 2.8566565725972066
+rk4_unconstrained_feedforward solve2 policy13a perturbed -0.91731974786130155 2.8566565725972066
+rk4_unconstrained_feedforward solve2 policy13b nominal -0.97852358422888108 2.8160990087886502
+rk4_unconstrained_feedforward solve2 policy13b perturbed -0.97852358422888108 2.8160990087886502
+rk4_unconstrained_feedforward solve2 policy14a nominal -1.1213325357532349 2.721464693235351
+rk4_unconstrained_feedforward solve2 policy14a perturbed -1.1213325357532349 2.721464693235351
+rk4_unconstrained_feedforward solve2 policy14b nominal -1.1869957723607309 2.667350107743613
+rk4_unconstrained_feedforward solve2 policy14b perturbed -1.1869957723607309 2.667350107743613
+rk4_unconstrained_feedforward solve2 policy15a nominal -1.340209991111553 2.5410827415962265
+rk4_unconstrained_feedforward solve2 policy15a perturbed -1.340209991111553 2.5410827415962265
+rk4_unconstrained_feedforward solve2 policy15b nominal -1.4111117617779081 2.4749243347851593
+rk4_unconstrained_feedforward solve2 policy15b perturbed -1.4111117617779081 2.4749243347851593
+rk4_unconstrained_feedforward solve2 policy16a nominal -1.5765492266660714 2.3205547188926667
+rk4_unconstrained_feedforward solve2 policy16a perturbed -1.5765492266660714 2.3205547188926667
+rk4_unconstrained_feedforward solve2 policy16b nominal -1.653511361715637 2.2440177495357583
+rk4_unconstrained_feedforward solve2 policy16b perturbed -1.653511361715637 2.2440177495357583
+rk4_unconstrained_feedforward solve2 policy17a nominal -1.8330896768312883 2.0654314877029742
+rk4_unconstrained_feedforward solve2 policy17a perturbed -1.8330896768312883 2.0654314877029742
+rk4_unconstrained_feedforward solve2 policy17b nominal -1.9169790041132369 1.9802140231297694
+rk4_unconstrained_feedforward solve2 policy17b perturbed -1.9169790041132369 1.9802140231297694
+rk4_unconstrained_feedforward solve2 policy18a nominal -2.1127207677711191 1.7813732724589562
+rk4_unconstrained_feedforward solve2 policy18a perturbed -2.1127207677711191 1.7813732724589562
+rk4_unconstrained_feedforward solve2 policy18b nominal -2.2044504689238988 1.6887490048423386
+rk4_unconstrained_feedforward solve2 policy18b perturbed -2.2044504689238988 1.6887490048423386
+rk4_unconstrained_feedforward solve2 policy19a nominal -2.4184864382803832 1.4726257137369001
+rk4_unconstrained_feedforward solve2 policy19a perturbed -2.4184864382803832 1.4726257137369001
+rk4_unconstrained_feedforward solve2 policy19b nominal -2.4184864382803832 1.4726257137369001
+rk4_unconstrained_feedforward solve2 policy19b perturbed -2.4184864382803832 1.4726257137369001

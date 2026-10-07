@@ -1,0 +1,67 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
+
+# tools/config_registries - the names each registry of the stack accepts, collected from the linked registries into the
+# committed humanoid_nmpc/humanoid_mpc_config/config_registries.textproto, which the tuning GUI offers as the choices
+# of a registry string (README.md):
+#
+#   bazel run //tools/config_registries:print_config_registries
+
+package(default_visibility = ["//visibility:public"])
+
+# The registries' names, and the text of the file.
+cc_library(
+    name = "config_registries",
+    srcs = ["ConfigRegistries.cpp"],
+    hdrs = ["ConfigRegistries.h"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:contact_planning_core",
+        "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_process",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//robot_runtime/mujoco_sim_interface",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/strings",
+    ],
+)
+
+# bazel run //tools/config_registries:print_config_registries
+cc_binary(
+    name = "print_config_registries",
+    srcs = ["PrintConfigRegistriesMain.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":config_registries",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/flags:parse",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/log:initialize",
+    ],
+)
+
+# The committed file is what print_config_registries writes and parses strictly; every registry offers names, once
+# each, that its own resolver accepts.
+cc_test(
+    name = "config_registries_test",
+    size = "small",
+    srcs = ["testConfigRegistries.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = ["//humanoid_nmpc/humanoid_mpc_config:config_registries.textproto"],
+    deps = [
+        ":config_registries",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:contact_planning_core",
+        "//humanoid_nmpc/humanoid_common_mpc_app/robot:robot_process",
+        "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//robot_runtime/mujoco_sim_interface",
+        "//robot_runtime/robot_model",
+        "//tools/nproto:nproto_runtime",
+        "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
+    ],
+)

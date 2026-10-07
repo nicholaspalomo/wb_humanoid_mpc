@@ -27,8 +27,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-// Unit tests of the locomotion-heuristic FORMULAE, the layer that sums them, and the loader that reads their
-// coefficients - all with hand-built contexts and in-memory configurations, so that nothing here needs a robot model.
+// Unit tests of the locomotion-heuristic FORMULAE, the layer that sums them, and the validation of their coefficients -
+// all with hand-built contexts and in-memory configurations, so that nothing here needs a robot model. The task file's
+// block reaches the configuration through locomotionHeuristicConfigFromConfig (test/config/swing/).
 //
 // Every expected number is derived by hand (the arithmetic is written out beside it) rather than by calling the code
 // under test, and each case is chosen so that the specific regression named in its comment changes the result by far
@@ -37,12 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // (yaw 0, speed 1, symmetric feet, equal coefficients) are exactly where transposed rotations, dropped factors and
 // swapped keys hide.
 
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <cmath>
-#include <fstream>
 #include <limits>
 #include <memory>
 #include <string>
@@ -50,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/log_severity.h"
+#include "absl/base/nullability.h"
 #include "absl/log/scoped_mock_log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -57,6 +55,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicFactory.h"
@@ -67,17 +67,10 @@ namespace ocs2::humanoid {
 
 namespace {
 
-constexpr scalar_t kTol = 1e-12;
+constexpr scalar_t kTol = 1.0e-12;
 constexpr scalar_t kMass = 40.0;
 constexpr scalar_t kGravity = 9.81;
 constexpr scalar_t kWeight = kMass * kGravity;  // 392.4 N
-
-std::string writeTemp(const std::string& name, const std::string& content) {
-  const std::string file = testing::TempDir() + "/" + name;
-  std::ofstream out(file);
-  out << content;
-  return file;
-}
 
 /**
  * Model constants of a 40 kg robot. The two hips are deliberately NOT mirror images of each other, so that reading
@@ -89,8 +82,8 @@ LocomotionHeuristicModelParameters testModel() {
   model.gravity = kGravity;
   model.totalWeight = kWeight;
   model.nominalComHeight = 0.6125;
-  model.hipPositionInBaseFrame[CONTACT_LEFT_INDEX] = vector2_t(0.03, 0.08);
-  model.hipPositionInBaseFrame[CONTACT_RIGHT_INDEX] = vector2_t(0.01, -0.09);
+  model.hipPositionInBaseFrame[kContactLeftIndex] = vector2_t(0.03, 0.08);
+  model.hipPositionInBaseFrame[kContactRightIndex] = vector2_t(0.01, -0.09);
   return model;
 }
 
@@ -103,7 +96,7 @@ LocomotionHeuristicEnvironment steppingEnvironment() {
 
 FootholdHeuristicContext leftFoot() {
   FootholdHeuristicContext context;
-  context.contactIndex = CONTACT_LEFT_INDEX;
+  context.contactIndex = kContactLeftIndex;
   context.side = 1.0;
   context.comHeight = 0.6125;
   return context;
@@ -111,7 +104,7 @@ FootholdHeuristicContext leftFoot() {
 
 FootholdHeuristicContext rightFoot() {
   FootholdHeuristicContext context = leftFoot();
-  context.contactIndex = CONTACT_RIGHT_INDEX;
+  context.contactIndex = kContactRightIndex;
   context.side = -1.0;
   return context;
 }
@@ -158,7 +151,7 @@ vector2_t footholdOffsetOf(absl::string_view name,
                            const LocomotionHeuristicConfig& config,
                            const LocomotionHeuristicModelParameters& model,
                            const FootholdHeuristicContext& context) {
-  const vector2_t nan = vector2_t::Constant(std::numeric_limits<scalar_t>::quiet_NaN());
+  vector2_t nan = vector2_t::Constant(std::numeric_limits<scalar_t>::quiet_NaN());
   absl::StatusOr<std::unique_ptr<FootholdHeuristic>> heuristic = LocomotionHeuristicFactory::makeFootholdHeuristic(name);
   if (!heuristic.ok()) {
     ADD_FAILURE() << heuristic.status().message();
@@ -180,7 +173,7 @@ vector3_t wrenchOffsetOf(absl::string_view name,
                          const LocomotionHeuristicConfig& config,
                          const WrenchHeuristicContext& context,
                          size_t contactIndex) {
-  const vector3_t nan = vector3_t::Constant(std::numeric_limits<scalar_t>::quiet_NaN());
+  vector3_t nan = vector3_t::Constant(std::numeric_limits<scalar_t>::quiet_NaN());
   absl::StatusOr<std::unique_ptr<WrenchHeuristic>> heuristic = LocomotionHeuristicFactory::makeWrenchHeuristic(name);
   if (!heuristic.ok()) {
     ADD_FAILURE() << heuristic.status().message();
@@ -264,9 +257,9 @@ TEST(LocomotionHeuristicFormulas, BasePoseOffsetsOfEveryListedHeuristicAreSummed
     ASSERT_TRUE(layer.ok()) << layer.status().message();
     const BasePoseOffset offset = (*layer)->basePoseOffset(context);
     const std::string listed = absl::StrJoin(order, ", ");
-    EXPECT_NEAR(offset.roll, expectedRoll, 1e-12) << listed;
-    EXPECT_NEAR(offset.pitch, expectedPitch, 1e-12) << listed;
-    EXPECT_NEAR(offset.height, expectedHeight, 1e-12) << listed;
+    EXPECT_NEAR(offset.roll, expectedRoll, 1.0e-12) << listed;
+    EXPECT_NEAR(offset.pitch, expectedPitch, 1.0e-12) << listed;
+    EXPECT_NEAR(offset.height, expectedHeight, 1.0e-12) << listed;
   }
 }
 
@@ -291,8 +284,8 @@ TEST(LocomotionHeuristicFormulas, FootholdOffsetsOfEveryListedHeuristicAreSummed
         LocomotionHeuristicLayer::Create(ordered, testModel(), steppingEnvironment());
     ASSERT_TRUE(layer.ok()) << layer.status().message();
     const vector2_t offset = (*layer)->footholdOffset(context);
-    EXPECT_NEAR(offset.x(), expected.x(), 1e-12) << absl::StrJoin(order, ", ");
-    EXPECT_NEAR(offset.y(), expected.y(), 1e-12) << absl::StrJoin(order, ", ");
+    EXPECT_NEAR(offset.x(), expected.x(), 1.0e-12) << absl::StrJoin(order, ", ");
+    EXPECT_NEAR(offset.y(), expected.y(), 1.0e-12) << absl::StrJoin(order, ", ");
   }
 }
 
@@ -312,10 +305,10 @@ TEST(LocomotionHeuristicFormulas, WrenchOffsetsOfEveryListedHeuristicAreSummed) 
     absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
         LocomotionHeuristicLayer::Create(ordered, testModel(), steppingEnvironment());
     ASSERT_TRUE(layer.ok()) << layer.status().message();
-    const vector3_t offset = (*layer)->wrenchOffset(context, CONTACT_LEFT_INDEX);
-    EXPECT_NEAR(offset.x(), 0.0, 1e-9) << absl::StrJoin(order, ", ");
-    EXPECT_NEAR(offset.y(), 20.0, 1e-9) << absl::StrJoin(order, ", ");
-    EXPECT_NEAR(offset.z(), 130.8, 1e-9) << absl::StrJoin(order, ", ");
+    const vector3_t offset = (*layer)->wrenchOffset(context, kContactLeftIndex);
+    EXPECT_NEAR(offset.x(), 0.0, 1.0e-9) << absl::StrJoin(order, ", ");
+    EXPECT_NEAR(offset.y(), 20.0, 1.0e-9) << absl::StrJoin(order, ", ");
+    EXPECT_NEAR(offset.z(), 130.8, 1.0e-9) << absl::StrJoin(order, ", ");
   }
 }
 
@@ -420,10 +413,10 @@ TEST(LocomotionHeuristicFormulas, TranslationalSteppingAppliesItsLawInTheBaseFra
 
   const vector2_t leftOffset = footholdOffsetOf("translational_stepping", config, left);
   const vector2_t rightOffset = footholdOffsetOf("translational_stepping", config, right);
-  EXPECT_NEAR(leftOffset.x(), 0.080155444566227696, 1e-9);
-  EXPECT_NEAR(leftOffset.y(), 0.25955127018922197, 1e-9);
-  EXPECT_NEAR(rightOffset.x(), 0.16675798494467156, 1e-9);
-  EXPECT_NEAR(rightOffset.y(), 0.20955127018922193, 1e-9);
+  EXPECT_NEAR(leftOffset.x(), 0.080155444566227696, 1.0e-9);
+  EXPECT_NEAR(leftOffset.y(), 0.25955127018922197, 1.0e-9);
+  EXPECT_NEAR(rightOffset.x(), 0.16675798494467156, 1.0e-9);
+  EXPECT_NEAR(rightOffset.y(), 0.20955127018922193, 1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas, TranslationalSteppingLeadGrowsWithTheStanceAboutToBegin) {
@@ -450,10 +443,10 @@ TEST(LocomotionHeuristicFormulas, TranslationalSteppingLeadGrowsWithTheStanceAbo
   right.stanceDuration = 0.6;
   const vector2_t leftLong = footholdOffsetOf("translational_stepping", config, left);
   const vector2_t rightLong = footholdOffsetOf("translational_stepping", config, right);
-  EXPECT_NEAR(leftLong.x(), 0.29964101615137761, 1e-9);
-  EXPECT_NEAR(leftLong.y(), 0.17526279441628825, 1e-9);
-  EXPECT_NEAR(rightLong.x(), 0.32964101615137759, 1e-9);
-  EXPECT_NEAR(rightLong.y(), 0.12330127018922195, 1e-9);
+  EXPECT_NEAR(leftLong.x(), 0.29964101615137761, 1.0e-9);
+  EXPECT_NEAR(leftLong.y(), 0.17526279441628825, 1.0e-9);
+  EXPECT_NEAR(rightLong.x(), 0.32964101615137759, 1.0e-9);
+  EXPECT_NEAR(rightLong.y(), 0.12330127018922195, 1.0e-9);
 
   // T_stance = 0 - what the context carries when the schedule does not say - is exactly Bledt's constant form: gains
   // 0.1 and 0.05.
@@ -461,10 +454,10 @@ TEST(LocomotionHeuristicFormulas, TranslationalSteppingLeadGrowsWithTheStanceAbo
   right.stanceDuration = 0.0;
   const vector2_t leftConstant = footholdOffsetOf("translational_stepping", config, left);
   const vector2_t rightConstant = footholdOffsetOf("translational_stepping", config, right);
-  EXPECT_NEAR(leftConstant.x(), 0.070155444566227701, 1e-9);
-  EXPECT_NEAR(leftConstant.y(), 0.06705127018922194, 1e-9);
-  EXPECT_NEAR(rightConstant.x(), 0.10015544456622769, 1e-9);
-  EXPECT_NEAR(rightConstant.y(), 0.015089745962155614, 1e-9);
+  EXPECT_NEAR(leftConstant.x(), 0.070155444566227701, 1.0e-9);
+  EXPECT_NEAR(leftConstant.y(), 0.06705127018922194, 1.0e-9);
+  EXPECT_NEAR(rightConstant.x(), 0.10015544456622769, 1.0e-9);
+  EXPECT_NEAR(rightConstant.y(), 0.015089745962155614, 1.0e-9);
 
   // ...and the stance fractions are the ONLY thing the stance duration reaches: with them at zero, a long stance gives
   // the constant form too.
@@ -473,8 +466,8 @@ TEST(LocomotionHeuristicFormulas, TranslationalSteppingLeadGrowsWithTheStanceAbo
   bledt.translationalStepping.lateralStanceFraction = 0.0;
   left.stanceDuration = 0.6;
   const vector2_t leftBledt = footholdOffsetOf("translational_stepping", bledt, left);
-  EXPECT_NEAR(leftBledt.x(), 0.070155444566227701, 1e-9);
-  EXPECT_NEAR(leftBledt.y(), 0.06705127018922194, 1e-9);
+  EXPECT_NEAR(leftBledt.x(), 0.070155444566227701, 1.0e-9);
+  EXPECT_NEAR(leftBledt.y(), 0.06705127018922194, 1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas, InPlaceTurningRotatesItsBaseFrameOffsetIntoTheWorld) {
@@ -497,10 +490,10 @@ TEST(LocomotionHeuristicFormulas, InPlaceTurningRotatesItsBaseFrameOffsetIntoThe
   // (-0.05, 0.05); a signed lateral RATE would give it (0.05, 0.05) rather than (0.01, 0.05).
   const vector2_t leftOffset = footholdOffsetOf("in_place_turning", config, left);
   const vector2_t rightOffset = footholdOffsetOf("in_place_turning", config, right);
-  EXPECT_NEAR(leftOffset.x(), -0.05, 1e-9);
-  EXPECT_NEAR(leftOffset.y(), -0.05, 1e-9);
-  EXPECT_NEAR(rightOffset.x(), 0.01, 1e-9);
-  EXPECT_NEAR(rightOffset.y(), 0.05, 1e-9);
+  EXPECT_NEAR(leftOffset.x(), -0.05, 1.0e-9);
+  EXPECT_NEAR(leftOffset.y(), -0.05, 1.0e-9);
+  EXPECT_NEAR(rightOffset.x(), 0.01, 1.0e-9);
+  EXPECT_NEAR(rightOffset.y(), 0.05, 1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas, InPlaceTurningLeverGrowsWithTheStanceAboutToBegin) {
@@ -526,10 +519,10 @@ TEST(LocomotionHeuristicFormulas, InPlaceTurningLeverGrowsWithTheStanceAboutToBe
   right.stanceDuration = 0.5;
   const vector2_t leftLong = footholdOffsetOf("in_place_turning", config, left);
   const vector2_t rightLong = footholdOffsetOf("in_place_turning", config, right);
-  EXPECT_NEAR(leftLong.x(), -0.05, 1e-9);
-  EXPECT_NEAR(leftLong.y(), -0.09, 1e-9);
-  EXPECT_NEAR(rightLong.x(), 0.01, 1e-9);
-  EXPECT_NEAR(rightLong.y(), 0.11, 1e-9);
+  EXPECT_NEAR(leftLong.x(), -0.05, 1.0e-9);
+  EXPECT_NEAR(leftLong.y(), -0.09, 1.0e-9);
+  EXPECT_NEAR(rightLong.x(), 0.01, 1.0e-9);
+  EXPECT_NEAR(rightLong.y(), 0.11, 1.0e-9);
 
   // T_stance = 0 is Bledt's constant form, gain 0.05:
   //   left:  base (-0.05 + 0.01, 0.05) = (-0.04, 0.05) -> world (-0.05, -0.04)
@@ -538,10 +531,10 @@ TEST(LocomotionHeuristicFormulas, InPlaceTurningLeverGrowsWithTheStanceAboutToBe
   right.stanceDuration = 0.0;
   const vector2_t leftConstant = footholdOffsetOf("in_place_turning", config, left);
   const vector2_t rightConstant = footholdOffsetOf("in_place_turning", config, right);
-  EXPECT_NEAR(leftConstant.x(), -0.05, 1e-9);
-  EXPECT_NEAR(leftConstant.y(), -0.04, 1e-9);
-  EXPECT_NEAR(rightConstant.x(), 0.01, 1e-9);
-  EXPECT_NEAR(rightConstant.y(), 0.06, 1e-9);
+  EXPECT_NEAR(leftConstant.x(), -0.05, 1.0e-9);
+  EXPECT_NEAR(leftConstant.y(), -0.04, 1.0e-9);
+  EXPECT_NEAR(rightConstant.x(), 0.01, 1.0e-9);
+  EXPECT_NEAR(rightConstant.y(), 0.06, 1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas, HighSpeedTurningUsesBothCrossTermsAtAnyHeading) {
@@ -566,10 +559,10 @@ TEST(LocomotionHeuristicFormulas, HighSpeedTurningUsesBothCrossTermsAtAnyHeading
   right.baseYaw = M_PI / 2.0;
   right.commandedVelocity = vector2_t(0.0, 2.0);
   right.commandedYawRate = 1.0;
-  EXPECT_NEAR(footholdOffsetOf("high_speed_turning", config, left).x(), 0.37, 1e-9);
-  EXPECT_NEAR(footholdOffsetOf("high_speed_turning", config, left).y(), 0.01, 1e-9);
-  EXPECT_NEAR(footholdOffsetOf("high_speed_turning", config, right).x(), 0.43, 1e-9);
-  EXPECT_NEAR(footholdOffsetOf("high_speed_turning", config, right).y(), 0.01, 1e-9);
+  EXPECT_NEAR(footholdOffsetOf("high_speed_turning", config, left).x(), 0.37, 1.0e-9);
+  EXPECT_NEAR(footholdOffsetOf("high_speed_turning", config, left).y(), 0.01, 1.0e-9);
+  EXPECT_NEAR(footholdOffsetOf("high_speed_turning", config, right).x(), 0.43, 1.0e-9);
+  EXPECT_NEAR(footholdOffsetOf("high_speed_turning", config, right).y(), 0.01, 1.0e-9);
 
   // The FORWARD cross term, v_y psidot, is zero whenever the velocity is along the heading. Sidestepping left at
   // 1.5 m/s while turning left at 0.8 rad/s it is +1.2, so forward = 0.1 * 1.2 + 0.01 = 0.13; flipping its sign gives
@@ -578,8 +571,8 @@ TEST(LocomotionHeuristicFormulas, HighSpeedTurningUsesBothCrossTermsAtAnyHeading
   sidestepping.commandedVelocity = vector2_t(0.0, 1.5);
   sidestepping.commandedYawRate = 0.8;
   const vector2_t sidestep = footholdOffsetOf("high_speed_turning", config, sidestepping);
-  EXPECT_NEAR(sidestep.x(), 0.13, 1e-9);
-  EXPECT_NEAR(sidestep.y(), 0.03, 1e-9);
+  EXPECT_NEAR(sidestep.x(), 0.13, 1.0e-9);
+  EXPECT_NEAR(sidestep.y(), 0.03, 1.0e-9);
 
   // Everything at once, off the axes: yaw 0.4, v = (1.0, 0.5), psidot 0.7.
   FootholdHeuristicContext generalLeft = leftFoot();
@@ -592,10 +585,10 @@ TEST(LocomotionHeuristicFormulas, HighSpeedTurningUsesBothCrossTermsAtAnyHeading
   generalRight.commandedYawRate = 0.7;
   const vector2_t generalLeftOffset = footholdOffsetOf("high_speed_turning", config, generalLeft);
   const vector2_t generalRightOffset = footholdOffsetOf("high_speed_turning", config, generalRight);
-  EXPECT_NEAR(generalLeftOffset.x(), 0.062943155438677234, 1e-9);
-  EXPECT_NEAR(generalLeftOffset.y(), -0.11041245317471936, 1e-9);
-  EXPECT_NEAR(generalRightOffset.x(), 0.086308255977196269, 1e-9);
-  EXPECT_NEAR(generalRightOffset.y(), -0.16567611281489247, 1e-9);
+  EXPECT_NEAR(generalLeftOffset.x(), 0.062943155438677234, 1.0e-9);
+  EXPECT_NEAR(generalLeftOffset.y(), -0.11041245317471936, 1.0e-9);
+  EXPECT_NEAR(generalRightOffset.x(), 0.086308255977196269, 1.0e-9);
+  EXPECT_NEAR(generalRightOffset.y(), -0.16567611281489247, 1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas, HipCenteredSteppingAppliesEachScaleToItsOwnAxisAndFoot) {
@@ -609,10 +602,10 @@ TEST(LocomotionHeuristicFormulas, HipCenteredSteppingAppliesEachScaleToItsOwnAxi
   // right hip (0.01, -0.09) -> (0.005, -0.18); the swapped-scale mutant gives (0.06, 0.04) for the left foot.
   const vector2_t left = footholdOffsetOf("hip_centered_stepping", config, leftFoot());
   const vector2_t right = footholdOffsetOf("hip_centered_stepping", config, rightFoot());
-  EXPECT_NEAR(left.x(), 0.015, 1e-12);
-  EXPECT_NEAR(left.y(), 0.16, 1e-12);
-  EXPECT_NEAR(right.x(), 0.005, 1e-12);
-  EXPECT_NEAR(right.y(), -0.18, 1e-12);
+  EXPECT_NEAR(left.x(), 0.015, 1.0e-12);
+  EXPECT_NEAR(left.y(), 0.16, 1.0e-12);
+  EXPECT_NEAR(right.x(), 0.005, 1.0e-12);
+  EXPECT_NEAR(right.y(), -0.18, 1.0e-12);
 
   // At yaw pi/3 the scaled hip is rotated into the world, and the predicted base position - which the reference
   // manager adds back as the anchor - must not leak into the offset.
@@ -625,11 +618,11 @@ TEST(LocomotionHeuristicFormulas, HipCenteredSteppingAppliesEachScaleToItsOwnAxi
   const vector2_t turnedLeftOffset = footholdOffsetOf("hip_centered_stepping", config, turnedLeft);
   const vector2_t turnedRightOffset = footholdOffsetOf("hip_centered_stepping", config, turnedRight);
   // R(pi/3) (0.015, 0.16) = (0.0075 - 0.13856406, 0.01299038 + 0.08)
-  EXPECT_NEAR(turnedLeftOffset.x(), -0.13106406460551018, 1e-9);
-  EXPECT_NEAR(turnedLeftOffset.y(), 0.09299038105676659, 1e-9);
+  EXPECT_NEAR(turnedLeftOffset.x(), -0.13106406460551018, 1.0e-9);
+  EXPECT_NEAR(turnedLeftOffset.y(), 0.09299038105676659, 1.0e-9);
   // R(pi/3) (0.005, -0.18)
-  EXPECT_NEAR(turnedRightOffset.x(), 0.15838457268119893, 1e-9);
-  EXPECT_NEAR(turnedRightOffset.y(), -0.08566987298107781, 1e-9);
+  EXPECT_NEAR(turnedRightOffset.x(), 0.15838457268119893, 1.0e-9);
+  EXPECT_NEAR(turnedRightOffset.y(), -0.08566987298107781, 1.0e-9);
 }
 
 /*============================================ capture point (H41) ============================================*/
@@ -646,13 +639,13 @@ TEST(LocomotionHeuristicFormulas, CapturePointPrefersTheOverrideThenTheMeasureme
 
   LocomotionHeuristicConfig config;
   // (a) the measured height: sqrt(0.9 / 9.81) * 0.5 = 0.1514456332
-  EXPECT_NEAR(footholdOffsetOf("capture_point", config, pushed).x(), 0.15144563320384566, 1e-9);
+  EXPECT_NEAR(footholdOffsetOf("capture_point", config, pushed).x(), 0.15144563320384566, 1.0e-9);
   EXPECT_NEAR(footholdOffsetOf("capture_point", config, pushed).y(), 0.0, kTol);
 
   // (b) a positive override wins over the measurement: sqrt(0.4 / 9.81) * 0.5 = 0.1009637555
   LocomotionHeuristicConfig overridden = config;
   overridden.capturePoint.comHeightOverride = 0.4;
-  EXPECT_NEAR(footholdOffsetOf("capture_point", overridden, pushed).x(), 0.10096375546923045, 1e-9);
+  EXPECT_NEAR(footholdOffsetOf("capture_point", overridden, pushed).x(), 0.10096375546923045, 1.0e-9);
 
   // (c) a non-positive measurement falls back to the model's nominal: sqrt(0.6125 / 9.81) * 0.5 = 0.1249362733. Both
   // zero and a NEGATIVE measurement: trusting -0.3 would take the square root of a negative height and put a NaN
@@ -660,19 +653,19 @@ TEST(LocomotionHeuristicFormulas, CapturePointPrefersTheOverrideThenTheMeasureme
   for (const scalar_t measured : {0.0, -0.3}) {
     FootholdHeuristicContext unmeasured = pushed;
     unmeasured.comHeight = measured;
-    EXPECT_NEAR(footholdOffsetOf("capture_point", config, unmeasured).x(), 0.12493627325611814, 1e-9) << "measured " << measured;
+    EXPECT_NEAR(footholdOffsetOf("capture_point", config, unmeasured).x(), 0.12493627325611814, 1.0e-9) << "measured " << measured;
   }
 
   // (d) the gain multiplies: 0.5 * 0.1514456332 = 0.0757228166
   LocomotionHeuristicConfig halfGain = config;
   halfGain.capturePoint.gain = 0.5;
-  EXPECT_NEAR(footholdOffsetOf("capture_point", halfGain, pushed).x(), 0.07572281660192283, 1e-9);
+  EXPECT_NEAR(footholdOffsetOf("capture_point", halfGain, pushed).x(), 0.07572281660192283, 1.0e-9);
 
   // gravity is the configured one: sqrt(0.9 / 3) * 0.5 = 0.2738612788, with the 0.25 m clamp opened so it cannot bind
   LocomotionHeuristicConfig lowGravity = config;
   lowGravity.capturePoint.gravity = 3.0;
   lowGravity.capturePoint.maximumOffset = 1.0;
-  EXPECT_NEAR(footholdOffsetOf("capture_point", lowGravity, pushed).x(), 0.27386127875258304, 1e-9);
+  EXPECT_NEAR(footholdOffsetOf("capture_point", lowGravity, pushed).x(), 0.27386127875258304, 1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas, CapturePointIsSilentWithNoUsablePendulumHeight) {
@@ -694,7 +687,7 @@ TEST(LocomotionHeuristicFormulas, CapturePointIsSilentWithNoUsablePendulumHeight
 
     // Positive control: the same push with a usable measured height does step, sqrt(0.9 / 9.81) * 0.5.
     pushed.comHeight = 0.9;
-    EXPECT_NEAR(footholdOffsetOf("capture_point", config, noNominal, pushed).x(), 0.15144563320384566, 1e-9) << "nominal " << nominal;
+    EXPECT_NEAR(footholdOffsetOf("capture_point", config, noNominal, pushed).x(), 0.15144563320384566, 1.0e-9) << "nominal " << nominal;
   }
 }
 
@@ -709,15 +702,15 @@ TEST(LocomotionHeuristicFormulas, CentripetalForceInSingleSupportPointsIntoTheTu
   context.commandedYawRate = 0.8;
   // omega x v = (0, 0, 0.8) x (0, 1.5, 0) = (-1.2, 0, 0); times m = 40 over one stance foot: (-48, 0, 0). The center of
   // a left turn taken while moving +y is at -x.
-  const vector3_t force = wrenchOffsetOf("centripetal_acceleration", config, context, CONTACT_LEFT_INDEX);
-  EXPECT_NEAR(force.x(), -48.0, 1e-9);
-  EXPECT_NEAR(force.y(), 0.0, 1e-12);
-  EXPECT_NEAR(force.z(), 0.0, 1e-12);
+  const vector3_t force = wrenchOffsetOf("centripetal_acceleration", config, context, kContactLeftIndex);
+  EXPECT_NEAR(force.x(), -48.0, 1.0e-9);
+  EXPECT_NEAR(force.y(), 0.0, 1.0e-12);
+  EXPECT_NEAR(force.z(), 0.0, 1.0e-12);
 
   // `scale` blends it: 0.5 * -48 = -24.
   LocomotionHeuristicConfig halved = config;
   halved.centripetalAcceleration.scale = 0.5;
-  EXPECT_NEAR(wrenchOffsetOf("centripetal_acceleration", halved, context, CONTACT_LEFT_INDEX).x(), -24.0, 1e-9);
+  EXPECT_NEAR(wrenchOffsetOf("centripetal_acceleration", halved, context, kContactLeftIndex).x(), -24.0, 1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas, CentripetalAbsoluteClampReplacesTheWeightRatio) {
@@ -728,7 +721,7 @@ TEST(LocomotionHeuristicFormulas, CentripetalAbsoluteClampReplacesTheWeightRatio
   // maximumForce 30 N clamps the 48 N demand.
   LocomotionHeuristicConfig absolute;
   absolute.centripetalAcceleration.maximumForce = 30.0;
-  EXPECT_NEAR(wrenchOffsetOf("centripetal_acceleration", absolute, context, CONTACT_LEFT_INDEX).x(), -30.0, 1e-9);
+  EXPECT_NEAR(wrenchOffsetOf("centripetal_acceleration", absolute, context, kContactLeftIndex).x(), -30.0, 1.0e-9);
 
   // A demand of m psidot v = 40 * 2.5 * 1.5 = 150 N sits between the ratio clamp (0.3 W = 117.72 N) and a 200 N
   // absolute clamp. With the absolute clamp set, the ratio must play no part...
@@ -736,10 +729,10 @@ TEST(LocomotionHeuristicFormulas, CentripetalAbsoluteClampReplacesTheWeightRatio
   fast.commandedYawRate = 2.5;
   LocomotionHeuristicConfig generous;
   generous.centripetalAcceleration.maximumForce = 200.0;
-  EXPECT_NEAR(wrenchOffsetOf("centripetal_acceleration", generous, fast, CONTACT_LEFT_INDEX).x(), -150.0, 1e-9);
+  EXPECT_NEAR(wrenchOffsetOf("centripetal_acceleration", generous, fast, kContactLeftIndex).x(), -150.0, 1.0e-9);
   // ...and with it at 0 the ratio is the clamp.
   const LocomotionHeuristicConfig ratio;
-  EXPECT_NEAR(wrenchOffsetOf("centripetal_acceleration", ratio, fast, CONTACT_LEFT_INDEX).x(), -0.3 * kWeight, 1e-9);
+  EXPECT_NEAR(wrenchOffsetOf("centripetal_acceleration", ratio, fast, kContactLeftIndex).x(), -0.3 * kWeight, 1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas, ImpulseScalingMeetsTheImpulseBudgetOverACycleOfItsDutyFactor) {
@@ -752,19 +745,19 @@ TEST(LocomotionHeuristicFormulas, ImpulseScalingMeetsTheImpulseBudgetOverACycleO
       LocomotionHeuristicLayer::Create(config, testModel(), steppingEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
 
-  const scalar_t doubleSupportOffset = (*layer)->wrenchOffset(doubleSupport(0.6, 0.6), CONTACT_LEFT_INDEX).z();
-  const scalar_t singleSupportOffset = (*layer)->wrenchOffset(leftSingleSupport(0.6), CONTACT_LEFT_INDEX).z();
+  const scalar_t doubleSupportOffset = (*layer)->wrenchOffset(doubleSupport(0.6, 0.6), kContactLeftIndex).z();
+  const scalar_t singleSupportOffset = (*layer)->wrenchOffset(leftSingleSupport(0.6), kContactLeftIndex).z();
   // Both feet are asked for W / (2 * 0.6) = 327 N whatever the stance count: +130.8 on W/2, -65.4 on W.
-  EXPECT_NEAR(doubleSupportOffset, 130.8, 1e-9);
-  EXPECT_NEAR(singleSupportOffset, -65.4, 1e-9);
+  EXPECT_NEAR(doubleSupportOffset, 130.8, 1.0e-9);
+  EXPECT_NEAR(singleSupportOffset, -65.4, 1.0e-9);
   const scalar_t meanTotal = 0.2 * 2.0 * (kWeight / 2.0 + doubleSupportOffset) + 0.8 * (kWeight + singleSupportOffset);
   // The rejected form, (W / n) / beta, gives 654 N here: it would regularize the CoM towards accelerating upwards.
-  EXPECT_NEAR(meanTotal, kWeight, 1e-9) << "the cycle-averaged vertical reference must equal the robot's weight";
+  EXPECT_NEAR(meanTotal, kWeight, 1.0e-9) << "the cycle-averaged vertical reference must equal the robot's weight";
 
   // `scale` blends linearly between weight compensation and Bledt's value: half of 130.8.
   LocomotionHeuristicConfig halved;
   halved.impulseScaling.scale = 0.5;
-  EXPECT_NEAR(wrenchOffsetOf("impulse_scaling", halved, doubleSupport(0.6, 0.6), CONTACT_LEFT_INDEX).z(), 65.4, 1e-9);
+  EXPECT_NEAR(wrenchOffsetOf("impulse_scaling", halved, doubleSupport(0.6, 0.6), kContactLeftIndex).z(), 65.4, 1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas, ImpulseScalingFloorsTheDutyFactorBeforeTakingTheReciprocal) {
@@ -775,7 +768,7 @@ TEST(LocomotionHeuristicFormulas, ImpulseScalingFloorsTheDutyFactorBeforeTakingT
   LocomotionHeuristicConfig config;
   config.impulseScaling.maximumForceRatio = 10.0;
   config.impulseScaling.minimumDutyFactor = 0.4;
-  EXPECT_NEAR(wrenchOffsetOf("impulse_scaling", config, doubleSupport(0.1, 0.1), CONTACT_LEFT_INDEX).z(), 294.3, 1e-9);
+  EXPECT_NEAR(wrenchOffsetOf("impulse_scaling", config, doubleSupport(0.1, 0.1), kContactLeftIndex).z(), 294.3, 1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas, ImpulseScalingNeverAsksAFootToPullDown) {
@@ -784,9 +777,9 @@ TEST(LocomotionHeuristicFormulas, ImpulseScalingNeverAsksAFootToPullDown) {
   // zero turns that into "no force", an offset of -W; without it the offset would be -523.2.
   LocomotionHeuristicConfig config;
   config.impulseScaling.scale = 3.0;
-  const vector3_t offset = wrenchOffsetOf("impulse_scaling", config, leftSingleSupport(0.9), CONTACT_LEFT_INDEX);
-  EXPECT_NEAR(offset.z(), -kWeight, 1e-9);
-  EXPECT_NEAR(kWeight + offset.z(), 0.0, 1e-9) << "the reference itself is clamped to zero, not below";
+  const vector3_t offset = wrenchOffsetOf("impulse_scaling", config, leftSingleSupport(0.9), kContactLeftIndex);
+  EXPECT_NEAR(offset.z(), -kWeight, 1.0e-9);
+  EXPECT_NEAR(kWeight + offset.z(), 0.0, 1.0e-9) << "the reference itself is clamped to zero, not below";
 }
 
 TEST(LocomotionHeuristicFormulas, ImpulseScalingReadsEachFootsOwnDutyFactor) {
@@ -794,8 +787,8 @@ TEST(LocomotionHeuristicFormulas, ImpulseScalingReadsEachFootsOwnDutyFactor) {
   // for every foot passes. Here: left W / 1.4 - W / 2 = 84.0857 N, right W / 1.1 - W / 2 = 160.5273 N.
   const LocomotionHeuristicConfig config;
   const WrenchHeuristicContext context = doubleSupport(0.7, 0.55);
-  EXPECT_NEAR(wrenchOffsetOf("impulse_scaling", config, context, CONTACT_LEFT_INDEX).z(), 84.08571428571432, 1e-9);
-  EXPECT_NEAR(wrenchOffsetOf("impulse_scaling", config, context, CONTACT_RIGHT_INDEX).z(), 160.52727272727273, 1e-9);
+  EXPECT_NEAR(wrenchOffsetOf("impulse_scaling", config, context, kContactLeftIndex).z(), 84.08571428571432, 1.0e-9);
+  EXPECT_NEAR(wrenchOffsetOf("impulse_scaling", config, context, kContactRightIndex).z(), 160.52727272727273, 1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas, ImpulseScalingDescribesTheFormulaItImplements) {
@@ -825,10 +818,10 @@ TEST(LocomotionHeuristicFormulas, SteppingDescriptionsNameTheStanceTerm) {
   config.translationalStepping.forwardStanceFraction = 0.375;
   config.translationalStepping.lateralStanceFraction = 0.4375;
   config.inPlaceTurning.forwardStanceLever = 0.0625;
-  for (const std::pair<const char*, const char*>& entry :
-       {std::pair<const char*, const char*>{"translational_stepping", "0.375 * T_stance"},
-        std::pair<const char*, const char*>{"translational_stepping", "0.4375 * T_stance"},
-        std::pair<const char*, const char*>{"in_place_turning", "0.0625 * T_stance"}}) {
+  for (const std::pair<const char* absl_nonnull, const char* absl_nonnull>& entry :
+       {std::pair<const char* absl_nonnull, const char* absl_nonnull>{"translational_stepping", "0.375 * T_stance"},
+        std::pair<const char* absl_nonnull, const char* absl_nonnull>{"translational_stepping", "0.4375 * T_stance"},
+        std::pair<const char* absl_nonnull, const char* absl_nonnull>{"in_place_turning", "0.0625 * T_stance"}}) {
     absl::StatusOr<std::unique_ptr<FootholdHeuristic>> heuristic = LocomotionHeuristicFactory::makeFootholdHeuristic(entry.first);
     ASSERT_TRUE(heuristic.ok()) << heuristic.status().message();
     ASSERT_TRUE((*heuristic)->configure(config, testModel()).ok());
@@ -850,14 +843,14 @@ TEST(LocomotionHeuristicFormulas, HeightCompensationIsAQuadraticInTheSpeedMagnit
   context.commandedVelocityInBaseFrame = vector2_t(1.2, 0.9);
   // -0.01 * 2.25 - 0.02 * 1.5 + 0.005 = -0.0475; linear-in-a2 gives -0.04, |v_x| gives -0.0334.
   const BasePoseOffset offset = basePoseOffsetOf("height_compensation", config, context);
-  EXPECT_NEAR(offset.height, -0.0475, 1e-12);
+  EXPECT_NEAR(offset.height, -0.0475, 1.0e-12);
   EXPECT_NEAR(offset.roll, 0.0, kTol);
   EXPECT_NEAR(offset.pitch, 0.0, kTol);
 
   // The POSITIVE side of the clamp: 0.2 - 0.0525 = 0.1475 -> 0.05.
   LocomotionHeuristicConfig rising = config;
   rising.heightCompensation.heightOffset = 0.2;
-  EXPECT_NEAR(basePoseOffsetOf("height_compensation", rising, context).height, 0.05, 1e-12);
+  EXPECT_NEAR(basePoseOffsetOf("height_compensation", rising, context).height, 0.05, 1.0e-12);
 }
 
 TEST(LocomotionHeuristicFormulas, OrientationCompensationClampsPitchAsWellAsRoll) {
@@ -870,12 +863,12 @@ TEST(LocomotionHeuristicFormulas, OrientationCompensationClampsPitchAsWellAsRoll
   BasePoseHeuristicContext forward;
   forward.commandedVelocityInBaseFrame = vector2_t(100.0, 0.0);
   const BasePoseOffset leaning = basePoseOffsetOf("orientation_compensation", config, forward);
-  EXPECT_NEAR(leaning.pitch, 0.1, 1e-12);
-  EXPECT_NEAR(leaning.roll, 0.01, 1e-12) << "roll follows the lateral command only";
+  EXPECT_NEAR(leaning.pitch, 0.1, 1.0e-12);
+  EXPECT_NEAR(leaning.roll, 0.01, 1.0e-12) << "roll follows the lateral command only";
 
   BasePoseHeuristicContext backward;
   backward.commandedVelocityInBaseFrame = vector2_t(-100.0, 0.0);
-  EXPECT_NEAR(basePoseOffsetOf("orientation_compensation", config, backward).pitch, -0.1, 1e-12);
+  EXPECT_NEAR(basePoseOffsetOf("orientation_compensation", config, backward).pitch, -0.1, 1.0e-12);
 }
 
 TEST(LocomotionHeuristicFormulas, PeriodicOrientationRollRunsAtItsOwnRateAndPhase) {
@@ -891,21 +884,21 @@ TEST(LocomotionHeuristicFormulas, PeriodicOrientationRollRunsAtItsOwnRateAndPhas
 
   BasePoseHeuristicContext context;
   context.gaitPhase = 0.25;  // roll 0.03 sin(pi/2) = 0.03, pitch 0.02 sin(pi) = 0
-  EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", config, context).roll, 0.03, 1e-12);
-  EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", config, context).pitch, 0.0, 1e-12);
+  EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", config, context).roll, 0.03, 1.0e-12);
+  EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", config, context).pitch, 0.0, 1.0e-12);
   context.gaitPhase = 0.75;  // roll 0.03 sin(3 pi/2) = -0.03
-  EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", config, context).roll, -0.03, 1e-12);
+  EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", config, context).roll, -0.03, 1.0e-12);
   context.gaitPhase = 0.125;  // roll 0.03 sin(pi/4), pitch 0.02 sin(pi/2) = 0.02
-  EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", config, context).roll, 0.03 * std::sqrt(0.5), 1e-12);
-  EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", config, context).pitch, 0.02, 1e-12);
+  EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", config, context).roll, 0.03 * std::sqrt(0.5), 1.0e-12);
+  EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", config, context).pitch, 0.02, 1.0e-12);
   EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", config, context).height, 0.0, kTol);
 
   // The roll phase offset is its own: pi/2 at phase 0 is a peak.
   LocomotionHeuristicConfig shifted = config;
   shifted.periodicOrientation.rollPhaseOffset = M_PI / 2.0;
   context.gaitPhase = 0.0;
-  EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", shifted, context).roll, 0.03, 1e-12);
-  EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", shifted, context).pitch, 0.0, 1e-12);
+  EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", shifted, context).roll, 0.03, 1.0e-12);
+  EXPECT_NEAR(basePoseOffsetOf("periodic_orientation", shifted, context).pitch, 0.0, 1.0e-12);
 }
 
 /*========================================== Create(): refusals and warnings ==========================================*/
@@ -923,7 +916,7 @@ TEST(LocomotionHeuristicFormulas, CreateRefusesAFootholdListThatNothingKeepsApar
     ASSERT_FALSE(layer.ok()) << "stepWidth " << stepWidth;
     EXPECT_EQ(layer.status().code(), absl::StatusCode::kInvalidArgument);
     const std::string message(layer.status().message());
-    EXPECT_TRUE(absl::StrContains(message, "model_settings.nominal_foothold.stepWidth")) << message;
+    EXPECT_TRUE(absl::StrContains(message, "nominal_foothold.step_width")) << message;
     EXPECT_TRUE(absl::StrContains(message, "hip_centered_stepping")) << message;
   }
 }
@@ -976,7 +969,7 @@ TEST(LocomotionHeuristicFormulas, CreateWarnsThatFootholdHeuristicsDoNothingWith
 
   WarningLog log;
   ASSERT_TRUE(LocomotionHeuristicLayer::Create(config, testModel(), environment).ok());
-  EXPECT_EQ(log.count("task_space_foot_cost_weights"), 1u) << log.all();
+  EXPECT_EQ(log.count("task_space_foot_cost.weights.pos_x"), 1u) << log.all();
   EXPECT_EQ(log.count("locomotion_heuristics.foothold lists hip_centered_stepping, translational_stepping"), 1u) << log.all();
 }
 
@@ -989,7 +982,7 @@ TEST(LocomotionHeuristicFormulas, CreateWarnsAboutTheForwardKinematicsCostOfAHor
   {
     WarningLog log;
     ASSERT_TRUE(LocomotionHeuristicLayer::Create(horizontal, testModel(), environment).ok());
-    EXPECT_EQ(log.count("contactInputParameterization is basis_vectors"), 1u) << log.all();
+    EXPECT_EQ(log.count("contact_input_parameterization is \"basis_vectors\""), 1u) << log.all();
   }
 
   // A vertical-only wrench list never takes the forward-kinematics path, so there is nothing to warn about.
@@ -998,7 +991,7 @@ TEST(LocomotionHeuristicFormulas, CreateWarnsAboutTheForwardKinematicsCostOfAHor
   {
     WarningLog log;
     ASSERT_TRUE(LocomotionHeuristicLayer::Create(vertical, testModel(), environment).ok());
-    EXPECT_EQ(log.count("contactInputParameterization is basis_vectors"), 0u) << log.all();
+    EXPECT_EQ(log.count("contact_input_parameterization is \"basis_vectors\""), 0u) << log.all();
   }
 }
 
@@ -1032,8 +1025,8 @@ TEST(LocomotionHeuristicFormulas, CreateIsSilentWhenEveryListedHeuristicCanAct) 
     WarningLog log;
     ASSERT_TRUE(LocomotionHeuristicLayer::Create(config, testModel(), hostile).ok());
     EXPECT_EQ(log.count("com_and_acom_tracking_cost"), 1u) << log.all();
-    EXPECT_EQ(log.count("task_space_foot_cost_weights"), 1u) << log.all();
-    EXPECT_EQ(log.count("contactInputParameterization is basis_vectors"), 1u) << log.all();
+    EXPECT_EQ(log.count("task_space_foot_cost.weights.pos_x"), 1u) << log.all();
+    EXPECT_EQ(log.count("contact_input_parameterization is \"basis_vectors\""), 1u) << log.all();
   }
 }
 
@@ -1063,9 +1056,9 @@ TEST(LocomotionHeuristicFormulas, ReconfigureAppliesAllOfAReloadOrNoneOfIt) {
   FootholdHeuristicContext foothold = leftFoot();
   foothold.commandedVelocity = vector2_t(1.0, 0.0);
   const WrenchHeuristicContext wrench = doubleSupport(0.6, 0.6);
-  EXPECT_NEAR((*layer)->basePoseOffset(basePose).pitch, 0.05, 1e-12);
-  EXPECT_NEAR((*layer)->footholdOffset(foothold).x(), 0.2, 1e-12);
-  EXPECT_NEAR((*layer)->wrenchOffset(wrench, CONTACT_LEFT_INDEX).z(), 130.8, 1e-9);
+  EXPECT_NEAR((*layer)->basePoseOffset(basePose).pitch, 0.05, 1.0e-12);
+  EXPECT_NEAR((*layer)->footholdOffset(foothold).x(), 0.2, 1.0e-12);
+  EXPECT_NEAR((*layer)->wrenchOffset(wrench, kContactLeftIndex).z(), 130.8, 1.0e-9);
 
   // A reload that changes a coefficient in EVERY channel and is invalid elsewhere must change none of them. Copying the
   // running values into the invalid reload, as the older test did, cannot tell a rejected reload from a half-applied one.
@@ -1075,17 +1068,17 @@ TEST(LocomotionHeuristicFormulas, ReconfigureAppliesAllOfAReloadOrNoneOfIt) {
   invalid.impulseScaling.scale = 0.5;
   invalid.capturePoint.maximumOffset = 0.0;  // invalid, and in a heuristic that is not even listed
   EXPECT_FALSE((*layer)->reconfigure(invalid).ok());
-  EXPECT_NEAR((*layer)->basePoseOffset(basePose).pitch, 0.05, 1e-12);
-  EXPECT_NEAR((*layer)->footholdOffset(foothold).x(), 0.2, 1e-12);
-  EXPECT_NEAR((*layer)->wrenchOffset(wrench, CONTACT_LEFT_INDEX).z(), 130.8, 1e-9);
+  EXPECT_NEAR((*layer)->basePoseOffset(basePose).pitch, 0.05, 1.0e-12);
+  EXPECT_NEAR((*layer)->footholdOffset(foothold).x(), 0.2, 1.0e-12);
+  EXPECT_NEAR((*layer)->wrenchOffset(wrench, kContactLeftIndex).z(), 130.8, 1.0e-9);
 
   // Positive control: the same reload made valid applies all three.
   LocomotionHeuristicConfig valid = invalid;
   valid.capturePoint.maximumOffset = 0.25;
   ASSERT_TRUE((*layer)->reconfigure(valid).ok());
-  EXPECT_NEAR((*layer)->basePoseOffset(basePose).pitch, -0.03, 1e-12);
-  EXPECT_NEAR((*layer)->footholdOffset(foothold).x(), 0.3, 1e-12);
-  EXPECT_NEAR((*layer)->wrenchOffset(wrench, CONTACT_LEFT_INDEX).z(), 65.4, 1e-9);
+  EXPECT_NEAR((*layer)->basePoseOffset(basePose).pitch, -0.03, 1.0e-12);
+  EXPECT_NEAR((*layer)->footholdOffset(foothold).x(), 0.3, 1.0e-12);
+  EXPECT_NEAR((*layer)->wrenchOffset(wrench, kContactLeftIndex).z(), 65.4, 1.0e-9);
 }
 
 TEST(LocomotionHeuristicFormulas, ReconfigureIgnoresAListChangedOnDiskAndReportsEachEditOnce) {
@@ -1110,13 +1103,13 @@ TEST(LocomotionHeuristicFormulas, ReconfigureIgnoresAListChangedOnDiskAndReports
   edited.orientationCompensation.pitchPerForwardVelocity = -0.03;
   ASSERT_TRUE((*layer)->reconfigure(edited).ok());
   EXPECT_NEAR((*layer)->basePoseOffset(context).height, 0.0, kTol);
-  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, -0.03, 1e-12) << "the coefficient must still be applied";
+  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, -0.03, 1.0e-12) << "the coefficient must still be applied";
   EXPECT_EQ(log.count("base_pose list has changed on disk"), 1u) << log.all();
 
   // A slider drag re-reads the same file: the same edit is not reported again.
   edited.orientationCompensation.pitchPerForwardVelocity = -0.04;
   ASSERT_TRUE((*layer)->reconfigure(edited).ok());
-  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, -0.04, 1e-12);
+  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, -0.04, 1.0e-12);
   EXPECT_EQ(log.count("changed on disk"), 1u) << log.all();
 
   // A further, DIFFERENT edit is reported, naming the list it touched - and a foothold heuristic added on disk is not
@@ -1133,7 +1126,7 @@ TEST(LocomotionHeuristicFormulas, ReconfigureIgnoresAListChangedOnDiskAndReports
   LocomotionHeuristicConfig reverted = config;
   reverted.orientationCompensation.pitchPerForwardVelocity = 0.07;
   ASSERT_TRUE((*layer)->reconfigure(reverted).ok());
-  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, 0.07, 1e-12);
+  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, 0.07, 1.0e-12);
   EXPECT_EQ(log.count("changed on disk"), reported) << log.all();
 
   // ...but it ends the edit it reverted: making that SAME edit again is news. The operator re-adds the heuristics
@@ -1145,7 +1138,7 @@ TEST(LocomotionHeuristicFormulas, ReconfigureIgnoresAListChangedOnDiskAndReports
   ASSERT_TRUE((*layer)->reconfigure(editedAgain).ok());
   EXPECT_EQ(log.count("base_pose list has changed on disk"), basePoseReported + 1) << log.all();
   EXPECT_EQ(log.count("foothold list has changed on disk"), footholdReported + 1) << log.all();
-  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, -0.04, 1e-12) << "the coefficient must still be applied";
+  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, -0.04, 1.0e-12) << "the coefficient must still be applied";
   EXPECT_TRUE((*layer)->footholdEmpty()) << "and the list still must not be";
 }
 
@@ -1163,7 +1156,7 @@ TEST(LocomotionHeuristicFormulas, ReconfigureReportsAnEditThatEmptiesEveryList) 
 
   BasePoseHeuristicContext context;
   context.commandedVelocityInBaseFrame = vector2_t(1.0, 0.0);
-  ASSERT_NEAR((*layer)->basePoseOffset(context).pitch, 0.05, 1e-12);
+  ASSERT_NEAR((*layer)->basePoseOffset(context).pitch, 0.05, 1.0e-12);
 
   WarningLog log;
   LocomotionHeuristicConfig emptied;  // every list empty, as after commenting out every name
@@ -1173,222 +1166,23 @@ TEST(LocomotionHeuristicFormulas, ReconfigureReportsAnEditThatEmptiesEveryList) 
   EXPECT_EQ(log.count("base_pose list has changed on disk"), 1u) << log.all();
   // The running list is kept, and its coefficient follows the file: -0.03 * 1.0.
   EXPECT_FALSE((*layer)->empty());
-  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, -0.03, 1e-12);
+  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, -0.03, 1.0e-12);
 
   // Reported once: the same emptied file re-read by the next slider drag is not reported again.
   emptied.orientationCompensation.pitchPerForwardVelocity = -0.02;
   ASSERT_TRUE((*layer)->reconfigure(emptied).ok());
   EXPECT_EQ(log.count("changed on disk"), 1u) << log.all();
-  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, -0.02, 1e-12);
+  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, -0.02, 1.0e-12);
 }
 
-/*======================================================= the loader =======================================================*/
-
-TEST(LocomotionHeuristicFormulas, LoaderRejectsAListItemThatIsAMapOrANestedList) {
-  // `- capture_point:` (a trailing colon left over from uncommenting) is the one-entry map {capture_point: null}, and
-  // `- [capture_point]` a nested list. Both used to be skipped, starting the controller with the heuristic silently off.
-  const std::vector<std::string> malformed{"locomotion_heuristics:\n  foothold:\n    - capture_point:\n",
-                                           "locomotion_heuristics:\n  foothold:\n    - [capture_point]\n",
-                                           "locomotion_heuristics:\n  foothold:\n    - {name: capture_point}\n"};
-  for (size_t i = 0; i < malformed.size(); ++i) {
-    const std::string file = writeTemp(absl::StrCat("heuristics_malformed_item_", i, ".yaml"), malformed[i]);
-    const absl::StatusOr<LocomotionHeuristicConfig> config = loadLocomotionHeuristicConfig(file);
-    ASSERT_FALSE(config.ok()) << malformed[i];
-    EXPECT_EQ(config.status().code(), absl::StatusCode::kInvalidArgument);
-    const std::string message(config.status().message());
-    EXPECT_TRUE(absl::StrContains(message, "locomotion_heuristics.foothold[0]")) << message;
-    EXPECT_TRUE(absl::StrContains(message, "must be a heuristic name")) << message;
-  }
-  // The trailing-colon case names the heuristic it was meant to be.
-  const std::string trailingColon = writeTemp("heuristics_trailing_colon.yaml", malformed.front());
-  EXPECT_TRUE(absl::StrContains(loadLocomotionHeuristicConfig(trailingColon).status().message(), "capture_point"));
-}
-
-TEST(LocomotionHeuristicFormulas, LoaderStillAcceptsADashFollowedOnlyByAComment) {
-  // A dash with nothing but a comment after it is a null item: it names nothing, and it is not an error.
-  const std::string bare = writeTemp("heuristics_bare_dash.yaml", "locomotion_heuristics:\n  foothold:\n    - # capture_point\n");
-  const absl::StatusOr<LocomotionHeuristicConfig> empty = loadLocomotionHeuristicConfig(bare);
-  ASSERT_TRUE(empty.ok()) << empty.status().message();
-  EXPECT_TRUE(empty->formulation.foothold.empty());
-
-  // Positive control: the same null item next to a real name keeps the name.
-  const std::string mixed = writeTemp("heuristics_bare_dash_and_name.yaml",
-                                      "locomotion_heuristics:\n  foothold:\n    - # translational_stepping\n    - capture_point\n");
-  const absl::StatusOr<LocomotionHeuristicConfig> one = loadLocomotionHeuristicConfig(mixed);
-  ASSERT_TRUE(one.ok()) << one.status().message();
-  EXPECT_EQ(one->formulation.foothold, std::vector<std::string>{"capture_point"});
-}
-
-TEST(LocomotionHeuristicFormulas, LoaderRoundTripsEveryCoefficientKey) {
-  // Every key the loader reads, written with a value distinct from its default and from every other key's, and read
-  // back into the member written out by hand. A misspelled key string in the loader leaves the default in place; two
-  // keys wired to each other's member swap two distinct numbers. Both fail here.
-  const std::vector<std::string> expectedKeys{"orientation_compensation.rollPerLateralVelocity",
-                                              "orientation_compensation.rollOffset",
-                                              "orientation_compensation.pitchPerForwardVelocity",
-                                              "orientation_compensation.pitchOffset",
-                                              "orientation_compensation.maximumTilt",
-                                              "periodic_orientation.rollAmplitude",
-                                              "periodic_orientation.rollPhaseRate",
-                                              "periodic_orientation.rollPhaseOffset",
-                                              "periodic_orientation.pitchAmplitude",
-                                              "periodic_orientation.pitchPhaseRate",
-                                              "periodic_orientation.pitchPhaseOffset",
-                                              "height_compensation.heightPerSpeedSquared",
-                                              "height_compensation.heightPerSpeed",
-                                              "height_compensation.heightOffset",
-                                              "height_compensation.maximumHeightOffset",
-                                              "hip_centered_stepping.lateralScale",
-                                              "hip_centered_stepping.longitudinalScale",
-                                              "capture_point.gain",
-                                              "capture_point.comHeightOverride",
-                                              "capture_point.gravity",
-                                              "capture_point.maximumOffset",
-                                              "translational_stepping.forwardPerForwardVelocity",
-                                              "translational_stepping.forwardStanceFraction",
-                                              "translational_stepping.forwardOffset",
-                                              "translational_stepping.lateralPerLateralVelocity",
-                                              "translational_stepping.lateralStanceFraction",
-                                              "translational_stepping.lateralOffset",
-                                              "in_place_turning.forwardPerYawRate",
-                                              "in_place_turning.forwardStanceLever",
-                                              "in_place_turning.forwardOffset",
-                                              "in_place_turning.lateralPerYawRate",
-                                              "in_place_turning.lateralOffset",
-                                              "high_speed_turning.forwardPerCrossTerm",
-                                              "high_speed_turning.forwardOffset",
-                                              "high_speed_turning.lateralPerCrossTerm",
-                                              "high_speed_turning.lateralOffset",
-                                              "impulse_scaling.scale",
-                                              "impulse_scaling.minimumDutyFactor",
-                                              "impulse_scaling.maximumForceRatio",
-                                              "centripetal_acceleration.scale",
-                                              "centripetal_acceleration.maximumForce",
-                                              "centripetal_acceleration.maximumForceRatioOfWeight"};
-  ASSERT_EQ(expectedKeys.size(), 42u);
-  std::vector<std::string> readKeys = locomotionHeuristicCoefficientKeys();
-  std::vector<std::string> sortedExpected = expectedKeys;
-  std::sort(readKeys.begin(), readKeys.end());
-  std::sort(sortedExpected.begin(), sortedExpected.end());
-  EXPECT_EQ(readKeys, sortedExpected) << "the key query must list exactly the keys written below, each once";
-
-  const std::string file = writeTemp("heuristics_every_key.yaml", R"(locomotion_heuristics:
-  orientation_compensation:
-    rollPerLateralVelocity: -0.101
-    rollOffset: 0.102
-    pitchPerForwardVelocity: 0.103
-    pitchOffset: -0.104
-    maximumTilt: 0.105
-  periodic_orientation:
-    rollAmplitude: 0.106
-    rollPhaseRate: 0.107
-    rollPhaseOffset: 0.108
-    pitchAmplitude: 0.109
-    pitchPhaseRate: 0.110
-    pitchPhaseOffset: 0.111
-  height_compensation:
-    heightPerSpeedSquared: 0.112
-    heightPerSpeed: -0.113
-    heightOffset: 0.114
-    maximumHeightOffset: 0.115
-  hip_centered_stepping:
-    lateralScale: 0.116
-    longitudinalScale: 0.117
-  capture_point:
-    gain: 0.118
-    comHeightOverride: 0.119
-    gravity: 0.120
-    maximumOffset: 0.121
-  translational_stepping:
-    forwardPerForwardVelocity: 0.122
-    forwardStanceFraction: 0.123
-    forwardOffset: 0.124
-    lateralPerLateralVelocity: 0.125
-    lateralStanceFraction: 0.126
-    lateralOffset: -0.127
-  in_place_turning:
-    forwardPerYawRate: 0.128
-    forwardStanceLever: 0.129
-    forwardOffset: 0.130
-    lateralPerYawRate: 0.131
-    lateralOffset: 0.132
-  high_speed_turning:
-    forwardPerCrossTerm: 0.133
-    forwardOffset: 0.134
-    lateralPerCrossTerm: 0.135
-    lateralOffset: 0.136
-  impulse_scaling:
-    scale: 0.137
-    minimumDutyFactor: 0.138
-    maximumForceRatio: 1.139
-  centripetal_acceleration:
-    scale: 0.140
-    maximumForce: 0.141
-    maximumForceRatioOfWeight: 0.142
-)");
-  const absl::StatusOr<LocomotionHeuristicConfig> loaded = loadLocomotionHeuristicConfig(file);
-  ASSERT_TRUE(loaded.ok()) << loaded.status().message();
-  const LocomotionHeuristicConfig& config = *loaded;
-
-  EXPECT_DOUBLE_EQ(config.orientationCompensation.rollPerLateralVelocity, -0.101);
-  EXPECT_DOUBLE_EQ(config.orientationCompensation.rollOffset, 0.102);
-  EXPECT_DOUBLE_EQ(config.orientationCompensation.pitchPerForwardVelocity, 0.103);
-  EXPECT_DOUBLE_EQ(config.orientationCompensation.pitchOffset, -0.104);
-  EXPECT_DOUBLE_EQ(config.orientationCompensation.maximumTilt, 0.105);
-
-  EXPECT_DOUBLE_EQ(config.periodicOrientation.rollAmplitude, 0.106);
-  EXPECT_DOUBLE_EQ(config.periodicOrientation.rollPhaseRate, 0.107);
-  EXPECT_DOUBLE_EQ(config.periodicOrientation.rollPhaseOffset, 0.108);
-  EXPECT_DOUBLE_EQ(config.periodicOrientation.pitchAmplitude, 0.109);
-  EXPECT_DOUBLE_EQ(config.periodicOrientation.pitchPhaseRate, 0.110);
-  EXPECT_DOUBLE_EQ(config.periodicOrientation.pitchPhaseOffset, 0.111);
-
-  EXPECT_DOUBLE_EQ(config.heightCompensation.heightPerSpeedSquared, 0.112);
-  EXPECT_DOUBLE_EQ(config.heightCompensation.heightPerSpeed, -0.113);
-  EXPECT_DOUBLE_EQ(config.heightCompensation.heightOffset, 0.114);
-  EXPECT_DOUBLE_EQ(config.heightCompensation.maximumHeightOffset, 0.115);
-
-  EXPECT_DOUBLE_EQ(config.hipCenteredStepping.lateralScale, 0.116);
-  EXPECT_DOUBLE_EQ(config.hipCenteredStepping.longitudinalScale, 0.117);
-
-  EXPECT_DOUBLE_EQ(config.capturePoint.gain, 0.118);
-  EXPECT_DOUBLE_EQ(config.capturePoint.comHeightOverride, 0.119);
-  EXPECT_DOUBLE_EQ(config.capturePoint.gravity, 0.120);
-  EXPECT_DOUBLE_EQ(config.capturePoint.maximumOffset, 0.121);
-
-  EXPECT_DOUBLE_EQ(config.translationalStepping.forwardPerForwardVelocity, 0.122);
-  EXPECT_DOUBLE_EQ(config.translationalStepping.forwardStanceFraction, 0.123);
-  EXPECT_DOUBLE_EQ(config.translationalStepping.forwardOffset, 0.124);
-  EXPECT_DOUBLE_EQ(config.translationalStepping.lateralPerLateralVelocity, 0.125);
-  EXPECT_DOUBLE_EQ(config.translationalStepping.lateralStanceFraction, 0.126);
-  EXPECT_DOUBLE_EQ(config.translationalStepping.lateralOffset, -0.127);
-
-  EXPECT_DOUBLE_EQ(config.inPlaceTurning.forwardPerYawRate, 0.128);
-  EXPECT_DOUBLE_EQ(config.inPlaceTurning.forwardStanceLever, 0.129);
-  EXPECT_DOUBLE_EQ(config.inPlaceTurning.forwardOffset, 0.130);
-  EXPECT_DOUBLE_EQ(config.inPlaceTurning.lateralPerYawRate, 0.131);
-  EXPECT_DOUBLE_EQ(config.inPlaceTurning.lateralOffset, 0.132);
-
-  EXPECT_DOUBLE_EQ(config.highSpeedTurning.forwardPerCrossTerm, 0.133);
-  EXPECT_DOUBLE_EQ(config.highSpeedTurning.forwardOffset, 0.134);
-  EXPECT_DOUBLE_EQ(config.highSpeedTurning.lateralPerCrossTerm, 0.135);
-  EXPECT_DOUBLE_EQ(config.highSpeedTurning.lateralOffset, 0.136);
-
-  EXPECT_DOUBLE_EQ(config.impulseScaling.scale, 0.137);
-  EXPECT_DOUBLE_EQ(config.impulseScaling.minimumDutyFactor, 0.138);
-  EXPECT_DOUBLE_EQ(config.impulseScaling.maximumForceRatio, 1.139);
-
-  EXPECT_DOUBLE_EQ(config.centripetalAcceleration.scale, 0.140);
-  EXPECT_DOUBLE_EQ(config.centripetalAcceleration.maximumForce, 0.141);
-  EXPECT_DOUBLE_EQ(config.centripetalAcceleration.maximumForceRatioOfWeight, 0.142);
-}
+/*======================================================= validation =======================================================*/
 
 namespace {
 
 /** One way of putting one key out of its admissible range, and the key the rejection has to name. */
 struct OutOfRange {
-  const char* key;
-  void (*breakIt)(LocomotionHeuristicConfig&);
+  const char* absl_nonnull key;
+  void (*absl_nonnull breakIt)(LocomotionHeuristicConfig&);
 };
 
 }  // namespace
@@ -1398,34 +1192,34 @@ TEST(LocomotionHeuristicFormulas, ValidateRejectsEveryOutOfRangeKeyByName) {
   const std::vector<OutOfRange> cases{
       {"locomotion_heuristics.base_pose", [](LocomotionHeuristicConfig& c) { c.formulation.basePose = {"no_such_heuristic"}; }},
       {"locomotion_heuristics.foothold", [](LocomotionHeuristicConfig& c) { c.formulation.foothold = {"capture_point", "capture_point"}; }},
-      {"locomotion_heuristics.orientation_compensation.maximumTilt",
+      {"locomotion_heuristics.orientation_compensation.maximum_tilt",
        [](LocomotionHeuristicConfig& c) { c.orientationCompensation.maximumTilt = 0.0; }},
-      {"locomotion_heuristics.orientation_compensation.maximumTilt",
+      {"locomotion_heuristics.orientation_compensation.maximum_tilt",
        [](LocomotionHeuristicConfig& c) { c.orientationCompensation.maximumTilt = -0.1; }},
-      {"locomotion_heuristics.height_compensation.maximumHeightOffset",
+      {"locomotion_heuristics.height_compensation.maximum_height_offset",
        [](LocomotionHeuristicConfig& c) { c.heightCompensation.maximumHeightOffset = -0.01; }},
-      {"locomotion_heuristics.capture_point.comHeightOverride",
+      {"locomotion_heuristics.capture_point.com_height_override",
        [](LocomotionHeuristicConfig& c) { c.capturePoint.comHeightOverride = -0.5; }},
       {"locomotion_heuristics.capture_point.gravity", [](LocomotionHeuristicConfig& c) { c.capturePoint.gravity = 0.0; }},
       {"locomotion_heuristics.capture_point.gravity", [](LocomotionHeuristicConfig& c) { c.capturePoint.gravity = -9.81; }},
-      {"locomotion_heuristics.capture_point.maximumOffset", [](LocomotionHeuristicConfig& c) { c.capturePoint.maximumOffset = 0.0; }},
+      {"locomotion_heuristics.capture_point.maximum_offset", [](LocomotionHeuristicConfig& c) { c.capturePoint.maximumOffset = 0.0; }},
       {"locomotion_heuristics.capture_point.gain", [](LocomotionHeuristicConfig& c) { c.capturePoint.gain = -1.0; }},
-      {"locomotion_heuristics.hip_centered_stepping.lateralScale",
+      {"locomotion_heuristics.hip_centered_stepping.lateral_scale",
        [](LocomotionHeuristicConfig& c) { c.hipCenteredStepping.lateralScale = -1.0; }},
-      {"locomotion_heuristics.hip_centered_stepping.longitudinalScale",
+      {"locomotion_heuristics.hip_centered_stepping.longitudinal_scale",
        [](LocomotionHeuristicConfig& c) { c.hipCenteredStepping.longitudinalScale = -1.0; }},
       {"locomotion_heuristics.impulse_scaling.scale", [](LocomotionHeuristicConfig& c) { c.impulseScaling.scale = -0.5; }},
-      {"locomotion_heuristics.impulse_scaling.minimumDutyFactor",
+      {"locomotion_heuristics.impulse_scaling.minimum_duty_factor",
        [](LocomotionHeuristicConfig& c) { c.impulseScaling.minimumDutyFactor = 0.0; }},
-      {"locomotion_heuristics.impulse_scaling.minimumDutyFactor",
+      {"locomotion_heuristics.impulse_scaling.minimum_duty_factor",
        [](LocomotionHeuristicConfig& c) { c.impulseScaling.minimumDutyFactor = 1.5; }},
-      {"locomotion_heuristics.impulse_scaling.maximumForceRatio",
+      {"locomotion_heuristics.impulse_scaling.maximum_force_ratio",
        [](LocomotionHeuristicConfig& c) { c.impulseScaling.maximumForceRatio = 0.99; }},
       {"locomotion_heuristics.centripetal_acceleration.scale",
        [](LocomotionHeuristicConfig& c) { c.centripetalAcceleration.scale = -0.5; }},
-      {"locomotion_heuristics.centripetal_acceleration.maximumForce",
+      {"locomotion_heuristics.centripetal_acceleration.maximum_force",
        [](LocomotionHeuristicConfig& c) { c.centripetalAcceleration.maximumForce = -10.0; }},
-      {"locomotion_heuristics.centripetal_acceleration.maximumForceRatioOfWeight",
+      {"locomotion_heuristics.centripetal_acceleration.maximum_force_ratio_of_weight",
        [](LocomotionHeuristicConfig& c) { c.centripetalAcceleration.maximumForceRatioOfWeight = -0.3; }},
       {"locomotion_heuristics.centripetal_acceleration",
        [](LocomotionHeuristicConfig& c) {
@@ -1450,16 +1244,17 @@ TEST(LocomotionHeuristicFormulas, ValidateAcceptsEachRangeBoundary) {
   // The boundaries each check is documented to allow. A `<=` where a `<` belongs would refuse the legitimate no-op
   // (a zero scale, a zero override meaning "measured") or the extreme a robot may genuinely want (beta floor 1).
   const std::vector<OutOfRange> boundaries{
-      {"height_compensation.maximumHeightOffset = 0", [](LocomotionHeuristicConfig& c) { c.heightCompensation.maximumHeightOffset = 0.0; }},
-      {"capture_point.comHeightOverride = 0", [](LocomotionHeuristicConfig& c) { c.capturePoint.comHeightOverride = 0.0; }},
+      {"height_compensation.maximum_height_offset = 0",
+       [](LocomotionHeuristicConfig& c) { c.heightCompensation.maximumHeightOffset = 0.0; }},
+      {"capture_point.com_height_override = 0", [](LocomotionHeuristicConfig& c) { c.capturePoint.comHeightOverride = 0.0; }},
       {"capture_point.gain = 0", [](LocomotionHeuristicConfig& c) { c.capturePoint.gain = 0.0; }},
-      {"hip_centered_stepping.lateralScale = 0", [](LocomotionHeuristicConfig& c) { c.hipCenteredStepping.lateralScale = 0.0; }},
-      {"hip_centered_stepping.longitudinalScale = 0", [](LocomotionHeuristicConfig& c) { c.hipCenteredStepping.longitudinalScale = 0.0; }},
+      {"hip_centered_stepping.lateral_scale = 0", [](LocomotionHeuristicConfig& c) { c.hipCenteredStepping.lateralScale = 0.0; }},
+      {"hip_centered_stepping.longitudinal_scale = 0", [](LocomotionHeuristicConfig& c) { c.hipCenteredStepping.longitudinalScale = 0.0; }},
       {"impulse_scaling.scale = 0", [](LocomotionHeuristicConfig& c) { c.impulseScaling.scale = 0.0; }},
-      {"impulse_scaling.minimumDutyFactor = 1", [](LocomotionHeuristicConfig& c) { c.impulseScaling.minimumDutyFactor = 1.0; }},
-      {"impulse_scaling.maximumForceRatio = 1", [](LocomotionHeuristicConfig& c) { c.impulseScaling.maximumForceRatio = 1.0; }},
+      {"impulse_scaling.minimum_duty_factor = 1", [](LocomotionHeuristicConfig& c) { c.impulseScaling.minimumDutyFactor = 1.0; }},
+      {"impulse_scaling.maximum_force_ratio = 1", [](LocomotionHeuristicConfig& c) { c.impulseScaling.maximumForceRatio = 1.0; }},
       {"centripetal_acceleration.scale = 0", [](LocomotionHeuristicConfig& c) { c.centripetalAcceleration.scale = 0.0; }},
-      {"centripetal_acceleration.maximumForceRatioOfWeight = 0 with maximumForce set",
+      {"centripetal_acceleration.maximum_force_ratio_of_weight = 0 with maximum_force set",
        [](LocomotionHeuristicConfig& c) {
          c.centripetalAcceleration.maximumForce = 50.0;
          c.centripetalAcceleration.maximumForceRatioOfWeight = 0.0;
@@ -1477,43 +1272,6 @@ TEST(LocomotionHeuristicFormulas, ValidateAcceptsEachRangeBoundary) {
     const absl::Status status = config.validate();
     EXPECT_TRUE(status.ok()) << entry.key << ": " << status.message();
   }
-}
-
-TEST(LocomotionHeuristicFormulas, LoaderRejectsAnOutOfRangeValueReadFromTheFileByName) {
-  // validate() runs on what was READ, so a negative gain in the file is refused at start-up rather than stepping the
-  // robot against the velocity error.
-  const std::string file = writeTemp("heuristics_negative_gain.yaml", "locomotion_heuristics:\n  capture_point:\n    gain: -1.0\n");
-  const absl::StatusOr<LocomotionHeuristicConfig> config = loadLocomotionHeuristicConfig(file);
-  ASSERT_FALSE(config.ok());
-  EXPECT_EQ(config.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(config.status().message(), "locomotion_heuristics.capture_point.gain")) << config.status().message();
-
-  // Positive control: the same key at an admissible value loads.
-  const std::string good = writeTemp("heuristics_positive_gain.yaml", "locomotion_heuristics:\n  capture_point:\n    gain: 0.5\n");
-  const absl::StatusOr<LocomotionHeuristicConfig> loaded = loadLocomotionHeuristicConfig(good);
-  ASSERT_TRUE(loaded.ok()) << loaded.status().message();
-  EXPECT_DOUBLE_EQ(loaded->capturePoint.gain, 0.5);
-}
-
-TEST(LocomotionHeuristicFormulas, LoaderNamesTheKeyTheFileAndTheTextOfAnUnparseableNumber) {
-  // Each key is read on its own so that the error names it; a blanket catch around all forty-two could not.
-  const std::string file =
-      writeTemp("heuristics_bad_ratio.yaml", "locomotion_heuristics:\n  impulse_scaling:\n    scale: 0.5\n    maximumForceRatio: two\n");
-  const absl::StatusOr<LocomotionHeuristicConfig> config = loadLocomotionHeuristicConfig(file);
-  ASSERT_FALSE(config.ok());
-  EXPECT_EQ(config.status().code(), absl::StatusCode::kInvalidArgument);
-  const std::string expected =
-      absl::StrCat("locomotion_heuristics.impulse_scaling.maximumForceRatio in '", file, "' is 'two', which is not a number.");
-  EXPECT_TRUE(absl::StrContains(config.status().message(), expected)) << "expected '" << expected << "' in: " << config.status().message();
-  EXPECT_FALSE(absl::StrContains(config.status().message(), "impulse_scaling.scale")) << "the error must name the bad key only";
-}
-
-TEST(LocomotionHeuristicFormulas, LoaderReportsAnUnreadableFileAsNotFound) {
-  const std::string missing = testing::TempDir() + "/no_such_directory/no_such_task.yaml";
-  const absl::StatusOr<LocomotionHeuristicConfig> config = loadLocomotionHeuristicConfig(missing);
-  ASSERT_FALSE(config.ok());
-  EXPECT_EQ(config.status().code(), absl::StatusCode::kNotFound) << config.status().message();
-  EXPECT_TRUE(absl::StrContains(config.status().message(), missing)) << config.status().message();
 }
 
 }  // namespace ocs2::humanoid

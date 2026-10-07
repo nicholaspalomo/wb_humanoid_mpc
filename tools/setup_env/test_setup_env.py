@@ -1,28 +1,58 @@
-"""setup_env.sh is sourced by every shell, launch and CI build (`make build-all` runs `source setup_env.sh && bazel
-build //...`), so it must not change the shell it runs in beyond the environment it exports.
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""setup_env.sh only exports variables, the same ones however often and whenever it is sourced.
+
+Every shell of the dev container sources it (through BASH_ENV), and so do every CI build (`make build-all` runs
+`source setup_env.sh && bazel build //...`) and every launch.
 
 It once opened a lock with `exec {lock_fd}>file 2>/dev/null`. `exec` with redirections and no command applies all of
-them to the shell for good, so that line also sent the shell's stderr to /dev/null. It runs only when a package's
-assets have to be copied - always in a fresh container, never in a warm dev container - so every error of CI's Bazel
-build vanished there while the same build printed its errors at a developer's desk.
+them to the shell for good, so that line also sent the shell's stderr to /dev/null, and every error of CI's Bazel
+build vanished. It also set the environment up differently before a build and after it: .bazelrc passes PATH into
+every action's cache key, and the script used to add .bazel/bin only once a build had created it, so CI's `bazel test`
+rebuilt everything its `bazel build` had just built.
 
-It also must not set the environment up differently before a build and after it. .bazelrc passes PATH, LD_LIBRARY_PATH,
-PYTHONPATH and AMENT_PREFIX_PATH into the actions' and tests' cache keys, and the script used to add .bazel/bin and the
-message packages' directories only once they existed. CI's `bazel test` then rebuilt everything its `bazel build` had
-just built, and a shell set up before the message repositories were fetched ran the ROS tests without the typesupport
-libraries rosidl loads at run time.
+It leaves LD_LIBRARY_PATH alone: robotpkg's libraries find each other through their RUNPATH, and robotpkg's lib
+directory holds a libblasfeo.so of another version than the solver's. (//tools/dev_container:test_dev_container keeps
+ROS out of it.)
 """
 
-import glob
-import hashlib
 import os
 import shutil
 import subprocess
 import tempfile
 import unittest
 
+_NAMES = ("PATH", "PYTHONPATH", "LD_LIBRARY_PATH", "DISPLAY")
+_ROBOTPKG_PREFIX = "/opt/openrobots"
 
-def _runfile(relative_path):
+
+def _runfile(relative_path: str) -> str:
+    """A repository file, from the Bazel runfiles when run by Bazel and from the source tree otherwise."""
     roots = []
     if "TEST_SRCDIR" in os.environ:
         roots += [
@@ -37,152 +67,145 @@ def _runfile(relative_path):
     raise FileNotFoundError(relative_path)
 
 
-def _simulate_build(output_base, workspace):
-    """Creates what a build leaves behind: the message repositories in `output_base`, and `workspace`/.bazel/ pointing
-    into it."""
-    python = [os.path.basename(d) for d in glob.glob("/opt/ros/*/lib/python3.*")] or [
-        "python3.12"
-    ]
-    for package in ("humanoid_mpc_msgs", "ocs2_ros2_msgs"):
-        prefix = os.path.join(
-            output_base, "external", f"+system_libs+{package}_repo", "install", package
-        )
-        os.makedirs(os.path.join(prefix, "share"))
-        os.makedirs(os.path.join(prefix, "lib", python[0], "site-packages"))
-    bazel_out = os.path.join(output_base, "execroot", "_main", "bazel-out")
-    os.makedirs(os.path.join(bazel_out, "k8-opt", "bin"))
-    symlinks = os.path.join(workspace, ".bazel")
-    os.makedirs(symlinks, exist_ok=True)
-    for name, target in (
-        ("out", bazel_out),
-        ("bin", os.path.join(bazel_out, "k8-opt", "bin")),
-    ):
-        if os.path.lexists(os.path.join(symlinks, name)):
-            os.remove(os.path.join(symlinks, name))
-        os.symlink(target, os.path.join(symlinks, name))
-
-
 class SetupEnvTest(unittest.TestCase):
-    def setUp(self):
-        self.directory = tempfile.TemporaryDirectory()
-        self.script = _runfile("setup_env.sh")
+    def setUp(self) -> None:
+        # pylint: disable-next=consider-using-with  # The cleanup deletes it.
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.directory = directory.name
+        # A checkout of its own, so that the test controls what a build has and has not created in it.
+        self.workspace = os.path.join(self.directory, "workspace")
+        os.makedirs(self.workspace)
+        self.script = os.path.join(self.workspace, "setup_env.sh")
+        shutil.copy(_runfile("setup_env.sh"), self.script)
 
-    def tearDown(self):
-        self.directory.cleanup()
-
-    def source_then(self, commands, script=None, home=None):
-        """Sources setup_env.sh into a fresh bash with an empty install directory, then runs `commands` in that shell."""
+    def source_then(
+        self, commands: str, extra_environment: dict[str, str] | None = None
+    ) -> subprocess.CompletedProcess:
+        """Sources setup_env.sh into a fresh bash with a minimal environment, then runs `commands` in that shell."""
         environment = {
-            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-            "HOME": home or self.directory.name,
+            "PATH": "/usr/bin:/bin",
+            "HOME": self.directory,
             "USER": "tester",
-            # An empty install directory: every package has to be installed, which is the path that takes the lock.
-            "TMPDIR": self.directory.name,
+            "TMPDIR": self.directory,
         }
+        environment.update(extra_environment or {})
         return subprocess.run(
-            [
-                "bash",
-                "-c",
-                'source "$0" >/dev/null; ' + commands,
-                script or self.script,
-            ],
+            ["bash", "-c", 'source "$0" >/dev/null; ' + commands, self.script],
             env=environment,
             capture_output=True,
             text=True,
-            timeout=300,
+            timeout=60,
+            check=False,
         )
 
-    def test_the_lock_path_is_exercised(self):
-        # Without flock the script skips the lock, and the test below could not fail.
-        self.assertIsNotNone(
-            shutil.which("flock"), "flock (util-linux) is needed to exercise the lock"
+    def environment(self, commands: str = "", **extra: str) -> dict[str, str]:
+        """The variables of _NAMES after sourcing (and running `commands`); an unset one is absent."""
+        print_variables = " ".join(
+            f'[ -n "${{{name}+set}}" ] && printf "{name}=%s\\n" "${name}";'
+            for name in _NAMES
         )
-        result = self.source_then('ls -a "$TMPDIR/.bazel_ros_install"')
-        self.assertIn(".remote_control.lock", result.stdout)
+        result = self.source_then(commands + print_variables, extra)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return dict(line.split("=", 1) for line in result.stdout.splitlines())
 
-    def test_stderr_still_reaches_the_caller_after_sourcing(self):
+    def test_stderr_still_reaches_the_caller_after_sourcing(self) -> None:
         result = self.source_then("echo stderr-is-visible >&2; exit 3")
         self.assertIn("stderr-is-visible", result.stderr)
         # And the shell is otherwise usable: its own exit status comes through.
         self.assertEqual(result.returncode, 3)
 
-    def test_the_environment_does_not_depend_on_the_build(self):
-        # A workspace of its own, so that the test controls what a build has and has not created in it.
-        workspace = os.path.join(self.directory.name, "workspace")
-        home = os.path.join(self.directory.name, "home")
-        os.makedirs(workspace)
-        os.makedirs(home)
-        script = os.path.join(workspace, "setup_env.sh")
-        shutil.copy(self.script, script)
-        names = ("PATH", "LD_LIBRARY_PATH", "PYTHONPATH", "AMENT_PREFIX_PATH")
-        print_variables = 'printf "%s\\n" ' + " ".join(f'"${name}"' for name in names)
-
-        def environment():
-            result = self.source_then(print_variables, script=script, home=home)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            return dict(zip(names, result.stdout.splitlines()))
-
-        before = environment()
-
-        # What this environment's build leaves behind: Bazel's default output base for the workspace, the message
-        # repositories in it and the .bazel/ symlinks into it. Every directory the script used to probe for is created.
-        workspace_hash = hashlib.md5(os.path.realpath(workspace).encode()).hexdigest()
-        output_base = os.path.join(
-            home, ".cache", "bazel", "_bazel_tester", workspace_hash
+    def test_a_non_interactive_shell_prints_nothing(self) -> None:
+        # Every bash script in the container sources it (BASH_ENV): its output would end up in theirs.
+        result = subprocess.run(
+            ["bash", "-c", 'source "$0"', self.script],
+            env={"PATH": "/usr/bin:/bin", "HOME": self.directory},
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
         )
-        _simulate_build(output_base, workspace)
-        after_a_build = environment()
+        self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
 
-        # And what a build from elsewhere leaves: the checkout is shared with the host and with `make ci-local`'s
-        # container, whose builds point the .bazel/ symlinks into output bases of their own.
-        _simulate_build(
-            os.path.join(self.directory.name, "elsewhere", "_bazel_root", "0" * 32),
-            workspace,
-        )
-        after_a_build_elsewhere = environment()
+    def test_it_writes_no_file(self) -> None:
+        self.source_then("true")
+        self.assertEqual(sorted(os.listdir(self.directory)), ["workspace"])
+        self.assertEqual(os.listdir(self.workspace), ["setup_env.sh"])
 
-        for name in names:
-            self.assertEqual(
-                before[name],
-                after_a_build[name],
-                f"{name} changed once a build had run",
-            )
-            self.assertEqual(
-                before[name],
-                after_a_build_elsewhere[name],
-                f"{name} followed the .bazel/ symlinks of another environment's build",
-            )
-        # And the directories are there all along, not missing throughout.
+    def test_the_bazel_binaries_and_robotpkg_are_on_the_path(self) -> None:
+        path = self.environment()["PATH"].split(":")
+        self.assertEqual(path[0], os.path.join(self.workspace, ".bazel", "bin"))
+        self.assertIn(os.path.join(_ROBOTPKG_PREFIX, "bin"), path)
+        self.assertIn("/usr/bin", path)
+
+    def test_the_python_tools_of_the_checkout_are_on_the_python_path(self) -> None:
+        python_path = self.environment()["PYTHONPATH"].split(":")
+        self.assertIn(os.path.join(self.workspace, "humanoid_learning"), python_path)
         self.assertIn(
             os.path.join(
-                output_base,
-                "external",
-                "+system_libs+ocs2_ros2_msgs_repo",
-                "install",
-                "ocs2_ros2_msgs",
-                "lib",
+                self.workspace, "humanoid_nmpc", "humanoid_common_mpc_pyutils"
             ),
-            before["LD_LIBRARY_PATH"].split(":"),
+            python_path,
         )
-        self.assertIn(
-            os.path.join(workspace, ".bazel", "bin"), before["PATH"].split(":")
+        for entry in python_path:
+            if entry.startswith(_ROBOTPKG_PREFIX):
+                self.assertRegex(
+                    entry, r"^/opt/openrobots/lib/python3\.\d+/site-packages$"
+                )
+                self.assertTrue(os.path.isdir(entry), entry)
+
+    def test_robotpkg_s_python_bindings_are_on_the_python_path_where_installed(
+        self,
+    ) -> None:
+        site_packages = [
+            os.path.join(_ROBOTPKG_PREFIX, "lib", name, "site-packages")
+            for name in (
+                os.listdir(os.path.join(_ROBOTPKG_PREFIX, "lib"))
+                if os.path.isdir(os.path.join(_ROBOTPKG_PREFIX, "lib"))
+                else []
+            )
+            if name.startswith("python3.")
+        ]
+        site_packages = [path for path in site_packages if os.path.isdir(path)]
+        if not site_packages:
+            self.skipTest("robotpkg's Python bindings are not installed here")
+        python_path = self.environment()["PYTHONPATH"].split(":")
+        for path in site_packages:
+            self.assertIn(path, python_path)
+
+    def test_the_library_path_is_left_alone(self) -> None:
+        self.assertNotIn("LD_LIBRARY_PATH", self.environment())
+        self.assertEqual(
+            self.environment(LD_LIBRARY_PATH="/some/lib")["LD_LIBRARY_PATH"],
+            "/some/lib",
         )
 
-    def test_the_computed_output_base_is_the_one_bazel_uses(self):
-        # The test above takes md5(workspace path) under _bazel_<user> to be Bazel's output base, as setup_env.sh does. Check that against the Bazel running this test: its runfiles live in that output base.
-        runfiles = os.path.realpath(os.environ.get("TEST_SRCDIR", ""))
-        if "/execroot/" not in runfiles:
-            self.skipTest("not run by Bazel")
-        output_base = runfiles.split("/execroot/")[0].split("/sandbox/")[0]
-        workspace = os.path.dirname(os.path.realpath(_runfile("setup_env.sh")))
-        if workspace.startswith(output_base + os.sep):
-            self.skipTest(
-                "setup_env.sh is a copy in the output base, not the workspace's own file"
-            )
-        self.assertEqual(
-            os.path.basename(output_base),
-            hashlib.md5(workspace.encode()).hexdigest(),
+    def test_sourcing_twice_changes_nothing(self) -> None:
+        once = self.environment()
+        twice = self.environment(f'source "{self.script}" >/dev/null; ')
+        self.assertEqual(once, twice)
+
+    def test_the_environment_does_not_depend_on_the_build(self) -> None:
+        before = self.environment()
+        # What a build leaves behind: the .bazel/ symlinks, here pointing into an output base elsewhere.
+        output_base = os.path.join(
+            self.directory, "output_base", "execroot", "_main", "bazel-out"
         )
+        os.makedirs(os.path.join(output_base, "k8-opt", "bin"))
+        os.makedirs(os.path.join(self.workspace, ".bazel"))
+        for name, target in (
+            ("out", output_base),
+            ("bin", os.path.join(output_base, "k8-opt", "bin")),
+        ):
+            os.symlink(target, os.path.join(self.workspace, ".bazel", name))
+        self.assertEqual(before, self.environment())
+
+    def test_the_display_defaults_to_the_vnc_desktop_but_keeps_one_of_its_own(
+        self,
+    ) -> None:
+        self.assertEqual(self.environment()["DISPLAY"], ":99")
+        self.assertEqual(self.environment(DISPLAY=":1")["DISPLAY"], ":99")
+        self.assertEqual(self.environment(DISPLAY="host:0")["DISPLAY"], "host:0")
 
 
 if __name__ == "__main__":

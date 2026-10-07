@@ -1,5 +1,32 @@
-"""
-Cartpole Reinforcement Learning Tutorial using Google Brax PPO & MuJoCo MJX.
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""Cartpole Reinforcement Learning Tutorial using Google Brax PPO & MuJoCo MJX.
+
 Demonstrates:
   1. Defining an MJCF model in MuJoCo.
   2. Subclassing brax.envs.base.PipelineEnv for GPU-accelerated MJX physics.
@@ -8,18 +35,21 @@ Demonstrates:
 """
 
 import argparse
+from collections.abc import Callable
 import os
 import sys
 import time
-from typing import Dict, Optional
+from typing import Any, TypeAlias
 
-# Configure OpenGL backend: GLX for interactive VNC/GUI window, OSMesa for headless background rendering
+# Configure OpenGL backend: GLX for interactive VNC/GUI window, OSMesa for headless background rendering. MuJoCo reads
+# MUJOCO_GL when it is first imported, and pyplot its backend, so both are set before the imports below.
 if "--vnc" in sys.argv or "--gui" in sys.argv:
     os.environ["MUJOCO_GL"] = "glx"
 elif "MUJOCO_GL" not in os.environ:
     os.environ["MUJOCO_GL"] = "osmesa"
 
-from brax.envs.base import PipelineEnv, State
+# pylint: disable=wrong-import-position  # MUJOCO_GL is set above, before MuJoCo is imported.
+from brax.envs import base as brax_base
 from brax.training.agents.ppo import train as ppo
 import jax
 import jax.numpy as jnp
@@ -32,7 +62,13 @@ from mujoco import mjx
 import numpy as np
 from PIL import Image
 
+# pylint: disable-next=unused-import  # Installs the JAX polyfill Brax PPO needs (examples/__init__.py).
 import humanoid_learning.examples
+
+# pylint: enable=wrong-import-position
+
+# A policy's inference function, as Brax PPO makes it: (observation, key) -> (action, extras).
+InferenceFn: TypeAlias = Callable[[np.ndarray, jax.Array], tuple[jax.Array, Any]]
 
 # ==============================================================================
 # 1. Cartpole MJCF XML Model Definition
@@ -70,10 +106,10 @@ CARTPOLE_XML = """
 # ==============================================================================
 # 2. Brax Pipeline Environment for Cartpole
 # ==============================================================================
-class CartpoleBraxEnv(PipelineEnv):
+class CartpoleBraxEnv(brax_base.PipelineEnv):
     """Cartpole Environment inheriting from Brax PipelineEnv for GPU-accelerated MJX."""
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         self.mj_model = mujoco.MjModel.from_xml_string(CARTPOLE_XML)
         mjx_model = mjx.put_model(self.mj_model)
         super().__init__(sys=mjx_model, n_frames=1, **kwargs)
@@ -86,7 +122,7 @@ class CartpoleBraxEnv(PipelineEnv):
     def observation_size(self) -> int:
         return 5
 
-    def reset(self, rng: jax.Array) -> State:
+    def reset(self, rng: jax.Array) -> brax_base.State:
         """Resets the cartpole state with initial tilt perturbation."""
         rng_pos, rng_pole = jax.random.split(rng)
         init_x = jax.random.uniform(rng_pos, (), minval=-0.2, maxval=0.2)
@@ -104,9 +140,9 @@ class CartpoleBraxEnv(PipelineEnv):
             "upright": jnp.clip(jnp.cos(init_theta), 0.0, 1.0),
             "cart_x": init_x,
         }
-        return State(pipeline_state, obs, reward, done, metrics)
+        return brax_base.State(pipeline_state, obs, reward, done, metrics)
 
-    def step(self, state: State, action: jax.Array) -> State:
+    def step(self, state: brax_base.State, action: jax.Array) -> brax_base.State:
         """Applies action and integrates physics forward using MJX."""
         ctrl = jnp.clip(action, -1.0, 1.0)
         pipeline_state = self.pipeline_step(state.pipeline_state, ctrl)
@@ -140,6 +176,7 @@ class CartpoleBraxEnv(PipelineEnv):
     def _compute_reward(
         self, pipeline_state: mjx.Data, ctrl: jax.Array, done: jax.Array
     ) -> jax.Array:
+        """The reward for being upright near the center, less the penalties for spinning, effort and falling."""
         cart_x = pipeline_state.qpos[0]
         theta = pipeline_state.qpos[1]
         theta_dot = pipeline_state.qvel[1]
@@ -167,7 +204,7 @@ class CartpoleBraxEnv(PipelineEnv):
 # ==============================================================================
 def render_policy_rollout(
     mj_model: mujoco.MjModel,
-    inference_fn,
+    inference_fn: InferenceFn,
     output_gif_path: str,
     num_frames: int = 120,
 ) -> float:
@@ -180,18 +217,20 @@ def render_policy_rollout(
     data.qvel[:] = 0.0
     mujoco.mj_forward(mj_model, data)
 
-    frames = []
+    frames: list[Image.Image] = []
     total_reward = 0.0
 
     # Try native MuJoCo 3D renderer
     renderer = None
     try:
         renderer = mujoco.Renderer(mj_model, height=360, width=480)
+    # The 3D renderer needs an OpenGL context, whose failures differ by platform; the 2D fallback below takes over.
+    # pylint: disable-next=broad-exception-caught  # The 2D fallback takes over.
     except Exception:
         renderer = None
 
-    cart_xs = []
-    thetas = []
+    cart_xs: list[float] = []
+    thetas: list[float] = []
     rng = jax.random.PRNGKey(0)
 
     for step in range(num_frames):
@@ -220,6 +259,8 @@ def render_policy_rollout(
                 renderer.update_scene(data, camera="track_cam")
                 rgb_frame = renderer.render()
                 frames.append(Image.fromarray(rgb_frame))
+            # A lost OpenGL context fails differently by platform; the 2D fallback below takes over.
+            # pylint: disable-next=broad-exception-caught  # The 2D fallback takes over.
             except Exception:
                 renderer = None
 
@@ -287,7 +328,9 @@ def render_policy_rollout(
     return total_reward
 
 
-def plot_training_curves(metrics_history: Dict[str, list], output_plot_path: str):
+def plot_training_curves(
+    metrics_history: dict[str, list[float]], output_plot_path: str
+) -> None:
     """Saves updated reward and loss curves to a PNG image."""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
 
@@ -334,7 +377,7 @@ def plot_training_curves(metrics_history: Dict[str, list], output_plot_path: str
 # ==============================================================================
 # 4. Main Brax PPO Training Loop with Visualization Callback
 # ==============================================================================
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Cartpole Brax MJX PPO Training with Visualization"
     )
@@ -391,7 +434,8 @@ def main():
     eval_data = None
     if args.vnc or args.gui:
         try:
-            import mujoco.viewer
+            # pylint: disable-next=import-outside-toplevel  # The viewer needs GLFW and a display: only --vnc / --gui.
+            from mujoco import viewer as mujoco_viewer
 
             if args.vnc and "DISPLAY" not in os.environ:
                 os.environ["DISPLAY"] = ":99"
@@ -400,26 +444,26 @@ def main():
             eval_data.qpos[1] = 0.35
             eval_data.qvel[:] = 0.0
             mujoco.mj_forward(env.mj_model, eval_data)
-            viewer = mujoco.viewer.launch_passive(env.mj_model, eval_data)
+            viewer = mujoco_viewer.launch_passive(env.mj_model, eval_data)
             viewer.sync()
             print("🖥️ Live 3D MuJoCo Viewer initialized on display :99!")
+        # The live viewer is optional; GLFW and the display fail differently by platform, and training goes on without it.
+        # pylint: disable-next=broad-exception-caught  # The live viewer is optional.
         except Exception as e:
             print(f"⚠️ Could not launch live 3D viewer: {e}")
             viewer = None
 
-    metrics_history = {
+    metrics_history: dict[str, list[float]] = {
         "eval_steps": [],
         "eval_scores": [],
         "loss_steps": [],
         "loss": [],
     }
 
-    step_count = 0
     t_last = time.time()
 
-    def progress_callback(num_steps: int, metrics: Dict[str, float]):
-        nonlocal step_count, t_last
-        step_count += 1
+    def progress_callback(num_steps: int, metrics: dict[str, float]) -> None:
+        nonlocal t_last
         dt = time.time() - t_last
         t_last = time.time()
 
@@ -449,7 +493,7 @@ def main():
     print("\n🏁 Launching Brax PPO Training Loop...\n")
 
     # Run Brax PPO training
-    make_inference_fn, params, final_metrics = ppo.train(
+    make_inference_fn, params, _ = ppo.train(
         environment=env,
         num_timesteps=args.total_timesteps,
         num_evals=args.num_evals,
@@ -516,6 +560,8 @@ def main():
         try:
             if viewer.is_running():
                 viewer.close()
+        # Closing the viewer at the end of the run must not fail it; GLFW teardown errors differ by platform.
+        # pylint: disable-next=broad-exception-caught  # Closing must not fail the run.
         except Exception:
             pass
         viewer = None
@@ -536,6 +582,7 @@ def main():
     # Clean exit for VNC/GUI to prevent GLFW/Mesa background thread teardown crash
     if args.vnc or args.gui:
         sys.stdout.flush()
+        # pylint: disable-next=protected-access  # os._exit skips the teardown that crashes.
         os._exit(0)
 
 

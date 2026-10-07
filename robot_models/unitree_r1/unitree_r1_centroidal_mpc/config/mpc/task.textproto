@@ -1,0 +1,795 @@
+# proto-file: humanoid_nmpc/humanoid_mpc_config/task_file.proto
+# proto-message: humanoid_mpc_config.TaskFile
+# Simulation & Telemetry Configuration
+# Where the robot process sends its telemetry (robot/state), by name (TelemetrySinkRegistry.h): bus publishes it on
+# the IPC bus for the visualization publisher, the Rerun bridge and ipc_tool; no telemetry_sinks line turns the
+# telemetry off.
+# LINT.IfChange(telemetry_sinks)
+telemetry_sinks: "bus"
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h:telemetry_sink_names)
+telemetry_frequency: 100  # [Hz] robot/state, decimated from the control loop
+# MuJoCo backend of the robot process only. The viewer's contact timeline ('b' toggles it) shows, per contact point,
+# the contact state the executed MPC policy plans against the simulator's ground truth over a sliding window of time.
+sim_contact_timeline_window: 5.0  # [s] width of the sliding window
+sim_contact_force_threshold: 5.0  # [N] normal force above which a contact point counts as touching (ground truth)
+# Fall recovery (SimFallRecovery, humanoid_nmpc/docs/mpc_reset/README.md). sim_max_base_tilt_angle is the tilt of the base
+# past which the simulator catches the robot on the gantry, holding it upright where it is at the gantry height,
+# switching to JOINT_PD (the whole-body MPC is overconstrained against a pinned base) and resetting the controller, which
+# holds the robot until it has planned from where the robot is now. The simulator's own resets (base below the floor
+# limit, an unstable step) are caught the same way. The remote control follows the lock and re-centers its joysticks,
+# so a stick left forward cannot keep commanding a walk into a robot hanging from the harness. The measure is the angle
+# between the base's own vertical and the world vertical, so it is heading independent: 0 upright, pi/2 on its side, pi
+# upside down. 0 disables the catch and leaves a fallen robot where it lands, which is what you want when the fall
+# itself is the thing being studied. 1.0 rad (57 deg) is past any recoverable lean.
+# sim_gantry_catch_lift is how far the gantry then lifts the caught robot so that its feet clear the ground: JOINT_PD brings
+# the legs back to the nominal posture, the gantry lowers the robot back onto its feet, and WB_MPC is refused until it
+# rests there. Caught at its standing height with its feet loaded where they landed, the robot hung pitched and fell
+# again within two seconds of the unlock. 0 skips the sequence and accepts WB_MPC at once. Simulation only.
+sim_max_base_tilt_angle: 1.0  # [rad] 0 disables
+sim_gantry_catch_lift: 0.15  # [m] 0 skips the settle sequence
+# Measured contact state of the controller, by name (robot_model/ContactEstimatorRegistry.h): the MPC observation mode and
+# which planned contact wrenches the inverse dynamics projects into feedforward torques. One of:
+#   cheater_sim        the ground truth of the physics (normal force above sim_contact_force_threshold); required for the
+#                      phase_resetting execution rule of contact_planning.textproto
+#   robot_state        the contact flags of the RobotState (in MuJoCo the same ground truth)
+#   always_in_contact  every contact point touching: the executed schedule is taken as the measured contact state
+# LINT.IfChange(contact_estimator)
+contact_estimator: "cheater_sim"
+# LINT.ThenChange(//robot_runtime/robot_model/src/ContactEstimatorRegistry.cpp:contact_estimator_names, //robot_runtime/mujoco_sim_interface/src/CheaterSimContactEstimator.cpp:cheater_sim_contact_estimator_name)
+# How the virtual gantry holds the floating base while it is locked. Two different physical models, so the name selects
+# one rather than a boolean switching a feature on:
+#   weld_constraint    a MuJoCo weld the solver satisfies INSIDE mj_step, so the base is really supported while the
+#                      dynamics are integrated. This is what a physical gantry does, and the only setting under which
+#                      GRAVITY_COMP holds the limbs still. It needs the scene's 'gantry' weld from the world to the base
+#                      (test_robot_scene_gantry_hold checks every configuration's scene).
+#   kinematic_teleport legacy: qpos/qvel are overwritten just BEFORE mj_step, leaving the base unsupported during the
+#                      step. The robot is then in free fall while integrating, and a free-falling chain in uniform
+#                      gravity needs zero joint torque to keep its shape, so the commanded gravity torque is entirely
+#                      surplus lift: measured ~130 deg of joint drift in 3 s, into the stops. Kept only to reproduce
+#                      recorded runs.
+# LINT.IfChange(gantry_hold)
+gantry_hold: "weld_constraint"
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/MujocoSimInterface.h:gantry_hold_names)
+
+# The ball the GUI's Dodgeball tab throws, by name (robot_runtime/mujoco_sim_interface/.../Projectile.h). MuJoCo
+# compiles its model once at load and bodies cannot be added afterwards, so naming one here appends a free-floating
+# sphere to the scene BEFORE it is compiled. Until a throw arms it, it is parked 100 m above the scene with its
+# collisions off and its weight held by gravity compensation; it is parked again once it has come to rest, after ten
+# seconds in play at most, and whenever the robot is caught on the gantry.
+#
+#   dodgeball   a regulation 0.216 m sphere of 0.45 kg (the GUI's mass slider sets 0.1-5 kg per throw) that bounces
+#               back at 0.80 of the speed it arrived at. MuJoCo has no restitution parameter: it is converted to the
+#               contact damping ratio solref needs by the logarithmic decrement (0.80 gives 0.0708), and the ball's
+#               contact parameters take priority over the floor's and the robot's so that it is the bounce it gets.
+#
+# Remove the key, or set it empty, to compile the scene exactly as it is on disk. The Throw button then still works:
+# with no ball to fly, the simulator applies the momentum the ball would have ARRIVED with as a one-step force on the
+# base - a lower bound on the push, since a real ball that bounces off hands over more.
+#
+# Simulation only. It changes nothing about the MPC, and a contact with the ball is excluded from the ground-truth
+# contact mask and from the ZMP marker, so a ball against a swing foot is never mistaken for the ground.
+# LINT.IfChange(sim_projectile)
+sim_projectile: "dodgeball"
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/Projectile.cpp:projectile_names)
+
+# Viewer visualizations (each listed one starts on; the key in brackets toggles it, 'p' prints the cheatsheet). Every
+# marker is a class in robot_runtime/mujoco_sim_interface/.../visualization; the names are those of VisualizationRegistry.
+# LINT.IfChange(sim_visualizations)
+sim_visualizations: "metrics"  # render/sim FPS, real-time factor and drift (top-left text)
+sim_visualizations: "external_forces"  # arrows of the external forces applied to the bodies (pushes)
+sim_visualizations: "contact_forces"  # arrows of the physical contact forces on the robot
+sim_visualizations: "base_velocity"  # measured (red) vs commanded (green) base velocity and yaw rate at the CoM
+sim_visualizations: "contact_timeline"  # [b] barcode of planned vs ground-truth contact per contact point
+sim_visualizations: "target_contact_patches"  # [g] contact patch of every foot at the planner's target position and yaw
+# sim_visualizations: "center_of_mass"        # [o] whole-body center of mass: sphere, vertical, and its shadow on the ground
+# sim_visualizations: "zmp"                   # [z] zero moment point of the physical ground reaction, on the ground
+# sim_visualizations: "dcm"                   # [d] divergent component of motion (capture point) of the measured CoM, on the ground
+# MuJoCo's own markers, off unless listed:
+# sim_visualizations: "mj_contact_points"     # [c] markers at the physical contact points
+# sim_visualizations: "mj_contact_forces"     # [f] MuJoCo's normal and friction force arrows at the contacts
+# sim_visualizations: "mj_com"                # [m] center of mass markers of the bodies
+# sim_visualizations: "mj_inertia"            # [i] equivalent inertia ellipsoids
+# sim_visualizations: "mj_convex_hull"        # [h] convex hulls of the meshes
+# sim_visualizations: "mj_transparent"        # [t] model transparency (x-ray view)
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/visualization/VisualizationRegistry.cpp:visualization_names)
+enable_online_tuning: true  # Enable runtime parameter and gain tuning in Controller GUI
+# How the MPC parameterizes its contact inputs, by name (ContactInputParameterization.h): `wrench` (each foot's 6-D
+# wrench, with the contact wrench cone a soft constraint of the lists below; the default) or `basis_vectors` (the
+# scalings lambda of wrench-cone generators built from contacts.contact_wrench_cone_soft_constraint, which this file
+# does not carry). It fixes the input dimension, so it takes effect at start-up only. See
+# humanoid_nmpc/docs/contact_basis_vectors/README.md.
+# LINT.IfChange(contact_input_parameterization_config)
+contact_input_parameterization: "wrench"
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/ContactInputParameterization.h:contact_input_parameterization_names)
+# Where the mode schedule and the footholds come from, by name (MpcFormulationConfig.h): `gait_schedule` (the gait
+# schedule of the reference files, with the nominal footholds; shipped here, and the default) or `contact_planner` (the
+# online contact planner that planner.type in a contact_planning.textproto next to this file names, which this robot does
+# not carry). It replaced the useContactPlanning key, which start-up now refuses, and takes effect at start-up only.
+# See humanoid_nmpc/docs/README.md, section 2.
+# LINT.IfChange(contact_schedule_source_config)
+contact_schedule_source: "gait_schedule"
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/MpcFormulationConfig.h:contact_schedule_source_names)
+
+# The visualization publisher of the MPC node (humanoid_nmpc/humanoid_common_mpc_app/visualization/README.md), read at
+# start-up. rerun_scene_frequency bounds how often the Rerun scene (robots and markers) is sent; the plots follow every
+# robot/state sample. telemetry_frames are the frames whose pose, twist, acceleration and wrench are plotted, measured,
+# reference and plan; rerun_plan_frames (the contact frames when absent) those whose planned paths the scene draws.
+rerun_scene_frequency: 30  # [Hz] viz/scene at most this often
+# Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench). The R1's base is
+# pelvis_link and its torso waist_yaw_link (the link of task_space_torso_cost); it has no pelvis or torso_link.
+telemetry_frames: "foot_l_contact"
+telemetry_frames: "foot_r_contact"
+telemetry_frames: "pelvis_link"
+telemetry_frames: "waist_yaw_link"
+
+centroidal_model: "full_centroidal_dynamics"  # or "single_rigid_body_dynamics"
+
+# MPC Problem Formulation Tasks
+hard_constraints: "zero_wrench"
+hard_constraints: "zero_velocity"
+hard_constraints: "normal_velocity"
+soft_constraints: "joint_limits"
+soft_constraints: "foot_collision"
+soft_constraints: "friction_force_cone"
+soft_constraints: "contact_moment_xy"
+costs: "state_quadratic_cost"
+costs: "input_quadratic_cost"
+costs: "terminal_cost"
+costs: "icp_cost"
+costs: "task_space_foot_cost"
+costs: "task_space_torso_cost"
+costs: "external_torque_cost"
+
+# ---------------------------------------------------------------------------------------------------------------
+# Locomotion heuristics: the regularization heuristics of Gerardo Bledt, "Regularized Predictive Control Framework
+# for Robust Dynamic Legged Locomotion", MIT 2020, Appendix C. Derivations, a block diagram and the seam of every
+# name below are in humanoid_nmpc/docs/locomotion_heuristics/README.md.
+#
+# This is a reference-SHAPING layer, not a new cost family. Nothing here adds a term to the optimal control problem:
+# every name modifies a reference that a cost this file ALREADY lists regularizes against, which is what RPC means
+# by regularization. Three channels, three lists, three seams:
+#
+#   base_pose  the roll, pitch and height of the base-pose reference that Q(11,11), Q(10,10) and Q(8,8) track - and
+#              final_state_weights and the torso task-space cost with them - shaped per shooting node in
+#              SwitchedModelReferenceManager::shapeBasePose(). Without a heuristic that reference carries a HARD ZERO
+#              for roll and pitch - the target calculator writes targetPose[4] = targetPose[5] = 0.0 on every call - so
+#              anything listed here is the first opinion this MPC has about how the base is carried. It is a function
+#              of the operator's COMMANDED velocity. Inert while costs lists com_and_acom_tracking_cost, because
+#              the cost factory zeroes Q's base-pose block in that mode; start-up warns.
+#   foothold   the landing target of the swing foot, shaped in nominalFoothold() and re-evaluated at every solve, which
+#              the foot task-space cost tracks through task_space_foot_cost.weights.pos_x / pos_y. The target is the
+#              base PREDICTED at touch-down plus the heuristics' offsets, so it holds still through the swing. REQUIRES
+#              contact_schedule_source: gait_schedule and is rejected at start-up under contact_planner: the online
+#              planner supplies footholds itself and never consults these. Also rejected: a list without
+#              hip_centered_stepping on a robot whose nominal_foothold.step_width is 0, since nothing would then keep the
+#              feet apart. They do nothing while pos_x and pos_y are 0; start-up warns.
+#   wrench     the contact-force reference the input costs regularize against, shaped in getDesiredInput(). That
+#              reference is otherwise weight compensation and nothing else: m*g split evenly over the feet the mode
+#              schedule calls stance feet, purely vertical.
+#
+# ALL THREE LISTS ARE EMPTY, deliberately. Each changes the closed loop and none has been validated in simulation
+# under hardware-like conditions on this robot; Bledt's own coefficients were fitted to a 9 kg quadruped. Uncomment
+# ONE name - just its `base_pose:`, `foothold:` or `wrench:` line, each of which adds one entry to its list - sweep its
+# block in MuJoCo, and only then move to the next, which is how the dissertation itself proceeds (section 4.3,
+# figure 4-13: one heuristic per panel, the viable operating region measured after each).
+#
+# The list is the switch and the block is the tuning, and the two are independent. Every fitted coefficient of
+# Table C.2 ships at ZERO on this robot (none has been derived for it; `make derive-heuristic-parameters ROBOT=<this
+# robot>` prints a starting point), so a name uncommented with its block untouched is still exactly a no-op - which
+# makes "does listing it change anything at all" a separate experiment from "what should the number be". The analytic
+# heuristics of Table C.1 (hip_centered_stepping, capture_point, impulse_scaling, centripetal_acceleration) have no
+# fitted coefficients, only unit scales, so for those four the list entry alone is the change.
+#
+#
+# R1 NOTES. nominal_foothold.step_width is 0 and task_space_foot_cost.weights.pos_x / pos_y are 0, so nothing in this
+# configuration has an opinion about horizontal foot placement; a foothold heuristic needs those weights raised
+# before it reaches anything. This robot is the closest in mass to the EngineAI SA01 and runs the same formulation,
+# so a coefficient found on one is the natural starting point for the other.
+#
+# Note for the tuning GUI: slider ranges are derived from the value, so a coefficient at 0 gets a (0, 1) slider and
+# cannot be dragged negative. Several of these are physically negative (height_compensation.height_per_speed, for one).
+# Type the value into the entry box, which widens the bounds.
+#
+# Orientation sign: the base pose is Euler ZYX about a z-up world, so a POSITIVE pitch puts the nose DOWN. Leaning
+# into a forward command is therefore a POSITIVE pitch_per_forward_velocity - the sign of Bledt's own fitted +0.0725.
+locomotion_heuristics {
+  # Each list ships empty, its candidate names commented out below, one line per entry, so that uncommenting a line
+  # adds that name to its list. The offsets within a list are SUMMED, so the order here is
+  # documentary only - unlike the contact planner's `costs` list, where order is the floating-point accumulation order.
+  # base_pose: "orientation_compensation"   # H_Theta(pdot): roll from lateral speed, pitch from forward speed
+  # base_pose: "periodic_orientation"       # H_Theta(Phi):  roll/pitch limit cycle in the gait phase
+  # base_pose: "height_compensation"        # H_z(v):        base height against speed
+  # foothold: "hip_centered_stepping"      # H_r(Theta):        foot under its own hip - READ ITS BLOCK BELOW FIRST
+  # foothold: "capture_point"              # H_r(pdot, Phi):    step into the velocity ERROR
+  # foothold: "translational_stepping"     # H_r(pdot):         step in the direction of travel
+  # foothold: "in_place_turning"           # H_r(psidot):       step along the turn arc
+  # foothold: "high_speed_turning"         # H_r(pdot x omega): step outward along the turn radius
+  # wrench: "impulse_scaling"            # H_f(Phi):            stance force scaled by 1 / duty factor
+  # wrench: "centripetal_acceleration"   # H_f(Theta x pdot):   the horizontal force of a turn - SEE ITS BLOCK BELOW
+
+  # ---- one parameter block per heuristic, keyed by the heuristic's own registry name ----
+
+  # H_Theta(pdot) = a1 * pdot + a0  (Table C.2, equations 4.11 and 4.12). The velocity is the COMMANDED CoM velocity
+  # in the reference base's yaw frame, so a1 is a lean per unit of commanded speed and a0 a standing trim. Bledt did
+  # not design this one, he regressed it out of the optimizer's own choices (R^2 of 0.98 and 0.95) and found that
+  # injecting it back both enlarged the viable operating region and improved the simplified orientation dynamics'
+  # own validity, because the body sits closer to level at speed.
+  orientation_compensation {
+    roll_per_lateral_velocity: 0.0  # a1 [rad s/m] roll reference per commanded lateral speed
+    roll_offset: 0.0  # a0 [rad] standing roll trim
+    pitch_per_forward_velocity: 0.0  # a1 [rad s/m] pitch per commanded forward speed (expect POSITIVE: nose down, the sign of Bledt's +0.0725)
+    pitch_offset: 0.0  # a0 [rad] standing pitch trim
+    maximum_tilt: 0.35  # [rad] each of roll and pitch is clamped to +/- this; the command is not rate limited
+  }
+
+  # H_Theta(Phi) = b1 * sin(c1 * Phi + d1)  (Table C.2, equation 4.13), with Phi the gait phase in [0, 1). [0, 0.5)
+  # is the LF mode and [0.5, 1) the RF mode, and those name the foot IN CONTACT, not the one swinging - so the first
+  # half of the cycle is left stance with the RIGHT foot in the air. Phi FREEZES at 0.0 or 0.5 through double support
+  # rather than advancing, so this holds a constant offset there instead of continuing its cycle.
+  # The two rates are pre-wired to the two shapes that make sense, so only the amplitudes have to be found.
+  periodic_orientation {
+    roll_amplitude: 0.0  # b1 [rad]
+    roll_phase_rate: 6.2831853  # c1 [rad per unit phase]; 2*pi = one period per left-right cycle
+    roll_phase_offset: 0.0  # d1 [rad]
+    pitch_amplitude: 0.0  # b1 [rad]
+    pitch_phase_rate: 12.5663706  # c1 [rad per unit phase]; 4*pi = one period per step
+    pitch_phase_offset: 0.0  # d1 [rad]
+  }
+
+  # H_z(v) = a2*v^2 + a1*v + a0  (Table C.2) in the MAGNITUDE of the commanded horizontal velocity, applied as an
+  # OFFSET to the reference height and never as an absolute height - the same channel carries the terrain that
+  # adaptToCurrentGroundHeight() writes, and an absolute value would silently become a terrain override.
+  # Crouching with speed buys the swing leg vertical room within the same joint range; it costs knee torque headroom.
+  height_compensation {
+    height_per_speed_squared: 0.0  # a2 [m s^2/m^2]
+    height_per_speed: 0.0  # a1 [m s/m] (expect negative: lower with speed)
+    height_offset: 0.0  # a0 [m]
+    maximum_height_offset: 0.05  # [m] clamped to +/- this, so a command spike cannot drop the base into its knees
+  }
+
+  # H_r(Theta) = PTP(R(Theta) * r_hip)  (Table C.1): the foot under its own hip, ground-projected. r_hip is derived
+  # from the robot model at start-up and is never a key here; these two scales stretch it.
+  #
+  # WARNING. This is the one heuristic in the family that is not a small correction: it MOVES THE ANCHOR of the
+  # foothold reference. With it listed the landing target is the base predicted at touch-down plus this hip offset, so
+  # the lateral separation comes from the hips (times lateral_scale) instead of from the stance foot plus
+  # nominal_foothold.step_width. On a robot whose step_width is 0 it is what makes the rest of the foothold family
+  # usable at all: start-up refuses a foothold list without it there. Bledt never uses it alone; it is the base term the Table C.2 velocity terms
+  # are summed on top of (figure 4-8), and alone it walks a few slow steps and falls as soon as it has speed. The
+  # layer prints a warning when it is listed alone, and another when the others are listed without it.
+  hip_centered_stepping {
+    lateral_scale: 1.0  # multiplies the model's hip lateral offset; 0 removes the lateral part
+    longitudinal_scale: 1.0  # multiplies the model's hip fore-aft offset
+  }
+
+  # H_r(pdot, Phi) = gain * sqrt(p_z / g) * (pdot - pdot_d)  (Table C.1): the capture-point offset of the VELOCITY
+  # ERROR, and the only heuristic here that reacts to a push rather than to a command - it is identically zero
+  # whenever the robot is going as fast as it was asked to. sqrt(z/g) is 1/omega, the same pendulum time constant
+  # the DCM terminal cost and the ZMP/DCM viewer markers already use.
+  capture_point {
+    gain: 1.0  # 1.0 is the textbook capture point
+    com_height_override: 0.0  # [m] 0: use the CoM height measured each solve; positive: use this fixed value
+    gravity: 9.81  # [m/s^2]
+    maximum_offset: 0.25  # [m] clamped in MAGNITUDE, which preserves the direction of the step into the error
+  }
+
+  # H_r(pdot) = a1 * pdot + a0  (Table C.2): step in the direction of travel, in the base's yaw frame. The largest
+  # single effect in the dissertation: a foot placed under the hip at lift-off is behind the robot by touch-down, so
+  # the stance that follows tips the robot the way it is already going. Roughly doubled the usable stance per step
+  # and multiplied the top speed (figure 4-9). Expect a1 near half the stance duration.
+  translational_stepping {
+    forward_per_forward_velocity: 0.0  # a1 [m s/m], Bledt's constant
+    forward_stance_fraction: 0.0  # [-] adds this times the upcoming stance duration to a1; Raibert's rule is 0.5
+    forward_offset: 0.0  # a0 [m]
+    lateral_per_lateral_velocity: 0.0  # a1 [m s/m], Bledt's constant
+    lateral_stance_fraction: 0.0  # [-] the same on the lateral axis
+    lateral_offset: 0.0  # a0 [m] applied to this foot's OWN SIDE, so one number widens the stance
+  }
+
+  # H_r(psidot) = a1 * psidot + a0  (Table C.2): step along the turn arc while turning on the spot (figure 4-10).
+  # psidot is the COMMANDED yaw rate. The FORWARD term is signed per foot and the lateral one is not, which is what
+  # makes it a rotation: on a turn in place the two feet must move fore-aft in opposite directions.
+  #
+  # DIRECTION. A foot at r relative to the base moves at omega x r, so the LEFT foot at (0, +d) moves at
+  # (0,0,psidot) x (0,d,0) = (-psidot*d, 0) - BACKWARDS for a counter-clockwise turn, while the right foot moves
+  # forwards. (To turn left you swing the right foot forward and around it and the left foot back.) The code carries
+  # that sign, so a POSITIVE forward_per_yaw_rate leads each hip into the turn, which is the point of the heuristic; the
+  # opposite convention would make a positive number drive the feet to trail the hips by twice the intended amount.
+  in_place_turning {
+    forward_per_yaw_rate: 0.0  # a1 [m s/rad], Bledt's constant; positive leads each hip into the turn
+    forward_stance_lever: 0.0  # [m/rad] adds this times the upcoming stance duration to a1; Raibert's is half the
+                              #     hip's lever arm
+    forward_offset: 0.0  # a0 [m]
+    lateral_per_yaw_rate: 0.0  # a1 [m s/rad]
+    lateral_offset: 0.0  # a0 [m] applied to this foot's own side
+  }
+
+  # H_r(pdot x omega) = a1 * (pdot x omega) + a0  (Table C.2): throw the feet out along the turn radius at speed.
+  # The heuristic the extraction framework found and the designer had not: without it the robot "tended to fall
+  # outwards along the turning radius as if it were an object slipping off a spinning plate" (section 4.3), and
+  # Bledt only afterwards recognized it as the placement that lines up with the resultant of gravity and the
+  # centripetal acceleration (equation 4.31). Zero at zero speed however fast the robot spins, which is what
+  # distinguishes it from in_place_turning. With omega = psidot e_z the cross product is (v_y*psidot, -v_x*psidot).
+  high_speed_turning {
+    forward_per_cross_term: 0.0  # a1 [m s^2/(m rad)] on   v_y * psidot
+    forward_offset: 0.0  # a0 [m]
+    lateral_per_cross_term: 0.0  # a1 [m s^2/(m rad)] on  -v_x * psidot
+    lateral_offset: 0.0  # a0 [m] applied to this foot's own side
+  }
+
+  # H_f(Phi) = m*g / (F * beta)  (Table C.1): the vertical stance force reference of a foot that is on the ground for
+  # a fraction beta of the gait cycle, because the vertical impulse over the cycle has to add up to the weight.
+  #
+  # F IS THE NUMBER OF FEET THE ROBOT HAS, a constant - not the number in contact at this instant. The existing
+  # reference divides the weight over the feet in contact NOW, so it sums to W at every instant; Bledt's is the same
+  # value on every stance foot whatever n_stance is, so its total is below W in single support and above it in double
+  # support and averages to exactly W over the cycle, because the mean number of feet on the ground is F * beta.
+  # Standing (beta = 1) and a pure alternating single support (beta = 1/2) both give back today's reference exactly,
+  # so the correction bites only in a gait that has double support - where it asks the feet to push a little harder
+  # than static equilibrium because a single-support phase is coming.
+  #
+  # Applied as the difference from today's reference, so an empty list is exactly today's behavior. beta is measured
+  # over each foot's OWN STRIDE, lift-off to lift-off, in the schedule being solved: on a periodic gait that is the gait's
+  # duty factor at every node and for both feet, which is what makes the average come out at exactly W. Purely vertical, which is what keeps the cheap yaw-invariant input-frame path valid.
+  impulse_scaling {
+    scale: 1.0  # blends between today's reference (0) and Bledt's W/(F*beta) (1); must be >= 0
+    minimum_duty_factor: 0.2  # beta is clamped up to this; 1/beta is unbounded as a flight phase opens
+    maximum_force_ratio: 2.0  # the reference is clamped to this many times weight compensation
+  }
+
+  # H_f(Theta x pdot) = m * omega x pdot  (Table C.1): the horizontal force that holds the robot on a circular path,
+  # shared over the stance feet. The companion of high_speed_turning - one says where to put the foot for a fast
+  # turn, the other which way to push once it is there.
+  #
+  # TWO THINGS TO KNOW BEFORE LISTING IT. First, it is the only heuristic of the ten whose force is HORIZONTAL, so under
+  # contact_input_parameterization: basis_vectors the reference has to be rotated into the local contact frame and the
+  # whole contact-force reference starts paying a forward-kinematics pass per shooting node per SQP iteration. The layer
+  # switches to that path by itself and warns; watch the solve time. Second, and more important: this may be the wrong
+  # thing to want HERE. Bledt's control model is a single rigid body whose force reference is the only thing telling the
+  # QP how hard to push, whereas these dynamics are full centroidal and the state cost already tracks the commanded
+  # linear and angular momentum - so m*omega x v is the derivative of a momentum this problem already regulates, an
+  # output the optimizer must produce rather than information the reference lacks. It is implemented because it is one
+  # of Bledt's ten and the seam is clean; `scale` is the knob for finding out in simulation whether it earns its place.
+  centripetal_acceleration {
+    scale: 1.0  # scales m * omega x v; 0 disables it
+    maximum_force: 0.0  # [N] per-foot clamp; 0 uses maximum_force_ratio_of_weight instead
+    # 0.16 = 40% of the mu = 0.4 friction budget of contacts.friction_force_cone_soft_constraint, the cone this file lists.
+    # (0.3 used to sit here on the premise of a 0.5 coefficient, which is the OTHER cone's and not listed here: it was
+    # 75% of a single stance foot's budget.)
+    maximum_force_ratio_of_weight: 0.16  # the clamp as a fraction of body weight
+  }
+}
+
+interface {
+  verbose: true  # show the loaded parameters
+}
+
+model_settings {
+  robot_name: "r1"
+
+  foot_constraint {
+    position_error_gain_z: 5.0
+    orientation_error_gain: 20.0
+    linear_velocity_error_gain_z: 1.0
+    linear_velocity_error_gain_xy: 1.0
+    angular_velocity_error_gain: 1.0
+    linear_acceleration_error_gain_z: 0.0
+    linear_acceleration_error_gain_xy: 0.0
+    angular_acceleration_error_gain: 0.0
+    stance_constraint: "position_and_tilt"  # "position", "position_and_tilt" or "position_and_orientation"
+  }
+
+  phase_transition_stance_time: 0.0
+
+  verbose_cpp_ad: true
+  recompile_libraries_cpp_ad: false
+
+  # Exclude these joints from MPC model
+  fixed_joint_names: "left_wrist_roll_joint"
+  fixed_joint_names: "right_wrist_roll_joint"
+  fixed_joint_names: "head_pitch_joint"
+  fixed_joint_names: "head_yaw_joint"
+
+  # Pinocchio Frame names for the contact frames
+  contact_names_6dof: "foot_l_contact"
+  contact_names_6dof: "foot_r_contact"
+
+  # The Parent frames on which the contact frames are added.
+  contact_parent_joint_names: "left_ankle_roll_joint"
+  contact_parent_joint_names: "right_ankle_roll_joint"
+
+  # Used for arm swing reference
+  arm_joint_names {
+    left_shoulder_y: "left_shoulder_pitch_joint"
+    right_shoulder_y: "right_shoulder_pitch_joint"
+    left_elbow_y: "left_elbow_joint"
+    right_elbow_y: "right_elbow_joint"
+  }
+}
+
+swing_trajectory_config {
+  lift_off_velocity: 0.05
+  touch_down_velocity: -0.0
+  swing_height: 0.08
+  touch_down_height_offset: -0.001
+  swing_time_scale: 0.4
+  impact_proximity_factor_lift_off_velocity: -0.15
+  impact_proximity_factor_touch_down_velocity: 0.3
+  impact_proximity_factor_mid_point_value: 0.0
+}
+
+# multiple_shooting settings
+multiple_shooting {
+  n_threads: 4
+  dt: 0.02
+  sqp_iteration: 1
+  delta_tol: 1e-4
+  g_max: 1e-2
+  g_min: 1e-6
+  project_state_input_equality_constraints: true
+  print_solver_statistics: true
+  print_solver_status: false
+  print_linesearch: false
+  use_feedback_policy: false
+  integrator_type: "RK4"
+  thread_priority: 50
+}
+
+# Rollout settings
+rollout {
+  abs_tol_ode: 5e-5
+  rel_tol_ode: 5e-3
+  time_step: 0.015
+  integrator_type: "ODE45"
+  max_num_steps_per_second: 10000
+  check_numerical_stability: false
+}
+
+mpc {
+  time_horizon: 1.2  # [s]
+  solution_time_window: -1  # maximum [s]
+  cold_start: false
+
+  debug_print: false
+
+  mpc_desired_frequency: 80  # [Hz]
+  mrt_desired_frequency: 100  # [Hz]
+}
+
+initial_state {
+  # Normalized Centroidal Momentum: [linear, angular]
+  normalized_linear_momentum {
+    x: 0.0  # h_com_x / robotMass
+    y: 0.0  # h_com_y / robotMass
+    z: 0.0  # h_com_z / robotMass
+  }
+  normalized_angular_momentum {
+    x: 0.0  # L_x / robotMass
+    y: 0.0  # L_y / robotMass
+    z: 0.0  # L_z / robotMass
+  }
+
+  # Base Pose: [position, orientation]
+  base_position {
+    x: 0.0  # p_base_x
+    y: 0.0  # p_base_y
+    z: 0.7405  # p_base_z
+  }
+  base_orientation {
+    yaw: 0.0  # theta_base_z
+    pitch: 0.0  # theta_base_y
+    roll: 0.0  # theta_base_x
+  }
+
+  # Joint Positions:
+  joint_positions { joint: "left_hip_pitch_joint" value: -0.15 }
+  joint_positions { joint: "left_hip_roll_joint" value: 0.0 }
+  joint_positions { joint: "left_hip_yaw_joint" value: 0.0 }
+  joint_positions { joint: "left_knee_joint" value: 0.30 }
+  joint_positions { joint: "left_ankle_pitch_joint" value: -0.15 }
+  joint_positions { joint: "left_ankle_roll_joint" value: 0.0 }
+  joint_positions { joint: "right_hip_pitch_joint" value: -0.15 }
+  joint_positions { joint: "right_hip_roll_joint" value: 0.0 }
+  joint_positions { joint: "right_hip_yaw_joint" value: 0.0 }
+  joint_positions { joint: "right_knee_joint" value: 0.3 }
+  joint_positions { joint: "right_ankle_pitch_joint" value: -0.15 }
+  joint_positions { joint: "right_ankle_roll_joint" value: 0.0 }
+  joint_positions { joint: "waist_roll_joint" value: 0.0 }
+  joint_positions { joint: "waist_yaw_joint" value: 0.0 }
+  joint_positions { joint: "left_shoulder_pitch_joint" value: 0.12 }
+  joint_positions { joint: "left_shoulder_roll_joint" value: 0.15 }
+  joint_positions { joint: "left_shoulder_yaw_joint" value: 0.0 }
+  joint_positions { joint: "left_elbow_joint" value: 1.2 }
+  joint_positions { joint: "right_shoulder_pitch_joint" value: 0.12 }
+  joint_positions { joint: "right_shoulder_roll_joint" value: -0.15 }
+  joint_positions { joint: "right_shoulder_yaw_joint" value: 0.0 }
+  joint_positions { joint: "right_elbow_joint" value: 1.2 }
+}
+
+# standard state weight matrix
+state_weights {
+  scaling: 1
+
+  # Normalized Centroidal Momentum: [linear, angular]
+  normalized_linear_momentum {
+    x: 15.0  # h_com_x / robotMass
+    y: 15.0  # h_com_y / robotMass
+    z: 15  # h_com_z / robotMass
+  }
+  normalized_angular_momentum {
+    x: 15  # L_x / robotMass
+    y: 40  # L_y / robotMass
+    z: 4  # L_z / robotMass
+  }
+
+  # Base Pose: [position, orientation]
+  base_position {
+    x: 20.0  # p_base_x
+    y: 20.0  # p_base_y
+    z: 30.0  # p_base_z
+  }
+  base_orientation {
+    yaw: 0  # theta_base_z
+    pitch: 5  # theta_base_y
+    roll: 85.0  # theta_base_x
+  }
+
+  # Joint Positions
+  joint_positions { joint: "left_hip_pitch_joint" value: 0.02 }
+  joint_positions { joint: "left_hip_roll_joint" value: 1.25 }
+  joint_positions { joint: "left_hip_yaw_joint" value: 4 }
+  joint_positions { joint: "left_knee_joint" value: 0.02 }
+  joint_positions { joint: "left_ankle_pitch_joint" value: 0.01 }
+  joint_positions { joint: "left_ankle_roll_joint" value: 0.01 }
+  joint_positions { joint: "right_hip_pitch_joint" value: 0.02 }
+  joint_positions { joint: "right_hip_roll_joint" value: 1.25 }
+  joint_positions { joint: "right_hip_yaw_joint" value: 4 }
+  joint_positions { joint: "right_knee_joint" value: 0.02 }
+  joint_positions { joint: "right_ankle_pitch_joint" value: 0.01 }
+  joint_positions { joint: "right_ankle_roll_joint" value: 0.01 }
+  joint_positions { joint: "waist_roll_joint" value: 0.5 }
+  joint_positions { joint: "waist_yaw_joint" value: 2 }
+  joint_positions { joint: "left_shoulder_pitch_joint" value: 10 }
+  joint_positions { joint: "left_shoulder_roll_joint" value: 20 }
+  joint_positions { joint: "left_shoulder_yaw_joint" value: 2 }
+  joint_positions { joint: "left_elbow_joint" value: 2 }
+  joint_positions { joint: "right_shoulder_pitch_joint" value: 10 }
+  joint_positions { joint: "right_shoulder_roll_joint" value: 20 }
+  joint_positions { joint: "right_shoulder_yaw_joint" value: 2 }
+  joint_positions { joint: "right_elbow_joint" value: 2 }
+}
+
+# control weight matrix
+input_weights {
+  scaling: 0.01
+
+  # Feet Contact Forces: [LF, RF]
+  contact_wrenches {
+    contact: "foot_l_contact"
+    force {
+      x: 0.05  # left_force_x
+      y: 0.05  # left_force_y
+      z: 0.01  # left_force_z
+    }
+    moment {
+      x: 0.05  # left_moment_x
+      y: 0.05  # left_moment_y
+      z: 0.2  # left_moment_z
+    }
+  }
+  contact_wrenches {
+    contact: "foot_r_contact"
+    force {
+      x: 0.05  # right_force_x
+      y: 0.05  # right_force_y
+      z: 0.01  # right_force_z
+    }
+    moment {
+      x: 0.05  # right_moment_x
+      y: 0.05  # right_moment_y
+      z: 0.2  # right_moment_z
+    }
+  }
+
+  # Joint Velocities
+  joint_velocities { joint: "left_hip_pitch_joint" value: 10.0 }
+  joint_velocities { joint: "left_hip_roll_joint" value: 20 }
+  joint_velocities { joint: "left_hip_yaw_joint" value: 200 }
+  joint_velocities { joint: "left_knee_joint" value: 10.0 }
+  joint_velocities { joint: "left_ankle_pitch_joint" value: 20 }
+  joint_velocities { joint: "left_ankle_roll_joint" value: 20 }
+  joint_velocities { joint: "right_hip_pitch_joint" value: 10.0 }
+  joint_velocities { joint: "right_hip_roll_joint" value: 20 }
+  joint_velocities { joint: "right_hip_yaw_joint" value: 200 }
+  joint_velocities { joint: "right_knee_joint" value: 10.0 }
+  joint_velocities { joint: "right_ankle_pitch_joint" value: 20 }
+  joint_velocities { joint: "right_ankle_roll_joint" value: 20 }
+  joint_velocities { joint: "waist_roll_joint" value: 100.0 }
+  joint_velocities { joint: "waist_yaw_joint" value: 2000 }
+  joint_velocities { joint: "left_shoulder_pitch_joint" value: 200 }
+  joint_velocities { joint: "left_shoulder_roll_joint" value: 100 }
+  joint_velocities { joint: "left_shoulder_yaw_joint" value: 100 }
+  joint_velocities { joint: "left_elbow_joint" value: 200 }
+  joint_velocities { joint: "right_shoulder_pitch_joint" value: 200 }
+  joint_velocities { joint: "right_shoulder_roll_joint" value: 100 }
+  joint_velocities { joint: "right_shoulder_yaw_joint" value: 100 }
+  joint_velocities { joint: "right_elbow_joint" value: 200 }
+}
+
+terminal_cost_scaling: 3
+final_state_weights {
+  scaling: 1
+
+  # Normalized Centroidal Momentum: [linear, angular]
+  normalized_linear_momentum {
+    x: 15.0  # h_com_x / robotMass
+    y: 15.0  # h_com_y / robotMass
+    z: 15  # h_com_z / robotMass
+  }
+  normalized_angular_momentum {
+    x: 15  # L_x / robotMass
+    y: 40  # L_y / robotMass
+    z: 4  # L_z / robotMass
+  }
+
+  # Base Pose: [position, orientation]
+  base_position {
+    x: 0  # p_base_x
+    y: 0  # p_base_y
+    z: 30.0  # p_base_z
+  }
+  base_orientation {
+    yaw: 0  # theta_base_z
+    pitch: 5  # theta_base_y
+    roll: 85.0  # theta_base_x
+  }
+
+  # Joint Positions
+  joint_positions { joint: "left_hip_pitch_joint" value: 0.02 }
+  joint_positions { joint: "left_hip_roll_joint" value: 1.25 }
+  joint_positions { joint: "left_hip_yaw_joint" value: 4 }
+  joint_positions { joint: "left_knee_joint" value: 0.02 }
+  joint_positions { joint: "left_ankle_pitch_joint" value: 0.01 }
+  joint_positions { joint: "left_ankle_roll_joint" value: 0.01 }
+  joint_positions { joint: "right_hip_pitch_joint" value: 0.02 }
+  joint_positions { joint: "right_hip_roll_joint" value: 1.25 }
+  joint_positions { joint: "right_hip_yaw_joint" value: 4 }
+  joint_positions { joint: "right_knee_joint" value: 0.02 }
+  joint_positions { joint: "right_ankle_pitch_joint" value: 0.01 }
+  joint_positions { joint: "right_ankle_roll_joint" value: 0.01 }
+  joint_positions { joint: "waist_roll_joint" value: 0.5 }
+  joint_positions { joint: "waist_yaw_joint" value: 2 }
+  joint_positions { joint: "left_shoulder_pitch_joint" value: 10 }
+  joint_positions { joint: "left_shoulder_roll_joint" value: 20 }
+  joint_positions { joint: "left_shoulder_yaw_joint" value: 2 }
+  joint_positions { joint: "left_elbow_joint" value: 2 }
+  joint_positions { joint: "right_shoulder_pitch_joint" value: 10 }
+  joint_positions { joint: "right_shoulder_roll_joint" value: 20 }
+  joint_positions { joint: "right_shoulder_yaw_joint" value: 2 }
+  joint_positions { joint: "right_elbow_joint" value: 2 }
+}
+
+icp_cost_weights {
+  icp_error_weight: 0.0
+}
+
+task_space_foot_cost {
+  weights {
+    pos_x: 0.0
+    pos_y: 0.0
+    pos_z: 0.0
+    orientation_x: 1000.0
+    orientation_y: 1000.0
+    orientation_z: 0.0
+    lin_velocity_x: 10.0
+    lin_velocity_y: 10.0
+    lin_velocity_z: 0.0
+    ang_velocity_x: 1.0
+    ang_velocity_y: 1.0
+    ang_velocity_z: 0.005
+    lin_acceleration_x: 0.0
+    lin_acceleration_y: 0.0
+    lin_acceleration_z: 0.0
+    ang_acceleration_x: 0.0
+    ang_acceleration_y: 0.0
+    ang_acceleration_z: 0.0
+  }
+}
+task_space_costs {
+  name: "torso"
+  link_name: "waist_yaw_link"
+  weights {
+    pos_x: 0.0
+    pos_y: 0.0
+    pos_z: 0.0
+    orientation_x: 100.0
+    orientation_y: 100.0
+    orientation_z: 0.0
+    lin_velocity_x: 0.1
+    lin_velocity_y: 0.1
+    lin_velocity_z: 0.005
+    ang_velocity_x: 5.0
+    ang_velocity_y: 5.0
+    ang_velocity_z: 2.0
+    lin_acceleration_x: 0.0
+    lin_acceleration_y: 0.0
+    lin_acceleration_z: 0.0
+    ang_acceleration_x: 0.0
+    ang_acceleration_y: 0.0
+    ang_acceleration_z: 0.0
+  }
+}
+
+left_leg_torque_cost {
+  scaling: 1e-4
+
+  joints { joint: "left_hip_pitch_joint" value: 2.0 }
+  joints { joint: "left_hip_roll_joint" value: 2.0 }
+  joints { joint: "left_hip_yaw_joint" value: 1.0 }
+  joints { joint: "left_knee_joint" value: 8.0 }
+  joints { joint: "left_ankle_pitch_joint" value: 0.2 }
+  joints { joint: "left_ankle_roll_joint" value: 0.2 }
+}
+
+right_leg_torque_cost {
+  scaling: 1e-4
+
+  joints { joint: "right_hip_pitch_joint" value: 2.0 }
+  joints { joint: "right_hip_roll_joint" value: 2.0 }
+  joints { joint: "right_hip_yaw_joint" value: 1.0 }
+  joints { joint: "right_knee_joint" value: 8.0 }
+  joints { joint: "right_ankle_pitch_joint" value: 0.2 }
+  joints { joint: "right_ankle_roll_joint" value: 0.2 }
+}
+
+contacts {
+  contact_frame_translation {
+    # Translation vector from parent joint to contact frame (center of foot support polygon)
+    x: 0.04
+    y: 0.0
+    z: -0.05324
+  }
+  contact_rectangle {
+    # length specified in contact frame
+    x_max: 0.095
+    x_min: -0.095
+    y_max: 0.035
+    y_min: -0.035
+  }
+
+  friction_force_cone_soft_constraint {
+    friction_coefficient: 0.4
+    # relaxed log barrier parameters
+    mu: 0.2
+    delta: 5.0
+  }
+  contact_moment_xy_soft_constraint {
+    # relaxed log barrier parameters
+    mu: 0.6
+    delta: 0.03
+  }
+}
+
+joint_limits {
+  # relaxed log barrier parameters
+  mu: 1200.0
+  delta: 0.1
+}
+
+collision_constraint {
+  foot {
+    left_ankle_frame: "left_ankle_roll_joint"
+    right_ankle_frame: "right_ankle_roll_joint"
+
+    foot_collision_sphere_radius: 0.065
+  }
+  knee {
+    left_knee_frame: "left_knee_joint"
+    right_knee_frame: "right_knee_joint"
+
+    knee_collision_sphere_radius: 0.07
+  }
+  # relaxed log barrier parameters
+  mu: 30000
+  delta: 0.05
+}

@@ -34,9 +34,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::control_mode {
 
 /**
- * The names of the supervisory control modes, as the FSM commands and publishes them (`/humanoid/fsm_command`,
- * `/humanoid/fsm_state`), and the two families the MRT joint controllers and the sim fall recovery tell apart: the
- * passive modes, whose action is computed without the MPC, and the modes that execute the MPC policy.
+ * The names of the supervisory control modes, as the FSM commands and publishes them (the bus topics
+ * `operator/fsm_command` and `robot/fsm_state`, humanoid_mpc_ipc/Topics.h), and the two families the MRT joint controllers and the sim fall
+ * recovery tell apart: the passive modes, whose action is computed without the MPC, and the modes that execute the MPC policy.
  */
 // LINT.IfChange(control_mode_names)
 inline constexpr absl::string_view kZeroTorque = "ZERO_TORQUE";

@@ -11,6 +11,7 @@ py_library(
     name = "training_lib",
     srcs = [
         "__init__.py",
+        "actor_critic.py",
         "bc_warmstart.py",
         "train_ppo.py",
     ],

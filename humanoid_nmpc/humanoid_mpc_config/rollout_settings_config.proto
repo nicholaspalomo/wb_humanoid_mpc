@@ -1,0 +1,52 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "nproto/options.proto";
+import "nproto/retired_field_options.proto";
+
+// The settings of the forward rollouts (the task file's rollout block): the fields of ocs2::rollout::Settings, with that
+// struct's defaults, converted by toRolloutSettings() (humanoid_common_mpc/config/solver/SolverSettingsFromConfig.h).
+// The integrator and the root finder are selected by the names OCS2 gives them; the booleans are parameters of OCS2's
+// rollout, mirrored from its settings, not selections between implementations.
+// Next ID: 12
+message RolloutSettingsConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::RolloutSettingsConfig";
+  option (nproto.retired_field) = {
+    name: "root_finding_algorithm"
+    replacement: "the root finder is selected by OCS2's name: root_finder_type: \"ANDERSON_BJORCK\" where it was 0, \"PEGASUS\" where it was 1, \"ILLINOIS\" where it was 2, \"REGULA_FALSI\" where it was 3"
+  };
+
+  reserved 12 to max;
+  // 8 was root_finding_algorithm, OCS2's int code of the root finder, now the name root_finder_type.
+  reserved 8;
+
+  // The absolute and the relative error tolerance of the adaptive ODE solvers.
+  double abs_tol_ode = 1 [default = 1e-9, (humanoid_mpc_config.tuning) = { log_scale: true }];
+  double rel_tol_ode = 2 [default = 1e-6, (humanoid_mpc_config.tuning) = { log_scale: true }];
+  // The most integration steps per second of the ODE solvers, at least 0.
+  int32 max_num_steps_per_second = 3 [default = 10000];
+  // [s] The time step of the fixed-step integrators.
+  double time_step = 4 [default = 0.01, (humanoid_mpc_config.tuning) = { unit: "s" }];
+  // LINT.IfChange(integrator_names)
+  // The integration scheme: "EULER", "ODE45", "ODE45_OCS2", "MODIFIED_MIDPOINT" or "RK4" (OCS2's IntegratorType, by
+  // name).
+  string integrator_type = 5 [default = "ODE45", (humanoid_mpc_config.tuning) = { registry: "rollout_integrator" }];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/solver/SolverSettingsFromConfig.cpp:rollout_integrators)
+
+  // Whether a rollout checks that it stays numerically stable.
+  bool check_numerical_stability = 6 [default = false];
+  // Whether the controller is run again after the integration, to reconstruct the input trajectory.
+  bool reconstruct_input_trajectory = 7 [default = true];
+
+  // LINT.IfChange(root_finder_names)
+  // The root-finding algorithm of the state-triggered rollout: "ANDERSON_BJORCK", "PEGASUS", "ILLINOIS" or
+  // "REGULA_FALSI" (OCS2's RootFinderType, by name).
+  string root_finder_type = 11 [default = "ANDERSON_BJORCK", (humanoid_mpc_config.tuning) = { registry: "root_finder" }];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/solver/SolverSettingsFromConfig.cpp:root_finders)
+  // The most iterations the state-triggered rollout spends finding the zero crossing of one event's guard surface.
+  int32 max_single_event_iterations = 9 [default = 10];
+  // Whether the state-triggered rollout uses the trajectory-spreading controller.
+  bool use_trajectory_spreading_controller = 10 [default = false];
+}

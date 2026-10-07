@@ -29,7 +29,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <robot_model/ContactEstimator.h>
+#include <string>
+#include <vector>
+
+#include "robot_model/ContactEstimator.h"
 
 namespace robot::model {
 
@@ -41,7 +44,10 @@ namespace robot::model {
  */
 class RobotStateContactEstimator final : public ContactEstimator {
  public:
-  std::vector<bool> estimateContactFlags(const RobotState& robotState) override { return robotState.getContactFlags(); }
+  void estimateContactFlags(const RobotState& robotState, std::vector<bool>& flags) override {
+    const std::vector<bool>& stateFlags = robotState.getContactFlags();
+    flags.assign(stateFlags.begin(), stateFlags.end());
+  }
 
   std::string getName() const override { return "RobotStateContactEstimator"; }
 };

@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -24,6 +28,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #pragma once
+
+#include <string>
 
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc/contact_planning/constraint/LipConstraintBase.h"
@@ -48,7 +54,7 @@ namespace ocs2::humanoid {
  * rows, yet the hull's support in the direction (1, -1)/sqrt(2) is 0.22 while that point reaches 0.32. The corner is
  * over-admitted by about half the heading offset between the feet, i.e. by up to half a step length.
  *
- * This is not repaired here, and the reason is worth stating rather than leaving as a TODO. Cutting the two missing
+ * This is not repaired here, and the reason is worth stating rather than leaving it as an open item. Cutting the two missing
  * hull edges needs the row n'(zmp - p) <= r with n normal to (p_L - p_R); the foot positions are DECISION VARIABLES,
  * so that row is bilinear and cannot be expressed by LipConstraintBase, which emits affine rows only. It would have
  * to be linearized about a nominal foot separation, which is a modeling choice that changes the feasible set of a
@@ -60,8 +66,8 @@ class ZmpSupportRegionConstraint final : public LipConstraintBase {
  public:
   std::string describe() const override;
   void configure(const ContactPlanningConfig& config) override;
-  NodeSet nodeSet() const override { return NodeSet::RUNNING; }
-  Softness softness() const override { return Softness::SOFT; }
+  NodeSet nodeSet() const override { return NodeSet::kRunning; }
+  Softness softness() const override { return Softness::kSoft; }
   void addRows(const ContactPlanningContext& ctx, int node, RowBuilder& rows) const override;
 
  private:

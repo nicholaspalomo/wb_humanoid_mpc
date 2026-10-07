@@ -10,7 +10,7 @@ A clear and concise description of what the bug is.
 
 ## Environment
 - **OS**: [e.g. Ubuntu 24.04 (Noble), Ubuntu 22.04 (Jammy)]
-- **ROS 2 Distribution**: [e.g. Jazzy, Humble]
+- **Dev container image**: [e.g. built from docker/Dockerfile at commit ..., or `make robot-images`]
 - **Robot Model**: [e.g. Unitree R1, Unitree G1, DRC Atlas, EngineAI SA01]
 - **Compiler / Toolchain**: [e.g. GCC 13, Clang 18, Bazel 9.2]
 - **Hardware / Acceleration**: [e.g. NVIDIA GPU, CPU only]

@@ -30,7 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <cassert>
 #include <cmath>
 #include <optional>
 #include <utility>
@@ -59,8 +58,8 @@ namespace ocs2::humanoid {
  *
  * This replaces a filter that blended its input with its initial output by the wall-clock time since construction and
  * never updated either: the "5 Hz" command filter of every robot scaled the command by t / (t + 0.032 s), within 3% of
- * the identity a second after start-up. The robots now configure the filter in reference.yaml
- * (ProceduralMpcMotionManager::kVelocityCommandFilterBreakFrequencyKey) and ship it off.
+ * the identity a second after start-up. The robots now configure the filter in reference.textproto
+ * (velocity_command_filter_break_frequency) and ship it off.
  */
 class BreakFrequencyAlphaFilter final {
  public:
@@ -90,10 +89,10 @@ class BreakFrequencyAlphaFilter final {
   bool isEnabled() const { return breakFrequency_ > 0.0; }
 
   /**
-   * Filters `input`, sampled at `time` [s], and returns the output. `input` has the size of the initial output.
+   * Filters `input`, sampled at `time` [s], and returns the output. `input` has the size of the initial output
+   * (unchecked: the filter runs on every reference update).
    */
   const vector_t& update(scalar_t time, const vector_t& input) {
-    assert(input.size() == output_.size());
     if (!isEnabled()) {
       output_ = input;
     } else if (lastTime_.has_value() && time > *lastTime_) {

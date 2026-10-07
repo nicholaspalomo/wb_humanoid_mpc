@@ -1,0 +1,41 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "nproto/options.proto";
+import "nproto/retired_field_options.proto";
+
+// The weights and references of the contact-implicit terms (the task file's contact_implicit block,
+// ModelSettings::ContactImplicitConfig), read whether or not soft_constraints lists contact_complementarity,
+// force_weighted_slip and ground_penetration, and ignored when it does not (humanoid_nmpc/docs/contact_implicit_mpc/README.md).
+// The two residuals are normalized, (f_n / f_ref)(h / h_ref) and (f_n / f_ref)(v / v_ref) with f_ref the robot's weight
+// from the model, so their weights are dimensionless. A weight must be finite and non-negative (0 switches its term off),
+// a reference and the smoothing length finite and positive (validateContactImplicitConfig()).
+// Next ID: 8
+message ContactImplicitConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::ContactImplicitConfig";
+  // Before the top-level terrain_height, the contact-implicit terms had a ground height of their own.
+  option (nproto.retired_field) = {
+    name: "terrain_height"
+    replacement: "the ground is the top-level terrain_height of the task file, which the swing trajectories share"
+  };
+
+  reserved 8 to max;
+
+  // The price of carrying full body weight at the reference height.
+  double complementarity_weight = 1 [default = 100.0];
+  // The price of sliding at the reference speed under full body weight.
+  double slip_weight = 2 [default = 100.0];
+  // The weight of the one-sided quadratic hinge on h >= 0: penetration_weight * h^2 / 2 below the ground, 0 above it.
+  double penetration_weight = 3 [default = 50000.0];
+  // [m] The height at which a fully loaded foot is as wrong as the complementarity term can describe; normally the swing
+  // apex, swing_trajectory_config's swing height.
+  double height_reference = 4 [default = 0.08, (humanoid_mpc_config.tuning) = { unit: "m" }];
+  // [m/s] A sliding speed that would already be a failure.
+  double velocity_reference = 5 [default = 0.3, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
+  // [rad/s] A pivot rate that would already be a failure.
+  double angular_velocity_reference = 6 [default = 1.0, (humanoid_mpc_config.tuning) = { unit: "rad/s" }];
+  // [m] The length scale the minimum height of the footprint corners is blended over.
+  double gap_smoothing = 7 [default = 0.001, (humanoid_mpc_config.tuning) = { unit: "m" }];
+}

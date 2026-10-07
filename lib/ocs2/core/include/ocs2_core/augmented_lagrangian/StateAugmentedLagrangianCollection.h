@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <functional>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/Types.h>
 #include <ocs2_core/misc/Collection.h>
 
@@ -48,7 +50,7 @@ class StateAugmentedLagrangianCollection : public Collection<StateAugmentedLagra
  public:
   StateAugmentedLagrangianCollection() = default;
   ~StateAugmentedLagrangianCollection() override = default;
-  StateAugmentedLagrangianCollection* clone() const override;
+  StateAugmentedLagrangianCollection* absl_nonnull clone() const override;
 
   /** Get total number of active constraints. */
   size_t getNumberOfActiveConstraints(scalar_t time) const;

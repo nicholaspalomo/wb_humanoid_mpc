@@ -1,58 +1,43 @@
-"""****************************************************************************
-Copyright (c) 2026, Nicholas Palomo. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-* Redistributions of source code must retain the above copyright notice, this
-  list of conditions and the following disclaimer.
-
-* Redistributions in binary form must reproduce the above copyright notice,
-  this list of conditions and the following disclaimer in the documentation
-  and/or other materials provided with the distribution.
-
-* Neither the name of the copyright holder nor the names of its
-  contributors may be used to endorse or promote products derived from
-  this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-****************************************************************************"""
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """The Dodgeball tab: throw a ball at the robot and watch what the controller does about it."""
 
 import math
-import tkinter as tk
 from tkinter import ttk
-from typing import Optional
+import tkinter as tk
+from typing import Any
 
-import yaml
+from humanoid_mpc_msgs import dodgeball_throw_pb2
 
-from remote_control.tk_app.dodgeball import (
-    AZIMUTH_RANGE_DEG,
-    DEFAULT_BALL_MASS_KG,
-    DISTANCE_RANGE_M,
-    ELEVATION_RANGE_DEG,
-    MASS_RANGE_KG,
-    SPEED_RANGE_MPS,
-    DodgeballThrow,
-    flight_time,
-    impact_momentum,
-    launch_speed,
-    minimum_launch_speed,
-    arrival_velocity,
-    sample_random_angles,
-    throw_payload,
-)
-from remote_control.tk_app.slider_row import SliderRow
+from humanoid_mpc_ipc import topics
+from remote_control import operator_bus
+from remote_control.tk_app import dodgeball
+from remote_control.tk_app import slider_row
 
 
 class DodgeballTab(ttk.Frame):
@@ -68,22 +53,26 @@ class DodgeballTab(ttk.Frame):
     module and publishes what comes back; everything that could be wrong about an angle convention or the gravity
     compensation is a pure function over there, and is unit-tested in test/test_dodgeball.py. What is left here is
     Tk, which the tests in this package do not exercise.
+
+    Args:
+        parent: the notebook the tab is added to.
+        throw_publisher: the publisher of operator/dodgeball_throw; None: a throw is computed but not sent.
+        **kwargs: the options of the tab's ttk.Frame.
     """
 
-    # The topic the GUI publishes throws on (base_velocity_controller_gui.py creates its publisher from this constant)
-    # and the simulator's bridge subscribes to.
+    # The topic the tab's publisher publishes throws on (operator_bus.OperatorBus.dodgeball_throw), which the simulator
+    # reads.
     # LINT.IfChange(dodgeball_topic_name)
-    TOPIC_NAME = "/humanoid/dodgeball_throw"
-    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_ros2/src/fsm/SimFsmBridge.cpp:dodgeball_topic_name)
+    TOPIC_NAME = topics.OPERATOR_DODGEBALL_THROW
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_ipc/python/humanoid_mpc_ipc/topics.py:topics)
 
     def __init__(
         self,
-        parent,
-        throw_publisher=None,
-        *args,
-        **kwargs,
-    ):
-        super().__init__(parent, *args, **kwargs)
+        parent: tk.Misc,
+        throw_publisher: operator_bus.TopicPublisher | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(parent, **kwargs)
         self.configure(style="TFrame")
 
         self.throw_publisher = throw_publisher
@@ -107,12 +96,12 @@ class DodgeballTab(ttk.Frame):
 
         # The two ANGLES, which the randomize checkbox drives, and the three magnitudes the operator always owns. Kept
         # in that order so that the pair the checkbox disables is contiguous on screen.
-        self.azimuth_row = SliderRow(
+        self.azimuth_row = slider_row.SliderRow(
             body,
             name="Azimuth (about z)",
             initial_value=0.0,
-            min_val=AZIMUTH_RANGE_DEG[0],
-            max_val=AZIMUTH_RANGE_DEG[1],
+            min_val=dodgeball.AZIMUTH_RANGE_DEG[0],
+            max_val=dodgeball.AZIMUTH_RANGE_DEG[1],
             unit="deg",
             on_change=self._on_slider_change,
             label_width=22,
@@ -120,12 +109,12 @@ class DodgeballTab(ttk.Frame):
         )
         self.azimuth_row.pack(fill="x", pady=2)
 
-        self.elevation_row = SliderRow(
+        self.elevation_row = slider_row.SliderRow(
             body,
             name="Elevation (about x-y)",
             initial_value=10.0,
-            min_val=ELEVATION_RANGE_DEG[0],
-            max_val=ELEVATION_RANGE_DEG[1],
+            min_val=dodgeball.ELEVATION_RANGE_DEG[0],
+            max_val=dodgeball.ELEVATION_RANGE_DEG[1],
             unit="deg",
             on_change=self._on_slider_change,
             label_width=22,
@@ -133,12 +122,12 @@ class DodgeballTab(ttk.Frame):
         )
         self.elevation_row.pack(fill="x", pady=2)
 
-        self.distance_row = SliderRow(
+        self.distance_row = slider_row.SliderRow(
             body,
             name="Spawn distance",
             initial_value=3.0,
-            min_val=DISTANCE_RANGE_M[0],
-            max_val=DISTANCE_RANGE_M[1],
+            min_val=dodgeball.DISTANCE_RANGE_M[0],
+            max_val=dodgeball.DISTANCE_RANGE_M[1],
             unit="m",
             on_change=self._on_slider_change,
             label_width=22,
@@ -146,12 +135,12 @@ class DodgeballTab(ttk.Frame):
         )
         self.distance_row.pack(fill="x", pady=2)
 
-        self.speed_row = SliderRow(
+        self.speed_row = slider_row.SliderRow(
             body,
             name="Start velocity",
             initial_value=8.0,
-            min_val=SPEED_RANGE_MPS[0],
-            max_val=SPEED_RANGE_MPS[1],
+            min_val=dodgeball.SPEED_RANGE_MPS[0],
+            max_val=dodgeball.SPEED_RANGE_MPS[1],
             unit="m/s",
             on_change=self._on_slider_change,
             label_width=22,
@@ -159,12 +148,12 @@ class DodgeballTab(ttk.Frame):
         )
         self.speed_row.pack(fill="x", pady=2)
 
-        self.mass_row = SliderRow(
+        self.mass_row = slider_row.SliderRow(
             body,
             name="Ball mass",
-            initial_value=DEFAULT_BALL_MASS_KG,
-            min_val=MASS_RANGE_KG[0],
-            max_val=MASS_RANGE_KG[1],
+            initial_value=dodgeball.DEFAULT_BALL_MASS_KG,
+            min_val=dodgeball.MASS_RANGE_KG[0],
+            max_val=dodgeball.MASS_RANGE_KG[1],
             unit="kg",
             on_change=self._on_slider_change,
             label_width=22,
@@ -216,9 +205,9 @@ class DodgeballTab(ttk.Frame):
     # Reading the widgets
     # ---------------------------------------------------------------------------------------------------------
 
-    def current_throw(self) -> DodgeballThrow:
+    def current_throw(self) -> dodgeball.DodgeballThrow:
         """The throw the five sliders currently describe, clamped into range."""
-        return DodgeballThrow(
+        return dodgeball.DodgeballThrow(
             azimuth_deg=self.azimuth_row.get_value(),
             elevation_deg=self.elevation_row.get_value(),
             distance_m=self.distance_row.get_value(),
@@ -226,7 +215,8 @@ class DodgeballTab(ttk.Frame):
             mass_kg=self.mass_row.get_value(),
         ).clamped()
 
-    def _on_slider_change(self, name: str, value: float) -> None:
+    def _on_slider_change(self, name: str, value: float | None) -> None:
+        del name, value  # Unused: the preview reads every slider.
         self._update_preview()
 
     def _on_randomize_toggle(self) -> None:
@@ -243,35 +233,41 @@ class DodgeballTab(ttk.Frame):
     def _update_preview(self) -> None:
         self.preview_var.set(self.preview_text(self.current_throw()))
 
-    def preview_text(self, throw: DodgeballThrow) -> str:
+    def preview_text(self, throw: dodgeball.DodgeballThrow) -> str:
         """What the current sliders will actually do: the launch speed, the flight, and the momentum on arrival.
 
         Those decide whether a throw is a nudge or a knockdown, and none of them is the number on a slider: the launch
         speed is raised when the slider's is too slow to reach the base, and the ball arrives faster or slower than it
         left depending on whether it was thrown from above or below.
+
+        Args:
+            throw: the throw to describe.
+
+        Returns:
+            One line: the direction (or that it is randomized), the launch speed, the flight time and the momentum.
         """
         direction = (
             "direction randomized"
             if self.randomize_var.get()
             else "%+.0f / %+.0f deg" % (throw.azimuth_deg, throw.elevation_deg)
         )
-        speed = launch_speed(throw)
+        speed = dodgeball.launch_speed(throw)
         raised = (
             " (raised from %.1f: too slow to reach the base)" % throw.speed_mps
             if speed > throw.speed_mps + 1e-9
             else ""
         )
-        arrival = math.hypot(*arrival_velocity(throw))
+        arrival = math.hypot(*dodgeball.arrival_velocity(throw))
         return (
             "%s  |  %.1f m/s launch%s  |  %.2f s  |  %.2f kg x %.1f m/s = %.2f N s"
             % (
                 direction,
                 speed,
                 raised,
-                flight_time(throw),
+                dodgeball.flight_time(throw),
                 throw.mass_kg,
                 arrival,
-                impact_momentum(throw),
+                dodgeball.impact_momentum(throw),
             )
         )
 
@@ -279,21 +275,24 @@ class DodgeballTab(ttk.Frame):
     # Throwing
     # ---------------------------------------------------------------------------------------------------------
 
-    def throw(self) -> Optional[dict]:
-        """Throws one ball, and returns the payload that was published (or would have been).
+    def throw(self) -> dodgeball_throw_pb2.DodgeballThrow:
+        """Throws one ball, and returns the message that was published (or would have been).
 
-        Returning it is what lets a test drive the button and assert on the result without a ROS graph; the GUI
-        itself ignores the return value.
+        Returning it is what lets a test drive the button and assert on the result without a bus; the GUI itself
+        ignores the return value.
+
+        Returns:
+            The message of the throw (dodgeball.throw_message), whether or not it could be published.
         """
         if self.randomize_var.get():
-            azimuth, elevation = sample_random_angles()
+            azimuth, elevation = dodgeball.sample_random_angles()
             # Written back to the sliders even while they are disabled, so that the record of what was thrown is on
             # screen rather than only in the topic.
             self.azimuth_row.set_value(azimuth)
             self.elevation_row.set_value(elevation)
 
         throw = self.current_throw()
-        payload = throw_payload(throw)
+        payload = dodgeball.throw_message(throw)
 
         if self.throw_publisher is None:
             self._show_status(
@@ -302,12 +301,9 @@ class DodgeballTab(ttk.Frame):
             return payload
 
         try:
-            from std_msgs.msg import String
-
-            msg = String()
-            msg.data = yaml.dump(payload, default_flow_style=False, sort_keys=False)
-            self.throw_publisher.publish(msg)
-        except Exception as error:  # noqa: BLE001 - a Tk callback must not raise
+            self.throw_publisher.publish(payload)
+        # pylint: disable-next=broad-exception-caught  # A Tk callback must not raise.
+        except Exception as error:
             print(f"[DodgeballTab] ERROR publishing a throw: {error}")
             self._show_status(f"Error publishing: {error}", error=True)
             return payload
@@ -319,8 +315,8 @@ class DodgeballTab(ttk.Frame):
                 throw.azimuth_deg,
                 throw.elevation_deg,
                 throw.distance_m,
-                launch_speed(throw),
-                flight_time(throw),
+                dodgeball.launch_speed(throw),
+                dodgeball.flight_time(throw),
             )
         )
         self._update_preview()

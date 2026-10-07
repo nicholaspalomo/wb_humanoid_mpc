@@ -32,6 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <mutex>
 
+#include "absl/base/nullability.h"
+
 namespace ocs2 {
 
 /**
@@ -48,9 +50,9 @@ class LockedPtr {
   LockedPtr(std::unique_ptr<T>& p, std::mutex& m) : p_(p), lk_(m) {}
   LockedPtr(std::unique_ptr<T>& p, std::mutex& m, std::adopt_lock_t) : p_(p), lk_(m, std::adopt_lock) {}
 
-  /// Access
-  T* operator->() { return p_.get(); }
-  const T* operator->() const { return p_.get(); }
+  /// Access. The wrapped pointer must not be null (operator bool).
+  T* absl_nonnull operator->() { return p_.get(); }
+  const T* absl_nonnull operator->() const { return p_.get(); }
   T& operator*() { return *p_; }
   const T& operator*() const { return *p_; }
 
@@ -78,18 +80,18 @@ class LockedPtr {
 template <typename T>
 class LockedConstPtr {
  public:
-  LockedConstPtr(const T* p, std::mutex& m) : p_(p), lk_(m) {}
-  LockedConstPtr(const T* p, std::mutex& m, std::adopt_lock_t) : p_(p), lk_(m, std::adopt_lock) {}
+  LockedConstPtr(const T* absl_nullable p, std::mutex& m) : p_(p), lk_(m) {}
+  LockedConstPtr(const T* absl_nullable p, std::mutex& m, std::adopt_lock_t) : p_(p), lk_(m, std::adopt_lock) {}
 
-  /// const access
-  const T* operator->() const { return p_; }
+  /// const access. The wrapped pointer must not be null (operator bool).
+  const T* absl_nonnull operator->() const { return p_; }
   const T& operator*() const { return *p_; }
 
   /// Returns true if the wrapped pointer is not null.
   explicit operator bool() const noexcept { return p_ != nullptr; }
 
  private:
-  const T* p_;
+  const T* absl_nullable p_;
   std::unique_lock<std::mutex> lk_;
 };
 

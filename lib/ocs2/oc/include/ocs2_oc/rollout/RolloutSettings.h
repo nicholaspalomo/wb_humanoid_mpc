@@ -73,27 +73,5 @@ struct Settings {
   bool useTrajectorySpreadingController = false;
 };
 
-/**
- * This function loads the "rollout::Settings" variables from a config file. This file contains the settings for the Rollout algorithms.
- * Here, we use the INFO format which was created specifically for the property tree library (refer to www.goo.gl/fV3yWA).
- *
- * It has the following format: <br>
- * rollout  <br>
- * {  <br>
- *   absTolODE                value   <br>
- *   relTolODE                value   <br>
- *   maxNumStepsPerSecond     value   <br>
- *   timeStep                 value   <br>
- *   (and so on for the other fields) <br>
- * }  <br>
- *
- * If a value for a specific field is not defined it will set to the default value defined in "rollout::Settings".
- *
- * @param [in] filename: File name which contains the configuration data.
- * @param [in] fieldName: Field name which contains the configuration data.
- * @param [in] verbose: Flag to determine whether to print out the loaded settings or not (The default is true).
- */
-Settings loadSettings(const std::string& filename, const std::string& fieldName = "rollout", bool verbose = true);
-
 }  // namespace rollout
 }  // namespace ocs2

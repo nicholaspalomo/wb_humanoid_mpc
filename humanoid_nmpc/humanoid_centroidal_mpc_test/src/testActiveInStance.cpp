@@ -1,131 +1,119 @@
 /******************************************************************************
 Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-#include <boost/property_tree/ptree.hpp>
-#include <cstdlib>
-#include <filesystem>
-#include <iostream>
 #include <memory>
 #include <string>
-#include <vector>
+#include <utility>
 
-#include <humanoid_common_mpc/gait/GaitSchedule.h>
-#include <humanoid_common_mpc/pinocchio_model/createPinocchioModel.h>
-#include <humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h>
-#include <humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h>
-#include <ocs2_centroidal_model/CentroidalModelInfo.h>
-#include <ocs2_centroidal_model/FactoryFunctions.h>
-#include <ocs2_core/misc/LoadData.h>
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
+
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
+#include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/config/costs/TaskSpaceCostFromConfig.h"
+#include "humanoid_common_mpc/config/swing/SwingTrajectoryFromConfig.h"
+#include "humanoid_common_mpc/gait/GaitSchedule.h"
+#include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "humanoid_mpc_config/task_file.nproto.h"
+#include "humanoid_mpc_config/task_file.nproto.pb.h"
+#include "humanoid_mpc_config/task_file.pb.h"
+#include "nproto/Textproto.h"
+#include "support/TypedConfigFiles.h"
 
-using namespace ocs2;
-using namespace ocs2::humanoid;
+namespace ocs2::humanoid {
 
 namespace {
 
-/**
- * A data file of this test (BUILD `_TEST_DATA`), from the Bazel runfiles. It used to be an absolute path into the dev
- * container's checkout, which exists nowhere else, so the test failed in CI's clean container.
- */
-std::string runfilePath(const std::string& relativePath) {
-  std::vector<std::filesystem::path> roots;
-  if (const char* srcDir = std::getenv("TEST_SRCDIR")) roots.emplace_back(std::filesystem::path(srcDir) / "_main");
-  roots.emplace_back(std::filesystem::current_path());
-  for (const std::filesystem::path& root : roots) {
-    const std::filesystem::path candidate = root / relativePath;
-    if (std::filesystem::exists(candidate)) return candidate.string();
-  }
-  return relativePath;
+/** The foot cost's settings of the task file `text` (the textproto parser, then taskSpaceFootCostFromConfig()). */
+absl::StatusOr<TaskSpaceFootCostSettings> footCostOfText(absl::string_view text) {
+  ASSIGN_OR_RETURN(const humanoid_mpc_config::TaskFile message,
+                   nproto::ParseTextproto<humanoid_mpc_config::TaskFile>(text, /*sourceName=*/"task file"));
+  mpc_config::TaskFile task;
+  RETURN_IF_ERROR(mpc_config::FromProto(message, &task));
+  return taskSpaceFootCostFromConfig(task.task_space_foot_cost);
 }
 
 }  // namespace
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 1: Verify YAML Parsing for activeInStance across boolean and integer formats
+// Test 1: task_space_foot_cost.active_phases reaches the foot cost's settings, a swing foot only where a file leaves it
+// out; the boolean it replaced is refused naming it
 // ─────────────────────────────────────────────────────────────────────────────
-TEST(ActiveInStanceTest, VerifyYamlParsing) {
-  const std::string atlasTaskFile = runfilePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml");
-  ASSERT_TRUE(std::filesystem::exists(atlasTaskFile)) << "Atlas task.yaml not found: " << atlasTaskFile;
+TEST(ActiveInStanceTest, TaskFileActivePhasesReachTheFootCostSettings) {
+  const absl::StatusOr<CentroidalMpcConfig> atlas = loadConfigOf(atlasFiles());
+  ASSERT_TRUE(atlas.ok()) << atlas.status();
+  const absl::StatusOr<TaskSpaceFootCostSettings> shipped = taskSpaceFootCostFromConfig(atlas->task.task_space_foot_cost);
+  ASSERT_TRUE(shipped.ok()) << shipped.status();
+  EXPECT_FALSE(shipped->activeInStance) << "the DRC Atlas task file must ship task_space_foot_cost.active_phases \"swing\"";
 
-  boost::property_tree::ptree pt;
-  loadData::readPropertyTree(atlasTaskFile, pt);
-
-  bool activeInStance = false;
-  EXPECT_NO_THROW({ loadData::loadPtreeValue(pt, activeInStance, "task_space_foot_cost_weights.activeInStance", /*verbose=*/false); });
-  EXPECT_FALSE(activeInStance) << "Atlas task.yaml must have activeInStance = false";
-
-  // Test with GUI format: "activeInStance: 1"
-  std::string tempLiveYaml = std::filesystem::temp_directory_path() / "test_live.yaml";
-  {
-    std::ofstream ofs(tempLiveYaml);
-    ofs << "task_space_foot_cost_weights:\n  activeInStance: 1\n";
-  }
-  boost::property_tree::ptree ptLive;
-  loadData::readPropertyTree(tempLiveYaml, ptLive);
-  bool activeInStanceLive = false;
-  loadData::loadPtreeValue(ptLive, activeInStanceLive, "task_space_foot_cost_weights.activeInStance", /*verbose=*/false);
-  EXPECT_TRUE(activeInStanceLive) << "activeInStance: 1 from GUI should parse as true";
-
-  // Test with false format: "activeInStance: false"
-  std::string tempFalseYaml = std::filesystem::temp_directory_path() / "test_false.yaml";
-  {
-    std::ofstream ofs(tempFalseYaml);
-    ofs << "task_space_foot_cost_weights:\n  activeInStance: false\n";
-  }
-  boost::property_tree::ptree ptFalse;
-  loadData::readPropertyTree(tempFalseYaml, ptFalse);
-  bool activeInStanceFalse = true;
-  loadData::loadPtreeValue(ptFalse, activeInStanceFalse, "task_space_foot_cost_weights.activeInStance", /*verbose=*/false);
-  EXPECT_FALSE(activeInStanceFalse) << "activeInStance: false should parse as false";
-
-  // Test with integer 0 format: "activeInStance: 0"
-  std::string tempZeroYaml = std::filesystem::temp_directory_path() / "test_zero.yaml";
-  {
-    std::ofstream ofs(tempZeroYaml);
-    ofs << "task_space_foot_cost_weights:\n  activeInStance: 0\n";
-  }
-  boost::property_tree::ptree ptZero;
-  loadData::readPropertyTree(tempZeroYaml, ptZero);
-  bool activeInStanceZero = true;
-  loadData::loadPtreeValue(ptZero, activeInStanceZero, "task_space_foot_cost_weights.activeInStance", /*verbose=*/false);
-  EXPECT_FALSE(activeInStanceZero) << "activeInStance: 0 should parse as false";
-
-  std::filesystem::remove(tempLiveYaml);
-  std::filesystem::remove(tempFalseYaml);
-  std::filesystem::remove(tempZeroYaml);
+  const absl::StatusOr<TaskSpaceFootCostSettings> on = footCostOfText("task_space_foot_cost { active_phases: \"swing_and_stance\" }\n");
+  ASSERT_TRUE(on.ok()) << on.status();
+  EXPECT_TRUE(on->activeInStance);
+  const absl::StatusOr<TaskSpaceFootCostSettings> off = footCostOfText("task_space_foot_cost { active_phases: \"swing\" }\n");
+  ASSERT_TRUE(off.ok()) << off.status();
+  EXPECT_FALSE(off->activeInStance);
+  const absl::StatusOr<TaskSpaceFootCostSettings> absent = footCostOfText("task_space_foot_cost { }\n");
+  ASSERT_TRUE(absent.ok()) << absent.status();
+  EXPECT_FALSE(absent->activeInStance) << "a file without active_phases must leave the foot cost off in stance";
+  const absl::StatusOr<TaskSpaceFootCostSettings> retired = footCostOfText("task_space_foot_cost { active_in_stance: true }\n");
+  EXPECT_EQ(retired.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_NE(retired.status().message().find("'active_in_stance' is retired"), absl::string_view::npos) << retired.status();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 2: Verify CentroidalMpcEndEffectorFootCost::isActive(time) logic
 // ─────────────────────────────────────────────────────────────────────────────
 TEST(ActiveInStanceTest, VerifyFootCostIsActiveBehaviorWithAtlasModel) {
-  const std::string atlasTaskFile = runfilePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml");
-  const std::string atlasUrdfFile = runfilePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf");
-  const std::string atlasReferenceFile = runfilePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml");
+  const CentroidalRobotFiles files = atlasFiles();
+  const absl::StatusOr<CentroidalMpcConfig> config = loadConfigOf(files);
+  ASSERT_TRUE(config.ok()) << config.status();
 
-  ASSERT_TRUE(std::filesystem::exists(atlasTaskFile));
-  ASSERT_TRUE(std::filesystem::exists(atlasUrdfFile));
-  ASSERT_TRUE(std::filesystem::exists(atlasReferenceFile));
-
-  ModelSettings modelSettings(atlasTaskFile, atlasUrdfFile, "drc_atlas", /*verbose=*/false);
+  ModelSettings modelSettings = ModelSettings::Create(config->task, files.urdfFile, "drc_atlas", /*verbose=*/false).value();
   PinocchioInterface pinocchioInterface(
-      createCustomPinocchioInterface(atlasTaskFile, atlasUrdfFile, modelSettings, /*scaleTotalMass=*/false));
+      loadCustomPinocchioInterface(config->task, files.urdfFile, modelSettings, /*scaleTotalMass=*/false).value());
 
-  CentroidalModelInfo centroidalModelInfo = centroidal_model::createCentroidalModelInfo(
-      pinocchioInterface, centroidal_model::loadCentroidalType(atlasTaskFile),
-      centroidal_model::loadDefaultJointState(pinocchioInterface.getModel().nq - 6, atlasReferenceFile), modelSettings.contactNames3DoF,
-      modelSettings.contactNames6DoF);
+  CentroidalModelInfo centroidalModelInfo = centroidalModelInfoOf(*config, pinocchioInterface, modelSettings).value();
 
   CentroidalMpcRobotModel<scalar_t> mpcRobotModel(modelSettings, pinocchioInterface, centroidalModelInfo);
   CentroidalMpcRobotModel<ad_scalar_t> mpcRobotModelAD(modelSettings, pinocchioInterface.toCppAd(), centroidalModelInfo.toCppAd());
 
   std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner(
-      new SwingTrajectoryPlanner(loadSwingTrajectorySettings(atlasTaskFile, "swing_trajectory_config", /*verbose=*/false), /*numFeet=*/2));
+      new SwingTrajectoryPlanner(swingTrajectorySettingsFromConfig(config->task.swing_trajectory_config).value(), /*numFeet=*/2));
 
-  std::shared_ptr<GaitSchedule> gaitSchedule = GaitSchedule::loadGaitSchedule(atlasReferenceFile, modelSettings, /*verbose=*/false);
+  std::shared_ptr<GaitSchedule> gaitSchedule = GaitSchedule::Create(config->reference, modelSettings, /*verbose=*/false).value();
   ModeSchedule initialModeSchedule = gaitSchedule->getModeSchedule(0.0, 1.0);
 
   auto referenceManager = std::make_shared<SwitchedModelReferenceManager>(std::move(gaitSchedule), std::move(swingTrajectoryPlanner),
@@ -138,8 +126,7 @@ TEST(ActiveInStanceTest, VerifyFootCostIsActiveBehaviorWithAtlasModel) {
   ASSERT_TRUE(referenceManager->isInContact(stanceTime, /*contactIndex=*/0)) << "Atlas left foot should be in contact at t=0";
   ASSERT_TRUE(referenceManager->isInContact(stanceTime, /*contactIndex=*/1)) << "Atlas right foot should be in contact at t=0";
 
-  EndEffectorKinematicsWeights weights =
-      EndEffectorKinematicsWeights::getWeights(atlasTaskFile, "task_space_foot_cost_weights.", /*verbose=*/false);
+  EndEffectorKinematicsWeights weights = taskSpaceFootCostFromConfig(config->task.task_space_foot_cost).value().weights;
 
   // 1. Check with activeInStance = false:
   CentroidalMpcEndEffectorFootCost footCostInactive(*referenceManager, weights, pinocchioInterface, mpcRobotModelAD, /*contactIndex=*/0,
@@ -162,7 +149,7 @@ TEST(ActiveInStanceTest, VerifyFootCostIsActiveBehaviorWithAtlasModel) {
   footCostActive.setActiveInStance(true);
   EXPECT_TRUE(footCostActive.isActive(stanceTime));
 
-  // 4. Test master switch setActive:
+  // 4. Test the overall on/off switch setActive:
   footCostActive.setActive(false);
   EXPECT_FALSE(footCostActive.isActive(stanceTime));
 
@@ -174,3 +161,5 @@ TEST(ActiveInStanceTest, VerifyFootCostIsActiveBehaviorWithAtlasModel) {
   EXPECT_TRUE(clonedCost->getActiveInStance());
   EXPECT_TRUE(clonedCost->isActive(stanceTime));
 }
+
+}  // namespace ocs2::humanoid

@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -27,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 namespace ocs2::humanoid {
 
@@ -41,10 +46,10 @@ void PreviousFootholdConsistencyCost::configure(const ContactPlanningConfig& con
 void PreviousFootholdConsistencyCost::addToStage(const ContactPlanningContext& ctx, int node, StageAccumulator& stage) const {
   if (ctx.previousPlanShift < 0 || ctx.previousPlan == nullptr || weight_ <= 0.0) return;
   const int source = std::min(node + ctx.previousPlanShift, static_cast<int>(ctx.previousPlan->footholds.size()) - 1);
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     for (int axis = 0; axis < 2; ++axis) {
-      stage.addQuadraticResidual({{idx_.foot[foot][axis], 1.0}}, {}, -ctx.previousPlan->footholds[static_cast<size_t>(source)][foot](axis),
-                                 weight_);
+      stage.addQuadraticResidual({{idx_.foot[foot][axis], 1.0}}, /*uCoefficients=*/{},
+                                 -ctx.previousPlan->footholds[static_cast<size_t>(source)][foot](axis), weight_);
     }
   }
 }

@@ -64,34 +64,40 @@
   ],
   "containerEnv": {
     "DISPLAY": ":99",
-    "ROS_DOMAIN_ID": "0",
     "LIBGL_ALWAYS_SOFTWARE": "1",
     "MESA_LOADER_DRIVER_OVERRIDE": "llvmpipe",
     "LIBGL_ALWAYS_INDIRECT": "0"
   },
-  // LINT.IfChange(vnc_ports)
   "forwardPorts": [
+    // LINT.IfChange(vnc_ports)
     5901,
     6080,
-    5903,
-    6082,
+    // LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //docker-compose.bridge.yaml:vnc_ports, //.devcontainer/README.md:vnc_ports, //Makefile:vnc_ports)
+    // LINT.IfChange(rerun_ports)
+    9090,
+    9876,
+    // LINT.ThenChange(//docker-compose.bridge.yaml:rerun_ports, //.devcontainer/README.md:rerun_ports)
     8888
   ],
+  // On Linux the container runs on the host's network (docker-compose.yaml), where these ports already answer on the
+  // host; the IDE forwards them for a remote host. The ZeroMQ bus ports (5600-5629) are not forwarded: forwardPorts
+  // takes single ports, not a range (docker-compose.bridge.yaml publishes them on Docker Desktop). Every forwarded port
+  // has its entry below (//tools/dev_container:test_dev_container).
   "portsAttributes": {
     "6080": {
-      "label": "noVNC (RViz)",
+      "label": "noVNC (MuJoCo viewer, operator GUI)",
       "onAutoForward": "notify"
     },
     "5901": {
       "label": "VNC",
       "onAutoForward": "silent"
     },
-    "6082": {
-      "label": "noVNC (PlotJuggler)",
+    "9090": {
+      "label": "Rerun web viewer",
       "onAutoForward": "notify"
     },
-    "5903": {
-      "label": "VNC (PlotJuggler)",
+    "9876": {
+      "label": "Rerun gRPC",
       "onAutoForward": "silent"
     },
     "8888": {
@@ -99,7 +105,6 @@
       "onAutoForward": "notify"
     }
   },
-  // LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //docker-compose.yaml:vnc_ports, //.devcontainer/README.md:vnc_ports, //Makefile:vnc_ports)
   // Runs on the HOST before the container starts: caps its memory with no swap beyond the cap (docker-compose.yaml).
   "initializeCommand": "bash ${localWorkspaceFolder}/tools/resource_limits/set_container_memory_limit.sh",
   "postCreateCommand": "bash -c 'chmod +x ${containerWorkspaceFolder}/.devcontainer/post_create.sh && ${containerWorkspaceFolder}/.devcontainer/post_create.sh'"

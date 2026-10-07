@@ -27,9 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <algorithm>
 #include <array>
@@ -41,10 +39,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include <pinocchio/algorithm/rnea.hpp>
-
+#include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
+#include "pinocchio/algorithm/rnea.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
@@ -65,7 +64,7 @@ namespace {
 
 std::string runfilePath(absl::string_view relativePath) {
   std::vector<std::filesystem::path> roots;
-  if (const char* srcDir = std::getenv("TEST_SRCDIR")) roots.emplace_back(std::filesystem::path(srcDir) / "_main");
+  if (const char* absl_nullable srcDir = std::getenv("TEST_SRCDIR")) roots.emplace_back(std::filesystem::path(srcDir) / "_main");
   roots.emplace_back(std::filesystem::current_path());
   for (const std::filesystem::path& root : roots) {
     const std::filesystem::path candidate = root / std::string(relativePath);
@@ -87,11 +86,11 @@ class JointTorqueStateInputOverloadsTest : public ::testing::Test {
  protected:
   void SetUp() override {
     // LINT.IfChange(robot_files)
-    const std::string taskFile = runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml");
+    const std::string taskFile = runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto");
     const std::string urdfFile = runfilePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf");
     // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/BUILD.bazel:joint_torque_overload_test_data)
     ASSERT_FALSE(taskFile.empty() || urdfFile.empty()) << "the G1 whole-body files are not in the runfiles";
-    modelSettings_ = std::make_unique<ModelSettings>(taskFile, urdfFile, "wb_mpc_", /*verbose=*/false);
+    modelSettings_ = std::make_unique<ModelSettings>(ModelSettings::Create(taskFile, urdfFile, "wb_mpc_", /*verbose=*/false).value());
     absl::StatusOr<PinocchioInterface> pinocchioInterface = loadCustomPinocchioInterface(taskFile, urdfFile, *modelSettings_);
     ASSERT_TRUE(pinocchioInterface.ok()) << pinocchioInterface.status();
     pinocchioInterface_ = std::make_unique<PinocchioInterface>(*std::move(pinocchioInterface));
@@ -144,11 +143,11 @@ TEST_F(JointTorqueStateInputOverloadsTest, theOverloadsReadTheStateAndTheInputTh
   const vector_t baseHeld = computeBaseHeldJointTorques<scalar_t>(stateInput.first, stateInput.second, overloadInterface, *model_);
   const vector_t baseHeldDirect = computeBaseHeldJointTorques<scalar_t>(q_, v_, qddJoints_, wrenches_, directInterface);
   const scalar_t scale = std::max(1.0, maxAbs(baseHeldDirect));
-  EXPECT_LT(maxAbs(baseHeld - baseHeldDirect), 1e-12 * scale);
+  EXPECT_LT(maxAbs(baseHeld - baseHeldDirect), 1.0e-12 * scale);
 
   const vector_t floating = computeJointTorques<scalar_t>(stateInput.first, stateInput.second, overloadInterface, *model_);
   const vector_t floatingDirect = computeJointTorques<scalar_t>(q_, v_, qddJoints_, wrenches_, directInterface);
-  EXPECT_LT(maxAbs(floating - floatingDirect), 1e-12 * std::max(1.0, maxAbs(floatingDirect)));
+  EXPECT_LT(maxAbs(floating - floatingDirect), 1.0e-12 * std::max(1.0, maxAbs(floatingDirect)));
 
   // Positive controls. The base-held overload is not the floating-base one: this sample accelerates the base.
   EXPECT_GT(maxAbs(baseHeld - floating), 1.0);
@@ -169,7 +168,7 @@ TEST_F(JointTorqueStateInputOverloadsTest, theBaseHeldTorqueOfARobotHangingAtRes
   pinocchio::Data data(pinocchioInterface_->getModel());
   const vector_t gravity = pinocchio::computeGeneralizedGravity(pinocchioInterface_->getModel(), data, q_).tail(qddJoints_.size());
   ASSERT_GT(maxAbs(gravity), 1.0) << "positive control: gravity loads the joints of this posture";
-  EXPECT_LT(maxAbs(baseHeld - gravity), 1e-9 * maxAbs(gravity));
+  EXPECT_LT(maxAbs(baseHeld - gravity), 1.0e-9 * maxAbs(gravity));
   // The floating base, by contrast, falls freely without a wrench, and gravity then loads no joint.
   EXPECT_GT(maxAbs(computeJointTorques<scalar_t>(stateInput.first, stateInput.second, pinocchioInterface, *model_) - gravity), 1.0);
 }

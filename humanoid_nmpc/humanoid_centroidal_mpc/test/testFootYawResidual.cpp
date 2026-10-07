@@ -27,11 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
-
-#include <pinocchio/algorithm/frames.hpp>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <cmath>
 #include <functional>
@@ -40,11 +36,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <ocs2_core/PreComputation.h>
-#include <ocs2_core/automatic_differentiation/CppAdInterface.h>
-#include <ocs2_core/automatic_differentiation/Types.h>
-#include <ocs2_core/reference/TargetTrajectories.h>
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
+#include "gtest/gtest.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/automatic_differentiation/CppAdInterface.h"
+#include "ocs2_core/automatic_differentiation/Types.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
+#include "pinocchio/algorithm/frames.hpp"
 
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
@@ -108,8 +106,8 @@ TEST(FootYawResidual, IsTheWrappedYawErrorAtEveryNonSingularOrientation) {
     const matrix3_t rotation = getRotationMatrixFromZyxEulerAngles<scalar_t>(euler);
     const scalar_t reference = yawDistribution(generator);
     const scalar_t legacy = legacyFootYawError(rotation, reference, /*hasYawReference=*/1.0);
-    if (std::abs(std::abs(legacy) - M_PI) < 1e-3) continue;  // the wrap itself, where neither is continuous
-    EXPECT_NEAR(Cost::footYawError<scalar_t>(rotation, reference, /*hasYawReference=*/1.0), legacy, 1e-9) << "sample " << sample;
+    if (std::abs(std::abs(legacy) - M_PI) < 1.0e-3) continue;  // the wrap itself, where neither is continuous
+    EXPECT_NEAR(Cost::footYawError<scalar_t>(rotation, reference, /*hasYawReference=*/1.0), legacy, 1.0e-9) << "sample " << sample;
     // Masked, it is exactly zero, whatever the orientation and the reference.
     EXPECT_EQ(Cost::footYawError<scalar_t>(rotation, reference, /*hasYawReference=*/0.0), 0.0) << "sample " << sample;
   }
@@ -121,7 +119,7 @@ TEST(FootYawResidual, HasFiniteDerivativesAtAYawOfExactlyZero) {
                   const ad_scalar_t& has) { return Cost::footYawError<ad_scalar_t>(rotation, reference, has); },
                "halfAngle");
   for (const scalar_t hasYawReference : {0.0, 1.0}) {
-    for (const vector3_t& euler : {vector3_t(0.0, 0.0, 0.0), vector3_t(0.0, 0.1, -0.05), vector3_t(1e-9, 0.0, 0.0)}) {
+    for (const vector3_t& euler : {vector3_t(0.0, 0.0, 0.0), vector3_t(0.0, 0.1, -0.05), vector3_t(1.0e-9, 0.0, 0.0)}) {
       const vector_t jacobian = jacobianAt(*library, euler, /*yawReference=*/0.0, hasYawReference);
       EXPECT_TRUE(jacobian.allFinite()) << "hasYawReference " << hasYawReference << ", euler " << euler.transpose() << ": "
                                         << jacobian.transpose();
@@ -138,7 +136,7 @@ TEST(FootYawResidual, TheLegacyResidualHadNoFiniteDerivativeThere) {
                "legacy");
   EXPECT_FALSE(jacobianAt(*library, vector3_t::Zero(), /*yawReference=*/0.0, /*hasYawReference=*/0.0).allFinite());
   EXPECT_FALSE(jacobianAt(*library, vector3_t::Zero(), /*yawReference=*/0.0, /*hasYawReference=*/1.0).allFinite());
-  EXPECT_TRUE(jacobianAt(*library, vector3_t(1e-9, 0.0, 0.0), /*yawReference=*/0.0, /*hasYawReference=*/1.0).allFinite());
+  EXPECT_TRUE(jacobianAt(*library, vector3_t(1.0e-9, 0.0, 0.0), /*yawReference=*/0.0, /*hasYawReference=*/1.0).allFinite());
 }
 
 TEST(FootYawResidual, TheSwingFootCostIsDifferentiableAtTheSimulatorsResetPose) {
@@ -170,6 +168,32 @@ TEST(FootYawResidual, TheSwingFootCostIsDifferentiableAtTheSimulatorsResetPose) 
   EXPECT_TRUE(approximation.dfdx.allFinite()) << approximation.dfdx.transpose();
   EXPECT_TRUE(approximation.dfdu.allFinite());
   EXPECT_TRUE(approximation.dfdxx.allFinite());
+}
+
+TEST(FootCostParameters, AreTheReferenceManagersWhateverTargetTheSolverPasses) {
+  // The cost's parameters - the swing reference, the plane normal, the impact proximity - come from the reference
+  // manager; the target the solver passes is not read. It used to be interpolated into two values nobody used, which
+  // also made an empty target throw here. Built as above, so the library that test generated is loaded, not rebuilt.
+  DrcAtlasContactTestModel atlas("testFootYawResidual_");
+  const vector_t& state = atlas.nominalState();
+  const vector_t input = atlas.makeInput(atlas.wrenchModel(), /*loadedFoot=*/1, /*normalForce=*/800.0);
+  const TargetTrajectories target({DrcAtlasContactTestModel::kQueryTime}, {state}, {input});
+  atlas.referenceManager().setTargetTrajectories(target);
+  atlas.setSwing(0);
+  const Cost cost(atlas.referenceManager(), EndEffectorKinematicsWeights(), atlas.pinocchioInterface(), atlas.adWrenchModel(),
+                  /*contactIndex=*/0, "testFootYawResidual_foot_l", atlas.modelSettings());
+  const scalar_t time = DrcAtlasContactTestModel::kQueryTime;
+  const vector_t parameters = cost.getParameters(time, target, PreComputation());
+  ASSERT_TRUE(parameters.allFinite()) << parameters.transpose();
+
+  // A target somewhere else entirely, with other inputs, and a target with no knots at all.
+  vector_t movedState = state;
+  movedState.head(6).setConstant(0.3);
+  const TargetTrajectories moved({time - 1.0, time + 1.0}, {movedState, 2.0 * movedState}, {2.0 * input, -input});
+  EXPECT_TRUE(cost.getParameters(time, moved, PreComputation()) == parameters);
+  vector_t emptyTargetParameters;
+  ASSERT_NO_THROW(emptyTargetParameters = cost.getParameters(time, TargetTrajectories(), PreComputation()));
+  EXPECT_TRUE(emptyTargetParameters == parameters);
 }
 
 }  // namespace

@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -23,23 +27,25 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
+#include <memory>
 #include <random>
+#include <vector>
+
+#include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 
-using namespace ocs2;
-using namespace ocs2::humanoid;
+namespace ocs2::humanoid {
 
 class AngularCenterOfMassTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    inputDim = 6;
-    hiddenDim = 16;
-    numLayers = 2;
-    omega0 = 30.0;
+    inputDim_ = 6;
+    hiddenDim_ = 16;
+    numLayers_ = 2;
+    omega0_ = 30.0;
 
-    acom = std::make_unique<AngularCenterOfMass>(inputDim, numLayers, omega0);
+    acom_ = std::make_unique<AngularCenterOfMass>(inputDim_, numLayers_, omega0_);
 
     // Initialize with deterministic pseudo-random weights
     std::mt19937 gen(42);
@@ -48,8 +54,8 @@ class AngularCenterOfMassTest : public ::testing::Test {
     std::vector<SirenLayerWeights> layers;
     // Layer 0: hiddenDim x inputDim
     SirenLayerWeights l0;
-    l0.weight = matrix_t(hiddenDim, inputDim);
-    l0.bias = vector_t(hiddenDim);
+    l0.weight = matrix_t(hiddenDim_, inputDim_);
+    l0.bias = vector_t(hiddenDim_);
     for (int r = 0; r < l0.weight.rows(); ++r) {
       for (int c = 0; c < l0.weight.cols(); ++c) l0.weight(r, c) = dist(gen);
       l0.bias(r) = dist(gen);
@@ -58,8 +64,8 @@ class AngularCenterOfMassTest : public ::testing::Test {
 
     // Layer 1: hiddenDim x hiddenDim
     SirenLayerWeights l1;
-    l1.weight = matrix_t(hiddenDim, hiddenDim);
-    l1.bias = vector_t(hiddenDim);
+    l1.weight = matrix_t(hiddenDim_, hiddenDim_);
+    l1.bias = vector_t(hiddenDim_);
     for (int r = 0; r < l1.weight.rows(); ++r) {
       for (int c = 0; c < l1.weight.cols(); ++c) l1.weight(r, c) = dist(gen);
       l1.bias(r) = dist(gen);
@@ -68,7 +74,7 @@ class AngularCenterOfMassTest : public ::testing::Test {
 
     // Output Layer: 3 x hiddenDim
     SirenLayerWeights lOut;
-    lOut.weight = matrix_t(3, hiddenDim);
+    lOut.weight = matrix_t(3, hiddenDim_);
     lOut.bias = vector_t(3);
     for (int r = 0; r < lOut.weight.rows(); ++r) {
       for (int c = 0; c < lOut.weight.cols(); ++c) lOut.weight(r, c) = dist(gen);
@@ -76,77 +82,79 @@ class AngularCenterOfMassTest : public ::testing::Test {
     }
     layers.push_back(lOut);
 
-    acom->setWeights(layers);
+    ASSERT_TRUE(acom_->loadWeights(layers).ok());
   }
 
-  size_t inputDim;
-  size_t hiddenDim;  // Width of the synthetic hidden layers built in SetUp.
-  size_t numLayers;
-  double omega0;
-  std::unique_ptr<AngularCenterOfMass> acom;
+  size_t inputDim_ = 0;
+  size_t hiddenDim_ = 0;  // Width of the synthetic hidden layers built in SetUp.
+  size_t numLayers_ = 0;
+  double omega0_ = 0.0;
+  std::unique_ptr<AngularCenterOfMass> acom_;
 };
 
 TEST_F(AngularCenterOfMassTest, FloatingBaseEquivariance) {
-  vector_t qJoints = vector_t::Random(inputDim);
+  vector_t qJoints = vector_t::Random(inputDim_);
 
   // Configuration with base at origin
-  vector_t q1 = vector_t::Zero(6 + inputDim);
-  q1.tail(inputDim) = qJoints;
+  vector_t q1 = vector_t::Zero(6 + inputDim_);
+  q1.tail(inputDim_) = qJoints;
 
   // Configuration with translated and rotated base
-  vector_t q2 = vector_t::Zero(6 + inputDim);
+  vector_t q2 = vector_t::Zero(6 + inputDim_);
   q2.segment<3>(0) << 1.5, -2.0, 0.8;  // Position shift
   q2.segment<3>(3) << 0.2, -0.3, 0.5;  // ZYX Euler shift
-  q2.tail(inputDim) = qJoints;
+  q2.tail(inputDim_) = qJoints;
 
-  vector3_t theta1 = acom->computeAcomOrientation(q1);
-  vector3_t theta2 = acom->computeAcomOrientation(q2);
+  vector3_t theta1 = acom_->computeAcomOrientation(q1);
+  vector3_t theta2 = acom_->computeAcomOrientation(q2);
 
   // The joint offset cancels in the difference, so the change in aCOM orientation
   // must equal the change in base Euler angles exactly.
   vector3_t deltaTheta = theta2 - theta1;
   vector3_t expectedDelta = q2.segment<3>(3) - q1.segment<3>(3);
 
-  EXPECT_LT((deltaTheta - expectedDelta).norm(), 1e-12);
+  EXPECT_LT((deltaTheta - expectedDelta).norm(), 1.0e-12);
 }
 
 TEST_F(AngularCenterOfMassTest, AnalyticalJacobianVsFiniteDifference) {
-  vector_t qJoints = vector_t::Random(inputDim);
+  vector_t qJoints = vector_t::Random(inputDim_);
 
-  matrix_t J_ana = acom->computeJointOffsetJacobian(qJoints);
+  matrix_t J_ana = acom_->computeJointOffsetJacobian(qJoints);
 
   // Finite-difference numerical Jacobian
-  const double eps = 1e-7;
-  matrix_t J_num = matrix_t::Zero(3, inputDim);
+  const double eps = 1.0e-7;
+  matrix_t J_num = matrix_t::Zero(3, inputDim_);
 
-  for (size_t col = 0; col < inputDim; ++col) {
+  for (size_t col = 0; col < inputDim_; ++col) {
     vector_t q_plus = qJoints;
     vector_t q_minus = qJoints;
     q_plus(col) += eps;
     q_minus(col) -= eps;
 
-    vector3_t f_plus = acom->computeJointOrientationOffset(q_plus);
-    vector3_t f_minus = acom->computeJointOrientationOffset(q_minus);
+    vector3_t f_plus = acom_->computeJointOrientationOffset(q_plus);
+    vector3_t f_minus = acom_->computeJointOrientationOffset(q_minus);
 
     J_num.col(col) = (f_plus - f_minus) / (2.0 * eps);
   }
 
   double error = (J_ana - J_num).norm();
-  EXPECT_LT(error, 1e-5);
+  EXPECT_LT(error, 1.0e-5);
 }
 
 TEST_F(AngularCenterOfMassTest, FullAcomJacobianStructure) {
-  vector_t q = vector_t::Random(6 + inputDim);
+  vector_t q = vector_t::Random(6 + inputDim_);
 
-  matrix_t J_full = acom->computeAcomJacobian(q);
+  matrix_t J_full = acom_->computeAcomJacobian(q);
 
   // Base position block must be zero: translating the base does not rotate it.
-  EXPECT_LT(J_full.block(0, 0, 3, 3).norm(), 1e-12);
+  EXPECT_LT(J_full.block(0, 0, 3, 3).norm(), 1.0e-12);
 
   // Base orientation block must be the identity.
-  EXPECT_LT((J_full.block(0, 3, 3, 3) - matrix_t::Identity(3, 3)).norm(), 1e-12);
+  EXPECT_LT((J_full.block(0, 3, 3, 3) - matrix_t::Identity(3, 3)).norm(), 1.0e-12);
 
   // Joint block must be the joint Jacobian reordered from XYZ to ZYX.
-  const matrix_t J_joints_zyx = acomJacobianXyzToZyx(acom->computeJointOffsetJacobian(q.tail(inputDim)));
-  EXPECT_LT((J_full.block(0, 6, 3, inputDim) - J_joints_zyx).norm(), 1e-12);
+  const matrix_t J_joints_zyx = acomJacobianXyzToZyx(acom_->computeJointOffsetJacobian(q.tail(inputDim_)));
+  EXPECT_LT((J_full.block(0, 6, 3, inputDim_) - J_joints_zyx).norm(), 1.0e-12);
 }
+
+}  // namespace ocs2::humanoid

@@ -16,8 +16,8 @@ py_test(
     ],
 )
 
-# The robot filegroups exclude the tuning GUI's backups and live copies (bazel/robot_files.bzl): none of them may reach a
-# test's runfiles.
+# The robot filegroups exclude the tuning GUI's backups and the stale live copies of the YAML configuration
+# (bazel/robot_files.bzl): none of them may reach a test's runfiles.
 py_test(
     name = "test_robot_packages_ship_no_side_files",
     size = "small",
@@ -33,4 +33,41 @@ py_test(
         "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
         "//robot_models/unitree_r1/unitree_r1_description",
     ],
+)
+
+# The robots' launch files: one robot, MPC and dummy-simulator launch file per robot configuration and a model sandbox
+# per description; each parses, runs on the machines of the hardware split, starts built binaries with flags they define
+# and files that exist, and the robot side exports to the robot-runtime image's script. Large in what it builds (every
+# launched binary), quick to run.
+py_test(
+    name = "test_launch_files",
+    size = "small",
+    srcs = ["test_launch_files.py"],
+    data = [
+        "//config/ipc:network.textproto",
+        "//humanoid_nmpc/humanoid_centroidal_mpc_app:humanoid_centroidal_mpc_dummy_sim",
+        "//humanoid_nmpc/humanoid_centroidal_mpc_app:humanoid_centroidal_mpc_node",
+        "//humanoid_nmpc/humanoid_centroidal_mpc_app:humanoid_centroidal_mpc_robot",
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        "//humanoid_nmpc/humanoid_rerun_viewer",
+        "//humanoid_nmpc/humanoid_rerun_viewer:model_sandbox",
+        "//humanoid_nmpc/humanoid_wb_mpc_app:humanoid_wb_mpc_dummy_sim",
+        "//humanoid_nmpc/humanoid_wb_mpc_app:humanoid_wb_mpc_node",
+        "//humanoid_nmpc/humanoid_wb_mpc_app:humanoid_wb_mpc_robot",
+        "//humanoid_nmpc/remote_control:base_velocity_controller_gui",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/drc_atlas/drc_atlas_description:launch/sandbox.textproto",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/engineai_sa01/engineai_sa01_description",
+        "//robot_models/engineai_sa01/engineai_sa01_description:launch/sandbox.textproto",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_description:launch/sandbox.textproto",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+        "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+        "//robot_models/unitree_r1/unitree_r1_description",
+        "//robot_models/unitree_r1/unitree_r1_description:launch/sandbox.textproto",
+    ],
+    deps = ["//tools/launch:launch_lib"],
 )

@@ -1,0 +1,96 @@
+{
+  "schema": "humanoid_mpc_validation.solve_benchmark.v1",
+  "label": "B0",
+  "robot": "unitree_g1_wb",
+  "formulation": "whole_body",
+  "provenance": {
+    "git_commit": "c331ddd76dcf3917bdd9d0578eee6f518a915ba8",
+    "worktree_state": "1175 changed paths, diff sha256 13855b2a7a290aa5",
+    "machine": "Intel(R) Core(TM) Ultra 7 265K, 20 logical cores, 30.2 GiB",
+    "configuration_sha256": {
+      "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml": "6e2b39822931dcc0e120ab8122b0f9a3fe67eef10862f43b94f94a49167a798c",
+      "robot_models/unitree_g1/g1_wb_mpc/config/command/reference.yaml": "1fdf06c0c7da45ae51e242b3ba77daa8dc1e1ace9d680575a7cf7b26baac1d22",
+      "humanoid_nmpc/humanoid_common_mpc/config/command/gait.yaml": "df9b8154d7fe9939bc45541ee5163049b392c44880e774c5ea85653ae1ce9897",
+      "robot_models/unitree_g1/g1_wb_mpc/config/controller/joint_pd_gains.yaml": "b59ac4efd588a6b4c56f3e2e383ba3592cf8e52182216a0f02a05a6d31a21eba",
+      "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf": "7696e17b07ade3d024dc267073826b75aa74019781c95f9ac44897be1de2305c",
+      "robot_models/unitree_g1/g1_description/urdf/g1_29dof.xml": "01004f48a0821d2fc90b81b3c92e3142ce6e3e1322e7172978ef385238826ee2",
+      "humanoid_nmpc/humanoid_mpc_validation/data/benchmark/states/unitree_g1_wb_walk_0p5_states.txt": "44117683b6f47b17cf20dc371f78e4d39228e5ed8693e0f507a835a5768cb147"
+    }
+  },
+  "settings": {
+    "solver_threads": 4,
+    "mpc_frequency_hz": 60,
+    "recorded_states": 300,
+    "warmup_solves": 25,
+    "repeats": 3,
+    "timed_solves": 825,
+    "failed_solves": 0
+  },
+  "solve_time_ms": {
+    "total": {
+      "mean": 9.225793351515154,
+      "p50": 9.286948,
+      "p99": 9.971375,
+      "max": 12.644834
+    },
+    "lq_approximation": {
+      "mean": 4.998189793939394,
+      "p50": 5.082687,
+      "p99": 5.537167,
+      "max": 5.723654
+    },
+    "solve_qp": {
+      "mean": 3.808926710303028,
+      "p50": 3.812517,
+      "p99": 4.153747,
+      "max": 6.656631
+    },
+    "linesearch": {
+      "mean": 0.3718012969696968,
+      "p50": 0.350793,
+      "p99": 0.78629,
+      "max": 1.399027
+    },
+    "compute_controller": {
+      "mean": 0.014469230303030304,
+      "p50": 0.014169,
+      "p99": 0.02,
+      "max": 0.023871
+    }
+  },
+  "real_time": {
+    "mpc_period_ms": 16.666666666666668,
+    "p99_fraction_of_period": 0.5982824999999999
+  },
+  "tape_operation_counts": {
+    "cppad_wb_mpc_g1/FootCollisionConstraint": 662,
+    "cppad_wb_mpc_g1/dynamics_flow_map": 8529,
+    "cppad_wb_mpc_g1/dynamics_guard_surfaces": 62,
+    "cppad_wb_mpc_g1/dynamics_jump_map": 61,
+    "cppad_wb_mpc_g1/foot_l_contact_TaskSpaceTrackingCost": 9216,
+    "cppad_wb_mpc_g1/foot_l_contact_accelerations": 9052,
+    "cppad_wb_mpc_g1/foot_l_contact_angular_acceleration": 8780,
+    "cppad_wb_mpc_g1/foot_l_contact_angular_velocity": 337,
+    "cppad_wb_mpc_g1/foot_l_contact_contact_moment_XY_constraint": 295,
+    "cppad_wb_mpc_g1/foot_l_contact_linear_acceleration": 9040,
+    "cppad_wb_mpc_g1/foot_l_contact_orientation": 280,
+    "cppad_wb_mpc_g1/foot_l_contact_orientationError": 299,
+    "cppad_wb_mpc_g1/foot_l_contact_orientation_wrt_plane": 248,
+    "cppad_wb_mpc_g1/foot_l_contact_position": 275,
+    "cppad_wb_mpc_g1/foot_l_contact_twist": 435,
+    "cppad_wb_mpc_g1/foot_l_contact_velocity": 423,
+    "cppad_wb_mpc_g1/foot_r_contact_TaskSpaceTrackingCost": 9216,
+    "cppad_wb_mpc_g1/foot_r_contact_accelerations": 9052,
+    "cppad_wb_mpc_g1/foot_r_contact_angular_acceleration": 8780,
+    "cppad_wb_mpc_g1/foot_r_contact_angular_velocity": 337,
+    "cppad_wb_mpc_g1/foot_r_contact_contact_moment_XY_constraint": 295,
+    "cppad_wb_mpc_g1/foot_r_contact_linear_acceleration": 9040,
+    "cppad_wb_mpc_g1/foot_r_contact_orientation": 280,
+    "cppad_wb_mpc_g1/foot_r_contact_orientationError": 299,
+    "cppad_wb_mpc_g1/foot_r_contact_orientation_wrt_plane": 248,
+    "cppad_wb_mpc_g1/foot_r_contact_position": 275,
+    "cppad_wb_mpc_g1/foot_r_contact_twist": 435,
+    "cppad_wb_mpc_g1/foot_r_contact_velocity": 423
+  },
+  "total_tape_operations": 86674
+}

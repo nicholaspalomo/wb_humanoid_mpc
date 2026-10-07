@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_oc/oc_problem/OptimalControlProblemHelperFunction.h"
 
+#include "absl/base/nullability.h"
+
 namespace ocs2 {
 
 /******************************************************************************************************/
@@ -183,7 +185,9 @@ void updateIntermediateMultiplierCollection(const OptimalControlProblem& ocp, sc
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-const vector_t* extractFinalTermConstraint(const OptimalControlProblem& ocp, const std::string& name, const Metrics& metrics) {
+const vector_t* absl_nullable extractFinalTermConstraint(const OptimalControlProblem& ocp,
+                                                         const std::string& name,
+                                                         const Metrics& metrics) {
   size_t index;
   if (ocp.finalEqualityConstraintPtr->getTermIndex(name, index)) {
     return &metrics.stateEqConstraint[index];
@@ -199,8 +203,9 @@ const vector_t* extractFinalTermConstraint(const OptimalControlProblem& ocp, con
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-const LagrangianMetrics* extractFinalTermLagrangianMetrics(const OptimalControlProblem& ocp, const std::string& name,
-                                                           const Metrics& metrics) {
+const LagrangianMetrics* absl_nullable extractFinalTermLagrangianMetrics(const OptimalControlProblem& ocp,
+                                                                         const std::string& name,
+                                                                         const Metrics& metrics) {
   size_t index;
   if (ocp.finalEqualityLagrangianPtr->getTermIndex(name, index)) {
     return &metrics.stateEqLagrangian[index];
@@ -354,8 +359,9 @@ bool extractIntermediateTermLagrangianMetrics(const OptimalControlProblem& ocp, 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-const Multiplier* extractFinalTermMultiplier(const OptimalControlProblem& ocp, const std::string& name,
-                                             const MultiplierCollection& multiplierColl) {
+const Multiplier* absl_nullable extractFinalTermMultiplier(const OptimalControlProblem& ocp,
+                                                           const std::string& name,
+                                                           const MultiplierCollection& multiplierColl) {
   size_t index;
   if (ocp.finalEqualityLagrangianPtr->getTermIndex(name, index)) {
     return &multiplierColl.stateEq[index];

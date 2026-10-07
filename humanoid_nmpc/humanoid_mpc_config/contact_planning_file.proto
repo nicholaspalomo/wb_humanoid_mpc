@@ -1,0 +1,508 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "nproto/options.proto";
+import "nproto/retired_field_options.proto";
+
+// A robot's contact planner, config/mpc/contact_planning.textproto, read when the task file selects
+// contact_schedule_source: "contact_planner". planner.type chooses the planner and with it which blocks are read at
+// all: `hlip` reads planner, shared, hlip, the execution list and whether dynamics lists heading_double_integrator;
+// `lip_miqp` reads planner, shared, the term lists and the block of every listed term. The domain struct is
+// ContactPlanningConfig (humanoid_common_mpc/contact_planning/ContactPlanningConfig.h), which documents every value;
+// contactPlanningConfigFromConfig() converts the file into it.
+//
+// A scalar the file omits takes the default below, which is the domain struct's. A term list the file omits is
+// EMPTY, unlike the library's default formulation (a repeated field has no presence), so a file lists all eight. A
+// robot without a file runs the library defaults, ContactPlanningConfig{}, not this message's defaults.
+// Next ID: 39
+message ContactPlanningFile {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::ContactPlanningFile";
+  option (nproto.retired_field) = {
+    name: "contact_planning"
+    replacement: "the file is the contact_planning block: write planner, shared, hlip, the term lists and the term blocks at the top level"
+  };
+  option (nproto.retired_layout_hint) = "(The flat layout of the previous planner, with keys such as dt, numNodes, comHeight, useAcomDynamics and enablePhaseResetting directly in the file, is no longer read: use the planner and shared blocks, the term lists and one block per term, as in the DRC Atlas contact_planning.textproto; the flags became list entries, useAcomDynamics -> heading_double_integrator and its terms, enablePhaseResetting -> phase_resetting, ...)";
+
+  reserved 39 to max;
+
+  // Which planner runs, its grid, commit window, solver budget and threading (PlannerSettings).
+  // Next ID: 14
+  message PlannerConfig {
+    option (nproto.retired_field) = {
+      name: "run_in_background_thread"
+      replacement: "where the planner runs is selected by name: threading: \"background_thread\" (the default) where it was true, \"pre_solve_hook\" where it was false"
+    };
+
+    reserved 14 to max;
+    // 9 was run_in_background_thread, now the name threading.
+    reserved 9;
+
+    // The planner, by ContactPlannerFactory name: "hlip" or "lip_miqp".
+    // LINT.IfChange(planner_type)
+    string type = 1 [default = "lip_miqp", (humanoid_mpc_config.tuning) = { registry: "contact_planner" }];
+    // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/contact_planning/ContactPlannerFactory.h:planner_names)
+    // [s] The planner node duration.
+    double dt = 2 [default = 0.1, (humanoid_mpc_config.tuning) = { unit: "s" slider_min: 0.01 }];
+    // The planning horizon in nodes, num_nodes * dt; it should cover the MPC horizon.
+    int32 num_nodes = 3 [default = 12];
+    // [s] The window whose contacts keep the applied schedule; it must cover the planner latency.
+    double commit_time = 4 [default = 0.25, (humanoid_mpc_config.tuning) = { unit: "s" }];
+    // [s] The cap on extending the commit boundary to a swing's touch-down; <= 0: no cap.
+    double max_commit_extension = 5 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "s" }];
+    // The relaxations of one mixed-integer plan.
+    int32 max_branch_and_bound_nodes = 6 [default = 200];
+    // [s] The anytime limit of one mixed-integer plan.
+    double max_solve_time = 7 [default = 0.1, (humanoid_mpc_config.tuning) = { unit: "s" slider_min: 0.001 }];
+    int32 max_qp_iterations = 8 [default = 60];
+    // Where the planner runs, by name: "background_thread" (a worker thread plans the latest snapshot, at most at
+    // planning_frequency; lip_miqp needs it) or "pre_solve_hook" (synchronously, in the MPC's pre-solve hook; hlip
+    // needs it).
+    // LINT.IfChange(planner_threading)
+    string threading = 13 [default = "background_thread", (humanoid_mpc_config.tuning) = { registry: "contact_planner_threading" }];
+    // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/contact_planning/ContactPlanningFromConfig.h:planner_threading_names)
+    // [Hz] The upper bound on the background planning rate.
+    double planning_frequency = 10 [default = 10.0, (humanoid_mpc_config.tuning) = { unit: "Hz" slider_min: 1.0 }];
+    bool verbose = 11 [
+      default = false,
+      (humanoid_mpc_config.tuning) = {
+        exclude_reason: "a log switch, not a tuning parameter"
+      }
+    ];
+    // One log line per plan: search statistics, phase durations and steps.
+    bool log_plans = 12 [
+      default = false,
+      (humanoid_mpc_config.tuning) = {
+        exclude_reason: "a log switch, not a tuning parameter"
+      }
+    ];
+  }
+
+  // The parameters read by more than one term (SharedParameters).
+  // Next ID: 6
+  message SharedConfig {
+    reserved 6 to max;
+
+    // The penalty of the slacks of a soft constraint, 0.5 Z s^2 + z s per slack.
+    // Next ID: 3
+    message SlackPenaltyConfig {
+      reserved 3 to max;
+
+      double quadratic = 1 [default = 10000.0];
+      double linear = 2 [default = 100.0];
+    }
+
+    // [s] The phase duration limits (GaitLimits).
+    // Next ID: 6
+    message GaitLimitsConfig {
+      reserved 6 to max;
+
+      double min_swing_duration = 1 [default = 0.3, (humanoid_mpc_config.tuning) = { unit: "s" slider_min: 0.01 }];
+      double max_swing_duration = 2 [default = 0.6, (humanoid_mpc_config.tuning) = { unit: "s" }];
+      double min_contact_duration = 3 [default = 0.15, (humanoid_mpc_config.tuning) = { unit: "s" slider_min: 0.01 }];
+      // <= 0: no limit (standing is allowed indefinitely).
+      double max_contact_duration = 4 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "s" }];
+      // After a touch-down the other foot stays down at least this long; 0 disables the hold.
+      double min_double_support_duration = 5 [default = 0.1, (humanoid_mpc_config.tuning) = { unit: "s" }];
+    }
+
+    // [m/s^2]
+    double gravity = 1 [default = 9.81, (humanoid_mpc_config.tuning) = { unit: "m/s^2" slider_min: 1.0 }];
+    // [m] The LIP height, positive; absent: the model's center of mass above its feet at the task file's initial state.
+    double com_height = 2 [(humanoid_mpc_config.tuning) = { unit: "m" slider_min: 0.1 }];
+    // [m] The big-M of the ZMP and foothold disjunctions; it must exceed foot_separation.max_step_length and be at
+    // least foot_separation.max_step_width.
+    double big_m = 3 [default = 1.0, (humanoid_mpc_config.tuning) = { unit: "m" }];
+    // The default of every soft constraint without a slack block of its own.
+    SlackPenaltyConfig slack_penalty = 4;
+    GaitLimitsConfig gait_limits = 5;
+  }
+
+  // The closed-form H-LIP planner of planner.type "hlip" (HlipParameters).
+  // Next ID: 8
+  message HlipConfig {
+    reserved 8 to max;
+
+    // The blend between standing and walking, equations (15) - (17) of arXiv:2502.15630 (HlipBlendParameters).
+    // Next ID: 8
+    message BlendConfig {
+      reserved 8 to max;
+
+      // rho_1
+      double sharpness = 1 [default = 40.0, (humanoid_mpc_config.tuning) = { slider_min: 0.1 }];
+      // rho_2
+      double threshold = 2 [default = 0.02, (humanoid_mpc_config.tuning) = { slider_min: 0.001 }];
+      // [m/s]
+      double max_commanded_velocity_x = 3 [default = 0.7, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
+      // [m/s]
+      double max_commanded_velocity_y = 4 [default = 0.25, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
+      // [rad/s]
+      double max_commanded_yaw_rate = 5 [default = 0.61, (humanoid_mpc_config.tuning) = { unit: "rad/s" }];
+      // [m/s]
+      double max_com_velocity_x = 6 [default = 0.5, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
+      // [m/s]
+      double max_com_velocity_y = 7 [default = 0.4, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
+    }
+
+    // [s] The single support.
+    double ssp_duration = 1 [default = 0.25, (humanoid_mpc_config.tuning) = { unit: "s" slider_min: 0.05 }];
+    // [s] The double support; 0 exchanges support in one instant.
+    double dsp_duration = 2 [default = 0.05, (humanoid_mpc_config.tuning) = { unit: "s" }];
+    // [m] The lateral distance between the feet of the nominal period-two orbit.
+    // LINT.IfChange(derive_parameters_hlip_step_width)
+    double step_width = 3 [default = 0.25, (humanoid_mpc_config.tuning) = { unit: "m" slider_min: 0.01 }];
+    // LINT.ThenChange(//tools/locomotion_heuristics/derive_parameters.py:derive_parameters_inputs)
+    // [m] The clip on the planned step along the heading.
+    double max_step_length = 4 [default = 0.5, (humanoid_mpc_config.tuning) = { unit: "m" slider_min: 0.01 }];
+    // [m] The clip on the lateral distance between the feet.
+    double max_step_width = 5 [default = 0.45, (humanoid_mpc_config.tuning) = { unit: "m" }];
+    // [m] The self-collision margin on that distance.
+    double min_step_width = 6 [default = 0.15, (humanoid_mpc_config.tuning) = { unit: "m" slider_min: 0.01 }];
+    BlendConfig blend = 7;
+  }
+
+  // The slack penalty of one soft constraint, present when the term block has a slack block: a value it omits is the
+  // one of shared.slack_penalty (SlackPenalty).
+  // Next ID: 3
+  message TermSlackConfig {
+    reserved 3 to max;
+
+    double quadratic = 1;
+    double linear = 2;
+  }
+
+  // ---- One message per term block, named as its term (ContactPlanningConfig.h, the per-term parameter blocks) ----
+
+  // Next ID: 3
+  message RegularizationConfig {
+    reserved 3 to max;
+
+    // Added to the diagonal of Q at every node.
+    double state = 1 [default = 1.0e-8, (humanoid_mpc_config.tuning) = { log_scale: true }];
+    // Added to the diagonal of R at every running node.
+    double input = 2 [default = 1.0e-6, (humanoid_mpc_config.tuning) = { log_scale: true }];
+  }
+
+  // Next ID: 2
+  message PreviousFootholdConsistencyConfig {
+    reserved 2 to max;
+
+    double weight = 1 [default = 5.0];
+  }
+
+  // Next ID: 2
+  message VelocityTrackingConfig {
+    reserved 2 to max;
+
+    double weight = 1 [default = 20.0];
+  }
+
+  // Next ID: 3
+  message StepWidthConfig {
+    reserved 3 to max;
+
+    double weight = 1 [default = 10.0];
+    // [m] The lateral distance between the feet the planner is drawn to.
+    double nominal_step_width = 2 [default = 0.25, (humanoid_mpc_config.tuning) = { unit: "m" }];
+  }
+
+  // Next ID: 2
+  message HeadingRateTrackingConfig {
+    reserved 2 to max;
+
+    double weight = 1 [default = 20.0];
+  }
+
+  // Next ID: 2
+  message HeadingTrackingConfig {
+    reserved 2 to max;
+
+    double weight = 1 [default = 5.0];
+  }
+
+  // Next ID: 2
+  message FootYawTrackingConfig {
+    reserved 2 to max;
+
+    double weight = 1 [default = 5.0];
+  }
+
+  // Next ID: 2
+  message YawTorqueRegularizationConfig {
+    reserved 2 to max;
+
+    double weight = 1 [default = 0.001];
+  }
+
+  // Next ID: 2
+  message FootYawRegularizationConfig {
+    reserved 2 to max;
+
+    double weight = 1 [default = 1.0];
+  }
+
+  // Next ID: 2
+  message ZmpRegularizationConfig {
+    reserved 2 to max;
+
+    double weight = 1 [default = 2.0];
+  }
+
+  // Next ID: 2
+  message FootholdRegularizationConfig {
+    reserved 2 to max;
+
+    double weight = 1 [default = 5.0];
+  }
+
+  // Next ID: 2
+  message StepLengthConfig {
+    reserved 2 to max;
+
+    double weight = 1 [default = 0.0];
+  }
+
+  // Next ID: 4
+  message TerminalDcmConfig {
+    option (nproto.retired_field) = {
+      name: "track_commanded_velocity"
+      replacement: "the target of the terminal DCM is selected by name: target: \"commanded_velocity\" where it was true, \"rest\" (the default) where it was false"
+    };
+
+    reserved 4 to max;
+    // 2 was track_commanded_velocity, now the name target.
+    reserved 2;
+
+    double weight = 1 [default = 200.0];
+    // What the terminal DCM is drawn to, by name: "rest" (onto the last ZMP, so the plan comes to rest) or
+    // "commanded_velocity" (the last ZMP plus v_cmd / omega, so the plan keeps walking).
+    // LINT.IfChange(terminal_dcm_target)
+    string target = 3 [default = "rest", (humanoid_mpc_config.tuning) = { registry: "terminal_dcm_target" }];
+    // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/contact_planning/ContactPlanningFromConfig.h:terminal_dcm_target_names)
+  }
+
+  // Next ID: 4
+  message ZmpSupportRegionConfig {
+    reserved 4 to max;
+
+    // [m] The ZMP box half-width along the heading; 0: from the sole's footprint.
+    double half_width_x = 1 [default = 0.08, (humanoid_mpc_config.tuning) = { unit: "m" slider_min: 0.005 }];
+    // [m] The ZMP box half-width laterally; 0: from the sole's footprint.
+    double half_width_y = 2 [default = 0.04, (humanoid_mpc_config.tuning) = { unit: "m" slider_min: 0.005 }];
+    TermSlackConfig slack = 3 [(nproto.optional_message) = true];
+  }
+
+  // Next ID: 5
+  message ReachabilityConfig {
+    reserved 5 to max;
+
+    // [m] The foot's x offset from the CoM stays within [-reach_x, reach_x].
+    double reach_x = 1 [default = 0.45, (humanoid_mpc_config.tuning) = { unit: "m" slider_min: 0.01 }];
+    // [m] left foot y - CoM y >= reach_y_inner (mirrored for the right foot).
+    double reach_y_inner = 2 [default = 0.05, (humanoid_mpc_config.tuning) = { unit: "m" }];
+    // [m] left foot y - CoM y <= reach_y_outer (mirrored for the right foot).
+    double reach_y_outer = 3 [default = 0.45, (humanoid_mpc_config.tuning) = { unit: "m" }];
+    TermSlackConfig slack = 4 [(nproto.optional_message) = true];
+  }
+
+  // Next ID: 5
+  message FootSeparationConfig {
+    reserved 5 to max;
+
+    // [m] The bound on |x_left - x_right|.
+    // LINT.IfChange(derive_parameters_foot_separation)
+    double max_step_length = 1 [default = 0.5, (humanoid_mpc_config.tuning) = { unit: "m" slider_min: 0.01 }];
+    // [m] The self-collision margin.
+    double min_step_width = 2 [default = 0.15, (humanoid_mpc_config.tuning) = { unit: "m" slider_min: 0.01 }];
+    // [m]
+    double max_step_width = 3 [default = 0.45, (humanoid_mpc_config.tuning) = { unit: "m" }];
+    // LINT.ThenChange(//tools/locomotion_heuristics/derive_parameters.py:derive_parameters_inputs)
+    TermSlackConfig slack = 4 [(nproto.optional_message) = true];
+  }
+
+  // The hip yaw range itself comes from the robot model (ContactPlanningModelParameters); only its slack is a key.
+  // Next ID: 2
+  message HipYawRangeConfig {
+    reserved 2 to max;
+
+    TermSlackConfig slack = 1 [(nproto.optional_message) = true];
+  }
+
+  // Next ID: 2
+  message ContactSwitchConfig {
+    reserved 2 to max;
+
+    // The cost per lift-off or touch-down event.
+    double cost = 1 [default = 0.2];
+  }
+
+  // Next ID: 2
+  message PlanConsistencyConfig {
+    reserved 2 to max;
+
+    // The cost per node whose contact differs from the previous plan.
+    double cost = 1 [default = 0.5];
+  }
+
+  // Next ID: 2
+  message DoubleSupportPenaltyConfig {
+    reserved 2 to max;
+
+    // The cost per node at which both feet are in contact.
+    double cost = 1 [default = 0.1];
+  }
+
+  // Next ID: 2
+  message DivingConfig {
+    reserved 2 to max;
+
+    int32 max_dive_iterations = 1 [default = 64];
+  }
+
+  // Next ID: 3
+  message EventShiftLocalSearchConfig {
+    reserved 3 to max;
+
+    // The rounds of event-shift local search after the branch-and-bound; 0 disables the stage.
+    int32 iterations = 1 [default = 10];
+    // [s] The time budget of the local search.
+    double max_time = 2 [default = 0.05, (humanoid_mpc_config.tuning) = { unit: "s" }];
+  }
+
+  // Next ID: 3
+  message CadenceStretchConfig {
+    reserved 3 to max;
+
+    // The stretch candidates evaluated after the branch-and-bound; 0 disables the stage.
+    int32 samples = 1 [default = 0];
+    // The upper bound on the stretch of the node grid.
+    double max_stretch = 2 [default = 1.25];
+  }
+
+  // Next ID: 2
+  message HeadingRelinearizationConfig {
+    reserved 2 to max;
+
+    // The re-linearizations of the heading frame at the incumbent; 0 disables the stage.
+    int32 passes = 1 [default = 1];
+  }
+
+  // Next ID: 7
+  message PhaseResettingConfig {
+    reserved 7 to max;
+
+    // Contact during this initial fraction of the nominal swing is ignored (scuffing).
+    double early_touchdown_min_swing_ratio = 1 [default = 0.25];
+    // [s] Contact must persist this long before the swing is ended (debounce).
+    double early_touchdown_min_contact_duration = 2 [default = 0.02, (humanoid_mpc_config.tuning) = { unit: "s" }];
+    // [s] A touch-down closer than this to its scheduled time is executed as planned; 0: unguarded.
+    double early_touchdown_min_advance = 3 [default = 0.04, (humanoid_mpc_config.tuning) = { unit: "s" }];
+    // [s] The total extension budget of a swing past its planned touch-down.
+    double max_late_touchdown_extension = 4 [default = 0.15, (humanoid_mpc_config.tuning) = { unit: "s" }];
+    // [s] The touch-down is pushed this far ahead of the current time per cycle.
+    double late_touchdown_extension_step = 5 [default = 0.05, (humanoid_mpc_config.tuning) = { unit: "s" slider_min: 0.005 }];
+    // [m/s] The foot height target descends at this rate during the extension.
+    double late_touchdown_search_velocity = 6 [default = 0.05, (humanoid_mpc_config.tuning) = { unit: "m/s" }];
+  }
+
+  // Next ID: 3
+  message EnergyCadenceModulationConfig {
+    reserved 3 to max;
+
+    // [s/J] touch-down shift = -gain * (E - E_pred).
+    double gain = 1 [default = 0.01, (humanoid_mpc_config.tuning) = { unit: "s/J" }];
+    // [J] Deviations within this band re-time nothing.
+    double deadband = 2 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "J" }];
+  }
+
+  // Next ID: 3
+  message DcmStepAdjustmentConfig {
+    reserved 3 to max;
+
+    // The gain on the closed-form LIP step adjustment; 1: exact compensation of the increment.
+    double gain = 1 [default = 0.5];
+    // [m] The bound on the landing target offset.
+    double max_offset = 2 [default = 0.05, (humanoid_mpc_config.tuning) = { unit: "m" }];
+  }
+
+  PlannerConfig planner = 1 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  SharedConfig shared = 2 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  HlipConfig hlip = 3 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  // The terms of the planning problem, by ContactPlanningFormulation name, each list absent: none. Order matters where
+  // ContactPlanningFormulation says so: dynamics fixes the variable layout, costs the accumulation order.
+  // LINT.IfChange(term_lists)
+  repeated string dynamics = 4 [
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_HOT
+      registry: "contact_planning_term"
+    }
+  ];
+  repeated string costs = 5 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT registry: "contact_planning_term" }];
+  repeated string soft_constraints = 6 [
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_HOT
+      registry: "contact_planning_term"
+    }
+  ];
+  repeated string hard_constraints = 7 [
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_HOT
+      registry: "contact_planning_term"
+    }
+  ];
+  repeated string logic_rules = 8 [
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_HOT
+      registry: "contact_planning_term"
+    }
+  ];
+  repeated string assignment_costs = 9 [
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_HOT
+      registry: "contact_planning_term"
+    }
+  ];
+  repeated string search = 10 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT registry: "contact_planning_term" }];
+  repeated string execution = 11 [
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_HOT
+      registry: "contact_planning_term"
+    }
+  ];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h:term_names)
+  // One block per term with parameters, each named exactly as its term; a term that is not listed ignores its block.
+  // LINT.IfChange(term_blocks)
+  RegularizationConfig regularization = 12 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  PreviousFootholdConsistencyConfig previous_foothold_consistency = 13 [
+    (humanoid_mpc_config.tuning) = {
+      reload: RELOAD_HOT
+    }
+  ];
+  VelocityTrackingConfig velocity_tracking = 14 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  StepWidthConfig step_width = 15 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  HeadingRateTrackingConfig heading_rate_tracking = 16 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  HeadingTrackingConfig heading_tracking = 17 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  FootYawTrackingConfig foot_yaw_tracking = 18 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  YawTorqueRegularizationConfig yaw_torque_regularization = 19 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  FootYawRegularizationConfig foot_yaw_regularization = 20 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  ZmpRegularizationConfig zmp_regularization = 21 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  FootholdRegularizationConfig foothold_regularization = 22 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  StepLengthConfig step_length = 23 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  TerminalDcmConfig terminal_dcm = 24 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  ZmpSupportRegionConfig zmp_support_region = 25 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  ReachabilityConfig reachability = 26 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  FootSeparationConfig foot_separation = 27 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  HipYawRangeConfig hip_yaw_range = 28 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  ContactSwitchConfig contact_switch = 29 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  PlanConsistencyConfig plan_consistency = 30 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  DoubleSupportPenaltyConfig double_support_penalty = 31 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  DivingConfig diving = 32 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  EventShiftLocalSearchConfig event_shift_local_search = 33 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  CadenceStretchConfig cadence_stretch = 34 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  HeadingRelinearizationConfig heading_relinearization = 35 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  PhaseResettingConfig phase_resetting = 36 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  EnergyCadenceModulationConfig energy_cadence_modulation = 37 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  DcmStepAdjustmentConfig dcm_step_adjustment = 38 [(humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h:term_names)
+}

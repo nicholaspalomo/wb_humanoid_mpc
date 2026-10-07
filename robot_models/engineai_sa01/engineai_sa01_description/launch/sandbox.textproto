@@ -1,0 +1,47 @@
+# proto-file: tools/launch/proto/launch_file.proto
+# proto-message: launch_proto.LaunchFile
+#
+# The EngineAI SA01 model on its own, in Rerun: the model sandbox publishes the URDF's link poses at the nominal joint
+# positions, or at those of its joint sliders, as viz/scene, and the Rerun bridge draws them (RViz's display launch
+# file and joint_state_publisher_gui before). No MPC and no simulator run.
+#
+#   make launch-sa01-sandbox
+#   bazel run //tools/launch -- robot_models/engineai_sa01/engineai_sa01_description/launch/sandbox.textproto --set joint_source=nominal
+
+variables { name: "bin_dir" value: ".bazel/bin" }
+variables { name: "urdf_file" value: "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf" }
+variables { name: "network_file" value: "config/ipc/network.textproto" }
+# Where the joint positions come from, by name (humanoid_nmpc/humanoid_rerun_viewer/README.md, "The model sandbox"):
+# sliders (a Tk window with one slider per joint) or nominal (every joint at 0, clamped to its limits).
+variables { name: "joint_source" value: "sliders" }
+variables { name: "rerun_sink" value: "serve_web" }
+variables { name: "rrd_path" value: "" }
+variables { name: "plot_config" value: "humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto" }
+
+# The processes: their binaries are those the Makefile's launch target of this file builds first.
+# LINT.IfChange(processes)
+processes {
+  name: "model_sandbox"
+  machine: MACHINE_LAPTOP
+  command: [
+    "{bin_dir}/humanoid_nmpc/humanoid_rerun_viewer/model_sandbox",
+    "--urdf={urdf_file}",
+    "--network_config={network_file}",
+    "--joint_source={joint_source}"
+  ]
+  required: true
+}
+
+processes {
+  name: "rerun"
+  machine: MACHINE_LAPTOP
+  command: [
+    "{bin_dir}/humanoid_nmpc/humanoid_rerun_viewer/humanoid_rerun_viewer",
+    "--urdf={urdf_file}",
+    "--network_config={network_file}",
+    "--rerun_sink={rerun_sink}",
+    "--rrd_path={rrd_path}",
+    "--plot_config={plot_config}"
+  ]
+}
+# LINT.ThenChange(//Makefile:launch_binaries)

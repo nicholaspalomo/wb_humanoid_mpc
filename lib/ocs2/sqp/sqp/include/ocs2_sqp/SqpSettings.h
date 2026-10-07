@@ -86,15 +86,5 @@ struct Settings {
   int threadPriority = 50;
 };
 
-/**
- * Loads the multiple shooting SQP settings from a given file.
- *
- * @param [in] filename: File name which contains the configuration data.
- * @param [in] fieldName: Field name which contains the configuration data.
- * @param [in] verbose: Flag to determine whether to print out the loaded settings or not.
- * @return The settings
- */
-Settings loadSettings(const std::string& filename, const std::string& fieldName = "multiple_shooting", bool verbose = true);
-
 }  // namespace sqp
 }  // namespace ocs2

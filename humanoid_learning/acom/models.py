@@ -1,27 +1,29 @@
-"""****************************************************************************
-Copyright (c) 2026, Nicholas Palomo. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-* Redistributions of source code must retain the above copyright notice, this
-  list of conditions and the following disclaimer.
-
-* Redistributions in binary form must reproduce the above copyright notice,
-  this list of conditions and the following disclaimer in the documentation
-  and/or other materials provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-****************************************************************************"""
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """Angular Center of Mass (aCOM) JAX Neural Models.
 
@@ -29,10 +31,13 @@ Implements Sinusoidal Representation Networks (SIREN) for learning
 integrable whole-body orientation coordinates from centroidal angular momentum.
 """
 
-from typing import List, Tuple
+from typing import TypeAlias
 
 import jax
 import jax.numpy as jnp
+
+# The parameters of a SirenACOM: one (weight, bias) pair per layer, the linear readout last.
+SirenParams: TypeAlias = list[tuple[jnp.ndarray, jnp.ndarray]]
 
 
 def siren_init(
@@ -41,7 +46,7 @@ def siren_init(
     out_dim: int,
     is_first: bool = False,
     omega_0: float = 30.0,
-) -> Tuple[jnp.ndarray, jnp.ndarray]:
+) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Initialize weights and biases for a SIREN layer with sinusoidal activation."""
     if is_first:
         w_bound = 1.0 / in_dim
@@ -89,9 +94,9 @@ class SirenACOM:
         self.out_dim = out_dim
         self.omega_0 = omega_0
 
-    def init_params(self, key: jax.Array) -> List[Tuple[jnp.ndarray, jnp.ndarray]]:
+    def init_params(self, key: jax.Array) -> SirenParams:
         """Initialize all layer parameters."""
-        params = []
+        params: SirenParams = []
         keys = jax.random.split(key, self.num_layers + 1)
 
         # First layer
@@ -113,7 +118,7 @@ class SirenACOM:
 
         # Output layer (linear readout with small initialization)
         w_bound = jnp.sqrt(6.0 / self.hidden_dim) / self.omega_0
-        k_w, k_b = jax.random.split(keys[-1])
+        k_w, _ = jax.random.split(keys[-1])  # The readout's bias starts at zero.
         w_out = jax.random.uniform(
             k_w, (self.out_dim, self.hidden_dim), minval=-w_bound, maxval=w_bound
         )
@@ -122,9 +127,7 @@ class SirenACOM:
 
         return params
 
-    def forward(
-        self, params: List[Tuple[jnp.ndarray, jnp.ndarray]], q_j: jnp.ndarray
-    ) -> jnp.ndarray:
+    def forward(self, params: SirenParams, q_j: jnp.ndarray) -> jnp.ndarray:
         """Forward pass computing Delta_theta(q_j) in R^3."""
         x = q_j
         for w, b in params[:-1]:
@@ -133,19 +136,17 @@ class SirenACOM:
         w_out, b_out = params[-1]
         return jnp.dot(w_out, x) + b_out
 
-    def jacobian_qj(
-        self, params: List[Tuple[jnp.ndarray, jnp.ndarray]], q_j: jnp.ndarray
-    ) -> jnp.ndarray:
+    def jacobian_qj(self, params: SirenParams, q_j: jnp.ndarray) -> jnp.ndarray:
         """Computes J_Delta_theta = d(Delta_theta)/d(q_j) in R^(3 x n_j)."""
         return jax.jacobian(lambda q: self.forward(params, q))(q_j)
 
-    def full_acom_pose(
-        self, params: List[Tuple[jnp.ndarray, jnp.ndarray]], q: jnp.ndarray
-    ) -> jnp.ndarray:
+    def full_acom_pose(self, params: SirenParams, q: jnp.ndarray) -> jnp.ndarray:
         """Computes full aCOM orientation theta_aCOM(q) = theta_base + Delta_theta(q_j).
 
         Args:
+            params: The network parameters.
             q: generalized coordinates [pos_base (3), rpy_base (3), q_joints (n_j)]
+
         Returns:
             theta_acom: RPY aCOM orientation in R^3
         """
@@ -154,9 +155,7 @@ class SirenACOM:
         delta_theta = self.forward(params, q_j)
         return rpy_base + delta_theta
 
-    def full_acom_jacobian(
-        self, params: List[Tuple[jnp.ndarray, jnp.ndarray]], q: jnp.ndarray
-    ) -> jnp.ndarray:
+    def full_acom_jacobian(self, params: SirenParams, q: jnp.ndarray) -> jnp.ndarray:
         """Computes full aCOM Jacobian J_aCOM = [0_(3x3), I_(3x3), J_Delta_theta_(3xn_j)]."""
         q_j = q[6:]
         j_delta = self.jacobian_qj(params, q_j)

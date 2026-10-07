@@ -32,11 +32,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <iomanip>
 #include <iostream>
+#include <utility>
 
 #include <ocs2_core/NumericTraits.h>
 #include <ocs2_core/misc/Numerics.h>
 
+#include "absl/base/nullability.h"
+#include "absl/log/check.h"
+
 namespace ocs2 {
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+void RolloutBase::setStateManifold(std::shared_ptr<const StateManifold> stateManifold) {
+  CHECK(stateManifold == nullptr || supportsStateManifold())
+      << "[RolloutBase::setStateManifold] This rollout does not support a state manifold: it would neither project its "
+         "states nor keep the manifold when cloned. Use a TimeTriggeredRollout.";
+  stateManifoldPtr_ = std::move(stateManifold);
+}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -70,8 +84,10 @@ std::vector<std::pair<scalar_t, scalar_t>> RolloutBase::findActiveModesTimeInter
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void RolloutBase::display(const scalar_array_t& timeTrajectory, const size_array_t& postEventIndices, const vector_array_t& stateTrajectory,
-                          const vector_array_t* const inputTrajectory) {
+void RolloutBase::display(const scalar_array_t& timeTrajectory,
+                          const size_array_t& postEventIndices,
+                          const vector_array_t& stateTrajectory,
+                          const vector_array_t* absl_nullable const inputTrajectory) {
   std::cerr << "Trajectory length:      " << timeTrajectory.size() << '\n';
   std::cerr << "Total number of events: " << postEventIndices.size() << '\n';
   if (!postEventIndices.empty()) {
@@ -137,7 +153,8 @@ void RolloutBase::checkNumericalStability(const ControllerBase& controller, cons
       }
 
       // display
-      const vector_array_t* const inputTrajectoryTempPtr = rolloutSettings_.reconstructInputTrajectory ? &inputTrajectoryTemp : nullptr;
+      const vector_array_t* absl_nullable const inputTrajectoryTempPtr =
+          rolloutSettings_.reconstructInputTrajectory ? &inputTrajectoryTemp : nullptr;
       display(timeTrajectoryTemp, postEventIndices, stateTrajectoryTemp, inputTrajectoryTempPtr);
 
       controller.display();

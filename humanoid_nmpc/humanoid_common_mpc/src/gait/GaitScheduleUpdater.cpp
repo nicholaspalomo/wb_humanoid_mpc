@@ -31,41 +31,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/gait/GaitScheduleUpdater.h"
 
 #include <algorithm>
-#include <memory>
-#include <utility>
 #include <vector>
 
 #include "absl/log/log.h"
 
+#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+
 namespace ocs2::humanoid {
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-GaitScheduleUpdater::GaitScheduleUpdater(std::shared_ptr<GaitSchedule> gaitSchedulePtr)
-    : gaitSchedulePtr_(std::move(gaitSchedulePtr)), receivedGait_({0.0, 1.0}, {ModeNumber::STANCE}) {}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
-void GaitScheduleUpdater::updateGaitSchedule(std::shared_ptr<GaitSchedule>& gaitSchedulePtr,
-                                             const ModeSequenceTemplate& updatedGait,
-                                             scalar_t initTime,
-                                             scalar_t finalTime) {
+void updateGaitSchedule(GaitSchedule& gaitSchedule, const ModeSequenceTemplate& updatedGait, scalar_t initTime, scalar_t finalTime) {
   LOG(INFO) << updatedGait;
   const scalar_t timeHorizon = finalTime - initTime;
   const scalar_t earliestSwitchingTime = (0.7 * finalTime + 0.3 * initTime);  // This is a heuristic
-  LOG(INFO) << "[GaitScheduleUpdater]: Setting new gait after time " << earliestSwitchingTime << "\n";
+  LOG(INFO) << "[updateGaitSchedule]: Setting new gait after time " << earliestSwitchingTime << "\n";
   // Find the first time that is greater than current_time
-  const ModeSchedule modeSchedule = gaitSchedulePtr->getModeSchedule(initTime, finalTime + timeHorizon);
+  const ModeSchedule modeSchedule = gaitSchedule.getModeSchedule(initTime, finalTime + timeHorizon);
 
   const std::vector<scalar_t>::const_iterator it =
       std::upper_bound(modeSchedule.eventTimes.begin(), modeSchedule.eventTimes.end(), earliestSwitchingTime);
-  scalar_t nextEventTime;
+  scalar_t nextEventTime = finalTime;
   if (it == modeSchedule.eventTimes.end()) {
     nextEventTime = finalTime;
-  } else if (modeSchedule.modeAtTime(*it) == LF && it != modeSchedule.eventTimes.begin()) {
+  } else if (modeSchedule.modeAtTime(*it) == ModeNumber::kLf && it != modeSchedule.eventTimes.begin()) {
     // The phase that ends at this event is a left-foot swing (modeAtTime of an event time is the phase before it), so
     // the new gait starts where that swing starts, at the event before. When the swing is the first phase of the
     // schedule there is no event before it - the first event already lies past the switching time, as after a clock
@@ -80,38 +67,7 @@ void GaitScheduleUpdater::updateGaitSchedule(std::shared_ptr<GaitSchedule>& gait
   // any run - it was not tiled at all and the schedule stopped in stance where the gait was to begin. The next
   // getModeSchedule() tiles from its last event again, so every solve still saw the new gait; only a reader of the
   // schedule in between did not (testGaitScheduleUpdaterHorizon).
-  gaitSchedulePtr->insertModeSequenceTemplate(updatedGait, nextEventTime, /*finalTime=*/initTime + 1.5 * timeHorizon);
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
-void GaitScheduleUpdater::preSolverRun(scalar_t initTime,
-                                       scalar_t finalTime,
-                                       const vector_t& currentState,
-                                       const ReferenceManagerInterface& referenceManager) {
-  // Cleared as it is read, so that a gait arriving during the insertion is left marked for the next solve rather than
-  // dropped; read through getReceivedGait(), which a subclass receiving on another thread serializes.
-  if (gaitUpdated_.exchange(false)) {
-    updateGaitSchedule(gaitSchedulePtr_, getReceivedGait(), initTime, finalTime);
-  }
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-void GaitScheduleUpdater::updateModeSequence(const ModeSequenceTemplate& modeSequenceTemplate) {
-  receivedGait_ = modeSequenceTemplate;
-  gaitUpdated_.store(true);
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-void GaitScheduleUpdater::reset() {
-  // A gait received before the reset is not inserted after it: the reset restarts the schedule in stance.
-  gaitUpdated_.store(false);
+  gaitSchedule.insertModeSequenceTemplate(updatedGait, nextEventTime, /*finalTime=*/initTime + 1.5 * timeHorizon);
 }
 
 }  // namespace ocs2::humanoid

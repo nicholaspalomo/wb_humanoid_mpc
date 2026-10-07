@@ -27,7 +27,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -36,9 +35,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "gtest/gtest.h"
 
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
@@ -54,33 +55,33 @@ namespace ocs2::humanoid {
 
 namespace {
 
-static constexpr size_t kContactPointIndex = 0;
-static constexpr size_t kFourBasisVectors = 4;
-static constexpr size_t kEightBasisVectors = 8;
-static constexpr size_t kExpectedConstraintsFourBasis = 11;
-static constexpr size_t kExpectedConstraintsEightBasis = 15;
+constexpr size_t kContactPointIndex = 0;
+constexpr size_t kFourBasisVectors = 4;
+constexpr size_t kEightBasisVectors = 8;
+constexpr size_t kExpectedConstraintsFourBasis = 11;
+constexpr size_t kExpectedConstraintsEightBasis = 15;
 
-static constexpr scalar_t kTestMu = 0.6;
-static constexpr scalar_t kTestMuRot = 0.1;
-static constexpr scalar_t kTestMinFz = 10.0;
-static constexpr scalar_t kTestFz = 100.0;
-static constexpr scalar_t kTestFx = 30.0;
-static constexpr scalar_t kTestFy = 10.0;
-static constexpr scalar_t kTestMz = 1.0;
-static constexpr scalar_t kTestBaseHeight = 0.8;
-static constexpr scalar_t kTolerance = 1e-4;
-static constexpr scalar_t kPrecisionTolerance = 1e-6;
-static constexpr scalar_t kFiniteDiffEps = 1e-7;
-static constexpr scalar_t kFiniteDiffTolerance = 1e-5;
+constexpr scalar_t kTestMu = 0.6;
+constexpr scalar_t kTestMuRot = 0.1;
+constexpr scalar_t kTestMinFz = 10.0;
+constexpr scalar_t kTestFz = 100.0;
+constexpr scalar_t kTestFx = 30.0;
+constexpr scalar_t kTestFy = 10.0;
+constexpr scalar_t kTestMz = 1.0;
+constexpr scalar_t kTestBaseHeight = 0.8;
+constexpr scalar_t kTolerance = 1.0e-4;
+constexpr scalar_t kPrecisionTolerance = 1.0e-6;
+constexpr scalar_t kFiniteDiffEps = 1.0e-7;
+constexpr scalar_t kFiniteDiffTolerance = 1.0e-5;
 
-static constexpr size_t kYawConstraintPlusIdx = 9;
-static constexpr size_t kYawConstraintMinusIdx = 10;
+constexpr size_t kYawConstraintPlusIdx = 9;
+constexpr size_t kYawConstraintMinusIdx = 10;
 
 /** Central differences of the constraint's value with respect to the state. */
 matrix_t stateJacobianByFiniteDifferences(const ContactWrenchConeConstraint& constraint, const vector_t& state, const vector_t& input) {
   const PreComputation preComp;
   matrix_t jacobian(constraint.getNumConstraints(0.0), state.size());
-  for (long index = 0; index < state.size(); ++index) {
+  for (Eigen::Index index = 0; index < state.size(); ++index) {
     vector_t plus = state;
     plus(index) += kFiniteDiffEps;
     vector_t minus = state;
@@ -107,7 +108,9 @@ class CountingRobotModel final : public CentroidalMpcRobotModel<scalar_t> {
     ++liveInstances_;
   }
   ~CountingRobotModel() override { --liveInstances_; }
-  CountingRobotModel* clone() const override { return new CountingRobotModel(modelSettings_, pinocchioInterface_, info_); }
+  CountingRobotModel(const CountingRobotModel&) = delete;
+  CountingRobotModel& operator=(const CountingRobotModel&) = delete;
+  CountingRobotModel* absl_nonnull clone() const override { return new CountingRobotModel(modelSettings_, pinocchioInterface_, info_); }
 
   static int liveInstances() { return liveInstances_; }
 
@@ -316,9 +319,10 @@ TEST_F(TestContactWrenchConeConstraint, StateDerivativeGoesThroughTheFootOrienta
     const matrix_t numerical = stateJacobianByFiniteDifferences(constraint, state, input);
     // Positive control: under 600 N the orientation dependence is large, so a zero Jacobian cannot pass.
     ASSERT_GT(numerical.cwiseAbs().maxCoeff(), 100.0) << "gated: " << scheduleGated;
-    for (long row = 0; row < numerical.rows(); ++row) {
-      for (long col = 0; col < numerical.cols(); ++col) {
-        EXPECT_NEAR(analytic(row, col), numerical(row, col), 1e-4) << "gated: " << scheduleGated << ", dfdx(" << row << ", " << col << ")";
+    for (Eigen::Index row = 0; row < numerical.rows(); ++row) {
+      for (Eigen::Index col = 0; col < numerical.cols(); ++col) {
+        EXPECT_NEAR(analytic(row, col), numerical(row, col), 1.0e-4)
+            << "gated: " << scheduleGated << ", dfdx(" << row << ", " << col << ")";
       }
     }
   }
@@ -350,18 +354,19 @@ TEST_F(TestContactWrenchConeConstraint, RefusesABasisVectorModel) {
   ASSERT_TRUE(rightBasis.ok()) << rightBasis.status();
   const BasisInputsModelDecorator<scalar_t> basisModel(
       std::unique_ptr<MpcRobotModelBase<scalar_t>>(testingModelInterface_->getMpcRobotModel().clone()),
-      std::array<ContactWrenchConeBasisMatrix, N_CONTACTS>{*leftBasis, *rightBasis}, testingModelInterface_->getPinocchioInterface());
+      std::array<ContactWrenchConeBasisMatrix, kNumContacts>{*leftBasis, *rightBasis}, testingModelInterface_->getPinocchioInterface());
 
   const absl::StatusOr<std::unique_ptr<ContactWrenchConeConstraint>> onBasis = ContactWrenchConeConstraint::Create(
       *referenceManager_, contactRectangle, kContactPointIndex, testingModelInterface_->getPinocchioInterface(), basisModel, coneConfig);
   ASSERT_FALSE(onBasis.ok()) << "a wrench cone on the basis-vector model evaluates the wrench in the wrong frame";
   EXPECT_EQ(onBasis.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(onBasis.status().message(), "contactInputParameterization: basis_vectors")) << onBasis.status().message();
+  EXPECT_TRUE(absl::StrContains(onBasis.status().message(), R"(contact_input_parameterization: "basis_vectors")"))
+      << onBasis.status().message();
 
   // And the constructor, for the callers not yet moved to Create(), refuses it the same way.
   EXPECT_DEATH(std::make_unique<ContactWrenchConeConstraint>(*referenceManager_, contactRectangle, kContactPointIndex,
                                                              testingModelInterface_->getPinocchioInterface(), basisModel, coneConfig),
-               "contactInputParameterization: basis_vectors");
+               R"(contact_input_parameterization: "basis_vectors")");
 }
 
 TEST_F(TestContactWrenchConeConstraint, BorrowsItsRobotModelRatherThanLeakingAClone) {

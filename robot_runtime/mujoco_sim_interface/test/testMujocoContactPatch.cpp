@@ -27,22 +27,23 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
-#include <mujoco/mujoco.h>
-
 #include <cmath>
 #include <fstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
+
+#include "absl/base/nullability.h"
+#include "gtest/gtest.h"
+#include "mujoco/mujoco.h"
 
 #include "mujoco_sim_interface/MujocoContactPatch.h"
 
-using namespace robot::mujoco_sim_interface;
-
+namespace robot::mujoco_sim_interface {
 namespace {
 
-constexpr double kTol = 1e-6;
-constexpr const char* kScene = R"(
+constexpr double kTol = 1.0e-6;
+constexpr char kScene[] = R"(
 <mujoco>
   <worldbody>
     <geom name="floor" type="plane" size="1 1 0.1"/>
@@ -52,6 +53,8 @@ constexpr const char* kScene = R"(
 
 /** An abstract scene with room for `maxgeom` geoms. No OpenGL context is needed to fill a scene. */
 struct SceneFixture {
+  SceneFixture(const SceneFixture&) = delete;
+  SceneFixture& operator=(const SceneFixture&) = delete;
   explicit SceneFixture(int maxgeom) {
     const std::string path = testing::TempDir() + "/patch_scene.xml";
     std::ofstream(path) << kScene;
@@ -65,15 +68,15 @@ struct SceneFixture {
     mjv_freeScene(&scene);
     mj_deleteModel(model);
   }
-  mjModel* model{nullptr};
-  mjvScene scene;
+  mjModel* absl_nullable model = nullptr;
+  mjvScene scene{};
 };
 
 /** A patch at (1, 2, 0.1) turned by 90 degrees: the contact frame's x axis points along world y. */
 TargetContactPatch makePatch() {
   TargetContactPatch patch;
   patch.valid = true;
-  patch.kind = TargetContactPatch::Kind::SWING_IN_FLIGHT;
+  patch.kind = TargetContactPatch::Kind::kSwingInFlight;
   patch.x = 1.0;
   patch.y = 2.0;
   patch.z = 0.1;
@@ -83,8 +86,6 @@ TargetContactPatch makePatch() {
 
 // The DRC Atlas sole: an asymmetric order is used on purpose so that the outline follows the given order.
 const ContactPatchCorners kRectangle = {{-0.12, -0.05}, {0.12, -0.05}, {0.12, 0.05}, {-0.12, 0.05}};
-
-}  // namespace
 
 TEST(MujocoContactPatch, WorldCornersFollowTheYawAndTheOrigin) {
   const std::vector<std::array<double, 3>> world = contactPatchWorldCorners(makePatch(), kRectangle, /*heightOffset=*/0.01);
@@ -102,7 +103,7 @@ TEST(MujocoContactPatch, WorldCornersFollowTheYawAndTheOrigin) {
   EXPECT_NEAR(translated[1][0], 1.12, kTol);
   EXPECT_NEAR(translated[1][1], 1.95, kTol);
   EXPECT_NEAR(translated[1][2], 0.1, kTol);
-  EXPECT_TRUE(contactPatchWorldCorners(flat, {}).empty());
+  EXPECT_TRUE(contactPatchWorldCorners(flat, /*corners=*/{}).empty());
 }
 
 TEST(MujocoContactPatch, DrawsSlabOutlineAndArrowAsDecorGeoms) {
@@ -201,3 +202,6 @@ TEST(MujocoContactPatch, NothingIsDrawnWithoutAValidPatchOrRoom) {
   EXPECT_EQ(fixture.scene.ngeom, 4);
   EXPECT_EQ(defaultContactPatchCorners().size(), 4u);
 }
+
+}  // namespace
+}  // namespace robot::mujoco_sim_interface

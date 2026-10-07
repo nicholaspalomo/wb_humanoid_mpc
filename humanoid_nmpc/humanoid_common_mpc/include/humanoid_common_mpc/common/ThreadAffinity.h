@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <pthread.h>
 #include <sched.h>
+
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -99,49 +100,69 @@ struct SystemCoreAllocation {
 };
 
 /**
- * Computes recommended core partitions based on available hardware cores.
+ * The CPUs this process may run on (sched_getaffinity: a container's cpuset, a taskset), ascending. Falls back to
+ * 0 .. hardware_concurrency() - 1 when the affinity cannot be read.
  */
-inline SystemCoreAllocation getDefaultCoreAllocation() {
-  unsigned int numCores = std::thread::hardware_concurrency();
-  SystemCoreAllocation alloc;
-
-  if (numCores >= 16) {
-    // 16+ cores (e.g. 20-core systems):
-    // Cores 0-3: Simulation and Rendering (4 cores)
-    // Cores 4-5: MRT 500 Hz Joint Controller Loop (2 cores)
-    // Cores 6-15: MPC Solver and SQP threads (10 dedicated cores)
-    alloc.simCores = {0, 1, 2, 3};
-    alloc.mrtCores = {4, 5};
-    for (int i = 6; i < static_cast<int>(std::min(numCores, 16u)); ++i) {
-      alloc.mpcCores.push_back(i);
-    }
-  } else if (numCores >= 8) {
-    // 8-15 cores:
-    // Cores 0-1: Sim & Rendering
-    // Core 2: MRT Joint Controller Loop
-    // Cores 3-7: MPC Solver
-    alloc.simCores = {0, 1};
-    alloc.mrtCores = {2};
-    for (int i = 3; i < static_cast<int>(numCores); ++i) {
-      alloc.mpcCores.push_back(i);
-    }
-  } else if (numCores >= 4) {
-    // 4-7 cores:
-    alloc.simCores = {0};
-    alloc.mrtCores = {1};
-    for (int i = 2; i < static_cast<int>(numCores); ++i) {
-      alloc.mpcCores.push_back(i);
-    }
-  } else {
-    // Under 4 cores: do not restrict
-    for (int i = 0; i < static_cast<int>(numCores); ++i) {
-      alloc.simCores.push_back(i);
-      alloc.mrtCores.push_back(i);
-      alloc.mpcCores.push_back(i);
+inline std::vector<int> availableCores() {
+  std::vector<int> cores;
+  cpu_set_t allowed;
+  CPU_ZERO(&allowed);
+  if (sched_getaffinity(/*pid=*/0, sizeof(cpu_set_t), &allowed) == 0) {
+    for (int core = 0; core < CPU_SETSIZE; ++core) {
+      if (CPU_ISSET(core, &allowed)) cores.push_back(core);
     }
   }
+  if (cores.empty()) {
+    for (int core = 0; core < static_cast<int>(std::thread::hardware_concurrency()); ++core) cores.push_back(core);
+  }
+  return cores;
+}
 
+/** Appends cores[first, last) to `partition` (as far as `cores` reaches). */
+inline void appendCores(const std::vector<int>& cores, size_t first, size_t last, std::vector<int>& partition) {
+  for (size_t index = first; index < last && index < cores.size(); ++index) partition.push_back(cores[index]);
+}
+
+/**
+ * Recommended core partitions over `cores` (ascending CPU numbers): the n-th entry of a partition is the n-th CPU of
+ * `cores`, so that every core it names is one the process may use. With n cores:
+ *   16 or more: the first 4 for the simulation and rendering, the next 2 for the 500 Hz MRT joint control loop, the
+ *               next (up to 10) for the MPC solver and its SQP threads;
+ *   8 to 15:    2 simulation, 1 MRT, the rest MPC;
+ *   4 to 7:     1 simulation, 1 MRT, the rest MPC;
+ *   fewer:      no restriction, every core in every partition.
+ */
+inline SystemCoreAllocation coreAllocationFor(const std::vector<int>& cores) {
+  const size_t numCores = cores.size();
+  SystemCoreAllocation alloc;
+  if (numCores >= 16) {
+    appendCores(cores, /*first=*/0, /*last=*/4, alloc.simCores);
+    appendCores(cores, /*first=*/4, /*last=*/6, alloc.mrtCores);
+    appendCores(cores, /*first=*/6, /*last=*/16, alloc.mpcCores);
+  } else if (numCores >= 8) {
+    appendCores(cores, /*first=*/0, /*last=*/2, alloc.simCores);
+    appendCores(cores, /*first=*/2, /*last=*/3, alloc.mrtCores);
+    appendCores(cores, /*first=*/3, numCores, alloc.mpcCores);
+  } else if (numCores >= 4) {
+    appendCores(cores, /*first=*/0, /*last=*/1, alloc.simCores);
+    appendCores(cores, /*first=*/1, /*last=*/2, alloc.mrtCores);
+    appendCores(cores, /*first=*/2, numCores, alloc.mpcCores);
+  } else {
+    // Under 4 cores: do not restrict
+    alloc.simCores = cores;
+    alloc.mrtCores = cores;
+    alloc.mpcCores = cores;
+  }
   return alloc;
+}
+
+/**
+ * Recommended core partitions over the cores this process may use (availableCores()), not the machine's: in a
+ * container started with a cpuset, `default` then names cores of that cpuset instead of cores the realtime thread
+ * could not be pinned to. On a machine without a restriction it is what it always was, cores 0, 1, 2, ...
+ */
+inline SystemCoreAllocation getDefaultCoreAllocation() {
+  return coreAllocationFor(availableCores());
 }
 
 }  // namespace ocs2::humanoid

@@ -28,22 +28,21 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>
+#include "pinocchio/fwd.hpp"
 
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 // Pinnochio
-#include <pinocchio/algorithm/contact-dynamics.hpp>
-#include <pinocchio/algorithm/crba.hpp>
-#include <pinocchio/algorithm/frames.hpp>
-#include <pinocchio/algorithm/rnea.hpp>
-#include <pinocchio/multibody/data.hpp>
-#include <pinocchio/multibody/model.hpp>
-
 #include <functional>
 #include <string>
+#include <vector>
 
-#include <humanoid_common_mpc/gait/MotionPhaseDefinition.h>
+#include "pinocchio/algorithm/contact-dynamics.hpp"
+#include "pinocchio/algorithm/crba.hpp"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/rnea.hpp"
+#include "pinocchio/multibody/data.hpp"
+#include "pinocchio/multibody/model.hpp"
 
 namespace ocs2::humanoid {
 
@@ -95,13 +94,12 @@ template std::vector<VECTOR3_T<scalar_t>> computeContactPositions(const VECTOR_T
 template <typename SCALAR_T>
 std::vector<VECTOR3_T<SCALAR_T>> getContactPositions(const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
                                                      const MpcRobotModelBase<SCALAR_T>& mpcRobotModel) {
-  assert(mpcRobotModel.modelSettings.contactNames.size() == N_CONTACTS);
   std::vector<VECTOR3_T<SCALAR_T>> footPositions;
-  footPositions.reserve(N_CONTACTS);
+  footPositions.reserve(kNumContacts);
   const typename PinocchioInterfaceTpl<SCALAR_T>::Data& data = pinocchioInterface.getData();
   std::vector<pinocchio::FrameIndex> contactFrameIndices = getContactFrameIndices(pinocchioInterface, mpcRobotModel);
 
-  for (size_t i = 0; i < N_CONTACTS; i++) {
+  for (size_t i = 0; i < kNumContacts; ++i) {
     const VECTOR3_T<SCALAR_T>& footPosition = data.oMf[getContactFrameIndex(pinocchioInterface, mpcRobotModel, i)].translation();
     footPositions.emplace_back(footPosition);
   }
@@ -119,16 +117,16 @@ template std::vector<VECTOR3_T<scalar_t>> getContactPositions(const PinocchioInt
 template <typename SCALAR_T>
 std::vector<VECTOR3_T<SCALAR_T>> computeFramePositions(const VECTOR_T<SCALAR_T>& q,
                                                        PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
-                                                       std::vector<std::string> frameNames) {
+                                                       const std::vector<std::string>& frameNames) {
   updateFramePlacements<SCALAR_T>(q, pinocchioInterface);
   return getFramePositions<SCALAR_T>(pinocchioInterface, frameNames);
 }
 template std::vector<VECTOR3_T<ad_scalar_t>> computeFramePositions(const VECTOR_T<ad_scalar_t>& q,
                                                                    PinocchioInterfaceTpl<ad_scalar_t>& pinocchioInterface,
-                                                                   std::vector<std::string> frameNames);
+                                                                   const std::vector<std::string>& frameNames);
 template std::vector<VECTOR3_T<scalar_t>> computeFramePositions(const VECTOR_T<scalar_t>& q,
                                                                 PinocchioInterfaceTpl<scalar_t>& pinocchioInterface,
-                                                                std::vector<std::string> frameNames);
+                                                                const std::vector<std::string>& frameNames);
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -141,7 +139,7 @@ std::vector<VECTOR3_T<SCALAR_T>> getFramePositions(const PinocchioInterfaceTpl<S
   positions.reserve(frameNames.size());
   const typename PinocchioInterfaceTpl<SCALAR_T>::Model& model = pinocchioInterface.getModel();
   const typename PinocchioInterfaceTpl<SCALAR_T>::Data& data = pinocchioInterface.getData();
-  for (size_t i = 0; i < frameNames.size(); i++) {
+  for (size_t i = 0; i < frameNames.size(); ++i) {
     if (frameNames[i].empty() || !model.existFrame(frameNames[i])) {
       positions.emplace_back(VECTOR3_T<SCALAR_T>::Zero());
       continue;
@@ -172,46 +170,6 @@ scalar_t computeComHeightAboveFeet(const vector_t& q,
     meanFootHeight += foot(2) / static_cast<scalar_t>(feet.size());
   }
   return comHeight - meanFootHeight;
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
-scalar_t computeGroundHeightEstimate(PinocchioInterfaceTpl<scalar_t>& pinocchioInterface,
-                                     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                     const vector_t& q,
-                                     size_t measuredMode) {
-  updateFramePlacements<scalar_t>(q, pinocchioInterface);
-  return getGroundHeightEstimate(pinocchioInterface, mpcRobotModel, measuredMode);
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
-scalar_t getGroundHeightEstimate(PinocchioInterfaceTpl<scalar_t>& pinocchioInterface,
-                                 const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                 size_t measuredMode) {
-  contact_flag_t measuredContactFlags = modeNumber2StanceLeg(measuredMode);
-
-  std::vector<vector3_t> contactPositions = getContactPositions<scalar_t>(pinocchioInterface, mpcRobotModel);
-
-  static scalar_t terrainHeight = 0.0;
-
-  // Use right foot if in contact
-  if (measuredContactFlags[0] && measuredContactFlags[1]) {
-    vector3_t footPosition1 = contactPositions[0];
-    vector3_t footPosition2 = contactPositions[1];
-    terrainHeight = 0.5 * (footPosition1[2] + footPosition2[2]);
-  } else if (measuredContactFlags[0]) {
-    vector3_t footPosition = contactPositions[0];
-    terrainHeight = footPosition[2];
-  } else if (measuredContactFlags[1]) {
-    vector3_t footPosition = contactPositions[1];
-    terrainHeight = footPosition[2];
-  }
-  return terrainHeight;
 }
 
 /******************************************************************************************************/
@@ -372,7 +330,7 @@ VECTOR_T<SCALAR_T> computeJointTorquesRNEA(const VECTOR_T<SCALAR_T>& q,
   const typename PinocchioInterfaceTpl<SCALAR_T>::Model& model = pinocchioInterface.getModel();
   typename PinocchioInterfaceTpl<SCALAR_T>::Data& data = pinocchioInterface.getData();
 
-  pinocchio::container::aligned_vector<pinocchio::Force> fextDesired(model.njoints, pinocchio::Force::Zero());
+  std::vector<pinocchio::Force> fextDesired(model.njoints, pinocchio::Force::Zero());
 
   pinocchio::forwardKinematics(model, data, q, qd);
   pinocchio::updateFramePlacements(model, data);

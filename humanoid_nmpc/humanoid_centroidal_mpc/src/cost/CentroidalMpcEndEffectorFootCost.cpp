@@ -28,23 +28,22 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 
-#include <ocs2_centroidal_model/ModelHelperFunctions.h>
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
-
-#include <pinocchio/algorithm/frames.hpp>
-#include <pinocchio/algorithm/kinematics.hpp>
-#include <pinocchio/multibody/data.hpp>
-#include <pinocchio/multibody/model.hpp>
-
-#include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
+#include <string>
 
 #include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
+#include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "ocs2_pinocchio_interface/PinocchioStateInputMapping.h"
+#include "ocs2_robotic_tools/common/RotationTransforms.h"
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/multibody/data.hpp"
+#include "pinocchio/multibody/model.hpp"
 
 namespace ocs2::humanoid {
 
@@ -58,27 +57,27 @@ constexpr size_t kNumParameters = 27;
 /******************************************************************************************************/
 
 CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(const SwitchedModelReferenceManager& referenceManager,
-                                                                   EndEffectorKinematicsWeights weights,
+                                                                   const EndEffectorKinematicsWeights& weights,
                                                                    const PinocchioInterface& pinocchioInterface,
                                                                    const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
                                                                    size_t contactIndex,
-                                                                   std::string costName,
+                                                                   const std::string& costName,
                                                                    const ModelSettings& modelSettings,
                                                                    bool activeInStance)
     : StateInputCostGaussNewtonAd(),
       referenceManagerPtr_(&referenceManager),
       sqrtWeights_(weights.toVector().cwiseSqrt()),
       activeInStance_(activeInStance),
+      contactIndex_(contactIndex),
       frameID_(pinocchioInterface.getModel().getFrameId(modelSettings.contactNames[contactIndex])),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
-      mpcRobotModelAdPtr_(mpcRobotModelAD.clone()),
-      contactIndex_(contactIndex) {
+      mpcRobotModelAdPtr_(mpcRobotModelAD.clone()) {
   // The library name carries the residual's version, so that a library taped from an earlier residual is never loaded
   // from the cache in its place (the robots ship recompileLibrariesCppAd: false).
-  initialize(mpcRobotModelAD.getStateDim(), mpcRobotModelAD.getInputDim(), kNumParameters, costName + "_yawRefHalfAngle",
+  initialize(mpcRobotModelAD.getStateDim(), mpcRobotModelAD.getInputDim(), kNumParameters, absl::StrCat(costName, "_yawRefHalfAngle"),
              modelSettings.modelFolderCppAd, modelSettings.recompileLibrariesCppAd);
   LOG(INFO) << "Frame ID: " << frameID_;
-  LOG(INFO) << "Initialized CentroidalMpcEndEffectorFootCost (activeInStance=" << (activeInStance_ ? "true" : "false")
+  LOG(INFO) << "Initialized CentroidalMpcEndEffectorFootCost (active_phases: " << (activeInStance_ ? "swing_and_stance" : "swing")
             << ") with weights: " << weights.toVector().transpose();
 }
 
@@ -103,7 +102,7 @@ CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(const Centroi
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(ad_scalar_t time,
+ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(ad_scalar_t /*time*/,
                                                                  const ad_vector_t& state,
                                                                  const ad_vector_t& input,
                                                                  const ad_vector_t& parameters) {
@@ -111,9 +110,9 @@ ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(ad_scalar_t tim
 
   const PlanarEndEffectorKinematicsPlanarReference<ad_scalar_t> reference(parameters.head(12));
   const ad_vector_t sqrtWeightParams = parameters.segment(12, 12);  // EndEffectorKinematicsWeights vector element
-  const ad_scalar_t impactProximityScaler = parameters[24];
-  const ad_scalar_t yawReference = parameters[25];
-  const ad_scalar_t hasYawReference = parameters[26];
+  const ad_scalar_t& impactProximityScaler = parameters[24];
+  const ad_scalar_t& yawReference = parameters[25];
+  const ad_scalar_t& hasYawReference = parameters[26];
 
   const PinocchioInterfaceCppAd::Model& model = pinocchioInterfaceCppAd_.getModel();
   PinocchioInterfaceCppAd::Data& data = pinocchioInterfaceCppAd_.getData();
@@ -148,15 +147,12 @@ ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(ad_scalar_t tim
 /******************************************************************************************************/
 
 vector_t CentroidalMpcEndEffectorFootCost::getParameters(scalar_t time,
-                                                         const TargetTrajectories& targetTrajectories,
-                                                         const PreComputation& preComputation) const {
-  // Interpolate reference
-  const vector_t xRef = targetTrajectories.getDesiredState(time);
-  const vector_t uRef = targetTrajectories.getDesiredInput(time);
-
+                                                         const TargetTrajectories& /*targetTrajectories*/,
+                                                         const PreComputation& /*preComputation*/) const {
+  // Every reference comes from the reference manager and the swing trajectory planner; the solver's target is not read.
   const scalar_t impactProximityScaler = referenceManagerPtr_->getSwingTrajectoryPlanner()->getImpactProximityFactor(contactIndex_, time);
 
-  // TODO Update this reference for non flat ground in the future
+  // TODO(npalomo): update this reference for non-flat ground.
   vector_t parameters(kNumParameters);
   parameters.head(3) = vector3_t(0.0, 0.0, 0.0);  // Reference position
   // Plane the foot orientation is tracked against. Flat ground unless a toe-up swing pitch is configured, in which case

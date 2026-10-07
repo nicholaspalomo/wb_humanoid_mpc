@@ -1,0 +1,22 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "humanoid_mpc_config/config_options.proto";
+import "nproto/options.proto";
+
+// The nominal foothold reference (the task file's nominal_foothold block, ModelSettings::NominalFootholdConfig), used
+// only under contact_schedule_source "gait_schedule": the horizontal target of a swing foot when no contact planner
+// supplies one. It is a foot placement heuristic, and off by default.
+// Next ID: 2
+message NominalFootholdConfig {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::NominalFootholdConfig";
+
+  reserved 2 to max;
+
+  // [m] The full lateral distance between the feet: each foot is placed this far to its own side of the stance foot.
+  // 0 disables the nominal reference.
+  // LINT.IfChange(derive_parameters_step_width)
+  double step_width = 1 [default = 0.0, (humanoid_mpc_config.tuning) = { unit: "m" }];
+  // LINT.ThenChange(//tools/locomotion_heuristics/derive_parameters.py:derive_parameters_inputs)
+}

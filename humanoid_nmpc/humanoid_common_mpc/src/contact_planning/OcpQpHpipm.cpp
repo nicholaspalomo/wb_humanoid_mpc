@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -29,18 +33,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <functional>
 #include <limits>
-#include <stdexcept>
+#include <memory>
 #include <string>
+#include <vector>
 
+#include "absl/base/nullability.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 
+#include "humanoid_common_mpc/common/StatusMacros.h"
+
 extern "C" {
-#include <hpipm_common.h>
-#include <hpipm_d_ocp_qp.h>
-#include <hpipm_d_ocp_qp_dim.h>
-#include <hpipm_d_ocp_qp_ipm.h>
-#include <hpipm_d_ocp_qp_sol.h>
+#include "hpipm_common.h"        // NOLINT(build/include_subdir): HPIPM installs its headers in no directory
+#include "hpipm_d_ocp_qp.h"      // NOLINT(build/include_subdir): HPIPM installs its headers in no directory
+#include "hpipm_d_ocp_qp_dim.h"  // NOLINT(build/include_subdir): HPIPM installs its headers in no directory
+#include "hpipm_d_ocp_qp_ipm.h"  // NOLINT(build/include_subdir): HPIPM installs its headers in no directory
+#include "hpipm_d_ocp_qp_sol.h"  // NOLINT(build/include_subdir): HPIPM installs its headers in no directory
 }
 
 namespace ocs2::humanoid {
@@ -55,21 +65,24 @@ class MemoryBlock {
   MemoryBlock(const MemoryBlock&) = delete;
   MemoryBlock& operator=(const MemoryBlock&) = delete;
 
-  void reserve(std::size_t size) {
+  /** Grows the block to at least `size` bytes; ResourceExhausted, with the block left empty, when malloc fails. */
+  absl::Status reserve(size_t size) {
     if (size > size_) {
       std::free(ptr_);
       ptr_ = std::malloc(size);
       if (ptr_ == nullptr) {
-        throw std::bad_alloc();
+        size_ = 0;
+        return absl::ResourceExhaustedError(absl::StrCat("[OcpQpHpipmSolver] cannot allocate ", size, " bytes for HPIPM"));
       }
       size_ = size;
     }
+    return absl::OkStatus();
   }
-  void* get() { return ptr_; }
+  void* absl_nullable get() { return ptr_; }
 
  private:
-  void* ptr_ = nullptr;
-  std::size_t size_ = 0;
+  void* absl_nullable ptr_ = nullptr;
+  size_t size_ = 0;
 };
 
 struct Dimensions {
@@ -82,49 +95,56 @@ struct Dimensions {
   }
 };
 
-[[noreturn]] void failStage(int k, absl::string_view what) {
-  throw std::invalid_argument(absl::StrCat("[OcpQpHpipmSolver] stage ", k, ": ", what));
+absl::Status stageError(int k, absl::string_view what) {
+  return absl::InvalidArgumentError(absl::StrCat("[OcpQpHpipmSolver] stage ", k, ": ", what));
 }
 
-void checkStage(const OcpQpStage& stage, int k, int N) {
+/** Checks the sizes and indices of one stage; the InvalidArgument names the stage and what is inconsistent. */
+absl::Status checkStage(const OcpQpStage& stage, int k, int N) {
   const int nx = stage.numStates();
   const int nu = stage.numInputs();
-  const std::function<void(absl::string_view)> fail = [k](absl::string_view what) { failStage(k, what); };
-  if (k == N && nu != 0) fail("terminal node must not have inputs");
-  if (stage.Q.rows() != nx || stage.Q.cols() != nx) fail("Q must be nx x nx");
-  if (stage.R.rows() != nu || stage.R.cols() != nu) fail("R must be nu x nu");
-  if (nu > 0 && (stage.S.rows() != nu || stage.S.cols() != nx)) fail("S must be nu x nx");
-  if (stage.q.size() != nx) fail("q must have nx entries");
-  if (stage.r.size() != nu) fail("r must have nu entries");
+  if (k == N && nu != 0) return stageError(k, "terminal node must not have inputs");
+  if (stage.Q.rows() != nx || stage.Q.cols() != nx) return stageError(k, "Q must be nx x nx");
+  if (stage.R.rows() != nu || stage.R.cols() != nu) return stageError(k, "R must be nu x nu");
+  if (nu > 0 && (stage.S.rows() != nu || stage.S.cols() != nx)) return stageError(k, "S must be nu x nx");
+  if (stage.q.size() != nx) return stageError(k, "q must have nx entries");
+  if (stage.r.size() != nu) return stageError(k, "r must have nu entries");
   if (k < N) {
-    if (stage.A.rows() == 0 || stage.A.cols() != nx) fail("A must be nx_next x nx");
-    if (stage.B.rows() != stage.A.rows() || stage.B.cols() != nu) fail("B must be nx_next x nu");
-    if (stage.b.size() != stage.A.rows()) fail("b must have nx_next entries");
+    if (stage.A.rows() == 0 || stage.A.cols() != nx) return stageError(k, "A must be nx_next x nx");
+    if (stage.B.rows() != stage.A.rows() || stage.B.cols() != nu) return stageError(k, "B must be nx_next x nu");
+    if (stage.b.size() != stage.A.rows()) return stageError(k, "b must have nx_next entries");
   }
-  if (static_cast<int>(stage.idxbu.size()) != stage.lbu.size() || stage.lbu.size() != stage.ubu.size()) fail("inconsistent input box");
-  if (static_cast<int>(stage.idxbx.size()) != stage.lbx.size() || stage.lbx.size() != stage.ubx.size()) fail("inconsistent state box");
+  if (static_cast<int>(stage.idxbu.size()) != stage.lbu.size() || stage.lbu.size() != stage.ubu.size()) {
+    return stageError(k, "inconsistent input box");
+  }
+  if (static_cast<int>(stage.idxbx.size()) != stage.lbx.size() || stage.lbx.size() != stage.ubx.size()) {
+    return stageError(k, "inconsistent state box");
+  }
   for (int idx : stage.idxbu) {
-    if (idx < 0 || idx >= nu) fail("input box index out of range");
+    if (idx < 0 || idx >= nu) return stageError(k, "input box index out of range");
   }
   for (int idx : stage.idxbx) {
-    if (idx < 0 || idx >= nx) fail("state box index out of range");
+    if (idx < 0 || idx >= nx) return stageError(k, "state box index out of range");
   }
   const int ng = stage.numGeneralConstraints();
   if (ng > 0) {
-    if (stage.C.cols() != nx) fail("C must be ng x nx");
-    if (stage.D.rows() != ng || stage.D.cols() != nu) fail("D must be ng x nu");
-    if (stage.lg.size() != ng || stage.ug.size() != ng) fail("lg/ug must have ng entries");
+    if (stage.C.cols() != nx) return stageError(k, "C must be ng x nx");
+    if (stage.D.rows() != ng || stage.D.cols() != nu) return stageError(k, "D must be ng x nu");
+    if (stage.lg.size() != ng || stage.ug.size() != ng) return stageError(k, "lg/ug must have ng entries");
   }
   const int ns = static_cast<int>(stage.softGeneralIndices.size());
   if (ns > 0) {
     if (stage.Zl.size() != ns || stage.Zu.size() != ns || stage.zl.size() != ns || stage.zu.size() != ns) {
-      fail("Zl/Zu/zl/zu must have one entry per soft constraint");
+      return stageError(k, "Zl/Zu/zl/zu must have one entry per soft constraint");
     }
     for (int idx : stage.softGeneralIndices) {
-      if (idx < 0 || idx >= ng) fail("soft constraint index out of range");
+      if (idx < 0 || idx >= ng) return stageError(k, "soft constraint index out of range");
     }
-    if (!std::is_sorted(stage.softGeneralIndices.begin(), stage.softGeneralIndices.end())) fail("soft constraint indices must be sorted");
+    if (!std::is_sorted(stage.softGeneralIndices.begin(), stage.softGeneralIndices.end())) {
+      return stageError(k, "soft constraint indices must be sorted");
+    }
   }
+  return absl::OkStatus();
 }
 
 }  // namespace
@@ -174,7 +194,7 @@ scalar_t evaluateOcpQpObjective(const OcpQpProblem& problem, const std::vector<v
       if (k < N) {
         g.noalias() += s.D * u[k];
       }
-      for (std::size_t i = 0; i < s.softGeneralIndices.size(); ++i) {
+      for (size_t i = 0; i < s.softGeneralIndices.size(); ++i) {
         const int row = s.softGeneralIndices[i];
         const scalar_t lowerViolation = std::max(0.0, s.lg(row) - g(row));
         const scalar_t upperViolation = std::max(0.0, g(row) - s.ug(row));
@@ -192,12 +212,12 @@ scalar_t evaluateOcpQpMaxHardViolation(const OcpQpProblem& problem, const std::v
   for (int k = 0; k <= N; ++k) {
     const OcpQpStage& s = problem.stages[k];
     const vector_t& xk = x[k];
-    for (std::size_t i = 0; i < s.idxbx.size(); ++i) {
+    for (size_t i = 0; i < s.idxbx.size(); ++i) {
       maxViolation = std::max({maxViolation, s.lbx(i) - xk(s.idxbx[i]), xk(s.idxbx[i]) - s.ubx(i)});
     }
     if (k < N) {
       const vector_t& uk = u[k];
-      for (std::size_t i = 0; i < s.idxbu.size(); ++i) {
+      for (size_t i = 0; i < s.idxbu.size(); ++i) {
         maxViolation = std::max({maxViolation, s.lbu(i) - uk(s.idxbu[i]), uk(s.idxbu[i]) - s.ubu(i)});
       }
       const vector_t residual = s.A * xk + s.B * uk + s.b - x[k + 1];
@@ -226,23 +246,28 @@ class OcpQpHpipmSolver::Impl {
  public:
   explicit Impl(const Settings& settings) : settings_(settings) {}
 
-  void allocate(const Dimensions& dims) {
+  /**
+   * Creates the HPIPM structures for `dims`, unless they already exist for these dimensions. A failed allocation leaves
+   * nothing marked as allocated, so that the next solve starts over.
+   */
+  absl::Status allocate(const Dimensions& dims) {
     if (allocated_ && dims == dims_) {
-      return;
+      return absl::OkStatus();
     }
+    allocated_ = false;
     dims_ = dims;
-    dimMem_.reserve(d_ocp_qp_dim_memsize(dims_.N));
+    RETURN_IF_ERROR(dimMem_.reserve(d_ocp_qp_dim_memsize(dims_.N)));
     d_ocp_qp_dim_create(dims_.N, &dim_, dimMem_.get());
     d_ocp_qp_dim_set_all(dims_.nx.data(), dims_.nu.data(), dims_.nbx.data(), dims_.nbu.data(), dims_.ng.data(), dims_.nsbx.data(),
                          dims_.nsbu.data(), dims_.nsg.data(), &dim_);
 
-    qpMem_.reserve(d_ocp_qp_memsize(&dim_));
+    RETURN_IF_ERROR(qpMem_.reserve(d_ocp_qp_memsize(&dim_)));
     d_ocp_qp_create(&dim_, &qp_, qpMem_.get());
 
-    solMem_.reserve(d_ocp_qp_sol_memsize(&dim_));
+    RETURN_IF_ERROR(solMem_.reserve(d_ocp_qp_sol_memsize(&dim_)));
     d_ocp_qp_sol_create(&dim_, &sol_, solMem_.get());
 
-    argMem_.reserve(d_ocp_qp_ipm_arg_memsize(&dim_));
+    RETURN_IF_ERROR(argMem_.reserve(d_ocp_qp_ipm_arg_memsize(&dim_)));
     d_ocp_qp_ipm_arg_create(&dim_, &arg_, argMem_.get());
     d_ocp_qp_ipm_arg_set_default(static_cast<hpipm_mode>(settings_.hpipmMode), &arg_);
     d_ocp_qp_ipm_arg_set_iter_max(&settings_.iterMax, &arg_);
@@ -256,24 +281,25 @@ class OcpQpHpipmSolver::Impl {
     d_ocp_qp_ipm_arg_set_warm_start(&settings_.warmStart, &arg_);
     d_ocp_qp_ipm_arg_set_pred_corr(&settings_.predCorr, &arg_);
 
-    wsMem_.reserve(d_ocp_qp_ipm_ws_memsize(&dim_, &arg_));
+    RETURN_IF_ERROR(wsMem_.reserve(d_ocp_qp_ipm_ws_memsize(&dim_, &arg_)));
     d_ocp_qp_ipm_ws_create(&dim_, &arg_, &ws_, wsMem_.get());
     allocated_ = true;
+    return absl::OkStatus();
   }
 
-  OcpQpSolution solve(const OcpQpProblem& problem) {
+  absl::StatusOr<OcpQpSolution> solve(const OcpQpProblem& problem) {
     const int N = problem.numStages();
     if (N < 1) {
-      throw std::invalid_argument("[OcpQpHpipmSolver] the problem needs at least one stage");
+      return absl::InvalidArgumentError("[OcpQpHpipmSolver] the problem needs at least one stage");
     }
     for (int k = 0; k <= N; ++k) {
-      checkStage(problem.stages[k], k, N);
+      RETURN_IF_ERROR(checkStage(problem.stages[k], k, N));
       if (k < N && problem.stages[k].A.rows() != problem.stages[k + 1].numStates()) {
-        throw std::invalid_argument(absl::StrCat("[OcpQpHpipmSolver] dynamics of stage ", k, " do not match the next state size"));
+        return absl::InvalidArgumentError(absl::StrCat("[OcpQpHpipmSolver] dynamics of stage ", k, " do not match the next state size"));
       }
     }
     if (problem.x0.size() != problem.stages[0].numStates()) {
-      throw std::invalid_argument("[OcpQpHpipmSolver] x0 does not match the state dimension of stage 0");
+      return absl::InvalidArgumentError("[OcpQpHpipmSolver] x0 does not match the state dimension of stage 0");
     }
 
     // The initial state is imposed as an equality box constraint on the stage-0 state (it replaces any user box there).
@@ -303,16 +329,34 @@ class OcpQpHpipmSolver::Impl {
       dims.ng[k] = s.numGeneralConstraints();
       dims.nsg[k] = static_cast<int>(s.softGeneralIndices.size());
     }
-    allocate(dims);
+    RETURN_IF_ERROR(allocate(dims));
 
     // Pointer tables. HPIPM copies the data inside d_ocp_qp_set_all, so stack-lifetime buffers are fine.
-    std::vector<double*> A(N + 1, nullptr), B(N + 1, nullptr), b(N + 1, nullptr);
-    std::vector<double*> Q(N + 1, nullptr), S(N + 1, nullptr), R(N + 1, nullptr), q(N + 1, nullptr), r(N + 1, nullptr);
-    std::vector<int*> idxbx(N + 1, nullptr), idxbu(N + 1, nullptr), idxs(N + 1, nullptr);
-    std::vector<double*> lbx(N + 1, nullptr), ubx(N + 1, nullptr), lbu(N + 1, nullptr), ubu(N + 1, nullptr);
-    std::vector<double*> C(N + 1, nullptr), D(N + 1, nullptr), lg(N + 1, nullptr), ug(N + 1, nullptr);
-    std::vector<double*> Zl(N + 1, nullptr), Zu(N + 1, nullptr), zl(N + 1, nullptr), zu(N + 1, nullptr), lls(N + 1, nullptr),
-        lus(N + 1, nullptr);
+    std::vector<double* absl_nullable> A(N + 1, nullptr);
+    std::vector<double* absl_nullable> B(N + 1, nullptr);
+    std::vector<double* absl_nullable> b(N + 1, nullptr);
+    std::vector<double* absl_nullable> Q(N + 1, nullptr);
+    std::vector<double* absl_nullable> S(N + 1, nullptr);
+    std::vector<double* absl_nullable> R(N + 1, nullptr);
+    std::vector<double* absl_nullable> q(N + 1, nullptr);
+    std::vector<double* absl_nullable> r(N + 1, nullptr);
+    std::vector<int* absl_nullable> idxbx(N + 1, nullptr);
+    std::vector<int* absl_nullable> idxbu(N + 1, nullptr);
+    std::vector<int* absl_nullable> idxs(N + 1, nullptr);
+    std::vector<double* absl_nullable> lbx(N + 1, nullptr);
+    std::vector<double* absl_nullable> ubx(N + 1, nullptr);
+    std::vector<double* absl_nullable> lbu(N + 1, nullptr);
+    std::vector<double* absl_nullable> ubu(N + 1, nullptr);
+    std::vector<double* absl_nullable> C(N + 1, nullptr);
+    std::vector<double* absl_nullable> D(N + 1, nullptr);
+    std::vector<double* absl_nullable> lg(N + 1, nullptr);
+    std::vector<double* absl_nullable> ug(N + 1, nullptr);
+    std::vector<double* absl_nullable> Zl(N + 1, nullptr);
+    std::vector<double* absl_nullable> Zu(N + 1, nullptr);
+    std::vector<double* absl_nullable> zl(N + 1, nullptr);
+    std::vector<double* absl_nullable> zu(N + 1, nullptr);
+    std::vector<double* absl_nullable> lls(N + 1, nullptr);
+    std::vector<double* absl_nullable> lus(N + 1, nullptr);
 
     // Buffers that must outlive the set_all call.
     std::vector<std::vector<int>> idxsBuffers(N + 1);
@@ -359,7 +403,7 @@ class OcpQpHpipmSolver::Impl {
         // Soft constraint indices count the box constraints first (inputs, then states), then the general rows.
         const int numBox = dims.nbu[k] + dims.nbx[k];
         idxsBuffers[k].resize(s.softGeneralIndices.size());
-        for (std::size_t i = 0; i < s.softGeneralIndices.size(); ++i) {
+        for (size_t i = 0; i < s.softGeneralIndices.size(); ++i) {
           idxsBuffers[k][i] = numBox + s.softGeneralIndices[i];
         }
         idxs[k] = idxsBuffers[k].data();
@@ -407,10 +451,10 @@ class OcpQpHpipmSolver::Impl {
     std::vector<int> idxsRevBuffer;
     for (int k = 0; k <= N; ++k) {
       const int numBox = dims.nbu[k] + dims.nbx[k];
-      idxsRevBuffer.assign(static_cast<std::size_t>(numBox + dims.ng[k]), -1);
+      idxsRevBuffer.assign(static_cast<size_t>(numBox + dims.ng[k]), -1);
       const std::vector<int>& softGeneralIndices = problem.stages[k].softGeneralIndices;
-      for (std::size_t i = 0; i < softGeneralIndices.size(); ++i) {
-        idxsRevBuffer[static_cast<std::size_t>(numBox + softGeneralIndices[i])] = static_cast<int>(i);
+      for (size_t i = 0; i < softGeneralIndices.size(); ++i) {
+        idxsRevBuffer[static_cast<size_t>(numBox + softGeneralIndices[i])] = static_cast<int>(i);
       }
       d_ocp_qp_set_idxs_rev(k, idxsRevBuffer.data(), &qp_);
     }
@@ -439,22 +483,22 @@ class OcpQpHpipmSolver::Impl {
     d_ocp_qp_ipm_get_iter(&ws_, &solution.iterations);
     switch (status) {
       case hpipm_status::SUCCESS:
-        solution.status = OcpQpSolution::Status::SUCCESS;
+        solution.status = OcpQpSolution::Status::kSuccess;
         break;
       case hpipm_status::MAX_ITER:
-        solution.status = OcpQpSolution::Status::MAX_ITER;
+        solution.status = OcpQpSolution::Status::kMaxIter;
         break;
       case hpipm_status::MIN_STEP:
-        solution.status = OcpQpSolution::Status::MIN_STEP;
+        solution.status = OcpQpSolution::Status::kMinStep;
         break;
       case hpipm_status::NAN_SOL:
-        solution.status = OcpQpSolution::Status::NAN_SOL;
+        solution.status = OcpQpSolution::Status::kNanSol;
         break;
       case hpipm_status::INCONS_EQ:
-        solution.status = OcpQpSolution::Status::INCONS_EQ;
+        solution.status = OcpQpSolution::Status::kInconsEq;
         break;
       default:
-        solution.status = OcpQpSolution::Status::UNKNOWN;
+        solution.status = OcpQpSolution::Status::kUnknown;
     }
 
     solution.x.resize(N + 1);
@@ -471,7 +515,7 @@ class OcpQpHpipmSolver::Impl {
       }
     }
     if (!finite) {
-      solution.status = OcpQpSolution::Status::NAN_SOL;
+      solution.status = OcpQpSolution::Status::kNanSol;
       solution.objective = std::numeric_limits<scalar_t>::infinity();
       return solution;
     }
@@ -494,11 +538,11 @@ class OcpQpHpipmSolver::Impl {
 
 OcpQpHpipmSolver::OcpQpHpipmSolver() : OcpQpHpipmSolver(Settings()) {}
 
-OcpQpHpipmSolver::OcpQpHpipmSolver(const Settings& settings) : pImpl_(new Impl(settings)), settings_(settings) {}
+OcpQpHpipmSolver::OcpQpHpipmSolver(const Settings& settings) : pImpl_(std::make_unique<Impl>(settings)), settings_(settings) {}
 
 OcpQpHpipmSolver::~OcpQpHpipmSolver() = default;
 
-OcpQpSolution OcpQpHpipmSolver::solve(const OcpQpProblem& problem) {
+absl::StatusOr<OcpQpSolution> OcpQpHpipmSolver::solve(const OcpQpProblem& problem) {
   return pImpl_->solve(problem);
 }
 

@@ -1,0 +1,99 @@
+{
+  "schema": "humanoid_mpc_validation.solve_benchmark.v1",
+  "label": "B0",
+  "robot": "unitree_r1",
+  "formulation": "centroidal",
+  "provenance": {
+    "git_commit": "c331ddd76dcf3917bdd9d0578eee6f518a915ba8",
+    "worktree_state": "1175 changed paths, diff sha256 13855b2a7a290aa5",
+    "machine": "Intel(R) Core(TM) Ultra 7 265K, 20 logical cores, 30.2 GiB",
+    "configuration_sha256": {
+      "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.yaml": "3c9e7b7616a80c84be67a2209b95fc90245b41bd8eba3284bf9341171b21cde9",
+      "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/command/reference.yaml": "5cc173899a1d79f3e0b2e569b6cc3cb81c75f4cea2c53316f02a157451268e33",
+      "humanoid_nmpc/humanoid_common_mpc/config/command/gait.yaml": "df9b8154d7fe9939bc45541ee5163049b392c44880e774c5ea85653ae1ce9897",
+      "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/controller/joint_pd_gains.yaml": "2a386d5fe8be024939c75b97df419e7be63dce474b9bfa1cc67119fe3fe25820",
+      "robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf": "61abc014c2b5fedce720cc3558f069aeda463ea27966f8e3cf5529e034a7b29c",
+      "robot_models/unitree_r1/unitree_r1_description/urdf/R1.xml": "0d52855e1ad69cdeb0ca1a79d2b0b7b16e28aee9351e8a1dd71af1fa535e82b7",
+      "humanoid_nmpc/humanoid_mpc_validation/data/benchmark/states/unitree_r1_walk_0p3_states.txt": "90ef3bd55b107bc6ac56cae01560fe310283effbbd607cff55cd91f1d7ba0435"
+    }
+  },
+  "settings": {
+    "solver_threads": 4,
+    "mpc_frequency_hz": 80,
+    "recorded_states": 300,
+    "warmup_solves": 25,
+    "repeats": 3,
+    "timed_solves": 825,
+    "failed_solves": 0
+  },
+  "solve_time_ms": {
+    "total": {
+      "mean": 7.06948603757575,
+      "p50": 7.039125,
+      "p99": 8.053052,
+      "max": 10.440245
+    },
+    "lq_approximation": {
+      "mean": 4.296986572121211,
+      "p50": 4.277052,
+      "p99": 4.860522,
+      "max": 6.941088
+    },
+    "solve_qp": {
+      "mean": 2.284022938181819,
+      "p50": 2.286206,
+      "p99": 2.646325,
+      "max": 4.143809
+    },
+    "linesearch": {
+      "mean": 0.42375019999999997,
+      "p50": 0.43568,
+      "p99": 0.623028,
+      "max": 0.951701
+    },
+    "compute_controller": {
+      "mean": 0.01864282424242423,
+      "p50": 0.018363,
+      "p99": 0.025055,
+      "max": 0.027911
+    }
+  },
+  "real_time": {
+    "mpc_period_ms": 12.5,
+    "p99_fraction_of_period": 0.64424416
+  },
+  "tape_operation_counts": {
+    "cppad_centroidal_mpc_r1/wrench_inputs/FootCollisionConstraint": 656,
+    "cppad_centroidal_mpc_r1/wrench_inputs/dynamics_systemFlowMap": 3997,
+    "cppad_centroidal_mpc_r1/wrench_inputs/foot_l_contact_ExternalTorqueQuadraticCost": 438,
+    "cppad_centroidal_mpc_r1/wrench_inputs/foot_l_contact_TaskSpaceKinematicsCost_yawRefHalfAngle": 4411,
+    "cppad_centroidal_mpc_r1/wrench_inputs/foot_l_contact_angular_velocity": 4019,
+    "cppad_centroidal_mpc_r1/wrench_inputs/foot_l_contact_contact_moment_XY_constraint": 270,
+    "cppad_centroidal_mpc_r1/wrench_inputs/foot_l_contact_orientation": 256,
+    "cppad_centroidal_mpc_r1/wrench_inputs/foot_l_contact_orientationError": 275,
+    "cppad_centroidal_mpc_r1/wrench_inputs/foot_l_contact_orientation_wrt_plane": 224,
+    "cppad_centroidal_mpc_r1/wrench_inputs/foot_l_contact_position": 260,
+    "cppad_centroidal_mpc_r1/wrench_inputs/foot_l_contact_twist": 4261,
+    "cppad_centroidal_mpc_r1/wrench_inputs/foot_l_contact_velocity": 4249,
+    "cppad_centroidal_mpc_r1/wrench_inputs/foot_r_contact_ExternalTorqueQuadraticCost": 438,
+    "cppad_centroidal_mpc_r1/wrench_inputs/foot_r_contact_TaskSpaceKinematicsCost_yawRefHalfAngle": 4411,
+    "cppad_centroidal_mpc_r1/wrench_inputs/foot_r_contact_angular_velocity": 4019,
+    "cppad_centroidal_mpc_r1/wrench_inputs/foot_r_contact_contact_moment_XY_constraint": 270,
+    "cppad_centroidal_mpc_r1/wrench_inputs/foot_r_contact_orientation": 256,
+    "cppad_centroidal_mpc_r1/wrench_inputs/foot_r_contact_orientationError": 275,
+    "cppad_centroidal_mpc_r1/wrench_inputs/foot_r_contact_orientation_wrt_plane": 224,
+    "cppad_centroidal_mpc_r1/wrench_inputs/foot_r_contact_position": 260,
+    "cppad_centroidal_mpc_r1/wrench_inputs/foot_r_contact_twist": 4261,
+    "cppad_centroidal_mpc_r1/wrench_inputs/foot_r_contact_velocity": 4249,
+    "cppad_centroidal_mpc_r1/wrench_inputs/icp_Cost": 596,
+    "cppad_centroidal_mpc_r1/wrench_inputs/waist_yaw_link_KinematicsQuadraticCost": 4149,
+    "cppad_centroidal_mpc_r1/wrench_inputs/waist_yaw_link_angular_velocity": 3866,
+    "cppad_centroidal_mpc_r1/wrench_inputs/waist_yaw_link_orientation": 144,
+    "cppad_centroidal_mpc_r1/wrench_inputs/waist_yaw_link_orientationError": 163,
+    "cppad_centroidal_mpc_r1/wrench_inputs/waist_yaw_link_orientation_wrt_plane": 98,
+    "cppad_centroidal_mpc_r1/wrench_inputs/waist_yaw_link_position": 82,
+    "cppad_centroidal_mpc_r1/wrench_inputs/waist_yaw_link_twist": 4046,
+    "cppad_centroidal_mpc_r1/wrench_inputs/waist_yaw_link_velocity": 4027
+  },
+  "total_tape_operations": 59150
+}

@@ -1,3 +1,30 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """Pins the guards against a build exhausting the machine's memory, and the local CI emulator's runner resources.
 
 .bazelrc bounds Bazel's parallelism by RAM rather than by cores, and the dev container is capped with no swap beyond
@@ -43,7 +70,7 @@ def _host_ram_factor(bazelrc, command, flag):
 
 class BazelParallelismTest(unittest.TestCase):
     def setUp(self):
-        with open(_runfile(".bazelrc")) as f:
+        with open(_runfile(".bazelrc"), encoding="utf-8") as f:
             self.bazelrc = f.read()
 
     def test_jobs_are_bounded_by_memory_not_a_fixed_count(self):
@@ -69,6 +96,25 @@ class BazelParallelismTest(unittest.TestCase):
     def test_a_local_override_file_is_imported(self):
         self.assertIn("try-import %workspace%/user.bazelrc", self.bazelrc)
 
+    def test_no_command_or_configuration_sets_a_fixed_count(self):
+        # `build:<config> --jobs=8` brings a fixed count back as surely as `build --jobs=8`; the RAM-bounded
+        # `build --jobs=HOST_RAM*...` is not a count.
+        self.assertIsNone(
+            re.search(
+                r"^[\w:-]+ --(jobs|local_test_jobs)=\d+", self.bazelrc, re.MULTILINE
+            ),
+            "a fixed --jobs or --local_test_jobs count in .bazelrc",
+        )
+
+    def test_no_configuration_overrides_the_memory_bound(self):
+        # The `<command>:<config>` lines, the clang-tidy aspect's among them (tools/clang_tidy), inherit the bound.
+        configurations = re.findall(r"^\w+:[\w-]+ .*$", self.bazelrc, re.MULTILINE)
+        self.assertTrue(
+            any(line.startswith("build:clang-tidy ") for line in configurations)
+        )
+        for line in configurations:
+            self.assertNotRegex(line, r"--(jobs|local_test_jobs)\b")
+
 
 def _apt_packages(script):
     """The packages of the first `apt-get install -y --no-install-recommends` whose list continues over lines."""
@@ -79,16 +125,18 @@ def _apt_packages(script):
 
 
 class LocalCiEmulatorTest(unittest.TestCase):
-    """tools/ci_local.sh (`make ci-local`) is only worth running if it fails where .github/workflows/build_test.yml
-    fails. It passed on a workstation for weeks while every run on GitHub's runner failed, so it runs the workflow's
-    steps at the runner's resources."""
+    """tools/ci_local.sh (`make ci-local`) must fail where .github/workflows/build_test.yml fails.
+
+    It passed on a workstation for weeks while every run on GitHub's runner failed, so it runs the workflow's steps at
+    the runner's resources.
+    """
 
     def setUp(self):
-        with open(_runfile("tools/ci_local.sh")) as f:
+        with open(_runfile("tools/ci_local.sh"), encoding="utf-8") as f:
             self.emulator = f.read()
-        with open(_runfile(".github/workflows/build_test.yml")) as f:
+        with open(_runfile(".github/workflows/build_test.yml"), encoding="utf-8") as f:
             self.workflow = f.read()
-        with open(_runfile(".bazelrc")) as f:
+        with open(_runfile(".bazelrc"), encoding="utf-8") as f:
             self.bazelrc = f.read()
 
     def test_it_installs_what_the_workflow_installs(self):
@@ -97,15 +145,33 @@ class LocalCiEmulatorTest(unittest.TestCase):
         self.assertEqual(_apt_packages(self.emulator), workflow_packages)
 
     def test_it_runs_the_workflows_container_and_steps(self):
-        self.assertIn('- "ros:jazzy"', self.workflow)
-        self.assertIn("  ros:jazzy \\", self.emulator)
+        container = re.search(r"^    container: (\S+)\s*$", self.workflow, re.MULTILINE)
+        assert container is not None, "the workflow names no container"
+        self.assertIn('CI_IMAGE="%s"' % container.group(1), self.emulator)
+        self.assertIn('  "${CI_IMAGE}" \\', self.emulator)
         for step in (
+            "sh docker/install_robotpkg.sh",
             "grep -v '^\\s*#' dependencies.txt | envsubst | xargs apt-get install",
             "make build-all",
             "make test-all",
+            "sh docker/install_llvm_tools.sh tidy",
+            "make lint-tidy",
         ):
             self.assertIn(step, self.workflow)
             self.assertIn(step, self.emulator)
+
+    def test_it_sets_the_environment_the_workflow_sets(self):
+        # The workflow writes `NAME=value` to $GITHUB_ENV and directories to $GITHUB_PATH; the emulator exports the same.
+        workflow = dict(
+            re.findall(r'echo "(\w+)=(\S+)" >> "\$GITHUB_ENV"', self.workflow)
+        )
+        workflow_path = re.findall(r'echo "(\S+)" >> "\$GITHUB_PATH"', self.workflow)
+        emulator = dict(re.findall(r"^\s*export (\w+)=(\S+)$", self.emulator, re.M))
+        self.assertTrue(workflow, "the workflow sets no environment")
+        self.assertEqual(
+            emulator.pop("PATH", None), ":".join(workflow_path + ["\\${PATH}"])
+        )
+        self.assertEqual(emulator, workflow)
 
     def test_it_has_the_resources_of_the_runner(self):
         self.assertIn("runs-on: ubuntu-latest", self.workflow)
@@ -119,8 +185,7 @@ class LocalCiEmulatorTest(unittest.TestCase):
     def test_its_job_counts_are_no_more_than_bazelrc_gives_the_runner(self):
         jobs = re.search(r"build --jobs=(\d+)", self.emulator)
         test_jobs = re.search(r"test --local_test_jobs=(\d+)", self.emulator)
-        self.assertIsNotNone(jobs)
-        self.assertIsNotNone(test_jobs)
+        assert jobs is not None and test_jobs is not None
         self.assertLessEqual(
             int(jobs.group(1)), 16384 * _host_ram_factor(self.bazelrc, "build", "jobs")
         )
@@ -135,7 +200,7 @@ class LocalCiEmulatorTest(unittest.TestCase):
 
 class ContainerMemoryCapTest(unittest.TestCase):
     def test_compose_caps_memory_and_forbids_swap_beyond_the_cap(self):
-        with open(_runfile("docker-compose.yaml")) as f:
+        with open(_runfile("docker-compose.yaml"), encoding="utf-8") as f:
             compose = f.read()
         # LINT.IfChange(container_memory_limit)
         self.assertIn("mem_limit: ${WB_CONTAINER_MEMORY_LIMIT:-0}", compose)
@@ -145,7 +210,7 @@ class ContainerMemoryCapTest(unittest.TestCase):
         # LINT.ThenChange(//docker-compose.yaml:container_memory_limit)
 
     def test_the_dev_container_computes_the_cap_before_it_starts(self):
-        with open(_runfile(".devcontainer/devcontainer.json")) as f:
+        with open(_runfile(".devcontainer/devcontainer.json"), encoding="utf-8") as f:
             devcontainer = f.read()
         self.assertRegex(
             devcontainer,
@@ -155,6 +220,7 @@ class ContainerMemoryCapTest(unittest.TestCase):
 
 class SetContainerMemoryLimitScriptTest(unittest.TestCase):
     def setUp(self):
+        # pylint: disable-next=consider-using-with  # tearDown() deletes it.
         self.dir = tempfile.TemporaryDirectory()
         self.env_file = os.path.join(self.dir.name, ".env")
         self.meminfo = os.path.join(self.dir.name, "meminfo")
@@ -164,7 +230,7 @@ class SetContainerMemoryLimitScriptTest(unittest.TestCase):
 
     def _run(self, total_kb=None, **env):
         if total_kb is not None:
-            with open(self.meminfo, "w") as f:
+            with open(self.meminfo, "w", encoding="utf-8") as f:
                 f.write("MemTotal:       %d kB\nMemFree:        1000 kB\n" % total_kb)
         environment = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
@@ -181,7 +247,7 @@ class SetContainerMemoryLimitScriptTest(unittest.TestCase):
         )
 
     def _env_lines(self):
-        with open(self.env_file) as f:
+        with open(self.env_file, encoding="utf-8") as f:
             return f.read().splitlines()
 
     def test_the_cap_is_a_share_of_the_hosts_ram(self):
@@ -198,7 +264,7 @@ class SetContainerMemoryLimitScriptTest(unittest.TestCase):
         self.assertIn("WB_CONTAINER_MEMORY_LIMIT=20g", self._env_lines())
 
     def test_other_variables_are_kept_and_the_line_is_replaced_not_repeated(self):
-        with open(self.env_file, "w") as f:
+        with open(self.env_file, "w", encoding="utf-8") as f:
             f.write("GIT_USER_NAME=someone\nWB_CONTAINER_MEMORY_LIMIT=1m\n")
         self._run(total_kb=16 * 1024 * 1024)
         self._run(total_kb=16 * 1024 * 1024)

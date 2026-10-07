@@ -31,14 +31,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <iostream>
+#include <map>
+#include <string>
+#include <utility>
 #include <vector>
 
-#include <ocs2_core/reference/ModeSchedule.h>
+#include "ocs2_core/reference/ModeSchedule.h"
 
-#include "absl/status/status.h"
-#include "absl/strings/string_view.h"
-
-#include "humanoid_common_mpc/gait/Gait.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
 namespace ocs2::humanoid {
@@ -50,15 +49,13 @@ namespace ocs2::humanoid {
  */
 struct ModeSequenceTemplate {
   /**
-   * Constructor for a ModeSequenceTemplate. The number of modes must be greater than zero (N > 0)
+   * Constructor for a ModeSequenceTemplate. A valid template has N > 0 modes and N + 1 strictly increasing switching
+   * times; the constructor takes any, and modeSequenceTemplateFromConfig() refuses an invalid one.
    * @param [in] switchingTimesInput : switching times of size N + 1
    * @param [in] modeSequenceInput : mode sequence of size N
    */
   ModeSequenceTemplate(std::vector<scalar_t> switchingTimesInput, std::vector<size_t> modeSequenceInput)
-      : switchingTimes(std::move(switchingTimesInput)), modeSequence(std::move(modeSequenceInput)) {
-    assert(!modeSequence.empty());
-    assert(switchingTimes.size() == modeSequence.size() + 1);
-  }
+      : switchingTimes(std::move(switchingTimesInput)), modeSequence(std::move(modeSequenceInput)) {}
 
   /**
    * Defined as [t_0=0, t_1, .., t_n, t_(n+1)=T], where T is the overall duration
@@ -74,66 +71,12 @@ struct ModeSequenceTemplate {
 };
 
 /** Swap two modesequence templates */
-inline void swap(ModeSequenceTemplate& lh, ModeSequenceTemplate& rh) {
+inline void swap(ModeSequenceTemplate& lh, ModeSequenceTemplate& rh) noexcept {
   lh.switchingTimes.swap(rh.switchingTimes);
   lh.modeSequence.swap(rh.modeSequence);
 }
 
 /** Print the modesequence template */
 std::ostream& operator<<(std::ostream& stream, const ModeSequenceTemplate& modeSequenceTemplate);
-
-/** Converts a mode sequence template to a gait */
-Gait toGait(const ModeSequenceTemplate& modeSequenceTemplate);
-
-/**
- * Load a modesequence template from file.  The template needs to be declared as:
- *
- * topicName
- * {
- *   modeSequence
- *   {
- *     [0]     mode0
- *     [1]     mode1
- *   }
- *   switchingTimes
- *   {
- *     [0]     0.0
- *     [1]     t1
- *     [2]     T
- *   }
- * }
- */
-ModeSequenceTemplate loadModeSequenceTemplate(const std::string& filename, const std::string& topicName, bool verbose = true);
-
-/**
- * Checks that a template describes a gait: one more switching time than there are modes, and the switching times
- * strictly increasing, so that every mode lasts a positive time. The error names `topicName` and its
- * `switchingTimes` key. loadModeSequenceTemplate() refuses a template this rejects: a time out of order would otherwise
- * give a phase of negative duration, which nothing downstream checks for.
- */
-absl::Status validateModeSequenceTemplate(const ModeSequenceTemplate& modeSequenceTemplate, absl::string_view topicName);
-
-/**
- * Load a mode schedule template from file.  The schedule needs to be declared as:
- *
- * topicName
- * {
- *   modeSequence
- *   {
- *     [0]     mode0
- *     [1]     mode1
- *     [2]     mode2
- *   }
- *   eventTimes
- *   {
- *     [0]     t0
- *     [1]     t1
- *   }
- * }
- */
-ModeSchedule loadModeSchedule(const std::string& filename, const std::string& topicName, bool verbose);
-
-// returns the gait map for a gait file
-std::map<std::string, ModeSequenceTemplate> getGaitMap(const std::string& gaitFile, bool verbose = false);
 
 }  // namespace ocs2::humanoid

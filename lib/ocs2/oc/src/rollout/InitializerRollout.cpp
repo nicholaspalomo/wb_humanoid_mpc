@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_oc/rollout/InitializerRollout.h"
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/NumericTraits.h>
 
 namespace ocs2 {
@@ -42,16 +44,22 @@ InitializerRollout::InitializerRollout(const Initializer& initializer, rollout::
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-InitializerRollout* InitializerRollout::clone() const {
+InitializerRollout* absl_nonnull InitializerRollout::clone() const {
   return new InitializerRollout(*initializerPtr_, this->settings());
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-vector_t InitializerRollout::run(scalar_t initTime, const vector_t& initState, scalar_t finalTime, ControllerBase* controller,
-                                 ModeSchedule& modeSchedule, scalar_array_t& timeTrajectory, size_array_t& postEventIndices,
-                                 vector_array_t& stateTrajectory, vector_array_t& inputTrajectory) {
+vector_t InitializerRollout::run(scalar_t initTime,
+                                 const vector_t& initState,
+                                 scalar_t finalTime,
+                                 ControllerBase* absl_nullable controller,
+                                 ModeSchedule& modeSchedule,
+                                 scalar_array_t& timeTrajectory,
+                                 size_array_t& postEventIndices,
+                                 vector_array_t& stateTrajectory,
+                                 vector_array_t& inputTrajectory) {
   if (initTime > finalTime) {
     throw std::runtime_error("[InitializerRollout::run] The initial time should be less-equal to the final time!");
   }

@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -28,7 +32,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
+#include <string>
+#include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
@@ -51,11 +58,11 @@ std::string joinNames(const std::vector<std::string>& names) {
  * requiredModelBlock(), and through it validateStatus() and setHeadingModel(), reads.
  */
 const absl::flat_hash_set<std::string>& headingModelTerms() {
-  static const absl::flat_hash_set<std::string>* const terms = new absl::flat_hash_set<std::string>{
+  static const absl::flat_hash_set<std::string>& kTerms = *new absl::flat_hash_set<std::string>{
       term::kHeadingRateTracking,    term::kHeadingTracking,       term::kFootYawTracking, term::kYawTorqueRegularization,
       term::kFootYawRegularization,  term::kHipYawRange,           term::kYawTorqueBudget, term::kFootYawPinnedInContact,
       term::kHeadingRelinearization, term::kPlannedHeadingOverride};
-  return *terms;
+  return kTerms;
 }
 
 /** Position of `name` in `list` (matched like every other lookup), or list.size() when it is not listed. */
@@ -83,29 +90,29 @@ bool sameTermName(const std::string& a, const std::string& b) {
 }
 
 const std::vector<TermKind>& allTermKinds() {
-  static const std::vector<TermKind>* const kinds = new std::vector<TermKind>{
-      TermKind::MODEL_BLOCK,     TermKind::COST,         TermKind::SOFT_CONSTRAINT, TermKind::HARD_CONSTRAINT, TermKind::LOGIC_RULE,
-      TermKind::ASSIGNMENT_COST, TermKind::SEARCH_STAGE, TermKind::EXECUTION_RULE};
-  return *kinds;
+  static const std::vector<TermKind>& kKinds =
+      *new std::vector<TermKind>{TermKind::kModelBlock, TermKind::kCost,           TermKind::kSoftConstraint, TermKind::kHardConstraint,
+                                 TermKind::kLogicRule,  TermKind::kAssignmentCost, TermKind::kSearchStage,    TermKind::kExecutionRule};
+  return kKinds;
 }
 
 std::string termKindName(TermKind kind) {
   switch (kind) {
-    case TermKind::MODEL_BLOCK:
+    case TermKind::kModelBlock:
       return "dynamics";
-    case TermKind::COST:
+    case TermKind::kCost:
       return "costs";
-    case TermKind::SOFT_CONSTRAINT:
+    case TermKind::kSoftConstraint:
       return "soft_constraints";
-    case TermKind::HARD_CONSTRAINT:
+    case TermKind::kHardConstraint:
       return "hard_constraints";
-    case TermKind::LOGIC_RULE:
+    case TermKind::kLogicRule:
       return "logic_rules";
-    case TermKind::ASSIGNMENT_COST:
+    case TermKind::kAssignmentCost:
       return "assignment_costs";
-    case TermKind::SEARCH_STAGE:
+    case TermKind::kSearchStage:
       return "search";
-    case TermKind::EXECUTION_RULE:
+    case TermKind::kExecutionRule:
       return "execution";
   }
   return "?";
@@ -113,45 +120,51 @@ std::string termKindName(TermKind kind) {
 
 const std::vector<std::string>& knownTermNames(TermKind kind) {
   // LINT.IfChange(known_term_names)
-  static const std::vector<std::string> blocks{term::kLipCom, term::kFootholdIntegrator, term::kHeadingDoubleIntegrator};
-  static const std::vector<std::string> costs{term::kRegularization,    term::kPreviousFootholdConsistency, term::kVelocityTracking,
-                                              term::kStepWidth,         term::kHeadingRateTracking,         term::kHeadingTracking,
-                                              term::kFootYawTracking,   term::kYawTorqueRegularization,     term::kFootYawRegularization,
-                                              term::kZmpRegularization, term::kFootholdRegularization,      term::kStepLength,
-                                              term::kTerminalDcm};
-  static const std::vector<std::string> soft{term::kZmpSupportRegion, term::kReachability, term::kFootSeparation, term::kHipYawRange};
-  static const std::vector<std::string> hard{term::kNoFlight, term::kFootMotionInSwingOnly, term::kYawTorqueBudget,
-                                             term::kFootYawPinnedInContact};
-  static const std::vector<std::string> logic{term::kPhaseDurations, term::kNoFlight, term::kMinimumDoubleSupport, term::kAlternatingFeet};
-  static const std::vector<std::string> assignment{term::kContactSwitch, term::kPlanConsistency, term::kDoubleSupportPenalty};
-  static const std::vector<std::string> search{term::kWarmStartPreviousPlan, term::kDiving, term::kEventShiftLocalSearch,
-                                               term::kHeadingRelinearization, term::kCadenceStretch};
-  static const std::vector<std::string> execution{term::kPhaseResetting, term::kEnergyCadenceModulation, term::kDcmStepAdjustment,
-                                                  term::kPlannedHeadingOverride, term::kPlannedComOverride};
+  static const std::vector<std::string>& kBlocks =
+      *new std::vector<std::string>{term::kLipCom, term::kFootholdIntegrator, term::kHeadingDoubleIntegrator};
+  static const std::vector<std::string>& kCosts =
+      *new std::vector<std::string>{term::kRegularization,    term::kPreviousFootholdConsistency, term::kVelocityTracking,
+                                    term::kStepWidth,         term::kHeadingRateTracking,         term::kHeadingTracking,
+                                    term::kFootYawTracking,   term::kYawTorqueRegularization,     term::kFootYawRegularization,
+                                    term::kZmpRegularization, term::kFootholdRegularization,      term::kStepLength,
+                                    term::kTerminalDcm};
+  static const std::vector<std::string>& kSoft =
+      *new std::vector<std::string>{term::kZmpSupportRegion, term::kReachability, term::kFootSeparation, term::kHipYawRange};
+  static const std::vector<std::string>& kHard =
+      *new std::vector<std::string>{term::kNoFlight, term::kFootMotionInSwingOnly, term::kYawTorqueBudget, term::kFootYawPinnedInContact};
+  static const std::vector<std::string>& kLogic =
+      *new std::vector<std::string>{term::kPhaseDurations, term::kNoFlight, term::kMinimumDoubleSupport, term::kAlternatingFeet};
+  static const std::vector<std::string>& kAssignment =
+      *new std::vector<std::string>{term::kContactSwitch, term::kPlanConsistency, term::kDoubleSupportPenalty};
+  static const std::vector<std::string>& kSearch = *new std::vector<std::string>{
+      term::kWarmStartPreviousPlan, term::kDiving, term::kEventShiftLocalSearch, term::kHeadingRelinearization, term::kCadenceStretch};
+  static const std::vector<std::string>& kExecution =
+      *new std::vector<std::string>{term::kPhaseResetting, term::kEnergyCadenceModulation, term::kDcmStepAdjustment,
+                                    term::kPlannedHeadingOverride, term::kPlannedComOverride};
   // Both robots' files list these names in their tail blocks, and the two READMEs count and tabulate them (section
   // 2.10 of docs/README.md, section 5 of docs/hlip_contact_planner/README.md), so all four are named here.
   // clang-format off
-  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningTermFactory.cpp:term_factory, //humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h:term_names, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.yaml:contact_planning_config_tail, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/contact_planning.yaml:contact_planning_config_tail, //humanoid_nmpc/docs/README.md:formulation_term_table, //humanoid_nmpc/docs/hlip_contact_planner/README.md:hlip_term_registry_counts)
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningTermFactory.cpp:term_factory, //humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h:term_names, //humanoid_nmpc/docs/README.md:formulation_term_table, //humanoid_nmpc/docs/hlip_contact_planner/README.md:hlip_term_registry_counts, //humanoid_nmpc/humanoid_mpc_config/contact_planning_file.proto:term_blocks)
   // clang-format on
   switch (kind) {
-    case TermKind::MODEL_BLOCK:
-      return blocks;
-    case TermKind::COST:
-      return costs;
-    case TermKind::SOFT_CONSTRAINT:
-      return soft;
-    case TermKind::HARD_CONSTRAINT:
-      return hard;
-    case TermKind::LOGIC_RULE:
-      return logic;
-    case TermKind::ASSIGNMENT_COST:
-      return assignment;
-    case TermKind::SEARCH_STAGE:
-      return search;
-    case TermKind::EXECUTION_RULE:
-      return execution;
+    case TermKind::kModelBlock:
+      return kBlocks;
+    case TermKind::kCost:
+      return kCosts;
+    case TermKind::kSoftConstraint:
+      return kSoft;
+    case TermKind::kHardConstraint:
+      return kHard;
+    case TermKind::kLogicRule:
+      return kLogic;
+    case TermKind::kAssignmentCost:
+      return kAssignment;
+    case TermKind::kSearchStage:
+      return kSearch;
+    case TermKind::kExecutionRule:
+      return kExecution;
   }
-  return blocks;
+  return kBlocks;
 }
 
 std::string canonicalTermName(TermKind kind, const std::string& name) {
@@ -162,7 +175,7 @@ std::string canonicalTermName(TermKind kind, const std::string& name) {
 }
 
 std::string requiredModelBlock(TermKind kind, const std::string& name) {
-  if (kind == TermKind::MODEL_BLOCK) return std::string();
+  if (kind == TermKind::kModelBlock) return std::string();
   const std::string canonical = canonicalTermName(kind, name);
   if (canonical.empty()) return std::string();
   return headingModelTerms().contains(canonical) ? std::string(term::kHeadingDoubleIntegrator) : std::string();
@@ -170,21 +183,21 @@ std::string requiredModelBlock(TermKind kind, const std::string& name) {
 
 std::vector<std::string>& ContactPlanningFormulation::list(TermKind kind) {
   switch (kind) {
-    case TermKind::MODEL_BLOCK:
+    case TermKind::kModelBlock:
       return dynamics;
-    case TermKind::COST:
+    case TermKind::kCost:
       return costs;
-    case TermKind::SOFT_CONSTRAINT:
+    case TermKind::kSoftConstraint:
       return softConstraints;
-    case TermKind::HARD_CONSTRAINT:
+    case TermKind::kHardConstraint:
       return hardConstraints;
-    case TermKind::LOGIC_RULE:
+    case TermKind::kLogicRule:
       return logicRules;
-    case TermKind::ASSIGNMENT_COST:
+    case TermKind::kAssignmentCost:
       return assignmentCosts;
-    case TermKind::SEARCH_STAGE:
+    case TermKind::kSearchStage:
       return search;
-    case TermKind::EXECUTION_RULE:
+    case TermKind::kExecutionRule:
       return execution;
   }
   return dynamics;
@@ -201,25 +214,25 @@ bool ContactPlanningFormulation::listed(const std::vector<std::string>& list, co
 void ContactPlanningFormulation::setListed(std::vector<std::string>& list, const std::string& name, bool on) {
   const size_t position = positionIn(list, name);
   if (on && position == list.size()) list.push_back(name);
-  if (!on && position < list.size()) list.erase(list.begin() + static_cast<std::ptrdiff_t>(position));
+  if (!on && position < list.size()) list.erase(list.begin() + static_cast<ptrdiff_t>(position));
 }
 
 void ContactPlanningFormulation::setHeadingModel(bool on) {
   setListed(dynamics, term::kHeadingDoubleIntegrator, on);
   for (const TermKind kind : allTermKinds()) {
-    if (kind == TermKind::MODEL_BLOCK) continue;
+    if (kind == TermKind::kModelBlock) continue;
     // The heading terms of this list, in registry order, from the one definition requiredModelBlock() reads.
     std::vector<std::string> headingTerms;
     for (const std::string& name : knownTermNames(kind)) {
       if (!requiredModelBlock(kind, name).empty()) headingTerms.push_back(name);
     }
     std::vector<std::string>& terms = list(kind);
-    if (on && kind == TermKind::COST) {
+    if (on && kind == TermKind::kCost) {
       // The heading costs go where the previous planner accumulated them: after the tracking costs on the state and
       // before the running costs, i.e. right before zmp_regularization (appended when that one is not listed).
       for (const std::string& name : headingTerms) setListed(terms, name, /*on=*/false);
       const size_t position = positionIn(terms, term::kZmpRegularization);
-      terms.insert(terms.begin() + static_cast<std::ptrdiff_t>(position), headingTerms.begin(), headingTerms.end());
+      terms.insert(terms.begin() + static_cast<ptrdiff_t>(position), headingTerms.begin(), headingTerms.end());
     } else {
       for (const std::string& name : headingTerms) setListed(terms, name, on);
     }

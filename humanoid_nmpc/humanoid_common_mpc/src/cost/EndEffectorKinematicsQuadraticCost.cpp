@@ -30,6 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h"
 
+#include <string>
+
+#include "absl/base/nullability.h"
 #include "absl/log/log.h"
 
 namespace ocs2::humanoid {
@@ -38,28 +41,28 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(EndEffectorKinematicsWeights weights,
+EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(const EndEffectorKinematicsWeights& weights,
                                                                        const PinocchioInterface& pinocchioInterface,
                                                                        const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
                                                                        const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
-                                                                       std::string endEffectorName,
+                                                                       const std::string& endEffectorName,
                                                                        const ModelSettings& modelSettings,
-                                                                       const SwitchedModelReferenceManager* referenceManager)
+                                                                       const SwitchedModelReferenceManager* absl_nullable referenceManager)
     : StateInputCostGaussNewtonAd(),
       sqrtWeights_(weights.toVector().cwiseSqrt()),
-      endEffectorKinematicsPtr_(endEffectorKinematics.clone()),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
-      mpcRobotModelADPtr(mpcRobotModelAD.clone()),
+      endEffectorKinematicsPtr_(endEffectorKinematics.clone()),
+      mpcRobotModelADPtr_(mpcRobotModelAD.clone()),
       referenceManagerPtr_(referenceManager) {
   LOG(INFO) << "Initialized EndEffectorKinematicsQuadraticCost with weights: " << weights.toVector().transpose();
   LOG(INFO) << "Frame name: " << endEffectorName;
   frameID_ = pinocchioInterface.getModel().getFrameId(endEffectorName);
   LOG(INFO) << "Frame ID: " << frameID_;
-  LOG(INFO) << "State dim: " << mpcRobotModelADPtr->getStateDim();
-  LOG(INFO) << "Input dim: " << mpcRobotModelADPtr->getInputDim();
+  LOG(INFO) << "State dim: " << mpcRobotModelADPtr_->getStateDim();
+  LOG(INFO) << "Input dim: " << mpcRobotModelADPtr_->getInputDim();
   LOG(INFO) << "Parameters dim: " << n_parameters_;
 
-  initialize(mpcRobotModelADPtr->getStateDim(), mpcRobotModelADPtr->getInputDim(), n_parameters_,
+  initialize(mpcRobotModelADPtr_->getStateDim(), mpcRobotModelADPtr_->getInputDim(), n_parameters_,
              endEffectorName + "_KinematicsQuadraticCost", modelSettings.modelFolderCppAd, modelSettings.recompileLibrariesCppAd,
              modelSettings.verboseCppAd);
 }
@@ -75,7 +78,7 @@ EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(const End
       frameID_(other.frameID_),
       pinocchioInterfaceCppAd_(other.pinocchioInterfaceCppAd_),
       endEffectorKinematicsPtr_(other.endEffectorKinematicsPtr_->clone()),
-      mpcRobotModelADPtr(other.mpcRobotModelADPtr->clone()),
+      mpcRobotModelADPtr_(other.mpcRobotModelADPtr_->clone()),
       // isActive_ is copied deliberately: the SQP solver clones the whole problem once per worker thread,
       // and a copy constructor that dropped this flag silently reverted a deactivated term to active.
       isActive_(other.isActive_),
@@ -87,7 +90,7 @@ EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(const End
 
 vector_t EndEffectorKinematicsQuadraticCost::getParameters(scalar_t time,
                                                            const TargetTrajectories& targetTrajectories,
-                                                           const PreComputation& preComputation) const {
+                                                           const PreComputation& /*preComputation*/) const {
   // Interpolate reference, with the base pose shaped the way the base-pose costs shape it when this link follows the base.
   const vector_t xTarget = targetTrajectories.getDesiredState(time);
   const vector_t xRef = referenceManagerPtr_ != nullptr ? referenceManagerPtr_->shapeBasePose(time, xTarget) : xTarget;
@@ -116,21 +119,20 @@ EndEffectorKinematicsCostElement<scalar_t> EndEffectorKinematicsQuadraticCost::g
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-ad_vector_t EndEffectorKinematicsQuadraticCost::costVectorFunction(ad_scalar_t time,
+ad_vector_t EndEffectorKinematicsQuadraticCost::costVectorFunction(ad_scalar_t /*time*/,
                                                                    const ad_vector_t& state,
                                                                    const ad_vector_t& input,
                                                                    const ad_vector_t& parameters) {
   const pinocchio::ReferenceFrame rf = pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
 
-  const auto& model = pinocchioInterfaceCppAd_.getModel();
-  auto& data = pinocchioInterfaceCppAd_.getData();
+  const PinocchioInterfaceCppAd::Model& model = pinocchioInterfaceCppAd_.getModel();
+  PinocchioInterfaceCppAd::Data& data = pinocchioInterfaceCppAd_.getData();
 
-  const ad_vector_t q = mpcRobotModelADPtr->getGeneralizedCoordinates(state);
-  const ad_vector_t v = mpcRobotModelADPtr->getGeneralizedVelocities(state, input);
+  const ad_vector_t q = mpcRobotModelADPtr_->getGeneralizedCoordinates(state);
+  const ad_vector_t v = mpcRobotModelADPtr_->getGeneralizedVelocities(state, input);
   pinocchio::forwardKinematics(model, data, q, v);
-  auto frameData = pinocchio::updateFramePlacement(model, data, frameID_);
+  const pinocchio::SE3Tpl<ad_scalar_t> frameData = pinocchio::updateFramePlacement(model, data, frameID_);
 
-  // auto oMf = data.oMf;
   ad_vector_t position = frameData.translation();
   ad_vector_t linearVelocity = pinocchio::getFrameVelocity(model, data, frameID_, rf).linear();
   ad_quaternion_t orientation = matrixToQuaternion(frameData.rotation());

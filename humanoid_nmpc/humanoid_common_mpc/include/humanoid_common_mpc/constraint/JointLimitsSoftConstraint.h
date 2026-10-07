@@ -31,15 +31,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <memory>
+#include <utility>
 
-#include <ocs2_core/cost/StateCost.h>
-#include <ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h>
+#include "absl/base/nullability.h"
+#include "ocs2_core/cost/StateCost.h"
+#include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 
+/**
+ * A soft joint position limit: a piecewise polynomial barrier on the distance of each MPC joint to its lower and upper
+ * position limit, added as a state cost.
+ *
+ * The robot model must outlive it. setGains() retunes the barrier between solves. Like every OCS2 term it is cloned for
+ * each solver thread, and a single instance is not thread-safe.
+ */
 class JointLimitsSoftConstraint final : public StateCost {
  public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -53,7 +62,11 @@ class JointLimitsSoftConstraint final : public StateCost {
                             ocs2::PieceWisePolynomialBarrierPenalty::Config barrierSettings,
                             const MpcRobotModelBase<scalar_t>& mpcRobotModel);
 
-  JointLimitsSoftConstraint* clone() const override { return new JointLimitsSoftConstraint(*this); }
+  JointLimitsSoftConstraint* absl_nonnull clone() const override { return new JointLimitsSoftConstraint(*this); }
+  ~JointLimitsSoftConstraint() override = default;
+  JointLimitsSoftConstraint& operator=(const JointLimitsSoftConstraint&) = delete;
+  JointLimitsSoftConstraint(JointLimitsSoftConstraint&&) = delete;
+  JointLimitsSoftConstraint& operator=(JointLimitsSoftConstraint&&) = delete;
 
   scalar_t getValue(scalar_t time,
                     const vector_t& state,
@@ -68,10 +81,10 @@ class JointLimitsSoftConstraint final : public StateCost {
   scalar_t getValue(const vector_t& jointPositions) const;
   ScalarFunctionQuadraticApproximation getQuadraticApproximation(const vector_t& jointPositions) const;
 
-  void setGains(const scalar_t& mu, const scalar_t& delta);
+  void setGains(scalar_t mu, scalar_t delta);
   void getGains(scalar_t& mu, scalar_t& delta) const;
 
-  bool isActive(scalar_t time) const override { return isActive_; }
+  bool isActive(scalar_t /*time*/) const override { return isActive_; }
   void setActive(bool isActive) { isActive_ = isActive; }
   bool getActive() const { return isActive_; }
 
@@ -79,9 +92,9 @@ class JointLimitsSoftConstraint final : public StateCost {
   JointLimitsSoftConstraint(const JointLimitsSoftConstraint& rhs);
 
   std::unique_ptr<PieceWisePolynomialBarrierPenalty> jointPositionPenaltyPtr_;
-  const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
+  const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModelPtr_;
   std::pair<vector_t, vector_t> positionLimits_;
-  scalar_t offset_;
+  scalar_t offset_ = 0.0;
   bool isActive_ = true;
 };
 

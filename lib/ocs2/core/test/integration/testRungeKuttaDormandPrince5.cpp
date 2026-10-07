@@ -70,7 +70,7 @@ TEST(RungeKuttaDormandPrince5Test, integrateLinearSystem) {
   EXPECT_NEAR(stateTrajectory.back()(1), 1.0, 1e-3);
 }
 
-TEST(RungeKuttaDormandPrince5Test, IntegrateAdaptiveCompareWithBoost) {
+TEST(RungeKuttaDormandPrince5Test, IntegrateAdaptiveCompareWithOde45) {
   const ocs2::scalar_t t0 = 0.0;
   const ocs2::scalar_t t1 = 10.0;
   const ocs2::scalar_t dt = 0.05;
@@ -84,19 +84,19 @@ TEST(RungeKuttaDormandPrince5Test, IntegrateAdaptiveCompareWithBoost) {
   auto integrator = ocs2::newIntegrator(ocs2::IntegratorType::ODE45_OCS2);
   integrator->integrateAdaptive(sys, observer, x0, t0, t1, dt);
 
-  ocs2::scalar_array_t tTraj_boost;
-  ocs2::vector_array_t xTraj_boost;
-  ocs2::Observer observer_boost(&xTraj_boost, &tTraj_boost);
-  auto integrator_boost = ocs2::newIntegrator(ocs2::IntegratorType::ODE45);
-  integrator_boost->integrateAdaptive(sys, observer_boost, x0, t0, t1, dt);
+  ocs2::scalar_array_t tTraj_ode45;
+  ocs2::vector_array_t xTraj_ode45;
+  ocs2::Observer observer_ode45(&xTraj_ode45, &tTraj_ode45);
+  std::unique_ptr<ocs2::IntegratorBase> integrator_ode45 = ocs2::newIntegrator(ocs2::IntegratorType::ODE45);
+  integrator_ode45->integrateAdaptive(sys, observer_ode45, x0, t0, t1, dt);
 
   for (size_t i = 0; i < tTraj.size(); i++) {
-    EXPECT_NEAR(tTraj[i], tTraj_boost[i], 1e-6);
-    EXPECT_TRUE(xTraj[i].isApprox(xTraj_boost[i], 1e-6));
+    EXPECT_NEAR(tTraj[i], tTraj_ode45[i], 1e-6);
+    EXPECT_TRUE(xTraj[i].isApprox(xTraj_ode45[i], 1e-6));
   }
 }
 
-TEST(RungeKuttaDormandPrince5Test, IntegrateTimesCompareWithBoost) {
+TEST(RungeKuttaDormandPrince5Test, IntegrateTimesCompareWithOde45) {
   const ocs2::scalar_t t0 = 0.0;
   const ocs2::scalar_t t1 = 10.0;
   const ocs2::scalar_t dt = 0.05;
@@ -111,13 +111,13 @@ TEST(RungeKuttaDormandPrince5Test, IntegrateTimesCompareWithBoost) {
   auto integrator = ocs2::newIntegrator(ocs2::IntegratorType::ODE45_OCS2);
   integrator->integrateTimes(sys, observer, x0, times.begin(), times.end(), dt);
 
-  ocs2::vector_array_t xTraj_boost;
-  ocs2::Observer observer_boost(&xTraj_boost);
-  auto integrator_boost = ocs2::newIntegrator(ocs2::IntegratorType::ODE45);
-  integrator_boost->integrateTimes(sys, observer_boost, x0, times.begin(), times.end(), dt);
+  ocs2::vector_array_t xTraj_ode45;
+  ocs2::Observer observer_ode45(&xTraj_ode45);
+  std::unique_ptr<ocs2::IntegratorBase> integrator_ode45 = ocs2::newIntegrator(ocs2::IntegratorType::ODE45);
+  integrator_ode45->integrateTimes(sys, observer_ode45, x0, times.begin(), times.end(), dt);
 
   for (size_t i = 0; i < times.size(); i++) {
-    EXPECT_TRUE(xTraj[i].isApprox(xTraj_boost[i], 1e-6));
+    EXPECT_TRUE(xTraj[i].isApprox(xTraj_ode45[i], 1e-6));
   }
 }
 

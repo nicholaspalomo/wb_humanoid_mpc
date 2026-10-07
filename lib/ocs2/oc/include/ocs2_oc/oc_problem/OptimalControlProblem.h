@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/PreComputation.h>
 #include <ocs2_core/Types.h>
 #include <ocs2_core/augmented_lagrangian/StateAugmentedLagrangianCollection.h>
@@ -40,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/cost/StateCostCollection.h>
 #include <ocs2_core/cost/StateInputCostCollection.h>
 #include <ocs2_core/dynamics/SystemDynamicsBase.h>
+#include <ocs2_core/manifold/StateManifold.h>
 #include <ocs2_core/reference/TargetTrajectories.h>
 
 namespace ocs2 {
@@ -113,7 +116,15 @@ struct OptimalControlProblem {
   std::unique_ptr<PreComputation> preComputationPtr;
 
   /** The cost desired trajectories (will be substitute by ReferenceManager) */
-  const TargetTrajectories* targetTrajectoriesPtr;
+  const TargetTrajectories* absl_nullable targetTrajectoriesPtr;
+
+  /**
+   * The manifold the state lives on, or nullptr for a flat state (the default, on which the solvers keep their original
+   * arithmetic bit for bit). With a manifold the SQP works in its tangent space: the dynamics, costs and constraints keep
+   * returning derivatives with respect to the stored (ambient) state, and the transcription pulls them back. It is
+   * immutable and shared, not cloned, by copies of the problem.
+   */
+  std::shared_ptr<const StateManifold> stateManifoldPtr;
 
   /** Default constructor */
   OptimalControlProblem();

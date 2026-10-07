@@ -27,9 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <gtest/gtest.h>
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <algorithm>
 #include <cmath>
@@ -42,26 +40,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "gtest/gtest.h"
+#include "ocs2_centroidal_model/ModelHelperFunctions.h"
+#include "ocs2_core/cost/QuadraticStateCost.h"
+#include "ocs2_core/cost/QuadraticStateInputCost.h"
+#include "ocs2_oc/approximate_model/LinearQuadraticApproximator.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblemHelperFunction.h"
 
-#include <ament_index_cpp/get_package_share_directory.hpp>
-
-#include <ocs2_centroidal_model/FactoryFunctions.h>
-#include <ocs2_centroidal_model/ModelHelperFunctions.h>
-#include <ocs2_core/cost/QuadraticStateCost.h>
-#include <ocs2_core/cost/QuadraticStateInputCost.h>
-#include <ocs2_core/misc/LoadData.h>
-#include <ocs2_oc/approximate_model/LinearQuadraticApproximator.h>
-#include <ocs2_oc/oc_problem/OptimalControlProblemHelperFunction.h>
-
+#include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/config/contact_planning/ContactPlanningFromConfig.h"
+#include "humanoid_common_mpc/config/swing/SwingTrajectoryFromConfig.h"
+#include "humanoid_common_mpc/config/weights/StateInputLayout.h"
+#include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
@@ -71,6 +71,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "support/ProblemFingerprint.h"
+#include "support/TypedConfigFiles.h"
 
 /**
  * The wiring of CoM + ACoM tracking into the centroidal MPC (humanoid_learning/acom/README.md, section 4).
@@ -93,45 +94,32 @@ constexpr Eigen::Index kBasePoseDim = 6;
 constexpr Eigen::Index kBasePositionZIndex = 8;
 constexpr Eigen::Index kBasePitchIndex = 10;
 
-std::string readFile(const std::string& path) {
-  std::ifstream in(path);
-  return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-}
-
-/** `content` with `from` replaced by `to` exactly once; fails the test when `from` does not occur exactly once. */
-std::string replacedOnce(const std::string& content, absl::string_view from, absl::string_view to) {
-  const std::string::size_type position = content.find(from);
-  EXPECT_NE(position, std::string::npos) << "'" << from << "' not found";
-  if (position == std::string::npos) return content;
-  EXPECT_EQ(content.find(from, position + 1), std::string::npos) << "'" << from << "' occurs more than once";
-  std::string result = content;
-  result.replace(position, from.size(), std::string(to));
-  return result;
-}
-
 /**
- * `content` with the diagonal entries (i,i), i = 6..11, of the top-level matrix `matrixName` set to non-zero values.
- * Atlas ships its base-pose weights at 0, so without this the zeroing these tests are about would be invisible.
+ * `weights` with the base-pose weights, the coordinates 6..11, set to non-zero values (20 + 3 i). Atlas ships its
+ * base-pose weights at 0, so without this the zeroing these tests are about would be invisible.
  */
-std::string withBasePoseWeights(const std::string& content, absl::string_view matrixName) {
-  const std::string header = absl::StrCat("\n", matrixName, ":\n");
-  const std::string::size_type blockStart = content.find(header);
-  EXPECT_NE(blockStart, std::string::npos) << matrixName << " not found";
-  if (blockStart == std::string::npos) return content;
-  std::string result = content;
-  for (Eigen::Index i = kBasePoseIndex; i < kBasePoseIndex + kBasePoseDim; ++i) {
-    const std::string key = absl::StrCat("\"(", i, ",", i, ")\":");
-    const std::string::size_type entry = result.find(key, blockStart + 1);
-    EXPECT_NE(entry, std::string::npos) << matrixName << key << " not found";
-    if (entry == std::string::npos) return content;
-    const std::string::size_type lineEnd = result.find('\n', entry);
-    result.replace(entry, lineEnd - entry, absl::StrCat(key, " ", 20 + 3 * i, "  # non-zero for testAcomWiring"));
-  }
-  return result;
+void setBasePoseWeights(mpc_config::StateWeights& weights) {
+  weights.base_position = mpc_config::Xyz{.x = 38.0, .y = 41.0, .z = 44.0};
+  weights.base_orientation = mpc_config::YawPitchRoll{.yaw = 47.0, .pitch = 50.0, .roll = 53.0};
 }
 
-std::string withoutAcomCost(const std::string& content) {
-  return replacedOnce(content, "\n  - com_and_acom_tracking_cost\n", "\n");
+/** `list` with `from` replaced by `to`; fails the test when it does not list `from`. */
+void replaceEntry(std::vector<std::string>& list, absl::string_view from, absl::string_view to) {
+  const std::vector<std::string>::iterator found = std::find(list.begin(), list.end(), from);
+  ASSERT_NE(found, list.end()) << from << " is not listed";
+  *found = std::string(to);
+}
+
+/** `task` without com_and_acom_tracking_cost in its costs. */
+mpc_config::TaskFile withoutAcomCost(mpc_config::TaskFile task) {
+  task.costs.erase(std::remove(task.costs.begin(), task.costs.end(), "com_and_acom_tracking_cost"), task.costs.end());
+  return task;
+}
+
+/** The matrix of a conversion that the test expects to succeed; a refusal fails the test and is an empty matrix. */
+matrix_t converted(const absl::StatusOr<matrix_t>& matrix) {
+  EXPECT_TRUE(matrix.ok()) << matrix.status();
+  return matrix.ok() ? *matrix : matrix_t();
 }
 
 // The assembled problem, compared exactly (support/ProblemFingerprint.h).
@@ -145,16 +133,13 @@ using test::setWalkingReferences;
 class AcomWiringTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    const std::string configDir = ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc");
-    const std::string descriptionDir = ament_index_cpp::get_package_share_directory("drc_atlas_description");
-    shippedTaskFile_ = absl::StrCat(configDir, "/config/mpc/task.yaml");
-    referenceFile_ = absl::StrCat(configDir, "/config/command/reference.yaml");
-    urdfFile_ = absl::StrCat(descriptionDir, "/urdf/atlas.urdf");
-    shipped_ = readFile(shippedTaskFile_);
-    ASSERT_NE(shipped_.find("\n  - com_and_acom_tracking_cost\n"), std::string::npos)
+    files_ = atlasFiles();
+    absl::StatusOr<CentroidalMpcConfig> config = loadConfigOf(files_);
+    ASSERT_TRUE(config.ok()) << config.status();
+    shipped_ = *std::move(config);
+    ASSERT_NE(std::find(shipped_.task.costs.begin(), shipped_.task.costs.end(), "com_and_acom_tracking_cost"), shipped_.task.costs.end())
         << "Atlas, the robot with the one validated ACoM network, no longer lists com_and_acom_tracking_cost";
     tmpDir_ = (std::filesystem::path(testing::TempDir()) / "acom_wiring").string();
-    std::filesystem::create_directories(tmpDir_);
   }
 
   void TearDown() override {
@@ -162,24 +147,23 @@ class AcomWiringTest : public ::testing::Test {
     std::filesystem::remove_all(tmpDir_, ignored);
   }
 
-  /** Writes a variant of the task file in a directory of its own, so that nothing beside it is shared by accident. */
-  std::string writeTaskFile(absl::string_view name, const std::string& content) const {
-    const std::filesystem::path directory = std::filesystem::path(tmpDir_) / std::string(name);
-    std::filesystem::create_directories(directory);
-    const std::string path = (directory / "task.yaml").string();
-    std::ofstream out(path);
-    out << content;
-    return path;
+  /** The interface of the shipped configuration with `task` as its task file. */
+  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> create(const mpc_config::TaskFile& task) const {
+    CentroidalMpcConfig config = shipped_;
+    config.task = task;
+    return CentroidalMpcInterface::Create(config, files_.urdfFile);
   }
 
-  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> create(const std::string& taskFile) const {
-    return CentroidalMpcInterface::Create(taskFile, urdfFile_, referenceFile_);
+  /** The state layout of the shipped robot, which the weights are converted on. */
+  StateInputLayout layout() const {
+    const absl::StatusOr<ModelSettings> settings =
+        ModelSettings::Create(shipped_.task, files_.urdfFile, "testAcomWiring", /*verbose=*/false);
+    EXPECT_TRUE(settings.ok()) << settings.status();
+    return settings.ok() ? stateInputLayout(*settings, StateInputLayout::Mpc::kCentroidal) : StateInputLayout{};
   }
 
-  std::string shippedTaskFile_;
-  std::string referenceFile_;
-  std::string urdfFile_;
-  std::string shipped_;
+  CentroidalRobotFiles files_;
+  CentroidalMpcConfig shipped_;
   std::string tmpDir_;
 };
 
@@ -195,12 +179,12 @@ class AcomWiringTest : public ::testing::Test {
  * Q's base-pose weights are made non-zero first: Atlas ships them at 0, which would hide the zeroing.
  */
 TEST_F(AcomWiringTest, theNamedCostAssemblesExactlyTheProblemTheBooleanDid) {
-  const std::string base = withBasePoseWeights(shipped_, "Q");
-  const std::string listedFile = writeTaskFile("listed", base);
-  const std::string unlistedFile = writeTaskFile("unlisted", withoutAcomCost(base));
-  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> listed = create(listedFile);
+  mpc_config::TaskFile base = shipped_.task;
+  setBasePoseWeights(base.state_weights);
+  const mpc_config::TaskFile unlistedTask = withoutAcomCost(base);
+  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> listed = create(base);
   ASSERT_TRUE(listed.ok()) << listed.status();
-  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> unlisted = create(unlistedFile);
+  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> unlisted = create(unlistedTask);
   ASSERT_TRUE(unlisted.ok()) << unlisted.status();
 
   const Fingerprint listedFingerprint = fingerprintOf(**listed);
@@ -219,17 +203,15 @@ TEST_F(AcomWiringTest, theNamedCostAssemblesExactlyTheProblemTheBooleanDid) {
   ASSERT_GT(Q.block(kBasePoseIndex, kBasePoseIndex, kBasePoseDim, kBasePoseDim).norm(), 0.0);
   Q.block(kBasePoseIndex, kBasePoseIndex, kBasePoseDim, kBasePoseDim).setZero();
   stateCost.setGains(Q, R, P);
-  matrix_t Q_com(3, 3);
-  matrix_t Q_acom(3, 3);
-  loadData::loadEigenMatrix(unlistedFile, "Q_com", Q_com);
-  loadData::loadEigenMatrix(unlistedFile, "Q_acom", Q_acom);
+  const matrix_t Q_com = converted(comWeightsFromConfig(unlistedTask.com_weights, "com_weights"));
+  const matrix_t Q_acom = converted(acomWeightsFromConfig(unlistedTask.acom_weights, "acom_weights"));
   absl::StatusOr<std::unique_ptr<ComAndAcomTrackingCost>> acom = ComAndAcomTrackingCost::Create(
       Q_com, Q_acom, (*unlisted)->getPinocchioInterface(), (*unlisted)->getCentroidalModelInfo(), (*unlisted)->modelSettings().robotName);
   ASSERT_TRUE(acom.ok()) << acom.status();
   problem.stateCostPtr->add("comAndAcomTrackingCost", *std::move(acom));
   ASSERT_TRUE((*unlisted)->getSwitchedModelReferenceManagerPtr()->isArmSwingReferenceActive());
   (*unlisted)->getSwitchedModelReferenceManagerPtr()->setArmSwingReferenceActive(false);
-  ASSERT_TRUE(problem.finalCostPtr->getTermNameMap().count("dcmTerminalCost") > 0) << "the shipped Atlas ends on the DCM cost";
+  ASSERT_TRUE(problem.finalCostPtr->getTermNameMap().contains("dcmTerminalCost")) << "the shipped Atlas ends on the DCM cost";
 
   EXPECT_TRUE(identical(fingerprintOf(**unlisted), listedFingerprint));
   EXPECT_FALSE((*listed)->getSwitchedModelReferenceManagerPtr()->isArmSwingReferenceActive());
@@ -242,20 +224,17 @@ TEST_F(AcomWiringTest, theNamedCostAssemblesExactlyTheProblemTheBooleanDid) {
  * base-pose block like state_quadratic_cost's does.
  */
 TEST_F(AcomWiringTest, theNamedCostReplacesTheBasePoseInWhicheverQuadraticStateCostCarriesQ) {
-  const std::string base =
-      replacedOnce(withBasePoseWeights(shipped_, "Q"), "\n  - state_quadratic_cost\n", "\n  - state_input_quadratic_cost\n");
-  const std::string listedFile = writeTaskFile("stateInputListed", base);
-  const std::string unlistedFile = writeTaskFile("stateInputUnlisted", withoutAcomCost(base));
+  mpc_config::TaskFile base = shipped_.task;
+  setBasePoseWeights(base.state_weights);
+  replaceEntry(base.costs, "state_quadratic_cost", "state_input_quadratic_cost");
 
-  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> listed = create(listedFile);
+  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> listed = create(base);
   ASSERT_TRUE(listed.ok()) << listed.status();
   const OptimalControlProblem& problem = (*listed)->getOptimalControlProblem();
   EXPECT_EQ(problem.costPtr->getTermNameMap().count("stateQuadraticCost"), 0u);
   EXPECT_EQ(problem.stateCostPtr->getTermNameMap().count(std::string(ComAndAcomTrackingCost::kRunningTermName)), 1u)
       << "the ACoM cost was dropped beside state_input_quadratic_cost";
-  const Eigen::Index stateDim = (*listed)->getInitialState().size();
-  matrix_t fileQ(stateDim, stateDim);
-  loadData::loadEigenMatrix(listedFile, "Q", fileQ);
+  const matrix_t fileQ = converted(stateWeightsFromConfig(base.state_weights, layout(), "state_weights"));
   ASSERT_GT(fileQ.block(kBasePoseIndex, kBasePoseIndex, kBasePoseDim, kBasePoseDim).norm(), 0.0);
   matrix_t Q;
   matrix_t R;
@@ -267,7 +246,7 @@ TEST_F(AcomWiringTest, theNamedCostReplacesTheBasePoseInWhicheverQuadraticStateC
   EXPECT_TRUE(Q == expected) << "the rest of Q must be the file's";
 
   // Positive control: without the name the same file's base-pose block reaches the cost untouched.
-  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> unlisted = create(unlistedFile);
+  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> unlisted = create(withoutAcomCost(base));
   ASSERT_TRUE(unlisted.ok()) << unlisted.status();
   (*unlisted)->getOptimalControlProblem().costPtr->get<QuadraticStateInputCost>("stateInputQuadraticCost").getGains(Q, R, P);
   EXPECT_TRUE(Q == fileQ);
@@ -283,9 +262,10 @@ TEST_F(AcomWiringTest, theNamedCostReplacesTheBasePoseInWhicheverQuadraticStateC
  * ComAndAcomTrackingCost, weighted by terminalCostScaling like Q_final.
  */
 TEST_F(AcomWiringTest, theTerminalNodeIsRegulatedInCoMAndAcomCoordinatesBesideTheQuadraticTerminalCost) {
-  const std::string content = replacedOnce(withBasePoseWeights(shipped_, "Q_final"), "\n  - dcm_terminal_cost\n", "\n  - terminal_cost\n");
-  const std::string taskFile = writeTaskFile("quadraticTerminal", content);
-  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created = create(taskFile);
+  mpc_config::TaskFile task = shipped_.task;
+  setBasePoseWeights(task.final_state_weights);
+  replaceEntry(task.costs, "dcm_terminal_cost", "terminal_cost");
+  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created = create(task);
   ASSERT_TRUE(created.ok()) << created.status();
   CentroidalMpcInterface& interface = **created;
   OptimalControlProblem& problem = interface.getOptimalControlProblemRef();
@@ -294,25 +274,21 @@ TEST_F(AcomWiringTest, theTerminalNodeIsRegulatedInCoMAndAcomCoordinatesBesideTh
       << "the terminal node has no CoM + ACoM regulation";
 
   // Q_final's base-pose block is zeroed, as before...
-  const Eigen::Index stateDim = interface.getInitialState().size();
-  matrix_t fileQFinal(stateDim, stateDim);
-  loadData::loadEigenMatrix(taskFile, "Q_final", fileQFinal);
+  const matrix_t fileQFinal = converted(stateWeightsFromConfig(task.final_state_weights, layout(), "final_state_weights"));
   ASSERT_GT(fileQFinal.block(kBasePoseIndex, kBasePoseIndex, kBasePoseDim, kBasePoseDim).norm(), 0.0);
   matrix_t QFinal;
   problem.finalCostPtr->get<QuadraticStateCost>("terminalCost").getGains(QFinal);
   EXPECT_TRUE(QFinal.block(kBasePoseIndex, kBasePoseIndex, kBasePoseDim, kBasePoseDim).isZero(0.0));
   // ...and the terminal instance is weighted like Q_final: by terminalCostScaling.
-  scalar_t terminalCostScaling = 0.0;
-  loadData::loadCppDataType(taskFile, "terminalCostScaling", terminalCostScaling);
+  if (!task.terminal_cost_scaling.has_value()) GTEST_FAIL() << "the shipped task file has no terminal_cost_scaling";
+  const scalar_t terminalCostScaling = *task.terminal_cost_scaling;
   ASSERT_NE(terminalCostScaling, 1.0) << "a scaling of 1 would not tell the running weights from the terminal ones";
-  matrix_t Q_com(3, 3);
-  matrix_t Q_acom(3, 3);
-  loadData::loadEigenMatrix(taskFile, "Q_com", Q_com);
-  loadData::loadEigenMatrix(taskFile, "Q_acom", Q_acom);
+  const matrix_t Q_com = converted(comWeightsFromConfig(task.com_weights, "com_weights"));
+  const matrix_t Q_acom = converted(acomWeightsFromConfig(task.acom_weights, "acom_weights"));
   const ComAndAcomTrackingCost& terminal =
       problem.finalCostPtr->get<ComAndAcomTrackingCost>(std::string(ComAndAcomTrackingCost::kTerminalTermName));
-  EXPECT_TRUE(terminal.getQCom().isApprox(terminalCostScaling * Q_com, 1e-14));
-  EXPECT_TRUE(terminal.getQAcom().isApprox(terminalCostScaling * Q_acom, 1e-14));
+  EXPECT_TRUE(terminal.getQCom().isApprox(terminalCostScaling * Q_com, 1.0e-14));
+  EXPECT_TRUE(terminal.getQAcom().isApprox(terminalCostScaling * Q_acom, 1.0e-14));
 
   // The property itself: the terminal cost pulls on the base height and pitch...
   setWalkingReferences(interface);
@@ -335,36 +311,39 @@ TEST_F(AcomWiringTest, theTerminalNodeIsRegulatedInCoMAndAcomCoordinatesBesideTh
 }
 
 /**
- * A task file that still carries the retired boolean is refused at start-up with a Status naming the cost that replaced
- * it, so that a stale file cannot silently run a different formulation - whatever the key's value.
+ * A task file that still carries the retired boolean does not parse: the parser names the cost that replaced it, so that
+ * a stale file cannot silently run a different formulation - whatever the key's value.
  */
 TEST_F(AcomWiringTest, aTaskFileStillCarryingTheRetiredBooleanIsRefusedAtStartUp) {
-  for (const char* value : {"true", "false"}) {
-    const std::string taskFile =
-        writeTaskFile(absl::StrCat("retired_", value), absl::StrCat("useComAndAcomTracking: ", value, "\n", shipped_));
-    const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created = create(taskFile);
+  for (const char* absl_nonnull value : {"true", "false"}) {
+    absl::StatusOr<CentroidalRobotFiles> files = writeConfig(absl::StrCat(tmpDir_, "/retired_", value), shipped_, files_.urdfFile);
+    ASSERT_TRUE(files.ok()) << files.status();
+    ASSERT_TRUE(writeTextFile(files->taskFile, absl::StrCat(taskFileText(shipped_.task), "useComAndAcomTracking: ", value, "\n")).ok());
+    const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created =
+        CentroidalMpcInterface::Create(files->taskFile, files->urdfFile, files->referenceFile);
     ASSERT_FALSE(created.ok()) << "useComAndAcomTracking: " << value << " was accepted";
     EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument);
     EXPECT_TRUE(absl::StrContains(created.status().message(), "com_and_acom_tracking_cost")) << created.status();
-    EXPECT_TRUE(absl::StrContains(created.status().message(), "useComAndAcomTracking")) << created.status();
+    EXPECT_TRUE(absl::StrContains(created.status().message(), "is retired")) << created.status();
   }
 }
 
 /**
- * Listing the cost without the weights it reads - the state the G1 and SA01 task files are in, which carry no Q_com /
- * Q_acom - is a configuration error. Create() reports it as a Status naming the missing key; the task-file loader's
- * exception used to escape the Status-returning set-up instead.
+ * Listing the cost without the weights it reads - the state the G1 and SA01 task files are in, which carry no
+ * com_weights / acom_weights - is a configuration error, which Create() reports as a Status naming the block.
  */
-TEST_F(AcomWiringTest, aListedCostWithoutItsWeightsIsRefusedNamingTheMissingKey) {
-  for (const char* key : {"Q_com", "Q_acom"}) {
-    const std::string taskFile = writeTaskFile(
-        absl::StrCat("without_", key), replacedOnce(shipped_, absl::StrCat("\n", key, ":\n"), absl::StrCat("\n", key, "_unread:\n")));
-    absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created = absl::UnknownError("not created");
-    ASSERT_NO_THROW(created = create(taskFile)) << key;
-    ASSERT_FALSE(created.ok()) << "the cost was built without " << key;
+TEST_F(AcomWiringTest, aListedCostWithoutItsWeightsIsRefusedNamingTheMissingBlock) {
+  for (const char* absl_nonnull block : {"com_weights", "acom_weights"}) {
+    mpc_config::TaskFile task = shipped_.task;
+    if (absl::string_view(block) == "com_weights") {
+      task.com_weights = mpc_config::ComWeights{};
+    } else {
+      task.acom_weights = mpc_config::AcomWeights{};
+    }
+    const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created = create(task);
+    ASSERT_FALSE(created.ok()) << "the cost was built without " << block;
     EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument) << created.status();
-    // Quoted, because the advice in the message names both matrices whichever one is missing.
-    EXPECT_TRUE(absl::StrContains(created.status().message(), absl::StrCat("'", key, "'"))) << created.status();
+    EXPECT_TRUE(absl::StrContains(created.status().message(), block)) << created.status();
     EXPECT_TRUE(absl::StrContains(created.status().message(), "com_and_acom_tracking_cost")) << created.status();
   }
 }
@@ -379,27 +358,25 @@ TEST_F(AcomWiringTest, aListedCostWithoutItsWeightsIsRefusedNamingTheMissingKey)
 class HeadingModelReloadTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    const std::string configDir = ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc");
-    const std::string descriptionDir = ament_index_cpp::get_package_share_directory("drc_atlas_description");
-    taskFile_ = absl::StrCat(configDir, "/config/mpc/task.yaml");
-    referenceFile_ = absl::StrCat(configDir, "/config/command/reference.yaml");
-    urdfFile_ = absl::StrCat(descriptionDir, "/urdf/atlas.urdf");
+    const CentroidalRobotFiles files = atlasFiles();
+    urdfFile_ = files.urdfFile;
+    absl::StatusOr<CentroidalMpcConfig> config = loadConfigOf(files);
+    ASSERT_TRUE(config.ok()) << config.status();
+    atlas_ = *std::move(config);
 
-    modelSettings_ = std::make_unique<ModelSettings>(taskFile_, urdfFile_, "testAcomWiring", /*verbose=*/false);
+    modelSettings_ =
+        std::make_unique<ModelSettings>(ModelSettings::Create(atlas_.task, urdfFile_, "testAcomWiring", /*verbose=*/false).value());
     pinocchioInterface_ = std::make_unique<PinocchioInterface>(
-        createCustomPinocchioInterface(taskFile_, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false));
-    info_ = centroidal_model::createCentroidalModelInfo(
-        *pinocchioInterface_, centroidal_model::loadCentroidalType(taskFile_),
-        centroidal_model::loadDefaultJointState(pinocchioInterface_->getModel().nq - 6, referenceFile_), modelSettings_->contactNames3DoF,
-        modelSettings_->contactNames6DoF);
+        loadCustomPinocchioInterface(atlas_.task, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false).value());
+    info_ = centroidalModelInfoOf(atlas_, *pinocchioInterface_, *modelSettings_).value();
     robotModel_ = std::make_unique<CentroidalMpcRobotModel<scalar_t>>(*modelSettings_, *pinocchioInterface_, info_);
-    initialState_.setZero(info_.stateDim);
-    loadData::loadEigenMatrix(taskFile_, "initialState", initialState_);
+    initialState_ = initialStateOf(atlas_.task, *modelSettings_).value();
 
     // The shipped planner configuration with the heading model on, its model parameters derived as the interface
     // derives them, and the same configuration with the heading model off.
-    absl::StatusOr<ContactPlanningConfig> loaded = loadContactPlanningConfigStatus(
-        resolveContactPlanningConfigFile(taskFile_), "contact_planning.", /*verbose=*/false, /*validate=*/false);
+    absl::StatusOr<ContactPlanningConfig> loaded =
+        contactPlanningConfigFromOptionalFile(atlas_.contactPlanning.has_value() ? &*atlas_.contactPlanning : nullptr,
+                                              ContactPlanningValidation::kDeferUntilModelParametersApplied);
     ASSERT_TRUE(loaded.ok()) << loaded.status();
     headingOn_ = *std::move(loaded);
     headingOn_.setHeadingModel(true);
@@ -419,9 +396,9 @@ class HeadingModelReloadTest : public ::testing::Test {
   std::shared_ptr<ContactPlanningReferenceManager> makeReferenceManager(const MpcRobotModelBase<scalar_t>& robotModel,
                                                                         const ContactPlanningConfig& config) const {
     std::shared_ptr<SwingTrajectoryPlanner> swingPlanner = std::make_shared<SwingTrajectoryPlanner>(
-        loadSwingTrajectorySettings(taskFile_, "swing_trajectory_config", /*verbose=*/false), N_CONTACTS);
+        swingTrajectorySettingsFromConfig(atlas_.task.swing_trajectory_config).value(), kNumContacts);
     absl::StatusOr<std::shared_ptr<ContactPlanningReferenceManager>> manager =
-        ContactPlanningReferenceManager::Create(GaitSchedule::loadGaitSchedule(referenceFile_, *modelSettings_, /*verbose=*/false),
+        ContactPlanningReferenceManager::Create(GaitSchedule::Create(atlas_.reference, *modelSettings_, /*verbose=*/false).value(),
                                                 std::move(swingPlanner), *pinocchioInterface_, robotModel, config);
     EXPECT_TRUE(manager.ok()) << manager.status();
     return manager.ok() ? *manager : nullptr;
@@ -434,9 +411,9 @@ class HeadingModelReloadTest : public ::testing::Test {
     return state;
   }
 
-  std::string taskFile_;
-  std::string referenceFile_;
   std::string urdfFile_;
+  // The typed DRC Atlas files.
+  CentroidalMpcConfig atlas_;
   std::unique_ptr<ModelSettings> modelSettings_;
   std::unique_ptr<PinocchioInterface> pinocchioInterface_;
   CentroidalModelInfo info_;
@@ -458,13 +435,13 @@ TEST_F(HeadingModelReloadTest, aReloadThatSwitchesTheHeadingModelOnInstallsTheAc
   ASSERT_TRUE(acom.ok()) << acom.status();
   const scalar_t acomYaw = (*acom)->computeAcomOrientation(robotModel_->getGeneralizedCoordinates(state))(0);
   // Positive control: at this state the two headings are different quantities, so the check below can fail.
-  ASSERT_GT(std::abs(acomYaw - baseYaw), 1e-3);
+  ASSERT_GT(std::abs(acomYaw - baseYaw), 1.0e-3);
   EXPECT_EQ(manager->computeHeading(state), baseYaw);
 
   ASSERT_TRUE(manager->setConfigStatus(headingOn_).ok());
   ASSERT_TRUE(manager->getConfig().usesHeadingModel());
   ASSERT_TRUE(manager->hasAngularCenterOfMass()) << "the reload switched the heading model on without its evaluator";
-  EXPECT_NEAR(manager->computeHeading(state), acomYaw, 1e-12);
+  EXPECT_NEAR(manager->computeHeading(state), acomYaw, 1.0e-12);
 
   // Switching it off again keeps the evaluator, which only the heading model reads.
   ASSERT_TRUE(manager->setConfigStatus(headingOff_).ok());
@@ -484,7 +461,7 @@ TEST_F(HeadingModelReloadTest, theEvaluatorIsLeftToTheStatusReturningSetUpUntilI
 
 TEST_F(HeadingModelReloadTest, aNetworkTrainedOnOtherJointsRefusesTheReloadAndTheStart) {
   // The MPC model's joints relabeled - two of them swapped - so that the network no longer matches them name by name.
-  ModelSettings permuted(taskFile_, urdfFile_, "testAcomWiring", /*verbose=*/false);
+  ModelSettings permuted = ModelSettings::Create(atlas_.task, urdfFile_, "testAcomWiring", /*verbose=*/false).value();
   ASSERT_GE(permuted.mpcModelJointNames.size(), 2u);
   std::swap(permuted.mpcModelJointNames[0], permuted.mpcModelJointNames[1]);
   const CentroidalMpcRobotModel<scalar_t> permutedModel(permuted, *pinocchioInterface_, info_);
@@ -503,7 +480,7 @@ TEST_F(HeadingModelReloadTest, aNetworkTrainedOnOtherJointsRefusesTheReloadAndTh
 }
 
 TEST_F(HeadingModelReloadTest, aRobotWithoutANetworkKeepsTheBaseYawAsItsHeading) {
-  ModelSettings unregistered(taskFile_, urdfFile_, "testAcomWiring", /*verbose=*/false);
+  ModelSettings unregistered = ModelSettings::Create(atlas_.task, urdfFile_, "testAcomWiring", /*verbose=*/false).value();
   unregistered.robotName = "robot_without_an_acom_network";
   const CentroidalMpcRobotModel<scalar_t> model(unregistered, *pinocchioInterface_, info_);
   const std::shared_ptr<ContactPlanningReferenceManager> manager = makeReferenceManager(model, headingOff_);

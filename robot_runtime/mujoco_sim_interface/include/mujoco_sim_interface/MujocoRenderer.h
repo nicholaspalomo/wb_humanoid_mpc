@@ -29,14 +29,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <GL/glew.h>
-#include <GLFW/glfw3.h>
-#include <mujoco/mujoco.h>
-
 #include <atomic>
+#include <cstddef>
 #include <memory>
 #include <thread>
 #include <vector>
+
+#include "GL/glew.h"
+#include "GLFW/glfw3.h"
+#include "absl/base/nullability.h"
+#include "absl/status/status.h"
+#include "mujoco/mujoco.h"
 
 #include "mujoco_sim_interface/MujocoUtils.h"
 #include "mujoco_sim_interface/visualization/MujocoVisualization.h"
@@ -46,23 +49,34 @@ namespace robot::mujoco_sim_interface {
 
 class MujocoSimInterface;
 
-class MjState;
-
 /**
  * Interactive MuJoCo viewer of the simulator. Everything drawn on top of the model is a MujocoVisualization
  * (visualization/): the set is built at start-up from the names in MujocoSimConfig::visualizations (task file
- * `simVisualizations`, see VisualizationRegistry.h for the names) and every frame runs their hooks in order.
+ * `sim_visualizations`, see VisualizationRegistry.h for the names) and every frame runs their hooks in order.
+ *
+ * The window, the OpenGL context and every MuJoCo rendering structure live on the render thread
+ * (launchRenderThread()); the other methods may be called from any thread. Where the viewer cannot start - no
+ * display, no window, no OpenGL - it logs why and stops, and the simulation runs on without it.
  */
 class MujocoRenderer {
  public:
-  MujocoRenderer(const MujocoSimInterface* simInterface);
+  /** `simInterface` must outlive the renderer; the render thread reads its model and state. */
+  explicit MujocoRenderer(const MujocoSimInterface* absl_nonnull simInterface);
 
+  MujocoRenderer(const MujocoRenderer&) = delete;
+  MujocoRenderer& operator=(const MujocoRenderer&) = delete;
+  MujocoRenderer(MujocoRenderer&&) = delete;
+  MujocoRenderer& operator=(MujocoRenderer&&) = delete;
+
+  /** Stops the render thread and waits for it, which frees the window and the rendering structures. */
   ~MujocoRenderer();
 
+  /** False once the window was closed, or once the viewer failed to start (see waitForInit()). */
   bool ok() const;
 
   void launchRenderThread();
 
+  /** Waits until the render thread has started the viewer or failed to; ok() then tells which. */
   void waitForInit() const;
 
   /** The visualizations of this viewer, in drawing order (render thread only, for tests and the cheatsheet). */
@@ -91,16 +105,16 @@ class MujocoRenderer {
    * 'b' for the contact timeline, 'g' for the target contact patches, 'c' / 'f' / 'm' / 'i' / 'h' / 't' for MuJoCo's own
    * contact points, contact forces, centers of mass, inertia ellipsoids, convex hulls and the model transparency.
    */
-  static void keyboard(GLFWwindow* window, int key, int scancode, int act, int mods);
+  static void keyboard(GLFWwindow* absl_nonnull window, int key, int scancode, int act, int mods);
 
   // mouse button callback
-  static void mouse_button(GLFWwindow* window, int button, int act, int mods);
+  static void mouse_button(GLFWwindow* absl_nonnull window, int button, int act, int mods);
 
   // mouse move callback
-  static void mouse_move(GLFWwindow* window, double xpos, double ypos);
+  static void mouse_move(GLFWwindow* absl_nonnull window, double xpos, double ypos);
 
   // scroll callback
-  static void scroll(GLFWwindow* window, double xoffset, double yoffset);
+  static void scroll(GLFWwindow* absl_nonnull window, double xoffset, double yoffset);
 
   ///
 
@@ -111,47 +125,51 @@ class MujocoRenderer {
   void toggleCameraTracking();
   void setupCamera();
 
-  // Init must occur in the same thread that uses the opengl context.
-  void initialize();
+  // Init must occur in the same thread that uses the opengl context. Fails, having released what it created, when GLFW,
+  // the window or GLEW cannot be set up.
+  absl::Status initialize();
 
   // Cleanup must occur in same thread that owns the opengl context.
   void cleanup();
 
-  const MujocoSimInterface* simInterface_;
+  const MujocoSimInterface* absl_nonnull simInterface_;
   MjState simState_;
 
   std::vector<std::unique_ptr<MujocoVisualization>> visualizations_;
 
   std::thread render_thread_;
 
-  GLFWwindow* window_;
+  // Created by initialize() on the render thread and only used there; null until then, and when GLFW could not create
+  // the window.
+  GLFWwindow* absl_nullable window_ = nullptr;
   mjrRect viewport_ = {0, 0, 0, 0};
 
-  int viewportWidth{1920};
-  int viewportHeight{1024};
+  int viewportWidth_ = 1920;
+  int viewportHeight_ = 1024;
 
   // mouse interaction
-  bool button_left = false;
-  bool button_middle = false;
-  bool button_right = false;
+  bool button_left_ = false;
+  bool button_middle_ = false;
+  bool button_right_ = false;
 
-  double lastx = 0;
-  double lasty = 0;
+  double lastx_ = 0;
+  double lasty_ = 0;
 
-  double lastclicktm = 0;
+  // Mujoco visualization structures, zeroed until initialize() fills them in.
+  mjvCamera mujocoCam_{};       // abstract camera
+  mjvOption mujocoOptions_{};   // visualization options
+  mjvScene mujocoScene_{};      // abstract scene
+  mjrContext mujocoContext_{};  // custom GPU context
 
-  // Mujoco visualization structures
-  mjvCamera mujocoCam_;       // abstract camera
-  mjvOption mujocoOptions_;   // visualization options
-  mjvScene mujocoScene_;      // abstract scene
-  mjrContext mujocoContext_;  // custom GPU context
-
-  size_t timeStepMicro_;
+  size_t timeStepMicro_ = 0;
 
   std::atomic<bool> window_closed_{false};
   std::atomic<bool> init_complete_{false};
+  // Set by the destructor: the render thread closes the viewer at its next frame. A flag rather than
+  // glfwSetWindowShouldClose, so that no other thread touches the window, which may never have been created.
+  std::atomic<bool> stopRequested_{false};
 
-  FPSTracker rendererFps_{"renderer"};
+  FPSTracker rendererFps_;
 };
 
 }  // namespace robot::mujoco_sim_interface

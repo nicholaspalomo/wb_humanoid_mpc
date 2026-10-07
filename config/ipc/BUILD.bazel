@@ -1,0 +1,24 @@
+load("@rules_python//python:defs.bzl", "py_test")
+
+# The network file of the ZeroMQ bus (robot_runtime/robot_ipc): the nodes, their hosts and their ports. A textproto of
+# robot_runtime/robot_ipc/proto/network_config.proto (robot_ipc_proto.NetworkConfig).
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "network.textproto",
+    "two_machine.example.textproto",
+])
+
+# Both network files parse with the bus's strict loader, and the two-machine example is the shipped network split over
+# two machines: the same nodes and ports, every node binding every interface, the robot on a machine of its own.
+py_test(
+    name = "test_network_files",
+    size = "small",
+    srcs = ["test_network_files.py"],
+    data = [
+        "network.textproto",
+        "two_machine.example.textproto",
+    ],
+    deps = ["//robot_runtime/robot_ipc:robot_ipc_py"],
+)

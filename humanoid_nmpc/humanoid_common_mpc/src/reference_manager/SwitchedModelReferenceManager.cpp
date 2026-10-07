@@ -28,20 +28,22 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
-#include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
-
-#include <humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h>
-#include <ocs2_core/misc/Numerics.h>
-
-#include <pinocchio/algorithm/center-of-mass.hpp>
-#include <pinocchio/algorithm/centroidal.hpp>
-
 #include <algorithm>
 #include <cmath>
+#include <memory>
+#include <utility>
+#include <vector>
+
+#include "ocs2_core/misc/Numerics.h"
+#include "pinocchio/algorithm/center-of-mass.hpp"
+#include "pinocchio/algorithm/centroidal.hpp"
+
+#include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
+#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 namespace ocs2::humanoid {
 
@@ -53,11 +55,11 @@ SwitchedModelReferenceManager::SwitchedModelReferenceManager(std::shared_ptr<Gai
                                                              const PinocchioInterface& pinocchioInterface,
                                                              const MpcRobotModelBase<scalar_t>& mpcRobotModel)
     : ReferenceManager(TargetTrajectories(), ModeSchedule()),
-      gaitSchedulePtr_(std::move(gaitSchedulePtr)),
-      swingTrajectoryPtr_(std::move(swingTrajectoryPtr)),
       // The reference manager gets a copy of the pinocchio model to use for initializing the ground height
       pinocchioInterface_(pinocchioInterface),
-      mpcRobotModelPtr_(&mpcRobotModel) {
+      mpcRobotModelPtr_(&mpcRobotModel),
+      gaitSchedulePtr_(std::move(gaitSchedulePtr)),
+      swingTrajectoryPtr_(std::move(swingTrajectoryPtr)) {
   // A constant of the robot, so it is read once here rather than being latched with the measurements. The yaw inertia
   // beside it is not a constant - it depends on the posture - and is latched per solve in captureMeasuredState().
   totalMass_ = pinocchio::computeTotalMass(pinocchioInterface_.getModel());
@@ -117,12 +119,12 @@ scalar_t SwitchedModelReferenceManager::getPhaseVariable(scalar_t time) const {
   const scalar_t prevEventTime = *(it - 1);
   if (!(nextEventTime > prevEventTime)) return 0.0;
 
-  if (modeSchedule_.modeAtTime(time) == LF) {
-    return (0.5 * (time - prevEventTime) / (nextEventTime - prevEventTime));
-  } else if (modeSchedule_.modeAtTime(time) == RF) {
-    return (0.5 + 0.5 * (time - prevEventTime) / (nextEventTime - prevEventTime));
+  if (modeSchedule_.modeAtTime(time) == ModeNumber::kLf) {
+    return 0.5 * (time - prevEventTime) / (nextEventTime - prevEventTime);
+  } else if (modeSchedule_.modeAtTime(time) == ModeNumber::kRf) {
+    return 0.5 + 0.5 * (time - prevEventTime) / (nextEventTime - prevEventTime);
   } else {
-    if (modeSchedule_.modeAtTime(prevEventTime - 0.01) == LF) {
+    if (modeSchedule_.modeAtTime(prevEventTime - 0.01) == ModeNumber::kLf) {
       return 0.5;
     } else {
       return 0;
@@ -134,11 +136,11 @@ scalar_t SwitchedModelReferenceManager::getPhaseVariable(scalar_t time) const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 vector3_t SwitchedModelReferenceManager::getSwingFootPlaneNormal(size_t contactIndex, scalar_t time) const {
-  const vector3_t flat(0.0, 0.0, 1.0);
-  if (isInContact(time, contactIndex)) return flat;
+  // A flat foot's normal is the world z axis.
+  if (isInContact(time, contactIndex)) return vector3_t::UnitZ();
 
   const scalar_t pitch = swingTrajectoryPtr_->getSwingPitchAngle(contactIndex, time);
-  if (numerics::almost_eq(pitch, /*y=*/0.0)) return flat;
+  if (numerics::almost_eq(pitch, /*y=*/0.0)) return vector3_t::UnitZ();
 
   // Heading of the foot: the planned foot yaw when the contact planner's heading model provides one, otherwise the
   // commanded base yaw, so that the tilt stays about the foot's lateral axis and does not leak into roll.
@@ -148,7 +150,7 @@ vector3_t SwitchedModelReferenceManager::getSwingFootPlaneNormal(size_t contactI
     yaw = *swingReference->yaw;
   } else {
     const vector_t desiredState = getTargetTrajectories().getDesiredState(time);
-    if (desiredState.size() == mpcRobotModelPtr_->getStateDim()) {
+    if (static_cast<size_t>(desiredState.size()) == mpcRobotModelPtr_->getStateDim()) {
       yaw = mpcRobotModelPtr_->getBaseOrientationEulerZYX(desiredState)(0);
     }
   }
@@ -191,7 +193,7 @@ std::pair<vector2_t, scalar_t> SwitchedModelReferenceManager::predictedBaseAt(sc
 FootholdHeuristicContext SwitchedModelReferenceManager::footholdContext(size_t contactIndex, scalar_t time) const {
   FootholdHeuristicContext context;
   context.contactIndex = contactIndex;
-  context.side = (contactIndex == CONTACT_LEFT_INDEX) ? 1.0 : -1.0;
+  context.side = (contactIndex == kContactLeftIndex) ? 1.0 : -1.0;
   const std::pair<vector2_t, scalar_t> predicted = predictedBaseAt(time);
   context.basePosition = predicted.first;
   context.baseYaw = predicted.second;
@@ -212,8 +214,8 @@ std::optional<vector2_t> SwitchedModelReferenceManager::nominalFoothold(size_t c
   // cost's xy weights stay switched off exactly as they were.
   if (stepWidth <= 0.0 && !haveHeuristics) return std::nullopt;
 
-  const size_t stanceIndex = (contactIndex == CONTACT_LEFT_INDEX) ? CONTACT_RIGHT_INDEX : CONTACT_LEFT_INDEX;
-  const scalar_t side = (contactIndex == CONTACT_LEFT_INDEX) ? 1.0 : -1.0;
+  const size_t stanceIndex = (contactIndex == kContactLeftIndex) ? kContactRightIndex : kContactLeftIndex;
+  const scalar_t side = (contactIndex == kContactLeftIndex) ? 1.0 : -1.0;
   const vector2_t& stanceFoot = liftOffPositions_[stanceIndex];
 
   if (!haveHeuristics) {
@@ -230,7 +232,7 @@ std::optional<vector2_t> SwitchedModelReferenceManager::nominalFoothold(size_t c
     // One step of travel from the stance foot is where Raibert's rule puts the foot in steady state, with no
     // coefficient: the stance foot itself landed half a stance of travel ahead of the CoM one step earlier.
     const std::optional<scalar_t> stanceLanded = previousTouchDownTime(modeSchedule_, stanceIndex, time);
-    const std::optional<std::pair<scalar_t, scalar_t>> swing = swingPhaseAtTime(modeSchedule_, contactIndex, time - 1e-9);
+    const std::optional<std::pair<scalar_t, scalar_t>> swing = swingPhaseAtTime(modeSchedule_, contactIndex, time - 1.0e-9);
     const scalar_t stepStart = stanceLanded.has_value() ? *stanceLanded : (swing.has_value() ? swing->first : lastSolveTime_);
     const scalar_t yaw = predictedBaseAt(time).second;
     const vector2_t advance = getCommandedVelocity(time) * std::max(time - stepStart, 0.0);
@@ -260,7 +262,7 @@ std::optional<SwingFootReference> SwitchedModelReferenceManager::getSwingFootRef
   const scalar_t liftOffTime = phase->first;
   const scalar_t touchDownTime = phase->second;
   const scalar_t duration = touchDownTime - liftOffTime;
-  if (duration <= 1e-6) return std::nullopt;
+  if (duration <= 1.0e-6) return std::nullopt;
 
   // The swing starts where the foot actually lifted off, not where the nominal offset would have put it. Blending
   // between two nominal points describes a path the foot is not on, and the step the cost then demands at lift-off is
@@ -298,7 +300,7 @@ void SwitchedModelReferenceManager::captureMeasuredState(scalar_t initTime, cons
   const vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(initState);
   const std::vector<vector3_t> feet = computeContactPositions<scalar_t>(q, pinocchioInterface_, *mpcRobotModelPtr_);
   const contact_flag_t contacts = getContactFlags(initTime);
-  for (size_t foot = 0; foot < N_CONTACTS && foot < feet.size(); ++foot) {
+  for (size_t foot = 0; foot < kNumContacts && foot < feet.size(); ++foot) {
     if (contacts[foot]) liftOffPositions_[foot] = feet[foot].head<2>();
   }
 
@@ -477,7 +479,7 @@ vector_t SwitchedModelReferenceManager::getDesiredInput(const TargetTrajectories
   // exactly the weight; see stanceDutyFactor(). The same whichever reference manager built the schedule, so nothing
   // has to be latched per solve.
   const ModeSchedule& schedule = getModeSchedule();
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     context.stanceDutyFactor[foot] = stanceDutyFactor(schedule, foot, time);
   }
 
@@ -488,7 +490,7 @@ vector_t SwitchedModelReferenceManager::getDesiredInput(const TargetTrajectories
   if (!heuristicLayerPtr_->wrenchNeedsWorldFrame()) {
     vector_t input = weightCompensatingInput(pinocchioInterface_, contactFlags, *mpcRobotModelPtr_);
     if (context.numStanceFeet == 0) return input;
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    for (size_t foot = 0; foot < kNumContacts; ++foot) {
       if (!contactFlags[foot]) continue;
       const vector3_t offset = heuristicLayerPtr_->wrenchOffset(context, foot);
       if (offset.isZero()) continue;
@@ -505,7 +507,7 @@ vector_t SwitchedModelReferenceManager::getDesiredInput(const TargetTrajectories
   vector_t input = vector_t::Zero(mpcRobotModelPtr_->getInputDim());
   if (context.numStanceFeet == 0) return input;
   const vector3_t weightCompensation(0.0, 0.0, context.totalWeight / static_cast<scalar_t>(context.numStanceFeet));
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+  for (size_t foot = 0; foot < kNumContacts; ++foot) {
     if (!contactFlags[foot]) continue;
     mpcRobotModelPtr_->setContactForceInWorldFrame(state, input, weightCompensation + heuristicLayerPtr_->wrenchOffset(context, foot),
                                                    foot);

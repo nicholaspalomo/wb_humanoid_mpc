@@ -19,23 +19,45 @@ jobs:
     runs-on: ubuntu-latest
     # LINT.ThenChange(//tools/ci_local.sh:runner_resources)
     timeout-minutes: 180
-    strategy:
-      matrix:
-        container:
-          - "ros:jazzy"
-    container: ${{ matrix.container }}
+    # LINT.IfChange(container_image)
+    # The dev image's base (docker/Dockerfile), so CI builds against the same Ubuntu packages as the dev container.
+    container: ubuntu:24.04
+    # LINT.ThenChange(//docker/Dockerfile:ubuntu_release, //tools/ci_local.sh:ubuntu_release)
+    # LINT.IfChange(noninteractive_apt)
+    # A plain Ubuntu image asks tzdata's debconf question (python3-pip pulls tzdata in) and waits for an answer; the dev
+    # image sets the same (docker/Dockerfile).
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: Etc/UTC
+    # LINT.ThenChange(//tools/ci_local.sh:noninteractive_apt)
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
+      # Before the checkout, which needs git to clone: without it actions/checkout downloads a tarball with no .git.
       # LINT.IfChange(system_dependencies)
       - name: Install Base Dependencies & Tools
         run: |
           apt-get update && apt-get install -y --no-install-recommends \
-          curl gnupg2 lsb-release software-properties-common \
+          ca-certificates curl gnupg lsb-release \
           locales git gettext-base sudo wget build-essential python3-pip python3-venv
       # LINT.ThenChange(//dependencies.txt:system_dependencies, //docker/Dockerfile:system_dependencies, //tools/ci_local.sh:ci_base_dependencies)
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Pinocchio (robotpkg)
+        run: |
+          sh docker/install_robotpkg.sh
+
+      # The dev image's environment for /opt/openrobots, so that a build or test which only works with it works, or
+      # fails, the same way here and in the dev container. No LD_LIBRARY_PATH: docker/Dockerfile says why.
+      # LINT.IfChange(robotpkg_environment)
+      - name: Set the robotpkg Environment
+        run: |
+          echo "/opt/openrobots/bin" >> "$GITHUB_PATH"
+          echo "PYTHONPATH=/opt/openrobots/lib/python3.12/site-packages" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=/opt/openrobots" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=/opt/openrobots/lib/pkgconfig" >> "$GITHUB_ENV"
+      # LINT.ThenChange(//docker/Dockerfile:robotpkg_environment, //tools/ci_local.sh:robotpkg_environment)
 
       - name: Install Bazel (via Bazelisk)
         run: |
@@ -67,3 +89,15 @@ jobs:
       - name: Run All Tests (Bazel Monorepo)
         run: |
           make test-all
+
+      # clang-tidy after the tests, on the warm build: the aspect (tools/clang_tidy) reuses its analysis and generated
+      # headers. The tests need no clang-tidy, so it is installed only here, by the script the dev image runs.
+      # LINT.IfChange(lint_tidy)
+      - name: Install clang-tidy
+        run: |
+          sh docker/install_llvm_tools.sh tidy
+
+      - name: Lint C++ (clang-tidy)
+        run: |
+          make lint-tidy
+      # LINT.ThenChange(//tools/ci_local.sh:lint_tidy, //.bazelrc:clang_tidy_config)

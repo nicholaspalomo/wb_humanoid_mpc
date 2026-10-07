@@ -1,0 +1,18 @@
+edition = "2023";
+
+package humanoid_mpc_config;
+
+import "nproto/options.proto";
+
+// A value of one joint, by the joint's URDF name: `joint_positions { joint: "back_bkz" value: 5 }`. Lists of them stand
+// for vectors in the model's joint order; the conversions require each joint they need exactly once and refuse an
+// unknown or a fixed one, naming it.
+// Next ID: 3
+message JointValue {
+  option (nproto.generate_struct) = "ocs2::humanoid::mpc_config::JointValue";
+
+  reserved 3 to max;
+
+  string joint = 1 [default = ""];
+  double value = 2 [default = 0.0];
+}

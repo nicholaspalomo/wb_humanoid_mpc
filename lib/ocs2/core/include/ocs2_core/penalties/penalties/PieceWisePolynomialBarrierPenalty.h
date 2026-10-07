@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include "absl/base/nullability.h"
+
 #include <ocs2_core/penalties/penalties/PenaltyBase.h>
 
 namespace ocs2 {
@@ -71,7 +73,7 @@ class PieceWisePolynomialBarrierPenalty final : public PenaltyBase {
   explicit PieceWisePolynomialBarrierPenalty(Config config) : config_(std::move(config)) {}
 
   ~PieceWisePolynomialBarrierPenalty() override = default;
-  PieceWisePolynomialBarrierPenalty* clone() const override { return new PieceWisePolynomialBarrierPenalty(*this); }
+  PieceWisePolynomialBarrierPenalty* absl_nonnull clone() const override { return new PieceWisePolynomialBarrierPenalty(*this); }
   std::string name() const override { return "PieceWisePolynomialBarrierPenalty"; }
 
   scalar_t getValue(scalar_t t, scalar_t h) const override;

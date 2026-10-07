@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -26,8 +30,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/problem/Layout.h"
 
 #include <algorithm>
-#include <stdexcept>
+#include <string>
+#include <vector>
 
+#include "absl/base/nullability.h"
+#include "absl/log/check.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 
@@ -35,7 +42,7 @@ namespace ocs2::humanoid {
 
 namespace var {
 std::string footLabel(size_t foot) {
-  if (N_CONTACTS == 2) return foot == 0 ? "L" : "R";
+  if (kNumContacts == 2) return foot == 0 ? "L" : "R";
   return std::to_string(foot);
 }
 std::string footX(size_t foot) {
@@ -65,9 +72,9 @@ std::string footYawDelta(size_t foot) {
 }  // namespace var
 
 namespace {
-int indexOf(const std::vector<std::string>& names, const std::string& name, const char* what) {
+int indexOf(const std::vector<std::string>& names, const std::string& name, const char* absl_nonnull what) {
   const std::vector<std::string>::const_iterator it = std::find(names.begin(), names.end(), name);
-  if (it == names.end()) throw std::out_of_range(absl::StrCat("[Layout] no ", what, " named '", name, "'"));
+  CHECK(it != names.end()) << "[Layout] no " << what << " named '" << name << "'";
   return static_cast<int>(it - names.begin());
 }
 }  // namespace

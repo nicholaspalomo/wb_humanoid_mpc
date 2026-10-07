@@ -31,9 +31,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
+#include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
+
+#include "absl/base/nullability.h"
+#include "absl/strings/str_format.h"
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 
@@ -43,15 +47,15 @@ namespace {
 struct Rgba {
   float r, g, b, a;
 };
-constexpr Rgba kPanelBackground{0.0f, 0.0f, 0.0f, 0.55f};
-constexpr Rgba kPlanContact{0.35f, 0.70f, 1.0f, 1.0f};  // the plan has the point in contact
-constexpr Rgba kSwing{0.16f, 0.16f, 0.20f, 1.0f};       // in the air (plan or physics, in agreement)
-constexpr Rgba kUnknown{0.40f, 0.40f, 0.40f, 1.0f};     // no plan yet, or no MuJoCo body for the contact point
-constexpr Rgba kSimContact{0.35f, 0.85f, 0.35f, 1.0f};  // physics agrees: touching
-constexpr Rgba kSimEarly{0.95f, 0.25f, 0.25f, 1.0f};    // touching while the plan says swing (early touch-down, scuff)
-constexpr Rgba kSimLate{1.0f, 0.62f, 0.10f, 1.0f};      // in the air while the plan says contact (late touch-down, slip)
-constexpr Rgba kTick{1.0f, 1.0f, 1.0f, 0.25f};
-constexpr Rgba kText{0.92f, 0.92f, 0.92f, 1.0f};
+constexpr Rgba kPanelBackground{.r = 0.0f, .g = 0.0f, .b = 0.0f, .a = 0.55f};
+constexpr Rgba kPlanContact{.r = 0.35f, .g = 0.70f, .b = 1.0f, .a = 1.0f};  // the plan has the point in contact
+constexpr Rgba kSwing{.r = 0.16f, .g = 0.16f, .b = 0.20f, .a = 1.0f};       // in the air (plan or physics, in agreement)
+constexpr Rgba kUnknown{.r = 0.40f, .g = 0.40f, .b = 0.40f, .a = 1.0f};     // no plan yet, or no MuJoCo body for the contact point
+constexpr Rgba kSimContact{.r = 0.35f, .g = 0.85f, .b = 0.35f, .a = 1.0f};  // physics agrees: touching
+constexpr Rgba kSimEarly{.r = 0.95f, .g = 0.25f, .b = 0.25f, .a = 1.0f};    // touching while the plan says swing (early touch-down, scuff)
+constexpr Rgba kSimLate{.r = 1.0f, .g = 0.62f, .b = 0.10f, .a = 1.0f};  // in the air while the plan says contact (late touch-down, slip)
+constexpr Rgba kTick{.r = 1.0f, .g = 1.0f, .b = 1.0f, .a = 0.25f};
+constexpr Rgba kText{.r = 0.92f, .g = 0.92f, .b = 0.92f, .a = 1.0f};
 
 void fillRect(int left, int bottom, int width, int height, const Rgba& color) {
   if (width <= 0 || height <= 0) return;
@@ -60,13 +64,13 @@ void fillRect(int left, int bottom, int width, int height, const Rgba& color) {
 
 /// Width in pixels of `text` in the normal font of `con`. A label box narrower or shorter than its text leaves the
 /// string's raster position outside the box, and OpenGL then drops the whole string, so boxes are sized from this.
-int textWidth(const char* text, const mjrContext* con) {
+int textWidth(const char* absl_nonnull text, const mjrContext* absl_nonnull con) {
   int width = 0;
   for (; *text != '\0'; ++text) width += con->charWidth[static_cast<unsigned char>(*text) & 127];
   return width;
 }
 
-void drawLabel(int left, int bottom, int width, int height, const char* text, const mjrContext* con) {
+void drawLabel(int left, int bottom, int width, int height, const char* absl_nonnull text, const mjrContext* absl_nonnull con) {
   if (width <= 0 || height <= 0) return;
   mjr_label(mjrRect{left, bottom, width, height}, mjFONT_NORMAL, text, /*r=*/0.0f, /*g=*/0.0f, /*b=*/0.0f, /*a=*/0.0f, kText.r, kText.g,
             kText.b, con);
@@ -78,6 +82,10 @@ int contactStateCode(const ContactTimelineSample& sample, int contact) {
          (sample.targetKnown ? 4 : 0);
 }
 }  // namespace
+
+std::string ContactTimelineVisualization::tickLabel(int secondsAgo) {
+  return secondsAgo == 0 ? std::string("now") : absl::StrFormat("-%d s", secondsAgo);
+}
 
 void ContactTimelineVisualization::renderOverlay(const VisualizationFrame& frame) {
   if (frame.sim == nullptr || frame.context == nullptr || !frame.sim->hasContactDetection()) return;
@@ -96,9 +104,12 @@ void ContactTimelineVisualization::renderOverlay(const VisualizationFrame& frame
 
   // Layout in framebuffer pixels (origin bottom-left): a translucent panel along the bottom edge, the label columns on
   // the left, the time axis running left (oldest) to right (now). Every box that holds text is sized from the font.
-  const mjrContext* con = frame.context;
+  const mjrContext* absl_nonnull con = frame.context;
   const int fontH = std::max(12, con->charHeight);
-  constexpr int margin = 12, pad = 8, stripGap = 2, groupGap = 8;
+  constexpr int margin = 12;
+  constexpr int pad = 8;
+  constexpr int stripGap = 2;
+  constexpr int groupGap = 8;
   const int stripH = fontH + 4;  // tall enough for its "plan" / "sim" tag
   const int headerH = fontH + 6;
   const int axisH = fontH + 6;
@@ -124,11 +135,11 @@ void ContactTimelineVisualization::renderOverlay(const VisualizationFrame& frame
 
   // Header: title and legend.
   const int headerB = panelB + panelH - pad - headerH;
-  const char* title = "contact timeline [b]";
+  const char* absl_nonnull title = "contact timeline [b]";
   drawLabel(panelL + pad, headerB, std::max(nameW + tagW, textWidth(title, con) + 8), headerH, title, con);
   {
     int lx = x0;
-    const std::function<void(const Rgba&, const char*)> legend = [&](const Rgba& color, const char* text) {
+    const std::function<void(const Rgba&, const char* absl_nonnull)> legend = [&](const Rgba& color, const char* absl_nonnull text) {
       const int textW = textWidth(text, con) + 8;
       if (lx + 18 + textW > x1) return;  // no room: the rest of the legend is dropped
       fillRect(lx, headerB + 4, fontH - 4, headerH - 8, color);
@@ -188,14 +199,9 @@ void ContactTimelineVisualization::renderOverlay(const VisualizationFrame& frame
   for (int secondsAgo = 0; secondsAgo <= static_cast<int>(window); ++secondsAgo) {
     const int x = xOf(now - secondsAgo);
     fillRect(x, axisB + axisH, /*width=*/1, ticksH, kTick);
-    char text[16];
-    if (secondsAgo == 0) {
-      std::snprintf(text, sizeof(text), "now");
-    } else {
-      std::snprintf(text, sizeof(text), "-%d s", secondsAgo);
-    }
-    const int labelW = textWidth(text, con) + 8;
-    drawLabel(std::clamp(x - labelW / 2, panelL, x1 - labelW), axisB, labelW, axisH, text, con);
+    const std::string text = tickLabel(secondsAgo);
+    const int labelW = textWidth(text.c_str(), con) + 8;
+    drawLabel(std::clamp(x - labelW / 2, panelL, x1 - labelW), axisB, labelW, axisH, text.c_str(), con);
   }
 }
 
