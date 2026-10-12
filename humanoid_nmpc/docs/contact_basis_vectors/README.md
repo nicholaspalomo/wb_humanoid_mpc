@@ -249,11 +249,14 @@ $n_b N_{\text{contacts}} + n_j$, and some tapes (the external-torque cost, the c
 itself. `basisInputsLibraryKey(B_0, B_1)` returns `basis<n_b>_<16 hex digits>`, a content hash of the bases that is
 stable across processes and platforms, and `kWrenchInputsLibraryKey` is its wrench-mode counterpart. The dynamics
 library carries the key in its name (`dynamics_basis11_...`), and `CentroidalMpcInterface` appends the key of the
-parameterization to the CppAD model folder before any term is built -
-`cppad_code_gen/cppad_centroidal_mpc_<robot>/wrench_inputs` or `.../basis11_<hash>` - so every taped term is keyed
-by it. OCS2 loads a cached library by name without checking its domain, and every robot ships
-`model_settings.recompile_libraries_cpp_ad: false`, so without that key switching the parameterization or the basis
-loaded a library built for another input dimension and the process exited on its first evaluation. The first start of
+parameterization to the CppAD model folder before any term is built - below the folder's state-layout tag,
+`cppad_code_gen/cppad_centroidal_mpc_<robot>/translation_spherical_quaternion_v1/wrench_inputs` or
+`.../basis11_<hash>` (`kStateLayoutTag`, humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 3.2) - so
+every taped term is keyed by it. Every robot ships `model_settings.recompile_libraries_cpp_ad: false`, and OCS2 loads a
+cached library by name: before it checked the loaded library's domain and range, switching the parameterization or the
+basis without that key loaded a library built for another input dimension and the process exited on its first
+evaluation. The check now refuses such a library at start-up, naming its folder, but a library of the same dimensions
+and another basis would still load, so the key stays. The first start of
 a centroidal robot with a parameterization or a basis it has not run before compiles every library once, into that
 key's folder.
 

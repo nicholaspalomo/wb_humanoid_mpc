@@ -45,7 +45,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/integration/SensitivityIntegrator.h"
 #include "ocs2_mpc/MPC_Settings.h"
 #include "ocs2_oc/rollout/RolloutSettings.h"
-#include "ocs2_oc/rollout/RootFinderType.h"
 #include "ocs2_sqp/SqpSettings.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
@@ -96,41 +95,6 @@ absl::StatusOr<IntegratorType> rolloutIntegratorNamed(absl::string_view name) {
                     [](std::string* absl_nonnull out, IntegratorType type) { absl::StrAppend(out, integrator_type::toString(type)); })));
 }
 
-/**
- * The name a rollout block gives the root finder `type`: its enumerator's (OCS2 has no toString() for RootFinderType).
- * -Werror=switch refuses this switch when OCS2 adds an algorithm that it does not name.
- */
-absl::string_view rootFinderName(RootFinderType type) {
-  switch (type) {
-    case RootFinderType::ANDERSON_BJORCK:
-      return "ANDERSON_BJORCK";
-    case RootFinderType::PEGASUS:
-      return "PEGASUS";
-    case RootFinderType::ILLINOIS:
-      return "ILLINOIS";
-    case RootFinderType::REGULA_FALSI:
-      return "REGULA_FALSI";
-  }
-  return "unknown";
-}
-
-// The root finders a rollout block can name, each by rootFinderName().
-// LINT.IfChange(root_finders)
-constexpr std::array<RootFinderType, 4> kRootFinders = {RootFinderType::ANDERSON_BJORCK, RootFinderType::PEGASUS, RootFinderType::ILLINOIS,
-                                                        RootFinderType::REGULA_FALSI};
-// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/rollout_settings_config.proto:root_finder_names)
-
-/** The root finder named `name`; InvalidArgument naming the field and listing the root finders otherwise. */
-absl::StatusOr<RootFinderType> rootFinderNamed(absl::string_view name) {
-  for (const RootFinderType type : kRootFinders) {
-    if (rootFinderName(type) == name) return type;
-  }
-  return absl::InvalidArgumentError(
-      absl::StrCat("rollout.root_finder_type: '", name, "' is not a root-finding algorithm of the rollouts; the root finders are ",
-                   absl::StrJoin(kRootFinders, ", ",
-                                 [](std::string* absl_nonnull out, RootFinderType type) { absl::StrAppend(out, rootFinderName(type)); })));
-}
-
 /** `value` as a count; InvalidArgument naming `field` when it is negative. */
 absl::StatusOr<size_t> countOf(absl::string_view field, int32_t value) {
   if (value < 0) {
@@ -153,12 +117,6 @@ std::vector<std::string> rolloutIntegratorNames() {
   return names;
 }
 
-std::vector<std::string> rootFinderNames() {
-  std::vector<std::string> names;
-  for (const RootFinderType type : kRootFinders) names.emplace_back(rootFinderName(type));
-  return names;
-}
-
 absl::StatusOr<sqp::Settings> toSqpSettings(const mpc_config::SqpSettingsConfig& config) {
   sqp::Settings settings;
   ASSIGN_OR_RETURN(settings.sqpIteration, countOf("multiple_shooting.sqp_iteration", config.sqp_iteration));
@@ -171,11 +129,9 @@ absl::StatusOr<sqp::Settings> toSqpSettings(const mpc_config::SqpSettingsConfig&
   settings.armijoFactor = config.armijo_factor;
   settings.gamma_c = config.gamma_c;
   settings.useFeedbackPolicy = config.use_feedback_policy;
-  settings.createValueFunction = config.create_value_function;
   settings.dt = config.dt;
   ASSIGN_OR_RETURN(settings.integratorType, sensitivityIntegratorNamed(config.integrator_type));
   settings.projectStateInputEqualityConstraints = config.project_state_input_equality_constraints;
-  settings.extractProjectionMultiplier = config.extract_projection_multiplier;
   settings.printSolverStatus = config.print_solver_status;
   settings.printSolverStatistics = config.print_solver_statistics;
   settings.printLinesearch = config.print_linesearch;
@@ -196,9 +152,6 @@ absl::StatusOr<rollout::Settings> toRolloutSettings(const mpc_config::RolloutSet
   ASSIGN_OR_RETURN(settings.integratorType, rolloutIntegratorNamed(config.integrator_type));
   settings.checkNumericalStability = config.check_numerical_stability;
   settings.reconstructInputTrajectory = config.reconstruct_input_trajectory;
-  ASSIGN_OR_RETURN(settings.rootFindingAlgorithm, rootFinderNamed(config.root_finder_type));
-  settings.maxSingleEventIterations = config.max_single_event_iterations;
-  settings.useTrajectorySpreadingController = config.use_trajectory_spreading_controller;
   return settings;
 }
 

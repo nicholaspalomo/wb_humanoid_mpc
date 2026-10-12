@@ -40,8 +40,7 @@ namespace ocs2::humanoid::teleop {
 /**
  * Reads lines from a file descriptor (the terminal's standard input) without blocking a shutdown: it waits for input
  * in slices of `pollPeriod` and gives up when the caller's stop predicate holds, so that Ctrl-C ends a program waiting
- * for a line. (The ROS keyboard node read with std::getline() on a thread of its own and ended the process with
- * std::terminate() on shutdown.)
+ * for a line.
  */
 class LineReader {
  public:

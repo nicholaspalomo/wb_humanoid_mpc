@@ -31,22 +31,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
-#include <cstddef>
-
 #include "absl/strings/string_view.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "tools/config_dump/ValueDump.h"
 
 namespace ocs2::humanoid::config_dump {
-
-/** Where the walking target of dumpProblem() moves the base: the index of the base x position in the MPC's state. */
-struct ProblemLayout {
-  size_t inputDim = 0;
-  Eigen::Index basePositionIndex = 0;
-};
 
 /**
  * The optimal control problem `problem` as the solver sees it, with its weights pinned without an accessor of their
@@ -54,13 +47,15 @@ struct ProblemLayout {
  * `referenceManager`, the problem's), at three points of the horizon with a fixed perturbed state and input, every cost
  * and soft-constraint term's value and quadratic approximation (the diagonals of its Hessians element by element, the
  * rest as fingerprints) and the linear-quadratic approximation of the whole problem (cost, dynamics, equality
- * constraints), then the same of the final cost. The terms are evaluated on a copy of `problem`.
+ * constraints), then the same of the final cost. The terms are evaluated on a copy of `problem`. `robotModel` is the
+ * robot model whose state and input the problem has (for the centroidal MPC the effective one): the target moves its base
+ * through MpcRobotModelBase::setBasePosition(), and the inputs have its getInputDim() entries.
  */
 void dumpProblem(ValueDump& dump,
                  absl::string_view path,
                  const OptimalControlProblem& problem,
                  SwitchedModelReferenceManager& referenceManager,
                  const vector_t& initialState,
-                 const ProblemLayout& layout);
+                 const MpcRobotModelBase<scalar_t>& robotModel);
 
 }  // namespace ocs2::humanoid::config_dump

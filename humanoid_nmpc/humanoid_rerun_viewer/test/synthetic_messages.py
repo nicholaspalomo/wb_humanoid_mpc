@@ -47,7 +47,17 @@ from humanoid_rerun_viewer import scene_contract
 from humanoid_rerun_viewer import telemetry_contract
 
 JOINTS = ("left_hip_pitch_joint", "left_knee_joint", "right_hip_pitch_joint")
+# The display coordinates (the base's Euler angles), and the velocity's entries (the world linear and the body angular
+# velocity), as getBaseDofNames() and getBaseVelocityDofNames() name the base's.
 DOFS = ("base_x", "base_y", "base_z", "base_yaw", "base_pitch", "base_roll") + JOINTS
+VELOCITY_DOFS = (
+    "base_vx",
+    "base_vy",
+    "base_vz",
+    "base_wx",
+    "base_wy",
+    "base_wz",
+) + JOINTS
 FRAMES = ("foot_l_contact", "foot_r_contact", "pelvis")
 STATE_DIM = 12
 INPUT_DIM = 9
@@ -59,12 +69,15 @@ def robot_dependent_names(
     dofs: Sequence[str] = DOFS,
     state_dim: int = STATE_DIM,
     input_dim: int = INPUT_DIM,
+    velocity_dofs: Sequence[str] = VELOCITY_DOFS,
 ) -> tuple[str, ...]:
     """The names a producer gives a robot-dependent group, by its names rule."""
     if group.names_rule == telemetry_contract.JOINT_NAMES_RULE:
         return tuple(joints)
     if group.names_rule == telemetry_contract.DOF_NAMES_RULE:
         return tuple(dofs)
+    if group.names_rule == telemetry_contract.DOF_VELOCITY_NAMES_RULE:
+        return tuple(velocity_dofs)
     if group.names_rule == telemetry_contract.STATE_NAMES_RULE:
         return tuple(f"x{index}" for index in range(state_dim))
     if group.names_rule == telemetry_contract.INPUT_NAMES_RULE:

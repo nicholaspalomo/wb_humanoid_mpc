@@ -34,49 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pinocchio/algorithm/center-of-mass.hpp>
 #include <pinocchio/algorithm/centroidal.hpp>
 
-#include <ocs2_pinocchio_interface/urdf.h>
-
 namespace ocs2 {
 namespace centroidal_model {
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-PinocchioInterface createPinocchioInterface(const std::string& urdfFilePath) {
-  // add 6 DoF for the floating base
-  pinocchio::JointModelComposite jointComposite(2);
-  jointComposite.addJoint(pinocchio::JointModelTranslation());
-  jointComposite.addJoint(pinocchio::JointModelSphericalZYX());
-
-  return getPinocchioInterfaceFromUrdfFile(urdfFilePath, jointComposite);
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-PinocchioInterface createPinocchioInterface(const std::string& urdfFilePath, const std::vector<std::string>& jointNames) {
-  using joint_pair_t = std::pair<const std::string, std::shared_ptr<::urdf::Joint>>;
-
-  ::urdf::ModelInterfaceSharedPtr urdfTree = ::urdf::parseURDFFile(urdfFilePath);
-  if (urdfTree == nullptr) {
-    throw std::invalid_argument("The file " + urdfFilePath + " does not contain a valid URDF model!");
-  }
-
-  // remove extraneous joints from urdf
-  ::urdf::ModelInterfaceSharedPtr newModel = std::make_shared<::urdf::ModelInterface>(*urdfTree);
-  for (joint_pair_t& jointPair : newModel->joints_) {
-    if (std::find(jointNames.begin(), jointNames.end(), jointPair.first) == jointNames.end()) {
-      jointPair.second->type = urdf::Joint::FIXED;
-    }
-  }
-
-  // add 6 DoF for the floating base
-  pinocchio::JointModelComposite jointComposite(2);
-  jointComposite.addJoint(pinocchio::JointModelTranslation());
-  jointComposite.addJoint(pinocchio::JointModelSphericalZYX());
-
-  return getPinocchioInterfaceFromUrdfModel(newModel, jointComposite);
-}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -87,18 +46,23 @@ CentroidalModelInfo createCentroidalModelInfo(const PinocchioInterface& interfac
   const auto& model = interface.getModel();
   auto data = interface.getData();
 
-  if (model.nq != nominalJointAngles.size() + 6) {
-    const int expaectedNumJoints = model.nq - 6;
-    throw std::runtime_error("[CentroidalModelInfo] nominalJointAngles.size() should be " + std::to_string(expaectedNumJoints));
+  // The root joint is Composite(Translation, Spherical), the position and the unit quaternion (x, y, z, w) of the base:
+  // 7 configuration and 6 velocity entries of the base, the joints after them.
+  if (model.nv != nominalJointAngles.size() + 6 || model.nq != model.nv + 1) {
+    throw std::runtime_error("[CentroidalModelInfo] the model has nq = " + std::to_string(model.nq) + " and nv = " + std::to_string(model.nv) +
+                             ", but a Composite(Translation, Spherical) root joint with nominalJointAngles.size() = " +
+                             std::to_string(nominalJointAngles.size()) + " joints has nq = nv + 1 and nv = joints + 6");
   }
 
   CentroidalModelInfoTpl<scalar_t> info;
   info.centroidalModelType = type;
   info.numThreeDofContacts = threeDofContactNames.size();
   info.numSixDofContacts = sixDofContactNames.size();
-  info.generalizedCoordinatesNum = model.nq;
-  info.actuatedDofNum = info.generalizedCoordinatesNum - 6;
-  info.stateDim = info.generalizedCoordinatesNum + 6;
+  info.configurationDim = model.nq;
+  info.velocityDim = model.nv;
+  info.actuatedDofNum = info.velocityDim - 6;
+  info.stateDim = info.configurationDim + 6;
+  info.stateTangentDim = info.velocityDim + 6;
   info.inputDim = info.actuatedDofNum + 3 * info.numThreeDofContacts + 6 * info.numSixDofContacts;
   info.robotMass = pinocchio::computeTotalMass(model);
 
@@ -110,13 +74,13 @@ CentroidalModelInfo createCentroidalModelInfo(const PinocchioInterface& interfac
     info.endEffectorFrameIndices.push_back(model.getFrameId(name));
   }
 
-  // make sure the nominal base frame is aligned with the world frame
+  // make sure the nominal base frame is aligned with the world frame: the base at the origin, the identity quaternion
   info.qPinocchioNominal.resize(model.nq);
-  info.qPinocchioNominal << vector_t::Zero(6), nominalJointAngles;
+  info.qPinocchioNominal << vector_t::Zero(3), 0.0, 0.0, 0.0, 1.0, nominalJointAngles;
   info.centroidalInertiaNominal.setZero();
   info.comToBasePositionNominal.setZero();
   if (info.centroidalModelType == CentroidalModelType::SingleRigidBodyDynamics) {
-    const vector_t vPinocchioNominal = vector_t::Zero(info.generalizedCoordinatesNum);
+    const vector_t vPinocchioNominal = vector_t::Zero(info.velocityDim);
     pinocchio::ccrba(model, data, info.qPinocchioNominal, vPinocchioNominal);
     info.centroidalInertiaNominal = data.Ig.inertia().matrix();
     info.comToBasePositionNominal = info.qPinocchioNominal.template head<3>() - data.com[0];

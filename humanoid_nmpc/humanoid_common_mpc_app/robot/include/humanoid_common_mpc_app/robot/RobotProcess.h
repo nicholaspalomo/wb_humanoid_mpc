@@ -89,8 +89,8 @@ namespace ocs2::humanoid {
  *   8. the fall recovery, and the MPC resets and FSM states it calls for;
  *   9. send the joint action to the backend, unless the torques are off;
  *  10. the MPC's health into the FSM state.
- * The action goes to the backend after the cycle's FSM command and fall recovery (9), not before them as in the ROS
- * sims: a cycle that switches the torques back on hands the backend the action it computed - in ZERO_TORQUE, no gain
+ * The action goes to the backend after the cycle's FSM command and fall recovery (9), not before them: a cycle that
+ * switches the torques back on hands the backend the action it computed - in ZERO_TORQUE, no gain
  * and no torque - instead of leaving it the action latched when the torques went off, possibly long before and in
  * another mode, for a control period. The simulator also refuses to execute an action applied before its torques came
  * back on (RobotHWInterfaceBase::discardAppliedJointAction()).

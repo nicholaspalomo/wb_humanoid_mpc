@@ -95,9 +95,15 @@ Both replaced a top-level boolean, now the retired fields `use_dcm_terminal_cost
 ### 1. Repository Setup
 
 ```bash
-git clone https://github.com/1x-technologies/wb-humanoid-mpc.git
-cd wb-humanoid-mpc
+mkdir -p ~/workspace
+git clone https://github.com/1x-technologies/wb-humanoid-mpc.git ~/workspace/wb_humanoid_mpc
+cd ~/workspace/wb_humanoid_mpc
 ```
+
+> **Note:** The dev container expects the checkout at `<home>/workspace/wb_humanoid_mpc`. `docker-compose.yaml` mounts
+> the checkout's grandparent (your home) at `/wb_humanoid_mpc_ws` and starts in
+> `/wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc`, where `.devcontainer/devcontainer.json` opens the workspace too. The
+> launch targets and the editor's clangd (`tools/ide/README.md`) reach the container's checkout through the same mount.
 
 > **Note:** The repository uses **Bazel 9.x** with `bzlmod` for hermetic dependency management. There is no ROS: the robot, the MPC and the operator tools are separate processes on a ZeroMQ + Protocol Buffers bus, and Rerun draws the robot, the plan and the plots ([humanoid_nmpc/docs/distributed_runtime/README.md](humanoid_nmpc/docs/distributed_runtime/README.md)).
 
@@ -127,7 +133,6 @@ The recommended way to develop and run the simulation is using the provided Dock
    ```bash
    docker compose exec app bash
    ```
-3. (Optional) Run `./docker/image_build.bash` and `./docker/launch_wb_mpc.bash` helper scripts.
 
 </details>
 
@@ -138,7 +143,7 @@ Install Pinocchio from robotpkg into `/opt/openrobots`, then the system packages
 (`docker/Dockerfile`):
 ```bash
 sudo sh docker/install_robotpkg.sh
-grep -v '^\s*#' dependencies.txt | envsubst | xargs sudo apt-get install -y --no-install-recommends
+grep -v '^\s*#' dependencies.txt | xargs sudo apt-get install -y --no-install-recommends
 curl -sSL -o /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
 sudo chmod +x /usr/local/bin/bazel
 make install-hooks
@@ -185,17 +190,19 @@ remote MPC link. Starting a container takes the host's Docker, so run the `-sim`
 build and run the laptop side inside the dev container through `docker exec` (`DEV_CONTAINER=`). The dummy-sim and
 sandbox targets run anywhere.
 
-**After the switch from ROS, recreate the dev container.** A dev container created from the old ROS image has no
-Pinocchio in `/opt/openrobots` and cannot build this checkout (`tools/deploy/in_dev_container.sh` says so): rebuild it
-from `docker/Dockerfile` and `docker-compose.yaml` (Dev Containers: **Rebuild Container**, or
-`docker compose up -d --build --force-recreate` on the host) before using the launch and deployment targets.
-
 ### Visualization Options
-- **Local Linux:** GUI windows (MuJoCo viewer / Rerun / Controller GUI) draw on the display of the shell the target
-  runs in. From the host, allow the containers on it once: `xhost +SI:localuser:root +SI:localuser:$(id -un)`.
-- **Remote SSH (Linux host):** Use the `-vnc` targets to stream the desktop directly to your browser. Navigate to **`http://localhost:6080/vnc.html`** for the MuJoCo viewer and operator GUI, and **`http://localhost:9090/?url=rerun+http://localhost:9876/proxy`** for Rerun. See the [Visualization Guide](.devcontainer/README.md) for full details.
+- **Local Linux:** GUI windows (Rerun / Controller GUI, and the MuJoCo viewer with `VIEWER=glfw`) draw on the display
+  of the shell the target runs in. From the host, allow the containers on it once:
+  `xhost +SI:localuser:root +SI:localuser:$(id -un)`.
+- **Remote SSH (Linux host):** Use the `-vnc` targets to stream the desktop directly to your browser. Navigate to **`http://localhost:6080/vnc.html`** for the operator GUI (and the MuJoCo window with `VIEWER=glfw`), **`http://localhost:6090`** for the MuJoCo web viewer, and **`http://localhost:9090/?url=rerun+http://localhost:9876/proxy`** for Rerun. See the [Visualization Guide](.devcontainer/README.md) for full details.
 - **macOS (Docker Desktop):** the containers do not share a host network there, so the MuJoCo `-sim` targets do not
   run; use `make launch-<robot>-dummy-sim-vnc` and the sandbox targets, which run entirely in the dev container.
+- **MuJoCo in a browser (the default):** `make launch-<robot>-sim` serves the MuJoCo viewer at
+  **`http://localhost:6090`**, rendered offscreen without an X server or VNC (forward the port from a remote host). The
+  plot configuration chooses it (`mujoco_viewer: "web"` in
+  [`plot_config.textproto`](humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto), `PLOT_CONFIG=` names
+  another file); `VIEWER=glfw` opens the old window on `DISPLAY` instead (the VNC desktop with `-vnc`). See the
+  [Visualization Guide](.devcontainer/README.md#mujoco-web-viewer).
 - **Rerun in a browser:** opens at **`http://localhost:9090/?url=rerun+http://localhost:9876/proxy`** by default (or enter `rerun+http://localhost:9876/proxy` if prompted; set `RERUN_SINK=spawn` for the native window).
 
 ### Launch Targets
@@ -205,13 +212,15 @@ For every robot configuration - `g1` (Unitree G1, centroidal MPC), `wb-g1` (G1, 
 (Unitree R1), `sa01` (EngineAI SA01):
 
 ```bash
-make launch-drc-atlas-sim             # MuJoCo sim: robot-sim container + MPC, GUI and Rerun bridge (run on the host)
-make launch-drc-atlas-sim-vnc         # ... on the VNC desktop (Browser / Remote SSH; not on macOS: Docker Desktop)
+make launch-drc-atlas-sim             # MuJoCo sim: robot-sim container + MPC, GUI and Rerun bridge (run on the host);
+                                      # the MuJoCo viewer at http://localhost:6090
+make launch-drc-atlas-sim-vnc         # ... GUI on the VNC desktop (Browser / Remote SSH; not on macOS: Docker Desktop)
 make launch-drc-atlas-dummy-sim       # the MPC against the dummy simulator (the MPC model's own rollout)
 make launch-drc-atlas-dummy-sim-vnc
 make launch-drc-atlas-sandbox-vnc     # the URDF in Rerun with a slider per joint (not for wb-g1: use g1)
 make launch-drc-atlas-sim NETEM="delay 3ms 1ms loss 0.5%"   # the bus over a delayed, lossy link (tc netem)
-make launch-drc-atlas-sim HEADLESS=true RERUN_SINK=serve_web
+make launch-drc-atlas-sim-vnc VIEWER=glfw   # the MuJoCo viewer as a window on the VNC desktop, as before
+make launch-drc-atlas-sim VIEWER=none RERUN_SINK=serve_web    # no MuJoCo viewer; Rerun in the browser
 ```
 
 On a real robot (the robot's computer needs only Docker; [tools/deploy](tools/deploy/README.md)):
@@ -326,8 +335,10 @@ telemetry_frames: "pelvis"
 - **`telemetry_frames`:** Optional targeted list of Pinocchio frames to monitor. The telemetry engine automatically computes forward kinematics, spatial twists, frame accelerations, and contact wrenches for both measured and MPC desired states.
 
 Weights and states are addressed by name, never by index. Momenta, positions and velocities are `{x y z}` blocks, the
-base orientation is tuned in Euler angles `{yaw pitch roll}`, and joints are named entries; every joint of the MPC
-model is listed exactly once, and a missing, unknown or fixed joint is refused by name:
+base orientation is tuned in Euler angles `{yaw pitch roll}` (the MPC's state holds a unit quaternion, and one layer
+maps the angles onto it: [quaternion_base_orientation](humanoid_nmpc/docs/quaternion_base_orientation/README.md)), and
+joints are named entries; every joint of the MPC model is listed exactly once, and a missing, unknown or fixed joint is
+refused by name:
 
 ```textproto
 state_weights {
@@ -401,8 +412,11 @@ bazel run //humanoid_nmpc/humanoid_rerun_viewer -- --urdf <robot.urdf> --rerun_s
 *(Or click **Open Rerun viewer** in the Base Controller GUI.)*
 
 #### Plot Tabs
-1. **Base Pose & Euler:** the measured floating-base position and orientation (roll, pitch, yaw) against the MPC's reference.
-2. **Base Twist:** the measured base linear and angular velocities against the reference.
+1. **Base Pose & Euler:** the measured floating-base position and orientation against the MPC's reference: the Euler
+   angles (roll, pitch, yaw) of the base quaternion, their rates and the body angular velocity. The angles and rates are
+   display values, computed by the MPC node; the rates leave a gap within 1e-6 of a pitch of ±90°.
+2. **Base Twist:** the measured base linear and angular velocities (the angular one in the world frame) against the
+   reference.
 3. **Contact Forces:** the MPC's planned foot contact forces against the forces the simulator's foot sensors measure.
 4. **Joint Dynamics:** joint positions, velocities and efforts against the applied joint targets.
 5. **Generalized Coordinates (Pinocchio):** generalized coordinates and velocities, measured against the reference.

@@ -31,14 +31,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // input: each block lands at the coordinates of its MPC whatever order the file names joints and contacts in, every
 // element is `scaling` times its entry (also -0.0 off the diagonal), and what the MPC needs and does not have is
 // refused naming the field path, every problem at once. An absent scaling is 1, and the schemas refuse their retired
-// keys naming their replacement.
+// keys naming their replacement. Every shipped task file's state_weights, final_state_weights and initial_state convert
+// to the n_t rows of the tuning layout - the tangent of the quaternion state, one row fewer than the state - with each
+// orientation block on its own rows, and the initial state onto the quaternion state.
 
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -46,19 +50,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 
+#include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
+#include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_mpc_config/acom_weights.nproto.h"
 #include "humanoid_mpc_config/com_weights.nproto.h"
 #include "humanoid_mpc_config/input_weights.nproto.h"
 #include "humanoid_mpc_config/joint_weights.nproto.h"
 #include "humanoid_mpc_config/state_values.nproto.h"
+#include "humanoid_mpc_config/state_values.pb.h"
 #include "humanoid_mpc_config/state_weights.nproto.h"
+#include "humanoid_mpc_config/state_weights.pb.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.pb.h"
 #include "humanoid_mpc_config/task_file.pb.h"
+#include "humanoid_mpc_config/yaw_pitch_roll.nproto.h"
 #include "nproto/Textproto.h"
 
 namespace ocs2::humanoid {
@@ -139,10 +149,78 @@ constexpr absl::string_view kWholeBodyState = R"pb(
 )pb";
 
 TEST(StateInputLayoutTest, TheDimensionsAreThoseOfTheMpcsStateAndInput) {
-  EXPECT_EQ(stateDimension(smallLayout(StateInputLayout::Mpc::kCentroidal)), 14U);
-  EXPECT_EQ(stateDimension(smallLayout(StateInputLayout::Mpc::kWholeBody)), 16U);
+  EXPECT_EQ(tuningDimension(smallLayout(StateInputLayout::Mpc::kCentroidal)), 14U);
+  EXPECT_EQ(tuningDimension(smallLayout(StateInputLayout::Mpc::kWholeBody)), 16U);
   EXPECT_EQ(inputDimension(smallLayout(StateInputLayout::Mpc::kCentroidal)), 14U);
   EXPECT_EQ(inputDimension(smallLayout(StateInputLayout::Mpc::kWholeBody)), 14U);
+}
+
+/** A block of the tuning layout as the counting states above give it: its field, kind and first and last values. */
+struct ExpectedBlock {
+  std::string field;
+  TuningSegmentKind kind = TuningSegmentKind::kEuclidean;
+  scalar_t firstValue = 0.0;
+  scalar_t lastValue = 0.0;
+};
+
+/**
+ * tuningLayoutOf(layout) describes the vector stateValuesFromConfig() builds from `stateText`, which counts 1, 2, ... in
+ * state order: each block, in order, is the field of that name, at the offset where placeState() puts it - its first and
+ * last entries hold the field's first and last values - and the field exists in both StateValues and StateWeights.
+ */
+void expectTuningLayoutIsPlaceStatesLayout(const StateInputLayout& layout,
+                                           absl::string_view stateText,
+                                           const std::vector<ExpectedBlock>& blocks) {
+  const TuningLayout tuningLayout = tuningLayoutOf(layout);
+  ASSERT_EQ(tuningLayout.segments.size(), blocks.size());
+  EXPECT_EQ(getTuningLayoutDim(tuningLayout), tuningDimension(layout));
+  const mpc_config::TaskFile task = taskFile(absl::StrCat("initial_state { ", stateText, " }"));
+  const absl::StatusOr<vector_t> state = stateValuesFromConfig(task.initial_state, layout, "initial_state");
+  ASSERT_TRUE(state.ok()) << state.status();
+  ASSERT_EQ(static_cast<size_t>(state->size()), getTuningLayoutDim(tuningLayout));
+  size_t offset = 0;
+  for (size_t i = 0; i < blocks.size(); ++i) {
+    const TuningSegment& segment = tuningLayout.segments[i];
+    const ExpectedBlock& expected = blocks[i];
+    EXPECT_EQ(segment.name, expected.field);
+    EXPECT_EQ(segment.kind, expected.kind) << segment.name;
+    // Not placed on a state: the robot model places it.
+    EXPECT_EQ(segment.stateDim, 0U) << segment.name;
+    const absl::StatusOr<size_t> start = tuningSegmentStart(tuningLayout, segment.name);
+    ASSERT_TRUE(start.ok()) << start.status();
+    EXPECT_EQ(*start, offset) << segment.name;
+    ASSERT_GT(segment.tuningDim, 0U) << segment.name;
+    EXPECT_EQ((*state)(static_cast<Eigen::Index>(*start)), expected.firstValue) << segment.name;
+    EXPECT_EQ((*state)(static_cast<Eigen::Index>(*start + segment.tuningDim - 1)), expected.lastValue) << segment.name;
+    EXPECT_NE(humanoid_mpc_config::StateValues::descriptor()->FindFieldByName(segment.name), nullptr) << segment.name;
+    EXPECT_NE(humanoid_mpc_config::StateWeights::descriptor()->FindFieldByName(segment.name), nullptr) << segment.name;
+    offset += segment.tuningDim;
+  }
+}
+
+TEST(StateInputLayoutTest, TheCentroidalTuningLayoutIsWherePlaceStatePutsEachBlock) {
+  expectTuningLayoutIsPlaceStatesLayout(
+      smallLayout(StateInputLayout::Mpc::kCentroidal), kCentroidalState,
+      {
+          {.field = "normalized_linear_momentum", .firstValue = 1.0, .lastValue = 3.0},
+          {.field = "normalized_angular_momentum", .firstValue = 4.0, .lastValue = 6.0},
+          {.field = "base_position", .firstValue = 7.0, .lastValue = 9.0},
+          {.field = "base_orientation", .kind = TuningSegmentKind::kEulerZyxOrientation, .firstValue = 10.0, .lastValue = 12.0},
+          {.field = "joint_positions", .firstValue = 13.0, .lastValue = 14.0},
+      });
+}
+
+TEST(StateInputLayoutTest, TheWholeBodyTuningLayoutIsWherePlaceStatePutsEachBlock) {
+  expectTuningLayoutIsPlaceStatesLayout(
+      smallLayout(StateInputLayout::Mpc::kWholeBody), kWholeBodyState,
+      {
+          {.field = "base_position", .firstValue = 1.0, .lastValue = 3.0},
+          {.field = "base_orientation", .kind = TuningSegmentKind::kEulerZyxOrientation, .firstValue = 4.0, .lastValue = 6.0},
+          {.field = "joint_positions", .firstValue = 7.0, .lastValue = 8.0},
+          {.field = "base_linear_velocity", .firstValue = 9.0, .lastValue = 11.0},
+          {.field = "base_angular_velocity", .kind = TuningSegmentKind::kZyxOrderedAngularVelocity, .firstValue = 12.0, .lastValue = 14.0},
+          {.field = "joint_velocities", .firstValue = 15.0, .lastValue = 16.0},
+      });
 }
 
 TEST(StateWeightsFromConfigTest, EachBlockLandsOnItsCentroidalCoordinatesScaled) {
@@ -384,6 +462,56 @@ TEST(TerminalCostScalingFromConfigTest, TheScalingIsRequired) {
   EXPECT_EQ(*scaling, 4.0);
 }
 
+TEST(TrackingStateWeightsFromConfigTest, TheBasePoseBlockIsKeptOrZeroedAndNothingElseChanges) {
+  const StateInputLayout layout = smallLayout(StateInputLayout::Mpc::kCentroidal);
+  const mpc_config::TaskFile task = taskFile(absl::StrCat("state_weights { scaling: 2 ", kCentroidalState, " }"));
+  const absl::StatusOr<matrix_t> converted = stateWeightsFromConfig(task.state_weights, layout, "state_weights");
+  ASSERT_TRUE(converted.ok()) << converted.status();
+  const absl::StatusOr<matrix_t> kept = trackingStateWeightsFromConfig(task.state_weights, layout, "state_weights", BasePoseWeights::kKept);
+  ASSERT_TRUE(kept.ok()) << kept.status();
+  EXPECT_TRUE(*kept == *converted);
+
+  const absl::StatusOr<matrix_t> zeroed =
+      trackingStateWeightsFromConfig(task.state_weights, layout, "state_weights", BasePoseWeights::kZeroedForComAndAcomTracking);
+  ASSERT_TRUE(zeroed.ok()) << zeroed.status();
+  // The rows of base_position and base_orientation of the tuning layout, and only those.
+  const TuningLayout tuningLayout = tuningLayoutOf(layout);
+  const absl::StatusOr<size_t> first = tuningSegmentStart(tuningLayout, "base_position");
+  const absl::StatusOr<size_t> orientation = tuningSegmentStart(tuningLayout, "base_orientation");
+  ASSERT_TRUE(first.ok() && orientation.ok());
+  const Eigen::Index begin = static_cast<Eigen::Index>(*first);
+  const Eigen::Index end = static_cast<Eigen::Index>(*orientation + 3);
+  for (Eigen::Index row = 0; row < zeroed->rows(); ++row) {
+    for (Eigen::Index col = 0; col < zeroed->cols(); ++col) {
+      const bool basePose = row >= begin && row < end && col >= begin && col < end;
+      EXPECT_EQ((*zeroed)(row, col), basePose ? 0.0 : (*converted)(row, col)) << "(" << row << "," << col << ")";
+    }
+  }
+}
+
+TEST(TerminalStateWeightsFromConfigTest, TheScalingWeighsTheTreatedFinalStateWeights) {
+  const StateInputLayout layout = smallLayout(StateInputLayout::Mpc::kCentroidal);
+  const mpc_config::TaskFile task = taskFile(absl::StrCat("final_state_weights { scaling: 3 ", kCentroidalState, " }"));
+  for (const BasePoseWeights basePose : {BasePoseWeights::kKept, BasePoseWeights::kZeroedForComAndAcomTracking}) {
+    const absl::StatusOr<matrix_t> tracking =
+        trackingStateWeightsFromConfig(task.final_state_weights, layout, "final_state_weights", basePose);
+    const absl::StatusOr<matrix_t> terminal =
+        terminalStateWeightsFromConfig(task.final_state_weights, /*terminalCostScaling=*/4.0, layout, "final_state_weights", basePose);
+    ASSERT_TRUE(tracking.ok()) << tracking.status();
+    ASSERT_TRUE(terminal.ok()) << terminal.status();
+    // Element for element the multiplication the factory and the live updater each made before.
+    matrix_t expected = *tracking;
+    expected *= 4.0;
+    EXPECT_TRUE(*terminal == expected);
+  }
+  // A refused conversion is the conversion's error, naming the field.
+  const mpc_config::TaskFile refused = taskFile(absl::StrCat("final_state_weights { scaling: 3 ", kWholeBodyState, " }"));
+  expectRefused(terminalStateWeightsFromConfig(refused.final_state_weights, /*terminalCostScaling=*/4.0, layout, "final_state_weights",
+                                               BasePoseWeights::kKept)
+                    .status(),
+                {"final_state_weights.base_linear_velocity"});
+}
+
 TEST(LegTorqueCostFromConfigTest, TheJointsKeepTheirOrderAndAreScaled) {
   const mpc_config::TaskFile task = taskFile(R"pb(
     left_leg_torque_cost {
@@ -464,6 +592,128 @@ TEST(WeightSchemaTest, TheKeysOfTheIndexedMatricesAreRefusedNamingTheirReplaceme
     const absl::StatusOr<mpc_config::TaskFile> task = parseTaskFile(text);
     EXPECT_EQ(task.status().code(), absl::StatusCode::kInvalidArgument) << text;
     EXPECT_TRUE(absl::StrContains(task.status().message(), "is retired: ")) << task.status();
+  }
+}
+
+/******************************************************************************************************/
+/* The shipped task files on the quaternion layout                                                    */
+/******************************************************************************************************/
+
+/** A shipped MPC's task file and the URDF its ModelSettings are made of, from the repository root. */
+struct ShippedTaskFile {
+  const char* absl_nonnull name;
+  const char* absl_nonnull taskFile;
+  const char* absl_nonnull urdfFile;
+  StateInputLayout::Mpc mpc;
+};
+
+// LINT.IfChange(shipped_task_files)
+constexpr std::array<ShippedTaskFile, 5> kShippedTaskFiles = {{
+    {.name = "drc_atlas_centroidal_mpc",
+     .taskFile = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto",
+     .urdfFile = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
+     .mpc = StateInputLayout::Mpc::kCentroidal},
+    {.name = "engineai_sa01_centroidal_mpc",
+     .taskFile = "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto",
+     .urdfFile = "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf",
+     .mpc = StateInputLayout::Mpc::kCentroidal},
+    {.name = "g1_centroidal_mpc",
+     .taskFile = "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto",
+     .urdfFile = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf",
+     .mpc = StateInputLayout::Mpc::kCentroidal},
+    {.name = "g1_wb_mpc",
+     .taskFile = "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto",
+     .urdfFile = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf",
+     .mpc = StateInputLayout::Mpc::kWholeBody},
+    {.name = "unitree_r1_centroidal_mpc",
+     .taskFile = "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto",
+     .urdfFile = "robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf",
+     .mpc = StateInputLayout::Mpc::kCentroidal},
+}};
+// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/BUILD.bazel:config_test_data)
+
+/** `relativePath` in the test's runfiles. */
+std::string runfilesPath(absl::string_view relativePath) {
+  const char* absl_nullable directory = std::getenv("TEST_SRCDIR");
+  return directory == nullptr ? std::string(relativePath) : absl::StrCat(directory, "/_main/", relativePath);
+}
+
+/** (yaw, pitch, roll) of `angles`. */
+vector3_t yawPitchRollOf(const mpc_config::YawPitchRoll& angles) {
+  return vector3_t(angles.yaw, angles.pitch, angles.roll);
+}
+
+/** The diagonal of `matrix`, a square matrix that is diagonal (every other entry exactly zero, which the test expects). */
+vector_t diagonalOf(const matrix_t& matrix) {
+  EXPECT_EQ(matrix.rows(), matrix.cols());
+  EXPECT_TRUE(matrix_t(matrix - matrix_t(matrix.diagonal().asDiagonal())).isZero(0.0)) << "the weights are not diagonal";
+  return matrix.diagonal();
+}
+
+TEST(ShippedTaskFilesTest, TheStateRowsConvertToTheTuningLayoutWithEachOrientationBlockOnItsRows) {
+  for (const ShippedTaskFile& robot : kShippedTaskFiles) {
+    SCOPED_TRACE(robot.name);
+    const absl::StatusOr<mpc_config::TaskFile> task = loadTaskFile(runfilesPath(robot.taskFile));
+    ASSERT_TRUE(task.ok()) << task.status();
+    const absl::StatusOr<ModelSettings> settings =
+        ModelSettings::Create(*task, runfilesPath(robot.urdfFile), "testStateInputWeightsFromConfig_", /*verbose=*/false);
+    ASSERT_TRUE(settings.ok()) << settings.status();
+    const StateInputLayout layout = stateInputLayout(*settings, robot.mpc);
+    const TuningLayout tuning = tuningLayoutOf(layout);
+    const Eigen::Index tuningDim = static_cast<Eigen::Index>(tuningDimension(layout));
+    ASSERT_EQ(getTuningLayoutDim(tuning), tuningDimension(layout));
+    // The quaternion state the robot models store: one entry more than the tuning layout, which is its tangent.
+    const TuningLayout placed = placeTuningLayout(tuning);
+    ASSERT_EQ(getTuningLayoutStateDim(placed), tuningDimension(layout) + 1);
+    const bool wholeBody = robot.mpc == StateInputLayout::Mpc::kWholeBody;
+
+    const absl::StatusOr<size_t> orientationRow = tuningSegmentStart(tuning, "base_orientation");
+    ASSERT_TRUE(orientationRow.ok()) << orientationRow.status();
+    const Eigen::Index orientation = static_cast<Eigen::Index>(*orientationRow);
+    Eigen::Index angularVelocity = 0;
+    if (wholeBody) {
+      const absl::StatusOr<size_t> angularVelocityRow = tuningSegmentStart(tuning, "base_angular_velocity");
+      ASSERT_TRUE(angularVelocityRow.ok()) << angularVelocityRow.status();
+      angularVelocity = static_cast<Eigen::Index>(*angularVelocityRow);
+    }
+
+    const std::array<std::pair<const char* absl_nonnull, const mpc_config::StateWeights* absl_nonnull>, 2> weights = {
+        {{"state_weights", &task->state_weights}, {"final_state_weights", &task->final_state_weights}}};
+    for (const std::pair<const char* absl_nonnull, const mpc_config::StateWeights* absl_nonnull>& field : weights) {
+      SCOPED_TRACE(field.first);
+      const mpc_config::StateWeights& fileWeights = *field.second;
+      const absl::StatusOr<matrix_t> Q = stateWeightsFromConfig(fileWeights, layout, field.first);
+      ASSERT_TRUE(Q.ok()) << Q.status();
+      ASSERT_EQ(Q->rows(), tuningDim);
+      const vector_t diagonal = diagonalOf(*Q);
+      const vector3_t expectedOrientation =
+          fileWeights.scaling * yawPitchRollOf(fileWeights.base_orientation.value_or(mpc_config::YawPitchRoll{}));
+      EXPECT_EQ(vector3_t(diagonal.segment<3>(orientation)), expectedOrientation) << "the (yaw, pitch, roll) rows";
+      if (wholeBody) {
+        const vector3_t expectedAngularVelocity =
+            fileWeights.scaling * yawPitchRollOf(fileWeights.base_angular_velocity.value_or(mpc_config::YawPitchRoll{}));
+        EXPECT_EQ(vector3_t(diagonal.segment<3>(angularVelocity)), expectedAngularVelocity) << "the body (z, y, x) rows";
+      }
+    }
+
+    const absl::StatusOr<vector_t> initial = stateValuesFromConfig(task->initial_state, layout, "initial_state");
+    ASSERT_TRUE(initial.ok()) << initial.status();
+    ASSERT_EQ(initial->size(), tuningDim);
+    const vector3_t initialOrientation = yawPitchRollOf(task->initial_state.base_orientation.value_or(mpc_config::YawPitchRoll{}));
+    EXPECT_EQ(vector3_t(initial->segment<3>(orientation)), initialOrientation);
+    const absl::StatusOr<vector_t> state = stateFromTuningLayout(*initial, placed);
+    ASSERT_TRUE(state.ok()) << state.status();
+    ASSERT_EQ(state->size(), tuningDim + 1);
+    // The orientation is the quaternion of the file's angles, at the slots the tuning row of its yaw starts.
+    EXPECT_EQ(vector4_t(state->segment<4>(orientation)), quaternionFromEulerZyx(initialOrientation));
+    EXPECT_NEAR(state->segment<4>(orientation).norm(), 1.0, 1.0e-15);
+    if (wholeBody) {
+      // w_B = (x, y, z) of the rows (z, y, x), one slot further on than its tuning rows.
+      EXPECT_EQ(vector3_t(state->segment<3>(angularVelocity + 1)), vector3_t(initial->segment<3>(angularVelocity).reverse()));
+    }
+    const absl::StatusOr<vector_t> roundTrip = tuningLayoutFromState(*state, placed);
+    ASSERT_TRUE(roundTrip.ok()) << roundTrip.status();
+    EXPECT_LE((*roundTrip - *initial).cwiseAbs().maxCoeff(), 1.0e-12) << "the initial state does not come back from the state";
   }
 }
 

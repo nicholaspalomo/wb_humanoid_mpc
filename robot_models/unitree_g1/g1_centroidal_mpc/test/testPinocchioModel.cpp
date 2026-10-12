@@ -54,6 +54,7 @@ Contact:  manuel.galliker@1x.tech
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 #include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
 #include "pinocchio/multibody/data.hpp"
 #include "pinocchio/multibody/model.hpp"
@@ -95,17 +96,23 @@ vector_t randomNormal(int size, std::mt19937& generator) {
   return values;
 }
 
-/** `count` standard-normal samples of the generalized coordinates, velocities, joint accelerations and foot wrenches. */
+/**
+ * `count` standard-normal samples of the generalized coordinates, velocities, joint accelerations and foot wrenches. The
+ * base orientation of each configuration is its sample normalized (pinocchio::normalize()): a unit quaternion.
+ */
 InverseDynamicsSamples randomInverseDynamicsSamples(const PinocchioInterface& pinocchioInterface, int count) {
-  const int nq = pinocchioInterface.getModel().nq;
-  const int nv = pinocchioInterface.getModel().nv;
+  const pinocchio::Model& model = pinocchioInterface.getModel();
+  const int nq = model.nq;
+  const int nv = model.nv;
   const int numJoints = nv - 6;  // a floating base: 6 base degrees of freedom and the joints
 
   std::random_device seed;
   std::mt19937 generator(seed());
   InverseDynamicsSamples samples;
   for (int i = 0; i < count; ++i) {
-    samples.q.push_back(randomNormal(nq, generator));
+    vector_t q = randomNormal(nq, generator);
+    pinocchio::normalize(model, q);
+    samples.q.push_back(std::move(q));
     samples.qd.push_back(randomNormal(nv, generator));
     samples.qddJoints.push_back(randomNormal(numJoints, generator));
     std::array<VECTOR6_T<scalar_t>, 2> footWrenches;
@@ -167,6 +174,17 @@ void compareInverseDynamics(PinocchioInterface& pinocchioInterface) {
     LOG(INFO) << "Result custom:" << resultCustom.transpose();
     LOG(INFO) << "Result rnea  :" << resultRnea.transpose();
   }
+}
+
+/**
+ * The neutral configuration of `model` (pinocchio::neutral(): the base at the origin, upright, with the identity
+ * quaternion of the Composite(Translation, Spherical) root, and every joint at zero) with the base raised to `baseHeight`.
+ */
+Eigen::VectorXd neutralConfigurationAtHeight(const pinocchio::Model& model, double baseHeight) {
+  Eigen::VectorXd q = pinocchio::neutral(model);
+  // The root joint (joint 1, after the universe) starts its configuration with the base position (x, y, z).
+  q[model.joints[1].idx_q() + 2] = baseHeight;
+  return q;
 }
 
 /** The entries of `values`, each with `precision` decimals. */
@@ -274,8 +292,7 @@ int printModels() {
   printModelDimensionality(pinocchioInterface);
   printJointNames(pinocchioInterface);
 
-  Eigen::VectorXd q = Eigen::VectorXd::Zero(35);
-  q[2] = 0.8415;
+  Eigen::VectorXd q = neutralConfigurationAtHeight(pinocchioInterface.getModel(), /*baseHeight=*/0.8415);
   computeForwardKinematics(pinocchioInterface, q);
   const std::string leftFootFrameName = "foot_l_contact";
   const std::string rightFootFrameName = "foot_r_contact";
@@ -302,8 +319,7 @@ int printModels() {
   printModelDimensionality(pinocchioInterface);
   printJointNames(pinocchioInterface);
 
-  q = Eigen::VectorXd::Zero(29);
-  q[2] = 0.7925;
+  q = neutralConfigurationAtHeight(pinocchioInterface.getModel(), /*baseHeight=*/0.7925);
   computeForwardKinematics(pinocchioInterface, q);
   printFrameRotation(pinocchioInterface, q, rightFootFrameName);
   printFrameRotation(pinocchioInterface, q, leftFootFrameName);

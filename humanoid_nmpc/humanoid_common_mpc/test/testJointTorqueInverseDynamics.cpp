@@ -53,9 +53,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/algorithm/rnea.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
+#include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
@@ -107,7 +109,7 @@ struct Robot {
   std::unique_ptr<PinocchioInterface> pinocchioInterface;
 
   const pinocchio::Model& model() const { return pinocchioInterface->getModel(); }
-  Eigen::Index numJoints() const { return model().nv - 6; }
+  Eigen::Index numJoints() const { return model().nv - static_cast<Eigen::Index>(kBaseVelocityDim); }
 };
 
 std::unique_ptr<Robot> loadRobot(absl::string_view taskFile, absl::string_view urdfFile, absl::string_view mpcName) {
@@ -143,15 +145,20 @@ struct Sample {
   std::array<vector6_t, 2> wrenches;
 };
 
-/** Random-looking but deterministic: every generalized coordinate, velocity and joint acceleration non-zero. */
+/**
+ * Random-looking but deterministic: every generalized coordinate, velocity and joint acceleration non-zero. The root's
+ * quaternion q[3:7] = (x, y, z, w) of Composite(Translation, Spherical) is normalized, as every configuration the MPC
+ * hands Pinocchio is (MpcRobotModelBase::getGeneralizedCoordinates()).
+ */
 Sample makeSample(const pinocchio::Model& model, size_t seed) {
   const scalar_t phase = 0.37 * static_cast<scalar_t>(seed);
   Sample sample;
   sample.q = vector_t(model.nq);
   sample.v = vector_t(model.nv);
-  sample.qddJoints = vector_t(model.nv - 6);
+  sample.qddJoints = vector_t(model.nv - static_cast<Eigen::Index>(kBaseVelocityDim));
   for (Eigen::Index i = 0; i < model.nq; ++i) sample.q(i) = 0.4 * spread(static_cast<size_t>(i), phase + 0.7);
   sample.q(2) = 0.9;
+  sample.q.segment<4>(kBaseTranslationDim).normalize();
   for (Eigen::Index i = 0; i < model.nv; ++i) sample.v(i) = 0.8 * spread(static_cast<size_t>(i), phase + 1.9);
   for (Eigen::Index i = 0; i < sample.qddJoints.size(); ++i) sample.qddJoints(i) = 3.0 * spread(static_cast<size_t>(i), phase + 0.4);
   for (size_t foot = 0; foot < 2; ++foot) {
@@ -240,6 +247,10 @@ class JointTorqueInverseDynamicsTest : public ::testing::Test {
     atlas_ = loadAtlasCentroidal();
     ASSERT_NE(g1_, nullptr) << "the G1 whole-body files are not in the runfiles";
     ASSERT_NE(atlas_, nullptr) << "the DRC Atlas centroidal files are not in the runfiles";
+    // Both models are on the quaternion root, Composite(Translation, Spherical): q holds one entry more than v.
+    for (const Robot* absl_nonnull robot : {g1_.get(), atlas_.get()}) {
+      ASSERT_EQ(robot->model().nq, robot->model().nv + 1) << robot->settings->robotName;
+    }
   }
 
   std::unique_ptr<Robot> g1_;
@@ -330,7 +341,7 @@ TEST_F(JointTorqueInverseDynamicsTest, theTapedJointTorquesMatchAndCarryNoCompar
   // CppADCodeGen must be able to generate code for it.
   const pinocchio::Model& model = g1_->model();
   const Eigen::Index nv = model.nv;
-  const Eigen::Index nj = nv - 6;
+  const Eigen::Index nj = nv - static_cast<Eigen::Index>(kBaseVelocityDim);
   const Eigen::Index numInputs = model.nq + nv + nj + 12;
   const Sample sample = makeSample(model, /*seed=*/1);
   vector_t values(numInputs);
@@ -369,9 +380,13 @@ TEST_F(JointTorqueInverseDynamicsTest, theCorrectionOnTheShippedAtlasStanceIsThe
   const absl::StatusOr<vector_t> initial = stateValuesFromConfig(
       atlas_->task.initial_state, stateInputLayout(*atlas_->settings, StateInputLayout::Mpc::kCentroidal), "initial_state");
   ASSERT_TRUE(initial.ok()) << initial.status();
-  const vector_t& initialState = *initial;
+  // The task file's initial_state is written in the tuning layout (ZYX Euler angles); the state stores the quaternion.
+  const absl::StatusOr<vector_t> initialState = stateFromTuningLayout(
+      *initial, placeTuningLayout(tuningLayoutOf(stateInputLayout(*atlas_->settings, StateInputLayout::Mpc::kCentroidal))));
+  ASSERT_TRUE(initialState.ok()) << initialState.status();
   Sample standing;
-  standing.q = initialState.tail(model.nq);
+  standing.q = initialState->tail(model.nq);
+  ASSERT_NEAR(standing.q.segment<4>(kBaseTranslationDim).norm(), 1.0, 1.0e-15);
   standing.v = vector_t::Zero(model.nv);
   standing.qddJoints = vector_t::Zero(atlas_->numJoints());
   const scalar_t weight = kGravity * pinocchio::computeTotalMass(model);

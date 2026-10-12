@@ -94,7 +94,7 @@ processes {                    # at least one; started in this order, each after
   without `MACHINE_`, in lower case. Without `--machine` every process starts, for simulation on one machine.
 <!-- LINT.ThenChange(//tools/launch/proto/launch_file.proto:launch_file_schema) -->
 - **Terminal.** A process with `terminal: true` runs as `<--terminal_command> <command...>`, by default
-  `x-terminal-emulator -e`, as the ROS 2 launch files did. Its output stays in that terminal.
+  `x-terminal-emulator -e`. Its output stays in that terminal.
 <!-- LINT.IfChange(color_modes) -->
 - **Colors.** `--color auto` (default), `always` or `never`.
 <!-- LINT.ThenChange(//tools/launch/process_supervisor.py:color_modes) -->
@@ -133,14 +133,14 @@ bazel run //tools/launch:export_script -- robot_models/drc_atlas/drc_atlas_centr
 | File | Contents |
 |---|---|
 | `proto/launch_file.proto` | the schema, `launch_proto.LaunchFile` (`from launch_proto import launch_file_pb2`) |
-| `launch.py` | the entry point; the command line itself is `launch_cli.py`, because a module named `launch` collides with ROS 2's `launch` package |
+| `launch.py` | the entry point; the command line itself is `launch_cli.py`, because a generic top-level module name such as `launch` collides easily with an installed package of the same name |
 | `launch_cli.py` | options, repository root, `--dry_run`, signal forwarding |
 | `launch_file.py` | parsing, validating and substituting a launch file |
 | `process_supervisor.py` | `Supervisor`: starting, output, exits and the teardown |
 | `launch_script.py` | `//tools/launch:export_script`: one machine's process as a POSIX sh script |
 
 The schema is imported as `launch_proto/launch_file.proto` rather than by its path, so that its Python package is
-`launch_proto` and not `launch`, which is ROS 2's.
+`launch_proto` and not the generic `launch`, which an installed package of the same name could shadow.
 
 `bazel test //tools/launch/...` runs the tests with small `sh` and Python children (`:test_launch_script`: the
 exported script runs the launcher's command, takes its variables and their dependents from the environment, keeps

@@ -55,8 +55,7 @@ WalkingVelocityCommand clampWalkingVelocityCommand(const WalkingVelocityCommand&
 
 /**
  * The operator's command of an operator/walking_velocity_command message, for
- * ProceduralMpcMotionManager::setAndScaleVelocityCommand(): clampWalkingVelocityCommand() of its values, as the ROS
- * conversion did.
+ * ProceduralMpcMotionManager::setAndScaleVelocityCommand(): clampWalkingVelocityCommand() of its values.
  *
  * InvalidArgument naming the field when a value is not finite: a NaN would pass std::clamp() unchanged and reach every
  * target trajectory of the MPC.

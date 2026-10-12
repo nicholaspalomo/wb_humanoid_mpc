@@ -55,7 +55,6 @@ than the largest one in use is fine - a field was deleted, and its number must n
 
     python3 -m tools.hooks.proto_next_id <files>        # check
     python3 -m tools.hooks.proto_next_id --fix <files>  # add or raise the comments and reservations
-    python3 -m tools.hooks.proto_next_id --git-staged   # check the staged .proto files
 
 `python3 -m tools.hooks.lint_code` (make lint) and the pre-commit hook run it as the registry check proto-next-id.
 """
@@ -71,8 +70,6 @@ from tools.hooks import check_types
 from tools.hooks import lint_files
 
 NAME = "proto-next-id"
-
-PROTO_EXTENSION = ".proto"
 
 # The comment, alone on the line directly above `message Name {`.
 NEXT_ID_COMMENT = re.compile(r"^\s*//\s*Next ID:\s*(\S+)\s*$")
@@ -534,15 +531,6 @@ def fix_files(paths: Iterable[str]) -> list[str]:
     return changed
 
 
-def check_staged(repository: str) -> list[Violation]:
-    """Checks the STAGED version of every .proto file staged for commit, as the pre-commit hook needs."""
-    violations: list[Violation] = []
-    for path in lint_files.staged_files(repository):
-        if path.endswith(PROTO_EXTENSION):
-            violations += check_source(lint_files.staged_source(repository, path), path)
-    return violations
-
-
 def _findings(source: str, path: str) -> list[check_types.Finding]:
     return [
         check_types.Finding(
@@ -573,28 +561,16 @@ CHECKS = [
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("paths", nargs="*", help=".proto files")
+    parser.add_argument("paths", nargs="+", help=".proto files")
     parser.add_argument(
         "--fix", action="store_true", help="add or raise the comments in place"
     )
-    parser.add_argument(
-        "--git-staged",
-        action="store_true",
-        help="check the staged version of every .proto file staged for commit (the pre-commit hook)",
-    )
     args = parser.parse_args(argv)
-    if args.git_staged == bool(args.paths):
-        parser.error("give either .proto paths or --git-staged")
-    if args.git_staged and args.fix:
-        parser.error("--fix works on paths, not on the index")
     if args.fix:
         for path in fix_files(args.paths):
             print(f"fixed {path}")
         return 0
-    if args.git_staged:
-        violations = check_staged(os.getcwd())
-    else:
-        violations = check_files(args.paths, os.getcwd())
+    violations = check_files(args.paths, os.getcwd())
     for violation in violations:
         print(violation)
     return 1 if violations else 0

@@ -59,7 +59,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/PreComputation.h"
-#include "ocs2_core/cost/QuadraticStateInputCost.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
@@ -75,6 +74,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/ZeroWrenchConstraint.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
+#include "humanoid_common_mpc/cost/InputQuadraticCost.h"
+#include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
+#include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "robot_core/ResourcePaths.h"
 
@@ -82,9 +84,9 @@ namespace ocs2::humanoid {
 namespace {
 
 constexpr size_t kWrenchDimPerContact = 6;
-// Centroidal state layout: [h(6), p_base(3), euler_zyx(3), q_joints]. Used to sanity check the model accessors.
-constexpr Eigen::Index kBaseEulerZyxStartIndex = 9;
-constexpr Eigen::Index kJointAnglesStartIndex = 12;
+// Centroidal state layout: [h(6), p_base(3), xi(4) (x, y, z, w), q_joints]. Used to sanity check the model accessors.
+constexpr Eigen::Index kBaseOrientationStartIndex = 9;
+constexpr Eigen::Index kJointAnglesStartIndex = 13;
 
 /******************************************************************************************************/
 /*                                       File location helpers                                        */
@@ -127,6 +129,15 @@ absl::StatusOr<CentroidalMpcConfig> configForMode(const AtlasFiles& files, bool 
   return config;
 }
 
+/** R of `cost` when it is a quadratic input cost (a TuningQuadraticStateInputCost or InputQuadraticCost), else null. */
+const matrix_t* absl_nullable inputWeightsOf(const StateInputCost& cost) {
+  if (const TuningQuadraticStateInputCost* absl_nullable tuning = dynamic_cast<const TuningQuadraticStateInputCost*>(&cost)) {
+    return &tuning->getInputWeights();
+  }
+  if (const InputQuadraticCost* absl_nullable input = dynamic_cast<const InputQuadraticCost*>(&cost)) return &input->getInputWeights();
+  return nullptr;
+}
+
 /** The wrench-space input_weights of `config` on the state and input of `interface`; a refusal fails the test. */
 matrix_t wrenchSpaceR(const CentroidalMpcConfig& config, const CentroidalMpcInterface& interface) {
   const absl::StatusOr<matrix_t> R = inputWeightsFromConfig(
@@ -162,7 +173,7 @@ scalar_t maxNormalizedError(const matrix_t& A, const matrix_t& B) {
 vector_t makeRotatedTestState(const CentroidalMpcInterface& interface, std::mt19937& gen) {
   const MpcRobotModelBase<scalar_t>& model = interface.getEffectiveMpcRobotModel();
   vector_t x = interface.getInitialState();
-  model.setBaseOrientationEulerZYX(x, VECTOR3_T<scalar_t>(0.7, 0.1, -0.05));
+  model.setBaseOrientationEulerZyx(x, vector3_t(0.7, 0.1, -0.05));
 
   std::uniform_real_distribution<scalar_t> jointPerturbation(-0.05, 0.05);
   vector_t jointAngles = model.getJointAngles(x);
@@ -373,10 +384,8 @@ TEST_F(BasisInputsFormulationTest, BasisDynamicsMatchesWrenchDynamicsWithRotated
   const vector_t x = makeRotatedTestState(basisInterface, gen);
   const vector_t uBasis = makeRandomBasisInput(kNumContacts * numBasisPerFoot, jointDim, gen);
   ASSERT_EQ(static_cast<size_t>(uBasis.size()), effectiveModel.getInputDim());
-  // Sanity check of the assumed state layout (euler ZYX at 9..11, joints from 12).
-  EXPECT_DOUBLE_EQ(x(kBaseEulerZyxStartIndex), 0.7);
-  EXPECT_DOUBLE_EQ(x(kBaseEulerZyxStartIndex + 1), 0.1);
-  EXPECT_DOUBLE_EQ(x(kBaseEulerZyxStartIndex + 2), -0.05);
+  // Sanity check of the assumed state layout (the quaternion of the ZYX Euler angles at 9..12, joints from 13).
+  EXPECT_EQ(vector4_t(x.segment<4>(kBaseOrientationStartIndex)), quaternionFromEulerZyx(vector3_t(0.7, 0.1, -0.05)));
   EXPECT_DOUBLE_EQ((x.tail(x.size() - kJointAnglesStartIndex) - effectiveModel.getJointAngles(x)).norm(), 0.0);
 
   // Expected world-frame wrench input from the tested helper, using an independently updated pinocchio copy.
@@ -471,7 +480,7 @@ TEST_F(BasisInputsFormulationTest, BasisDynamicsLinearApproximationMatchesFinite
   // The contact-frame rotation depends on the configuration, so the *linear* momentum rate (rows 0..2) must depend on
   // the base orientation through dfdx. In the wrench-space dynamics this block is identically zero because the forces
   // are constant world-frame inputs; here it is the extra term contributed by the rotation inside the tape.
-  EXPECT_GT(approx.dfdx.block(0, kBaseEulerZyxStartIndex, 3, 3).norm(), 1.0e-6);
+  EXPECT_GT(approx.dfdx.block(0, kBaseOrientationStartIndex, 3, 4).norm(), 1.0e-6);
 }
 
 /******************************************************************************************************/
@@ -509,12 +518,9 @@ TEST_F(BasisInputsFormulationTest, InputCostIsTransformedWithRegularization) {
     if (!ocp.costPtr->getTermIndex(costName, termIndex)) {
       continue;
     }
-    QuadraticStateInputCost* absl_nullable quadraticCost = dynamic_cast<QuadraticStateInputCost*>(&ocp.costPtr->get(costName));
-    ASSERT_NE(quadraticCost, nullptr) << costName << " is not a QuadraticStateInputCost";
-    matrix_t Q;
-    matrix_t R;
-    matrix_t P;
-    quadraticCost->getGains(Q, R, P);
+    const matrix_t* absl_nullable inputWeights = inputWeightsOf(ocp.costPtr->get(costName));
+    ASSERT_NE(inputWeights, nullptr) << costName << " is not a quadratic input cost";
+    const matrix_t& R = *inputWeights;
     ASSERT_EQ(static_cast<size_t>(R.rows()), basisInputDim) << costName;
     ASSERT_EQ(static_cast<size_t>(R.cols()), basisInputDim) << costName;
 
@@ -745,12 +751,9 @@ TEST_F(BasisInputsFormulationTest, TheNamedRegularizationShapesTheStartUpInputCo
     if (!ocp.costPtr->getTermIndex(costName, termIndex)) {
       continue;
     }
-    QuadraticStateInputCost* absl_nullable quadraticCost = dynamic_cast<QuadraticStateInputCost*>(&ocp.costPtr->get(costName));
-    ASSERT_NE(quadraticCost, nullptr) << costName;
-    matrix_t Q;
-    matrix_t R;
-    matrix_t P;
-    quadraticCost->getGains(Q, R, P);
+    const matrix_t* absl_nullable inputWeights = inputWeightsOf(ocp.costPtr->get(costName));
+    ASSERT_NE(inputWeights, nullptr) << costName;
+    const matrix_t& R = *inputWeights;
     EXPECT_LE((R - expectedR).cwiseAbs().maxCoeff(), 1.0e-12)
         << costName << ": the factory did not apply basis_regularization: \"null_space\"";
     ++numCostsChecked;
@@ -798,7 +801,7 @@ TEST_F(BasisInputsFormulationTest, WrenchModeUnchanged) {
     std::uniform_real_distribution<scalar_t> dist(-50.0, 50.0);
     vector_t u(wrenchInputDim);
     for (Eigen::Index i = 0; i < u.size(); ++i) u(i) = dist(gen);
-    const vector_t x = vector_t::Zero(interface.getEffectiveMpcRobotModel().getStateDim());
+    const vector_t x = interface.getEffectiveMpcRobotModel().getNeutralState();
     const PreComputation preComp;
     const vector_t value = zeroWrench.getValue(/*time=*/0.0, x, u, preComp);
     EXPECT_LE((value - u.segment(kWrenchDimPerContact * contactIndex, kWrenchDimPerContact)).norm(), 1.0e-12);
@@ -819,12 +822,9 @@ TEST_F(BasisInputsFormulationTest, WrenchModeUnchanged) {
     if (!ocp.costPtr->getTermIndex(costName, termIndex)) {
       continue;
     }
-    QuadraticStateInputCost* absl_nullable quadraticCost = dynamic_cast<QuadraticStateInputCost*>(&ocp.costPtr->get(costName));
-    ASSERT_NE(quadraticCost, nullptr) << costName;
-    matrix_t Q;
-    matrix_t R;
-    matrix_t P;
-    quadraticCost->getGains(Q, R, P);
+    const matrix_t* absl_nullable inputWeights = inputWeightsOf(ocp.costPtr->get(costName));
+    ASSERT_NE(inputWeights, nullptr) << costName;
+    const matrix_t& R = *inputWeights;
     ASSERT_EQ(static_cast<size_t>(R.rows()), wrenchInputDim) << costName;
     ASSERT_EQ(static_cast<size_t>(R.cols()), wrenchInputDim) << costName;
     EXPECT_LE((R - R_wrench).cwiseAbs().maxCoeff(), 1.0e-12) << costName;

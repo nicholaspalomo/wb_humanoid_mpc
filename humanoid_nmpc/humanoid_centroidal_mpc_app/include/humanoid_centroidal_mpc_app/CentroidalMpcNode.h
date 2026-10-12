@@ -53,8 +53,7 @@ namespace ocs2::humanoid {
 
 /**
  * The MPC node of the centroidal MPC (humanoid_centroidal_mpc_node; humanoid_nmpc/docs/distributed_runtime/README.md):
- * the MPC the SQP node of the ROS era built, served on the bus by an MpcServer (node::MpcNodeRuntime) to the robot
- * process, or to a dummy simulator:
+ * an SQP MPC served on the bus by an MpcServer (node::MpcNodeRuntime) to the robot process, or to a dummy simulator:
  *
  *   - CentroidalMpcInterface::Create() and an SqpMpc on its optimal control problem;
  *   - the procedural motion manager (gait changes and the velocity targets of CentroidalMpcTargetTrajectoriesCalculator),
@@ -67,12 +66,10 @@ namespace ocs2::humanoid {
  *   - resets to centroidalMpcResetTargetTrajectories(), the reset target the MRT joint controller hands its in-process
  *     link, so that both paths restart the MPC from the same target;
  *   - every policy carries the planner's target contact poses and the scaled velocity command (ViewerAnnotations);
- *   - the visualization publisher (humanoid_common_mpc_app/visualization), as the ROS nodes always ran their
- *     visualizer: viz/scene and viz/telemetry for the Rerun bridge, from every published policy and every robot/state
- *     sample, on a thread of its own.
+ *   - the visualization publisher (humanoid_common_mpc_app/visualization), always running: viz/scene and viz/telemetry
+ *     for the Rerun bridge, from every published policy and every robot/state sample, on a thread of its own.
  *
- * The synchronized modules run in the order the ROS node registered them: motion manager, contact planner, parameter
- * updater.
+ * The synchronized modules run in this order: motion manager, contact planner, parameter updater.
  */
 class CentroidalMpcNode {
  public:

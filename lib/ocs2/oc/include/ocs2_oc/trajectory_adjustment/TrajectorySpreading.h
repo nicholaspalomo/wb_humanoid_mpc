@@ -36,29 +36,14 @@ namespace ocs2 {
 
 class TrajectorySpreading final {
  public:
-  struct Status {
-    bool willTruncate = false;
-    bool willPerformTrajectorySpreading = false;
-  };
-
-  /**
-   * Constructor
-   * @param [in] debugCaching: To activate the debug print.
-   */
-  explicit TrajectorySpreading(bool debugPrint = false) : debugPrint_(debugPrint) {}
-
   /**
    * Initialize trajectory spreading strategy. Run it before invoking other member functions
    *
    * @param [in] oldModeSchedule: The old mode schedule associated to the trajectories which should be adjusted.
    * @param [in] newModeSchedule: The new mode schedule that should be adapted to.
    * @param [in] oldTimeTrajectory: The old time trajectories that is associated with the old mode schedule.
-   * @returns the status of the devised trajectory spreading strategy.
    */
-  Status set(const ModeSchedule& oldModeSchedule, const ModeSchedule& newModeSchedule, const scalar_array_t& oldTimeTrajectory);
-
-  /** Gets the trajectory-spreading strategy report. */
-  const Status& getStatus() const { return status_; }
+  void set(const ModeSchedule& oldModeSchedule, const ModeSchedule& newModeSchedule, const scalar_array_t& oldTimeTrajectory);
 
   /**
    * Adjust continuous-time trajectory.
@@ -68,16 +53,6 @@ class TrajectorySpreading final {
    */
   template <typename T>
   void adjustTrajectory(std::vector<T>& trajectory) const;
-
-  /**
-   * Extracts event-time data.
-   *
-   * @tparam data type.
-   * @param [in] array: The input array for rectification.
-   * @return: The output rectified array.
-   */
-  template <typename T>
-  std::vector<T> extractEventsArray(const std::vector<T>& array) const;
 
   /**
    * Adjust time stamp of the trajectories and post event indices of the trajectories.
@@ -136,11 +111,7 @@ class TrajectorySpreading final {
   /***********
    * Variables
    ***********/
-  const bool debugPrint_;
-
-  Status status_;
-  size_t eraseFromIndex_;                             /**< The first index to erase **/
-  std::pair<size_t, size_t> keepEventDataInInterval_; /**< Keep event data within [first, second) **/
+  size_t eraseFromIndex_; /**< The first index to erase **/
 
   size_array_t beginIndices_;
   size_array_t endIndices_;
@@ -149,17 +120,6 @@ class TrajectorySpreading final {
   size_array_t updatedPostEventIndices_;
   scalar_array_t updatedMatchedEventTimes_;
 };
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-template <typename T>
-std::vector<T> TrajectorySpreading::extractEventsArray(const std::vector<T>& array) const {
-  const auto firstItr = array.begin() + keepEventDataInInterval_.first;
-  const auto lastItr = array.begin() + keepEventDataInInterval_.second;
-  std::vector<T> out(firstItr, lastItr);
-  return out;
-}
 
 /******************************************************************************************************/
 /******************************************************************************************************/

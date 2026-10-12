@@ -29,6 +29,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstddef>
 #include <map>
 #include <set>
 #include <string>
@@ -38,13 +42,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/log_severity.h"
 #include "absl/base/nullability.h"
 #include "absl/log/scoped_mock_log.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
+#include "ocs2_sqp/SqpSolver.h"
 
+#include "humanoid_common_mpc/common/CostTermNames.h"
+#include "humanoid_common_mpc/cost/InputQuadraticCost.h"
+#include "humanoid_common_mpc/cost/TuningQuadraticStateCost.h"
+#include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
+#include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
+#include "humanoid_mpc_config/yaw_pitch_roll.nproto.h"
 #include "humanoid_nmpc/humanoid_wb_mpc/test/live_tuning/HotLeafPerturbation.h"
 #include "humanoid_nmpc/humanoid_wb_mpc/test/live_tuning/RunningProblemFingerprint.h"
 #include "humanoid_nmpc/humanoid_wb_mpc/test/live_tuning/WholeBodyLiveTuningFixture.h"
@@ -56,8 +70,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * A live update of the whole-body MPC is a fresh start on the edited file: the MPC of a task file, handed an edit of the
  * file's RELOAD_HOT fields through its parameter updater before its first solve, solves exactly as the MPC built from
  * the edited file, block by block, on the shipped G1 file and on a variant whose problem carries the terms the shipped
- * one does not (variantTaskFile()). Every field the updater applies changes what the running problem evaluates to, an
- * updater fed nothing changes nothing, and a reload of the file the MPC started from reproduces its problem. The ground
+ * one does not (variantTaskFile()), and on the shipped file with every orientation row weighted, the yaw included, which
+ * the block cases leave at the shipped 0 (LeafStep::kScaled keeps a zero a zero). Every field the updater applies changes
+ * what the running problem evaluates to, an updater fed nothing changes nothing, and a reload of the file the MPC started
+ * from reproduces its problem. Every case runs on the quaternion layout of the whole-body state (expectQuaternionLayout()),
+ * and the orientation case's solves keep a unit quaternion. The ground
  * (terrain_height) is the one hot field left out: its live change lifts the target in use once, which a fresh start does
  * not (testBaseHeightFollowsTerrain); its stance and swing feet are testWholeBodyStanceFootOnTheGround's.
  */
@@ -65,6 +82,7 @@ namespace ocs2::humanoid::live_tuning_test {
 namespace {
 
 using ::testing::_;
+using ::testing::Contains;
 using ::testing::HasSubstr;
 
 // Standing, the right foot's swing and touch-down, and the start of the left foot's (WholeBodySolverStack).
@@ -126,6 +144,8 @@ TEST_P(LiveUpdateEqualsFreshStart, AnUpdateOfTheBlockSolvesAsAFreshStartOnTheEdi
   live.applyNow(edited);
   WholeBodySolverStack fresh(edited, Updater::kRegistered);
   ASSERT_TRUE(fresh.ok());
+  live.expectQuaternionLayout();
+  fresh.expectQuaternionLayout();
 
   const std::vector<PrimalSolution> freshPolicies = fresh.solve(kNumSolves);
   const std::vector<PrimalSolution> livePolicies = live.solve(kNumSolves);
@@ -136,6 +156,135 @@ TEST_P(LiveUpdateEqualsFreshStart, AnUpdateOfTheBlockSolvesAsAFreshStartOnTheEdi
 }
 
 INSTANTIATE_TEST_SUITE_P(WholeBodyBlocks, LiveUpdateEqualsFreshStart, testing::ValuesIn(blockCases()), caseName);
+
+// The weights of the rows the robot model's tuning layout maps from Euler angles (orientation/TuningLayoutDeviation.h):
+// the yaw, pitch and roll of the base orientation and of the base angular velocity, running and terminal. Each is moved
+// whatever it ships with, so that a zero a future tuning ships cannot drop its row from the equality.
+constexpr std::array<absl::string_view, 4> kOrientationWeightBlocks = {
+    "state_weights.base_orientation", "final_state_weights.base_orientation", "state_weights.base_angular_velocity",
+    "final_state_weights.base_angular_velocity"};
+
+/** `task` with every weight of kOrientationWeightBlocks moved by LeafStep::kMoved: each nonzero, a yaw of 0 made 0.1. */
+mpc_config::TaskFile withOrientationWeightsMoved(const mpc_config::TaskFile& task) {
+  mpc_config::TaskFile moved = task;
+  for (const absl::string_view block : kOrientationWeightBlocks) moved = withMovedLeaves(moved, block, LeafStep::kMoved);
+  return moved;
+}
+
+/** Expects each of yaw, pitch and roll of `weights`, the block `block`, to be weighted. */
+void expectEveryRowWeighted(const mpc_config::YawPitchRoll& weights, absl::string_view block) {
+  EXPECT_NE(weights.yaw, 0.0) << block << ".yaw";
+  EXPECT_NE(weights.pitch, 0.0) << block << ".pitch";
+  EXPECT_NE(weights.roll, 0.0) << block << ".roll";
+}
+
+/** The weights of the running quadratic costs of every worker of a solver, with the name of each. */
+struct RunningQuadraticWeights {
+  std::vector<std::string> names;
+  std::vector<matrix_t> weights;
+};
+
+/**
+ * Returns the weights the running quadratic costs of every worker of `stack`'s solver hold: Q and R of the Tuning*
+ * state-input costs, R of the input cost and Q_final of the terminal cost, in a fixed order.
+ */
+RunningQuadraticWeights runningQuadraticWeights(WholeBodySolverStack& stack) {
+  RunningQuadraticWeights running;
+  std::vector<OptimalControlProblem>& workers = stack.mpc().getSolverPtr()->getOcpDefinitions();
+  for (size_t worker = 0; worker < workers.size(); ++worker) {
+    OptimalControlProblem& problem = workers[worker];
+    for (const absl::string_view term : {absl::string_view(kStateInputQuadraticCostTerm), absl::string_view(kStateQuadraticCostTerm)}) {
+      const std::string name(term);
+      if (!problem.costPtr->getTermNameMap().contains(name)) continue;
+      const TuningQuadraticStateInputCost& cost = problem.costPtr->get<TuningQuadraticStateInputCost>(name);
+      running.names.push_back(absl::StrCat("worker ", worker, " ", name, " Q"));
+      running.weights.push_back(cost.getStateWeights());
+      running.names.push_back(absl::StrCat("worker ", worker, " ", name, " R"));
+      running.weights.push_back(cost.getInputWeights());
+    }
+    if (problem.costPtr->getTermNameMap().contains(kInputQuadraticCostTerm)) {
+      running.names.push_back(absl::StrCat("worker ", worker, " ", kInputQuadraticCostTerm, " R"));
+      running.weights.push_back(problem.costPtr->get<InputQuadraticCost>(kInputQuadraticCostTerm).getInputWeights());
+    }
+    if (problem.finalCostPtr->getTermNameMap().contains(kTerminalCostTerm)) {
+      running.names.push_back(absl::StrCat("worker ", worker, " ", kTerminalCostTerm, " Q_final"));
+      running.weights.push_back(problem.finalCostPtr->get<TuningQuadraticStateCost>(kTerminalCostTerm).getStateWeights());
+    }
+  }
+  return running;
+}
+
+/** Returns the largest |(|xi| - 1)| of the base orientation over the planned states of `policies`. */
+scalar_t largestQuaternionNormDeviation(const WBMpcInterface& interface, const std::vector<PrimalSolution>& policies) {
+  const Eigen::Index start = static_cast<Eigen::Index>(interface.getMpcRobotModel().getBaseOrientationStartIndex());
+  scalar_t largest = 0.0;
+  for (const PrimalSolution& policy : policies) {
+    for (const vector_t& state : policy.stateTrajectory_) largest = std::max(largest, std::abs(state.segment<4>(start).norm() - 1.0));
+  }
+  return largest;
+}
+
+/** The weight of the first row of the block `block` of the tuning layout in `weights` (Q or Q_final). */
+scalar_t firstRowWeight(const WBMpcInterface& interface, const matrix_t& weights, absl::string_view block) {
+  const absl::StatusOr<size_t> row = tuningSegmentStart(interface.getMpcRobotModel().getTuningLayout(), block);
+  EXPECT_TRUE(row.ok()) << row.status();
+  if (!row.ok() || *row >= static_cast<size_t>(weights.rows())) return 0.0;
+  const Eigen::Index index = static_cast<Eigen::Index>(*row);
+  return weights(index, index);
+}
+
+TEST(WholeBodyLiveUpdate, AnUpdateOfEveryOrientationRowSolvesAsAFreshStartOnTheEditedFile) {
+  // LeafStep::kScaled keeps every zero a zero, and the shipped yaw weights are 0: here every orientation row is weighted,
+  // so that the live and the fresh MPC map each of them through the robot model's tuning layout.
+  const mpc_config::TaskFile file = shippedTaskFile();
+  const mpc_config::TaskFile edited = withOrientationWeightsMoved(file);
+  // A block the file leaves out weighs nothing, and fails here.
+  const mpc_config::YawPitchRoll unweighted;
+  expectEveryRowWeighted(edited.state_weights.base_orientation.value_or(unweighted), kOrientationWeightBlocks[0]);
+  expectEveryRowWeighted(edited.final_state_weights.base_orientation.value_or(unweighted), kOrientationWeightBlocks[1]);
+  expectEveryRowWeighted(edited.state_weights.base_angular_velocity.value_or(unweighted), kOrientationWeightBlocks[2]);
+  expectEveryRowWeighted(edited.final_state_weights.base_angular_velocity.value_or(unweighted), kOrientationWeightBlocks[3]);
+
+  WholeBodySolverStack live(file, Updater::kRegistered);
+  ASSERT_TRUE(live.ok());
+  const RunningQuadraticWeights started = runningQuadraticWeights(live);
+  live.applyNow(edited);
+  WholeBodySolverStack fresh(edited, Updater::kRegistered);
+  ASSERT_TRUE(fresh.ok());
+  // On the quaternion layout: the orientation rows map onto the heading-tilt residual of the base's quaternion
+  // (orientation/TuningLayoutDeviation.h) and the angular-velocity rows onto its body rate.
+  live.expectQuaternionLayout();
+  fresh.expectQuaternionLayout();
+
+  // The reload reached the running terms, and they weigh every orientation row, the yaw (the first row) included.
+  const RunningQuadraticWeights reloaded = runningQuadraticWeights(live);
+  const RunningQuadraticWeights freshStart = runningQuadraticWeights(fresh);
+  ASSERT_EQ(reloaded.names, freshStart.names);
+  ASSERT_EQ(reloaded.names, started.names);
+  EXPECT_THAT(reloaded.names, Contains(HasSubstr(absl::StrCat(kStateQuadraticCostTerm, " Q"))));
+  EXPECT_THAT(reloaded.names, Contains(HasSubstr(absl::StrCat(kTerminalCostTerm, " Q_final"))));
+  for (size_t i = 0; i < reloaded.names.size(); ++i) {
+    // Bitwise: both went through the same weight helper and the same setters (StateInputWeightsFromConfig.h).
+    EXPECT_TRUE(reloaded.weights[i] == freshStart.weights[i]) << reloaded.names[i] << " differs from a fresh start's";
+    if (absl::EndsWith(reloaded.names[i], " Q") || absl::EndsWith(reloaded.names[i], " Q_final")) {
+      EXPECT_FALSE(reloaded.weights[i] == started.weights[i]) << reloaded.names[i] << " was not reloaded";
+      EXPECT_NE(firstRowWeight(live.interface(), reloaded.weights[i], "base_orientation"), 0.0) << reloaded.names[i];
+      EXPECT_NE(firstRowWeight(live.interface(), reloaded.weights[i], "base_angular_velocity"), 0.0) << reloaded.names[i];
+    }
+  }
+
+  const std::vector<PrimalSolution> freshPolicies = fresh.solve(kNumSolves);
+  const std::vector<PrimalSolution> livePolicies = live.solve(kNumSolves);
+  const scalar_t difference = policyDifference(freshPolicies, livePolicies);
+  EXPECT_LE(difference, kPolicyTolerance);
+  RecordProperty("policy_difference", absl::StrCat(difference));
+  EXPECT_EQ(runningProblemFingerprint(fresh), runningProblemFingerprint(live)) << "the running problems differ after the solves";
+  // The solver stepped on the manifold: every planned orientation is a unit quaternion.
+  const scalar_t normDeviation = std::max(largestQuaternionNormDeviation(live.interface(), livePolicies),
+                                          largestQuaternionNormDeviation(fresh.interface(), freshPolicies));
+  EXPECT_LE(normDeviation, 1.0e-12);
+  RecordProperty("quaternion_norm_deviation", absl::StrCat(normDeviation));
+}
 
 TEST(WholeBodyLiveUpdate, EveryAppliedLeafChangesWhatTheProblemEvaluatesTo) {
   // A leaf counts as live when it changes what the running problem of one of the two files evaluates to (its effects,
@@ -151,6 +300,7 @@ TEST(WholeBodyLiveUpdate, EveryAppliedLeafChangesWhatTheProblemEvaluatesTo) {
     const mpc_config::TaskFile file = taskFileOf(kind);
     WholeBodySolverStack stack(file, Updater::kRegistered);
     ASSERT_TRUE(stack.ok());
+    stack.expectQuaternionLayout();
     // One solve plans the swing trajectories the swing foot's coefficients are derived from.
     stack.solve(/*count=*/1);
     const std::vector<scalar_t> original = runningProblemEffects(stack);
@@ -185,6 +335,8 @@ TEST(WholeBodyLiveUpdate, AnUpdaterFedNothingSolvesAsNoUpdater) {
     WholeBodySolverStack withUpdater(file, Updater::kRegistered);
     WholeBodySolverStack without(file, Updater::kNone);
     ASSERT_TRUE(withUpdater.ok() && without.ok());
+    withUpdater.expectQuaternionLayout();
+    without.expectQuaternionLayout();
     EXPECT_EQ(policyDifference(without.solve(kNumSolves), withUpdater.solve(kNumSolves)), 0.0);
   }
 }
@@ -195,6 +347,8 @@ TEST(WholeBodyLiveUpdate, AReloadOfTheShippedFileReproducesTheStartUpProblemAndR
     WholeBodySolverStack reloaded(file, Updater::kRegistered);
     WholeBodySolverStack started(file, Updater::kNone);
     ASSERT_TRUE(reloaded.ok() && started.ok());
+    reloaded.expectQuaternionLayout();
+    started.expectQuaternionLayout();
     {
       // Nothing is refused, stopped or reported as taking effect at the next start.
       absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
@@ -211,6 +365,7 @@ TEST(WholeBodyLiveUpdate, AReloadOfTheShippedFileReproducesTheStartUpProblemAndR
 TEST(WholeBodyLiveUpdate, TheUpdaterAppliesTheWholeBodyFieldsAndTheVariantCarriesEveryTermTheyWrite) {
   WholeBodySolverStack stack(variantTaskFile(), Updater::kRegistered);
   ASSERT_TRUE(stack.ok());
+  stack.expectQuaternionLayout();
   ASSERT_NE(stack.updater(), nullptr);
   EXPECT_EQ(stack.updater()->appliedFields(), wholeBodyHotFieldNames());
   // Positive control of the variant: the terms the shipped file leaves out are built.

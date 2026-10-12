@@ -56,6 +56,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/RobotTestSupport.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "mujoco_sim_interface/viewer/ViewerNames.h"
 #include "nproto/Textproto.h"
 #include "robot_model/ContactEstimator.h"
 #include "robot_model/ContactEstimatorRegistry.h"
@@ -249,7 +250,7 @@ TEST(RobotRealtimeAllocations, TheBackendHandOverAllocatesNothingAndTakesNoLock)
   // the action through RobotHWInterfaceBase's triple buffers, the measured foot forces, the torque switch and a throw.
   robot::mujoco_sim_interface::MujocoSimConfig config;
   config.scenePath = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml";
-  config.headless = true;
+  config.viewer.names = {robot::mujoco_sim_interface::kNoViewerName};
   config.gantryHold = "weld_constraint";
   absl::StatusOr<std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface>> created =
       robot::mujoco_sim_interface::MujocoSimInterface::Create(config, kAtlasUrdf);

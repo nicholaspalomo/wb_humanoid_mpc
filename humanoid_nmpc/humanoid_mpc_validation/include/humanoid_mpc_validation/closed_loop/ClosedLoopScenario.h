@@ -79,9 +79,6 @@ absl::StatusOr<ClosedLoopScenario> findClosedLoopScenario(absl::string_view name
 /** [s] The sum of the segments' durations. */
 double getCommandDuration(const ClosedLoopScenario& scenario);
 
-/** [rad] The largest heading change the yaw-rate commands integrate to (0 for a scenario that never turns left). */
-double getCommandedHeadingPeak(const ClosedLoopScenario& scenario);
-
 /**
  * (forward velocity, lateral velocity, yaw rate) commanded `timeSinceStart` seconds after the first command: the
  * segment holding that time (a segment holds [start, start + duration)), zero before the first and after the last.

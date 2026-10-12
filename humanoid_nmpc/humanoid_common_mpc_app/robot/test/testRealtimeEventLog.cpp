@@ -40,8 +40,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
 
 /*
- * The reports of the realtime thread: posted in order, logged by the communication thread with the wording of the lines
- * the ROS sims logged from their loops, and dropped (and counted) rather than waited for when the queue is full.
+ * The reports of the realtime thread: posted in order, logged by the communication thread with the wording of
+ * formatRealtimeEvent(), and dropped (and counted) rather than waited for when the queue is full.
  */
 
 namespace ocs2::humanoid {

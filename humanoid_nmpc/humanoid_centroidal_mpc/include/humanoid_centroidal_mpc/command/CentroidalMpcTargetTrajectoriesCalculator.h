@@ -35,11 +35,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/status/statusor.h"
-#include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
+#include "humanoid_common_mpc/command/BasePlanarMotion.h"
 #include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -61,7 +61,7 @@ class CentroidalMpcTargetTrajectoriesCalculator : public TargetTrajectoriesCalcu
    * The calculator of a robot's reference file: its default_joint_state (on the joints of `mpcRobotModel`'s model
    * settings), its command limits and the joint-state filter's target_joint_state_interpolation_time_constant, which this
    * calculator requires. The file is given typed, or by its path (loadReferenceFile(): the path form of a root of the
-   * MPC's configuration). `info` must outlive the calculator.
+   * MPC's configuration). `mpcRobotModel` must outlive the calculator.
    *
    * @return The loader's errors for the path form; InvalidArgument naming the field of a file whose command limits or
    *         default posture do not convert (referenceSettingsFromConfig(), defaultJointStateFromConfig()), and naming
@@ -71,12 +71,10 @@ class CentroidalMpcTargetTrajectoriesCalculator : public TargetTrajectoriesCalcu
   static absl::StatusOr<std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator>> Create(const std::string& referenceFile,
                                                                                            const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                                                                            PinocchioInterface pinocchioInterface,
-                                                                                           const CentroidalModelInfo& info,
                                                                                            scalar_t mpcHorizon);
   static absl::StatusOr<std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator>> Create(const mpc_config::ReferenceFile& referenceFile,
                                                                                            const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                                                                            PinocchioInterface pinocchioInterface,
-                                                                                           const CentroidalModelInfo& info,
                                                                                            scalar_t mpcHorizon);
 
   ~CentroidalMpcTargetTrajectoriesCalculator() override = default;
@@ -96,13 +94,15 @@ class CentroidalMpcTargetTrajectoriesCalculator : public TargetTrajectoriesCalcu
                                                            const vector_t& initState) override;
 
   /**
-   * Converts desired velocities to TargetTrajectories.
-   * @param [in] commandedVelocities : [v_x, v_y, v_yaw] defined in pelvis frame
-   * @param [in] observation : the current observation
+   * The target of a velocity command (TargetTrajectoriesCalculatorBase's class comment): the base knots of
+   * velocityCommandKnots(), each with the command's momentum in its heading frame - the CoM velocity, and the yaw column
+   * of the composite inertia of the measured configuration times the yaw rate, turned with the knot - and the filtered
+   * joints, interpolated to the target joints over the second segment.
    */
   TargetTrajectories commandedVelocityToTargetTrajectories(const vector4_t& commandedVelocities,
                                                            scalar_t initTime,
-                                                           const vector_t& initState) override;
+                                                           const vector_t& initState,
+                                                           const BasePlanarMotion& measuredMotion) override;
 
  private:
   /** Private: Create() converts and checks the reference file's settings, which this only stores. */
@@ -111,11 +111,10 @@ class CentroidalMpcTargetTrajectoriesCalculator : public TargetTrajectoriesCalcu
                                             scalar_t targetJointStateInterpolationTimeConstant,
                                             const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                             PinocchioInterface pinocchioInterface,
-                                            const CentroidalModelInfo& info,
                                             scalar_t mpcHorizon);
 
+  // The robot's Pinocchio model, whose data ccrba() overwrites for the locked inertia of every velocity command.
   PinocchioInterface pinocchioInterface_;
-  const CentroidalModelInfo& info_;
   const scalar_t mass_;
 
   // [s] The reference file's target_joint_state_interpolation_time_constant, positive.

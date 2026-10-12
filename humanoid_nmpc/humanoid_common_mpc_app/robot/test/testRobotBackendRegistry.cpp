@@ -40,13 +40,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/robot/MujocoRobotBackend.h"
 #include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/RobotTestSupport.h"
+#include "mujoco_sim_interface/viewer/ViewerNames.h"
 #include "robot_model/ContactEstimatorRegistry.h"
 #include "robot_model/RobotDescription.h"
 #include "robot_model/RobotState.h"
 
 /*
- * The robot backends by name: `mujoco` builds the simulator from the options the robot process gathers (headless here,
- * on the Atlas scene), an unknown name is refused with the available ones, and a new backend is one add().
+ * The robot backends by name: `mujoco` builds the simulator from the options the robot process gathers (without a
+ * viewer here, on the Atlas scene), an unknown name is refused with the available ones, and a new backend is one add().
  */
 
 namespace ocs2::humanoid {
@@ -66,7 +67,7 @@ RobotBackendOptions atlasOptions() {
   options.contactParentJointNames = modelSettings.contactParentJointNames;
   options.simulator.contactForceThreshold = 7.0;
   options.simulator.visualizations = std::vector<std::string>{};
-  options.headless = true;
+  options.viewer.names = {robot::mujoco_sim_interface::kNoViewerName};
   return options;
 }
 
@@ -80,7 +81,9 @@ TEST(RobotBackendRegistry, TheMujocoBackendIsBuiltByName) {
   ASSERT_NE((*backend)->simulator(), nullptr);
   EXPECT_TRUE((*backend)->simulator()->isGantryLocked()) << "the robot starts on the gantry";
   EXPECT_FALSE((*backend)->acceptsJointAction()) << "and with its torques off";
-  ASSERT_TRUE((*backend)->initialize().ok());
+  const absl::Status initialized = (*backend)->initialize();
+  ASSERT_TRUE(initialized.ok()) << initialized;
+  EXPECT_EQ((*backend)->simulator()->activeViewerName(), robot::mujoco_sim_interface::kNoViewerName);
   (*backend)->hardware().updateInterfaceStateFromRobot();
   EXPECT_GT((*backend)->hardware().getRobotState().getRootPositionInWorldFrame().z(), 0.5);
 
@@ -136,7 +139,7 @@ TEST(MujocoRobotBackend, TheSimulatorConfigurationComesFromTheOptions) {
   absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> config = MujocoRobotBackend::makeConfig(options);
   ASSERT_TRUE(config.ok()) << config.status();
   EXPECT_EQ(config->scenePath, robot_test::kAtlasScene);
-  EXPECT_TRUE(config->headless);
+  EXPECT_EQ(config->viewer.names, std::vector<std::string>{robot::mujoco_sim_interface::kNoViewerName});
   EXPECT_DOUBLE_EQ(config->contactForceThreshold, 7.0);
   EXPECT_EQ(config->gantryHold, "kinematic_teleport");
   EXPECT_EQ(config->projectile, "dodgeball");
@@ -156,6 +159,34 @@ TEST(MujocoRobotBackend, TheSimulatorConfigurationComesFromTheOptions) {
   options = atlasOptions();
   options.initialState.reset();
   EXPECT_EQ(MujocoRobotBackend::makeConfig(options).status().code(), absl::StatusCode::kInvalidArgument);
+}
+
+TEST(MujocoRobotBackend, TheViewerSettingsAreCopiedAndChecked) {
+  RobotBackendOptions options = atlasOptions();
+  options.viewer.names = {robot::mujoco_sim_interface::kWebViewerName, robot::mujoco_sim_interface::kNoViewerName};
+  options.viewer.web.port = 0;
+  options.viewer.web.allowedHosts = {"robot.lan"};
+  options.viewer.web.cores = {2, 3};
+  options.viewer.web.eglDeviceId = 1;
+  absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> config = MujocoRobotBackend::makeConfig(options);
+  ASSERT_TRUE(config.ok()) << config.status();
+  EXPECT_EQ(config->viewer.names, (std::vector<std::string>{"web", "none"}));
+  EXPECT_EQ(config->viewer.web.port, 0);
+  EXPECT_EQ(config->viewer.web.allowedHosts, std::vector<std::string>{"robot.lan"});
+  EXPECT_EQ(config->viewer.web.cores, (std::vector<int>{2, 3}));
+  EXPECT_EQ(config->viewer.web.eglDeviceId, 1);
+
+  // A list the registry refuses is refused before anything is built, and so is a web option out of its range.
+  options = atlasOptions();
+  options.viewer.names = {"vnc"};
+  const absl::Status unknown = MujocoRobotBackend::checkOptions(options);
+  EXPECT_EQ(unknown.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_NE(unknown.message().find("glfw, web, none"), std::string::npos) << unknown;
+  options.viewer.names = {"glfw", "none"};
+  EXPECT_EQ(MujocoRobotBackend::checkOptions(options).code(), absl::StatusCode::kInvalidArgument) << "nothing after glfw";
+  options = atlasOptions();
+  options.viewer.web.fps = 0;
+  EXPECT_EQ(MujocoRobotBackend::checkOptions(options).code(), absl::StatusCode::kInvalidArgument);
 }
 
 }  // namespace

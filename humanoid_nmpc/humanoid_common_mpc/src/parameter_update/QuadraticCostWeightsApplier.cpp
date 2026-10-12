@@ -32,19 +32,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <optional>
 #include <string>
-#include <utility>
 
+#include "absl/functional/function_ref.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
-#include "ocs2_core/cost/QuadraticStateCost.h"
-#include "ocs2_core/cost/QuadraticStateInputCost.h"
+#include "ocs2_core/misc/Collection.h"
 
 #include "humanoid_common_mpc/common/CostTermNames.h"
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
+#include "humanoid_common_mpc/cost/InputQuadraticCost.h"
+#include "humanoid_common_mpc/cost/TuningQuadraticStateCost.h"
+#include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
 #include "humanoid_common_mpc/parameter_update/OcpTermUpdates.h"
 
 namespace ocs2::humanoid {
@@ -60,31 +62,14 @@ constexpr std::array<absl::string_view, 4> kFields = {
 };
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_file.proto)
 
-/** What stateWeights() does with the base-pose block of a state weight matrix. */
-enum class BasePoseWeights {
-  kKept,
-  // Zeroed: the problem carries the CoM + ACoM cost, which tracks the base pose instead.
-  kZeroedForComAndAcomTracking,
-};
-
-/**
- * The state weight matrix of `weights` (`field`), refused unless it has the problem's state dimension, with its
- * base-pose block as `basePose` says.
- */
-absl::StatusOr<matrix_t> stateWeights(const mpc_config::StateWeights& weights,
-                                      const HotUpdateTarget& target,
-                                      absl::string_view field,
-                                      BasePoseWeights basePose) {
-  absl::StatusOr<matrix_t> Q = stateWeightsFromConfig(weights, target.layout(), field);
-  if (!Q.ok()) return Q;
-  if (static_cast<size_t>(Q->rows()) != target.stateDim() || static_cast<size_t>(Q->cols()) != target.stateDim()) {
+/** `weights` (`field`), refused unless it has the rows of the task file's tuning layout. */
+absl::StatusOr<matrix_t> checkedTuningWeights(absl::StatusOr<matrix_t> weights, const HotUpdateTarget& target, absl::string_view field) {
+  if (!weights.ok()) return weights;
+  if (static_cast<size_t>(weights->rows()) != target.tuningDim() || static_cast<size_t>(weights->cols()) != target.tuningDim()) {
     return absl::InvalidArgumentError(
-        absl::StrCat(field, " is ", Q->rows(), " x ", Q->cols(), ", but the problem has ", target.stateDim(), " states."));
+        absl::StrCat(field, " is ", weights->rows(), " x ", weights->cols(), ", but the tuning layout has ", target.tuningDim(), " rows."));
   }
-  // The factory zeroes the base-pose block of both the running and the terminal state cost when the problem carries the
-  // CoM + ACoM cost, so a reload must do the same or a slider drag silently re-introduces base-pose tracking.
-  if (basePose == BasePoseWeights::kZeroedForComAndAcomTracking) ComAndAcomTrackingCost::zeroBasePoseWeights(*Q);
-  return Q;
+  return weights;
 }
 
 /** R of input_weights, refused unless it has the problem's input dimension. */
@@ -98,6 +83,18 @@ absl::StatusOr<matrix_t> inputWeights(const HotUpdateTarget& target) {
   return R;
 }
 
+/**
+ * Hands the term `name` of `collection`, when the problem carries it, to `set`, and reports a refusal of its setter as
+ * the failed update of the term (reportFailedTermUpdate()): the setter compares the weights with the running term's own
+ * dimensions. A term of another type is reported by updateTermIfPresent().
+ */
+template <typename Derived, typename Term>
+void setWeightsIfPresent(Collection<Term>& collection, const std::string& name, absl::FunctionRef<absl::Status(Derived&)> set) {
+  absl::Status refused = absl::OkStatus();
+  updateTermIfPresent<Derived>(collection, name, [&](Derived& term) { refused = set(term); });
+  if (!refused.ok()) reportFailedTermUpdate(name, refused);
+}
+
 }  // namespace
 
 absl::Span<const absl::string_view> QuadraticCostWeightsApplier::staticFields() {
@@ -107,13 +104,20 @@ absl::Span<const absl::string_view> QuadraticCostWeightsApplier::staticFields() 
 void QuadraticCostWeightsApplier::apply(HotUpdateTarget& target) {
   const mpc_config::TaskFile& task = target.task();
   const OptimalControlProblem& running = target.runningProblem();
+  // The factory zeroes the base-pose block of both the running and the terminal state cost when the problem carries the
+  // CoM + ACoM cost, so a reload must do the same or a slider drag silently re-introduces base-pose tracking. Read off
+  // the running problem, never the reloaded file.
   const BasePoseWeights basePose = carriesTerm(*running.stateCostPtr, std::string(ComAndAcomTrackingCost::kRunningTermName))
                                        ? BasePoseWeights::kZeroedForComAndAcomTracking
                                        : BasePoseWeights::kKept;
   const bool quadraticTerminalCost = carriesTerm(*running.finalCostPtr, kTerminalCostTerm);
 
-  const std::optional<matrix_t> Q =
-      convertedOrReported(stateWeights(task.state_weights, target, "state_weights", basePose), target.source(), "state_weights");
+  // The conversions of the start-up factory (HumanoidCostConstraintFactory), so that a reload and a fresh start hand the
+  // costs' TuningLayoutDeviation the same Euler-written rows.
+  const std::optional<matrix_t> Q = convertedOrReported(
+      checkedTuningWeights(trackingStateWeightsFromConfig(task.state_weights, target.layout(), "state_weights", basePose), target,
+                           "state_weights"),
+      target.source(), "state_weights");
   std::optional<matrix_t> R;
   if (inputCost_ == InputCost::kInputWeights) {
     R = convertedOrReported(inputWeights(target), target.source(), "input_weights");
@@ -121,34 +125,30 @@ void QuadraticCostWeightsApplier::apply(HotUpdateTarget& target) {
   std::optional<matrix_t> Q_final;
   if (quadraticTerminalCost) {
     if (const std::optional<scalar_t>& scaling = target.terminalCostScaling(); scaling.has_value()) {
-      Q_final = convertedOrReported(stateWeights(task.final_state_weights, target, "final_state_weights", basePose), target.source(),
-                                    "final_state_weights");
-      if (Q_final.has_value()) *Q_final *= *scaling;
+      Q_final = convertedOrReported(checkedTuningWeights(terminalStateWeightsFromConfig(task.final_state_weights, *scaling, target.layout(),
+                                                                                        "final_state_weights", basePose),
+                                                         target, "final_state_weights"),
+                                    target.source(), "final_state_weights");
     }
   }
 
-  const matrix_t zeroR = matrix_t::Zero(target.inputDim(), target.inputDim());
-  const matrix_t zeroQ = matrix_t::Zero(target.stateDim(), target.stateDim());
   for (OptimalControlProblem& ocp : target.problems()) {
     // Each term is absent when the task file does not list it; whichever of Q and R was refused keeps its running value.
-    updateTermIfPresent<QuadraticStateInputCost>(*ocp.costPtr, kStateInputQuadraticCostTerm, [&](QuadraticStateInputCost& cost) {
-      matrix_t runningQ;
-      matrix_t runningR;
-      matrix_t runningP;
-      cost.getGains(runningQ, runningR, runningP);
-      cost.setGains(Q.has_value() ? *Q : runningQ, R.has_value() ? *R : runningR, runningP);
-    });
     if (Q.has_value()) {
-      updateTermIfPresent<QuadraticStateInputCost>(*ocp.costPtr, kStateQuadraticCostTerm,
-                                                   [&](QuadraticStateInputCost& cost) { cost.setGains(*Q, zeroR); });
+      setWeightsIfPresent<TuningQuadraticStateInputCost>(*ocp.costPtr, kStateInputQuadraticCostTerm,
+                                                         [&](TuningQuadraticStateInputCost& cost) { return cost.setStateWeights(*Q); });
+      setWeightsIfPresent<TuningQuadraticStateInputCost>(*ocp.costPtr, kStateQuadraticCostTerm,
+                                                         [&](TuningQuadraticStateInputCost& cost) { return cost.setStateWeights(*Q); });
     }
     if (R.has_value()) {
-      updateTermIfPresent<QuadraticStateInputCost>(*ocp.costPtr, kInputQuadraticCostTerm,
-                                                   [&](QuadraticStateInputCost& cost) { cost.setGains(zeroQ, *R); });
+      setWeightsIfPresent<TuningQuadraticStateInputCost>(*ocp.costPtr, kStateInputQuadraticCostTerm,
+                                                         [&](TuningQuadraticStateInputCost& cost) { return cost.setInputWeights(*R); });
+      setWeightsIfPresent<InputQuadraticCost>(*ocp.costPtr, kInputQuadraticCostTerm,
+                                              [&](InputQuadraticCost& cost) { return cost.setInputWeights(*R); });
     }
     if (Q_final.has_value()) {
-      updateTermIfPresent<QuadraticStateCost>(*ocp.finalCostPtr, kTerminalCostTerm,
-                                              [&](QuadraticStateCost& cost) { cost.setGains(*Q_final); });
+      setWeightsIfPresent<TuningQuadraticStateCost>(*ocp.finalCostPtr, kTerminalCostTerm,
+                                                    [&](TuningQuadraticStateCost& cost) { return cost.setStateWeights(*Q_final); });
     }
   }
 }

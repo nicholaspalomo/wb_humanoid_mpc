@@ -46,10 +46,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_state_estimation/humanoid_state_estimator/test/AllocationCounter.h"
 
 /*
- * The hand-over of joint PD gains to the realtime control thread. The MRT joint controllers used to take a mutex the
- * ROS callback held, write the YAML to <gains file>.live.yaml and parse it with YAML::LoadFile inside
- * computeJointControlAction(); the control thread now only receives a preallocated set of gains. This binary links the
- * allocation counter, which interposes malloc for the whole process.
+ * The hand-over of joint PD gains to the realtime control thread: the control thread only receives a preallocated set of
+ * gains, without a lock another thread holds for long, a file or a parse. This binary links the allocation counter,
+ * which interposes malloc for the whole process.
  */
 
 namespace ocs2::humanoid {

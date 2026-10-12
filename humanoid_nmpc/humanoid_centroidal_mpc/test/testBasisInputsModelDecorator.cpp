@@ -77,8 +77,8 @@ constexpr scalar_t kYaw90 = M_PI / 2.0;
 constexpr scalar_t kBaseHeight = 0.8952;
 /// Relative tolerance for comparisons that are exact up to floating-point round-off (rotations, pseudoinverse).
 constexpr scalar_t kTol = 1.0e-9;
-/// Index of the base yaw in the centroidal state [momentum(6), base position(3), base euler ZYX(3), joints].
-constexpr Eigen::Index kBaseYawStateIndex = 9;
+/// Index of the base quaternion in the centroidal state [momentum(6), base position(3), base quaternion (x, y, z, w), joints].
+constexpr Eigen::Index kBaseOrientationStateIndex = 9;
 
 /// Cone parameters of the test bases (approximately the Atlas foot).
 ContactWrenchConeConstraint::Config makeTestConeConfig() {
@@ -174,9 +174,9 @@ class BasisInputsModelDecoratorTest : public ::testing::Test {
   /// angles the Atlas leg chain has no rotational offsets, so the contact frames are aligned with the base and
   /// the base orientation alone determines their orientation in the world.
   vector_t makeState(scalar_t yaw, scalar_t pitch = 0.0) const {
-    vector_t state = vector_t::Zero(stateDim_);
+    vector_t state = decorator_->getNeutralState();
     decorator_->setBasePosition(state, vector3_t(0.0, 0.0, kBaseHeight));
-    decorator_->setBaseOrientationEulerZYX(state, vector3_t(yaw, pitch, 0.0));
+    decorator_->setBaseOrientationEulerZyx(state, vector3_t(yaw, pitch, 0.0));
     decorator_->setJointAngles(state, vector_t::Zero(jointDim_));
     return state;
   }
@@ -185,7 +185,9 @@ class BasisInputsModelDecoratorTest : public ::testing::Test {
   /// Data, forward kinematics on the generalized coordinates taken straight from the state layout, and the
   /// frame placement of the contact frame looked up by name.
   matrix3_t computeContactFrameRotationWithPinocchio(const vector_t& state, size_t contactIndex) const {
-    const vector_t q = state.tail(6 + jointDim_);  // [base position, base euler ZYX, joint angles]
+    // The centroidal state ends with the configuration q: [base position, base quaternion (x, y, z, w), joint angles], the
+    // quaternion unit as the Euler boundary writes it.
+    const vector_t q = state.tail(static_cast<Eigen::Index>(decorator_->getConfigurationDim()));
     const pinocchio::Model& model = pinocchioInterface_->getModel();
     pinocchio::Data data(model);
     updateFramePlacements<scalar_t>(q, model, data);
@@ -407,7 +409,7 @@ TEST_F(BasisInputsModelDecoratorTest, ContactsAreIndependent) {
 TEST_F(BasisInputsModelDecoratorTest, JointVelocitiesPassThrough) {
   const size_t inputDim = decorator_->getInputDim();
 
-  vector_t state = vector_t::Zero(stateDim_);
+  vector_t state = decorator_->getNeutralState();
   vector_t input = vector_t::Zero(inputDim);
 
   vector_t jointVels = vector_t::LinSpaced(jointDim_, 0.1, 1.0);
@@ -447,7 +449,7 @@ TEST_F(BasisInputsModelDecoratorTest, CloneProducesWorkingCopy) {
 // ==================== State delegate tests ====================
 
 TEST_F(BasisInputsModelDecoratorTest, StateDelegatesMatchWrappedModel) {
-  vector_t state = vector_t::Zero(stateDim_);
+  vector_t state = decorator_->getNeutralState();
 
   vector3_t pos;
   pos << 1.0, 2.0, 0.95;
@@ -515,7 +517,7 @@ TEST_F(BasisInputsModelDecoratorTest, LocalBasisToWrenchMapHasBlockDiagonalStruc
   // the pass-through joint velocities.
   const vector_t basisInput = vector_t::Random(expectedCols);
   const vector_t wrenchInput = M * basisInput;
-  const vector_t state = vector_t::Zero(stateDim_);
+  const vector_t state = decorator_->getNeutralState();
   for (size_t i = 0; i < kNumContacts; ++i) {
     EXPECT_TRUE(wrenchInput.segment(6 * i, 6).isApprox(decorator_->getContactWrench(basisInput, i), kTol));
   }
@@ -564,7 +566,12 @@ TEST_F(BasisInputsModelDecoratorTest, WorldFrameAccessorsRotateLocalWrenchWithCo
 TEST_F(BasisInputsModelDecoratorTest, YawedBaseRotatesLocalXForceIntoWorldY) {
   const vector_t stateZeroYaw = makeState(0.0);
   const vector_t stateYaw90 = makeState(kYaw90);
-  EXPECT_DOUBLE_EQ(stateYaw90(kBaseYawStateIndex), kYaw90) << "Base yaw is expected at state index " << kBaseYawStateIndex;
+  // The base quaternion (x, y, z, w) of the yaw, at the state's orientation slots: (0, 0, sin(yaw / 2), cos(yaw / 2)).
+  EXPECT_LT((stateYaw90.segment<4>(kBaseOrientationStateIndex) - vector4_t(0.0, 0.0, std::sin(0.5 * kYaw90), std::cos(0.5 * kYaw90)))
+                .cwiseAbs()
+                .maxCoeff(),
+            1.0e-16)
+      << "The base quaternion is expected at state index " << kBaseOrientationStateIndex;
 
   const matrix3_t Rz90 = Eigen::AngleAxis<scalar_t>(kYaw90, vector3_t::UnitZ()).toRotationMatrix();
 

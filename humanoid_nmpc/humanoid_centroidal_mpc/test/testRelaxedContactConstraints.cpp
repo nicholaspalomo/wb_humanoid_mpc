@@ -40,7 +40,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
-#include "ocs2_centroidal_model/AccessHelperFunctions.h"
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
 #include "ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h"
@@ -93,10 +92,11 @@ class RelaxedContactConstraintsTest : public ::testing::Test {
 
     const CentroidalModelInfoCppAd infoCppAd = info_.toCppAd();
     mappingCppAd_ = std::make_unique<CentroidalModelPinocchioMappingCppAd>(infoCppAd);
+    // As CentroidalMpcInterface builds it: the momentum map of the mapping's configuration, whose quaternion is normalized.
+    const CentroidalModelPinocchioMappingCppAd& mappingCppAd = *mappingCppAd_;
     const PinocchioEndEffectorKinematicsCppAd::update_pinocchio_interface_callback velocityUpdateCallback =
-        [infoCppAd](const ad_vector_t& state, PinocchioInterfaceCppAd& pinocchioInterfaceAd) {
-          const ad_vector_t q = centroidal_model::getGeneralizedCoordinates(state, infoCppAd);
-          updateCentroidalDynamics(pinocchioInterfaceAd, infoCppAd, q);
+        [infoCppAd, &mappingCppAd](const ad_vector_t& state, PinocchioInterfaceCppAd& pinocchioInterfaceAd) {
+          updateCentroidalDynamics(pinocchioInterfaceAd, infoCppAd, mappingCppAd.getPinocchioJointPosition(state));
         };
     const std::string& footName = modelSettings_->contactNames[kContactLeftIndex];
     eeKinematics_ = std::make_unique<PinocchioEndEffectorKinematicsCppAd>(
@@ -116,7 +116,7 @@ class RelaxedContactConstraintsTest : public ::testing::Test {
         std::make_unique<FootprintCornerHeights>(*pinocchioInterface_, *adRobotModel_, std::move(cornerFrames),
                                                  absl::StrCat("testRelaxedContact_", footName, "_footprintCorners"), *modelSettings_);
 
-    state_ = initialStateOf(atlas_.task, *modelSettings_).value();
+    state_ = initialStateOnModel(atlas_.task, *robotModel_).value();
     input_.setZero(robotModel_->getInputDim());
     // A plausible working point: the foot carries about half the weight and the joints are moving.
     vector6_t wrench = vector6_t::Zero();

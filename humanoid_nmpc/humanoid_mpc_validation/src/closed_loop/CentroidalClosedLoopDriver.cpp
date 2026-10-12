@@ -82,7 +82,7 @@ absl::Status CentroidalClosedLoopDriver::initialize(const RobotConfiguration& co
   ASSIGN_OR_RETURN(
       std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator> calculator,
       CentroidalMpcTargetTrajectoriesCalculator::Create(configuration.referenceFile, effectiveModel, interface.getPinocchioInterface(),
-                                                        interface.getCentroidalModelInfo(), interface.mpcSettings().timeHorizon_));
+                                                        interface.mpcSettings().timeHorizon_));
   calculator->setTerrainHeightSource(
       [referenceManager = interface.getSwitchedModelReferenceManagerPtr()]() { return referenceManager->getAppliedTerrainHeight(); });
   RETURN_IF_ERROR(initializeCommandPath(std::move(calculator), interface.getSwitchedModelReferenceManagerPtr(), effectiveModel));

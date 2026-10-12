@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/multibody/data.hpp"
@@ -142,6 +143,8 @@ class SceneBuilder {
   PinocchioInterface pinocchioInterface_;
   std::unique_ptr<MpcRobotModelBase<scalar_t>> robotModel_;
   const ModelSettings& modelSettings_;
+  // VisualizationModel::stateManifold, retained (Create() refuses a null one).
+  const StateManifold* absl_nonnull stateManifold_;
 
   PinocchioInterface::Model fullModel_;
   std::unique_ptr<PinocchioInterface::Data> fullData_;

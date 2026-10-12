@@ -3,7 +3,7 @@
 The building blocks of the robot process's **realtime thread** (see
 [`humanoid_nmpc/docs/distributed_runtime/README.md`](../../humanoid_nmpc/docs/distributed_runtime/README.md), "The
 realtime thread"). The library is `//robot_runtime/robot_realtime`, the namespace is `robot::realtime`, and it depends
-only on Abseil: no ROS, no protobuf and nothing from `humanoid_nmpc`.
+only on Abseil: no protobuf and nothing from `humanoid_nmpc`.
 
 | Header | What it gives the realtime thread |
 |---|---|

@@ -166,6 +166,12 @@ class DcmTerminalCost final : public StateCost {
   /** Unweighted DCM error xi - xi_ref for the given state and parameters; public for tests. */
   vector2_t computeDcmError(const vector_t& state, const vector_t& parameters) const;
 
+  /**
+   * d computeDcmError() / d state (2 x the state dimension), from the same library: the Jacobian whose product with the
+   * weights getQuadraticApproximation()'s Gauss-Newton Hessian is; public for tests.
+   */
+  matrix_t computeDcmErrorJacobian(const vector_t& state, const vector_t& parameters) const;
+
   /** Time-blended support weights [w_left, w_right] at `time`; public for tests. */
   vector2_t computeSupportWeights(scalar_t time) const;
 

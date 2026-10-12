@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/algorithm/rnea.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 
@@ -196,14 +197,18 @@ class FloatingBaseInverseDynamicsTest : public ::testing::Test {
     settings_ = std::make_unique<ModelSettings>(ModelSettings::Create(taskFile, urdfFile, "wb_mpc_", /*verbose=*/false).value());
     pinocchioInterface_ = std::make_unique<PinocchioInterface>(loadCustomPinocchioInterface(taskFile, urdfFile, *settings_).value());
     const pinocchio::Model& model = pinocchioInterface_->getModel();
+    // The quaternion root Composite(Translation, Spherical): q = [p_W, xi = (x, y, z, w), q_j], v = [v_W, w_B, dq_j].
+    ASSERT_EQ(model.nq, model.nv + 1);
     q_ = vector_t(model.nq);
     v_ = vector_t(model.nv);
     for (Eigen::Index i = 0; i < model.nq; ++i) q_(i) = 0.3 * spread(static_cast<size_t>(i), /*phase=*/0.7);
     q_(2) = 0.75;  // the base height does not enter the dynamics, but keep the robot standing
+    // A tilted, turned base: the root quaternion of the spread values, normalized.
+    q_.segment<4>(kBaseTranslationDim).normalize();
     for (Eigen::Index i = 0; i < model.nv; ++i) v_(i) = 0.5 * spread(static_cast<size_t>(i), /*phase=*/1.9);
-    qddJoints_ = vector_t(model.nv - 6);
+    qddJoints_ = vector_t(model.nv - static_cast<Eigen::Index>(kBaseVelocityDim));
     for (Eigen::Index i = 0; i < qddJoints_.size(); ++i) qddJoints_(i) = 1.5 * spread(static_cast<size_t>(i), /*phase=*/0.4);
-    wrenches_ = {vector6_t(), vector6_t()};
+    wrenches_ = {vector6_t::Zero(), vector6_t::Zero()};
     for (Eigen::Index i = 0; i < 6; ++i) {
       wrenches_[0](i) = (i == 2 ? 180.0 : 15.0) * spread(static_cast<size_t>(i), /*phase=*/0.1) + (i == 2 ? 200.0 : 0.0);
       wrenches_[1](i) = (i == 2 ? 180.0 : 15.0) * spread(static_cast<size_t>(i), /*phase=*/2.6) + (i == 2 ? 200.0 : 0.0);

@@ -57,9 +57,9 @@ cc_library(
 # 2. ocs2_core_types and ocs2_core
 # ==============================================================================
 
-# The value types of ocs2_core (scalar_t, vector_t, matrix_t and the function approximations) and the linear algebra
-# their checks use, with nothing but Eigen: no CppAD, no integrators. Code that needs only the types, such as
-# the state estimator, depends on this rather than on ocs2_core, which re-exports it.
+# The value types of ocs2_core (scalar_t, vector_t, matrix_t and the function approximations) and its linear algebra,
+# with nothing but Eigen: no CppAD, no integrators. Code that needs only the types, such as the state estimator,
+# depends on this rather than on ocs2_core, which re-exports it.
 _OCS2_CORE_TYPES_SRCS = [
     "core/src/Types.cpp",
     "core/src/misc/LinearAlgebra.cpp",
@@ -69,7 +69,6 @@ _OCS2_CORE_TYPES_HDRS = [
     "core/include/ocs2_core/NumericTraits.h",
     "core/include/ocs2_core/Types.h",
     "core/include/ocs2_core/misc/LinearAlgebra.h",
-    "core/include/ocs2_core/misc/randomMatrices.h",
 ]
 
 cc_library(
@@ -132,7 +131,6 @@ cc_library(
         ":ocs2_core",
         ":ocs2_thirdparty",
         "@abseil-cpp//absl/base:nullability",
-        "@abseil-cpp//absl/log:check",
         "@eigen",
     ],
 )
@@ -257,31 +255,12 @@ cc_library(
     linkopts = _OCS2_LINKOPTS,
     deps = [
         ":ocs2_core",
-        ":ocs2_oc",
         ":ocs2_robotic_tools",
         ":ocs2_thirdparty",
         "@abseil-cpp//absl/base:nullability",
         "@pinocchio",
         "@urdf",
         "@eigen",
-    ],
-)
-
-# PinocchioEndEffectorKinematics on a model whose configuration is larger than its velocity (an unbounded revolute joint,
-# nq = 3, nv = 2): the frame Jacobians are sized by nv, and the linearizations are the derivatives of the values.
-cc_test(
-    name = "test_end_effector_kinematics_tangent_jacobians",
-    size = "small",
-    srcs = ["pinocchio/pinocchio_interface/test/testEndEffectorKinematicsTangentJacobians.cpp"],
-    copts = _OCS2_COPTS,
-    linkopts = _OCS2_LINKOPTS,
-    deps = [
-        ":ocs2_core",
-        ":ocs2_pinocchio_interface",
-        "@abseil-cpp//absl/base:nullability",
-        "@eigen",
-        "@googletest//:gtest_main",
-        "@pinocchio",
     ],
 )
 
@@ -405,10 +384,7 @@ cc_test(
     srcs = ["sqp/sqp/test/testSqpFlatParity.cpp"],
     copts = _OCS2_COPTS,
     # LINT.IfChange(sqp_flat_parity_data)
-    data = [
-        "sqp/sqp/test/data/sqp_flat_parity_golden.txt",
-        "sqp/sqp/test/data/sqp_flat_parity_golden_colcon_hpipm.txt",
-    ],
+    data = ["sqp/sqp/test/data/sqp_flat_parity_golden.txt"],
     # LINT.ThenChange(//lib/ocs2/sqp/sqp/test/testSqpFlatParity.cpp:golden_path)
     deps = [
         ":ocs2_core",

@@ -61,16 +61,16 @@ namespace ocs2::humanoid {
 
 namespace {
 
-///
-/// \brief Create a joint model composite with the appropriate DoF
-///
-
+/**
+ * The floating base of every MPC model: Composite(Translation, Spherical), 6 degrees of freedom with the configuration
+ * q_b = [p_W, xi] (the position in the world and the unit quaternion (x, y, z, w) of the base orientation, 7 entries) and
+ * the velocity v_b = [dp_W, w_B] (the world-frame linear velocity and the body angular velocity, 6 entries), so that
+ * nq = nv + 1 (humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 2.2).
+ */
 pinocchio::JointModelComposite getBaseJointcomposite() {
-  // add 6 DoF for the floating base
   pinocchio::JointModelComposite baseJointComposite(2);
-  // baseJointComposite.addJoint(pinocchio::JointModelFreeFlyer());
   baseJointComposite.addJoint(pinocchio::JointModelTranslation());
-  baseJointComposite.addJoint(pinocchio::JointModelSphericalZYX());
+  baseJointComposite.addJoint(pinocchio::JointModelSpherical());
   return baseJointComposite;
 }
 
@@ -191,7 +191,7 @@ absl::StatusOr<PinocchioInterface> buildCustomPinocchioInterface(
     scalePinocchioModelInertia(model, totalMass, /*verbose=*/true);
   }
 
-  PinocchioInterface pinocchioInterface(model, urdfTree);
+  PinocchioInterface pinocchioInterface(model);
   RETURN_IF_ERROR(checkPinocchioJointNaming(pinocchioInterface, modelSettings, verbose));
   return pinocchioInterface;
 }

@@ -181,7 +181,7 @@ absl::StatusOr<LockstepResult> LockstepClosedLoop::run(const ClosedLoopScenario&
     }
     // The scenario's commands from the cycle the standing time is over in. The GUI's message is no FSM command (the robot
     // process never sees it; the MPC node takes it in whenever it arrives), so the operator's sequence below does not
-    // delay it: the commands start standingTime after the gantry let go, as in M0.
+    // delay it: the commands start standingTime after the gantry let go.
     if (phase == Phase::kStanding && time - phaseStart >= scenario.standingTime - kTimeTolerance) phase = Phase::kCommands;
     if (phase == Phase::kCommands && !commandStartTime.has_value()) {
       // The first cycle of the commands.

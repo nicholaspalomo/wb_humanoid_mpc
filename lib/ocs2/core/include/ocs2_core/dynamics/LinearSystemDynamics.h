@@ -41,8 +41,6 @@ namespace ocs2 {
  *
  * - \f$ \dot{x} = A * x + B * u   \quad \text{for intermediate times}, \f$
  * - \f$ x^{+} = G * x^{-}         \quad \text{for switching times}. \f$
- *
- * where \f$ g(x) \f$ is the guard surface defined by OdeBase::computeGuardSurfaces(t, x).
  */
 class LinearSystemDynamics : public SystemDynamicsBase {
  public:

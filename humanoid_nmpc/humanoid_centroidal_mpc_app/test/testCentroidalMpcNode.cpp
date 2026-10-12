@@ -50,7 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "gtest/gtest.h"
-#include "ocs2_core/cost/QuadraticStateInputCost.h"
+#include "ocs2_centroidal_model/AccessHelperFunctions.h"
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_mpc_test/ScriptedMpc.h"
 #include "ocs2_sqp/SqpSolver.h"
@@ -61,6 +61,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/CostTermNames.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/OperatorPayloadChecks.h"
+#include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "humanoid_common_mpc/mrt/MpcLink.h"
@@ -72,6 +73,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/mpc_parameter_update.pb.h"
 #include "humanoid_mpc_config/task_file.pb.h"
 #include "humanoid_mpc_ipc/Topics.h"
+#include "humanoid_mpc_msgs/controller_type.pb.h"
 #include "humanoid_mpc_msgs/fsm_state.pb.h"
 #include "humanoid_mpc_msgs/loop_timing.pb.h"
 #include "humanoid_mpc_msgs/mpc_status.pb.h"
@@ -175,6 +177,11 @@ TEST(CentroidalMpcNode, SolvesTheRobotsObservationsServesTheResetsTheyRequestAnd
   EXPECT_EQ(policy->state_trajectory(0).data_size(), static_cast<int>(dimensions.stateDim));
   EXPECT_EQ(policy->input_trajectory(0).data_size(), static_cast<int>(dimensions.inputDim));
   EXPECT_EQ(policy->resets_served(), 0);
+  // The shipped Atlas runs a feedback policy, which the SQP on the quaternion state's manifold hands out as a
+  // ManifoldLinearController: gains on the tangent, with the anchors they act at.
+  ASSERT_TRUE(harness.node().interface().sqpSettings().useFeedbackPolicy)
+      << "the shipped DRC Atlas runs multiple_shooting.use_feedback_policy";
+  EXPECT_EQ(policy->controller_type(), humanoid_mpc_msgs::CONTROLLER_TYPE_MANIFOLD_LINEAR);
 
   // A solver reset, then a full one, requested through the observation's counters.
   policy = harness.solve(/*time=*/0.02, /*sequence=*/2, /*requested=*/1, /*fullRequested=*/0);
@@ -235,11 +242,7 @@ SqpSolver& solverOf(CentroidalMpcNode& node) {
 
 /** Q of the running problem's quadratic state cost (the Atlas lists stateQuadraticCost). */
 matrix_t runningStateWeights(CentroidalMpcNode& node) {
-  matrix_t Q;
-  matrix_t R;
-  matrix_t P;
-  solverOf(node).getOcpDefinitions().front().costPtr->get<QuadraticStateInputCost>(kStateQuadraticCostTerm).getGains(Q, R, P);
-  return Q;
+  return solverOf(node).getOcpDefinitions().front().costPtr->get<TuningQuadraticStateInputCost>(kStateQuadraticCostTerm).getStateWeights();
 }
 
 /**
@@ -339,11 +342,16 @@ TEST(CentroidalMpcNode, ResetsToTheTargetTheControllerHandsItsInProcessLink) {
   // The controller, which owns the link the factory captured, lives in controllerOrStatus for the whole test.
   ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
   ASSERT_TRUE(controllerResetTarget);
+  const MpcRobotModelBase<scalar_t>& model = interface.getMpcRobotModel();
   for (const scalar_t time : {0.0, 1.5, 12.25}) {
     SystemObservation observation = harness.standing(time);
-    observation.state(6) += 0.2 * time;          // base x
-    observation.state(10) = 0.03;                // pitch
-    observation.state.head(6).setConstant(0.1);  // momentum
+    vector3_t basePosition = model.getBasePosition(observation.state);
+    basePosition.x() += 0.2 * time;
+    model.setBasePosition(observation.state, basePosition);
+    vector3_t eulerZyx = model.getBaseOrientationEulerZyx(observation.state);
+    eulerZyx(1) = 0.03;  // pitch
+    model.setBaseOrientationEulerZyx(observation.state, eulerZyx);
+    centroidal_model::getNormalizedMomentum(observation.state, interface.getCentroidalModelInfo()).setConstant(0.1);
     expectSameTarget(controllerResetTarget(observation), harness.node().resetTargetTrajectories(observation));
   }
 }
@@ -358,6 +366,8 @@ class DummySimRunner {
     node::DummySimLoop::Config config;
     config.mpcDesiredFrequency = node.interface().mpcSettings().mpcDesiredFrequency_;
     config.link.dimensions = node.dimensions();
+    // The robot's link decodes the node's manifold-linear policies on the MPC's state manifold, as the dummy-sim binary's.
+    config.link.stateManifold = node.interface().getStateManifold();
     absl::StatusOr<std::unique_ptr<node::DummySimLoop>> loop =
         node::DummySimLoop::Create(std::move(robotBus), node.interface().getRollout(), config);
     EXPECT_TRUE(loop.ok()) << loop.status();
@@ -415,6 +425,8 @@ TEST(CentroidalMpcNode, TheDummySimulatorStandsOnTheNodesPoliciesWithoutAReset) 
   EXPECT_EQ(statistics.link.linkLosses, 0);
   EXPECT_EQ(statistics.link.stalePoliciesDropped, 0);
   EXPECT_EQ(statistics.link.foreignPoliciesDropped, 0);
+  // Every policy decoded on the state manifold: a link without one would refuse each manifold-linear policy.
+  EXPECT_EQ(statistics.link.invalidPoliciesRejected, 0);
   EXPECT_TRUE(statistics.link.solverHealthy);
 
   // It stands: the base stays where it started, upright, within a few centimeters.
@@ -424,10 +436,12 @@ TEST(CentroidalMpcNode, TheDummySimulatorStandsOnTheNodesPoliciesWithoutAReset) 
   const vector3_t position = model.getBasePosition(latest.state);
   EXPECT_NEAR(position.z(), startPosition.z(), 0.05);
   EXPECT_LT((position - startPosition).head<2>().norm(), 0.05);
-  const vector3_t orientation = model.getBaseOrientationEulerZYX(latest.state);
+  const vector3_t orientation = model.getBaseOrientationEulerZyx(latest.state);
   EXPECT_LT(std::abs(orientation(1)), 0.1);  // pitch
   EXPECT_LT(std::abs(orientation(2)), 0.1);  // roll
   EXPECT_TRUE(latest.state.allFinite());
+  // The plant's rollout keeps the stored quaternion on the unit sphere.
+  EXPECT_NEAR(latest.state.segment<4>(static_cast<Eigen::Index>(model.getBaseOrientationStartIndex())).norm(), 1.0, 1.0e-9);
 }
 
 constexpr char kNodeBinary[] = "humanoid_nmpc/humanoid_centroidal_mpc_app/humanoid_centroidal_mpc_node";
@@ -492,7 +506,7 @@ TEST(CentroidalMpcNodeEndToEnd, TheRobotProcessStandsAndWalksOnTheNodeBinarysPol
   std::vector<std::string> nodeCommand = {kNodeBinary, absl::StrCat("--gait_file=", files.gaitFile)};
   nodeCommand.insert(nodeCommand.end(), sharedFlags.begin(), sharedFlags.end());
   test_support::ChildProcess mpcNode(nodeCommand);
-  std::vector<std::string> robotCommand = {kRobotBinary, absl::StrCat("--mjcf_file=", sceneFile), "--headless", "--realtime_cores=none",
+  std::vector<std::string> robotCommand = {kRobotBinary, absl::StrCat("--mjcf_file=", sceneFile), "--viewer=none", "--realtime_cores=none",
                                            "--backend_cores=none"};
   robotCommand.insert(robotCommand.end(), sharedFlags.begin(), sharedFlags.end());
   test_support::ChildProcess robotProcess(robotCommand);

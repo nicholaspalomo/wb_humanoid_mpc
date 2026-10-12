@@ -24,8 +24,14 @@ rm -rf "${SCRIPT_DIR}/.bazel" "${SCRIPT_DIR}"/bazel-* 2>/dev/null || true
 # The workflow's job environment: tzdata, which python3-pip pulls in, would otherwise wait for an answer.
 CI_ENVIRONMENT=(-e DEBIAN_FRONTEND=noninteractive -e TZ=Etc/UTC)
 # LINT.ThenChange(//.github/workflows/build_test.yml:noninteractive_apt)
+# GitHub sets CI=true in every job, its container's included. What runs differently in CI reads it: the Makefile's
+# builds leave the editor's compile_commands.json alone (tools/ide/README.md), and the tests that inherit it through
+# env_inherit - //robot_runtime/mujoco_sim_interface:test_glfw_mujoco_viewer,
+# //humanoid_nmpc/humanoid_rerun_viewer:test_model_sandbox and the Tk tests of //humanoid_nmpc/remote_control (_TK_ENV) -
+# fail without Xvfb instead of skipping, as on GitHub (dependencies.txt installs it).
+GITHUB_ENVIRONMENT=(-e CI=true)
 
-docker run --rm "${RUNNER_RESOURCES[@]}" "${CI_ENVIRONMENT[@]}" \
+docker run --rm "${RUNNER_RESOURCES[@]}" "${CI_ENVIRONMENT[@]}" "${GITHUB_ENVIRONMENT[@]}" \
   -v "${SCRIPT_DIR}:/workspace" \
   -w /workspace \
   "${CI_IMAGE}" \
@@ -34,8 +40,8 @@ docker run --rm "${RUNNER_RESOURCES[@]}" "${CI_ENVIRONMENT[@]}" \
     echo '=== 1. Installing Base System Dependencies ==='
     # LINT.IfChange(ci_base_dependencies)
     apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl gnupg lsb-release \
-      locales git gettext-base sudo wget build-essential python3-pip python3-venv
+      ca-certificates curl gnupg \
+      git sudo build-essential python3-pip python3-venv
     # LINT.ThenChange(//.github/workflows/build_test.yml:system_dependencies)
 
     echo '=== 2. Installing Pinocchio (robotpkg) ==='
@@ -62,7 +68,7 @@ docker run --rm "${RUNNER_RESOURCES[@]}" "${CI_ENVIRONMENT[@]}" \
     # LINT.ThenChange(//.bazelrc:bazel_memory_bound)
 
     echo '=== 4. Installing Project Dependencies ==='
-    grep -v '^\s*#' dependencies.txt | envsubst | xargs apt-get install -y --no-install-recommends
+    grep -v '^\s*#' dependencies.txt | xargs apt-get install -y --no-install-recommends
 
     echo '=== 5. Running CI Build ==='
     source ./setup_env.sh

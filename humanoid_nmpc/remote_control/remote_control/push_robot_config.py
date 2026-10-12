@@ -262,7 +262,3 @@ def exit_status(outcome: robot_config_save.SaveOutcome) -> int:
     if outcome.state == robot_config_save.SaveState.NOT_STORED:
         return EXIT_NOT_STORED if outcome.problem else EXIT_IN_SYNC
     return EXIT_NOT_SAVED if outcome.problem else EXIT_IN_SYNC
-
-
-if __name__ == "__main__":
-    sys.exit(main())

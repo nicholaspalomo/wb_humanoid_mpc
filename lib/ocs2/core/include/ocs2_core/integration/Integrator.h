@@ -69,9 +69,7 @@ IntegratorType fromString(const std::string& name);
  * Create Integrator of given type.
  *
  * @param [in] integratorType: The integrator type.
- * @param [in] eventHandler: The integration event function.
  */
-std::unique_ptr<IntegratorBase> newIntegrator(IntegratorType integratorType,
-                                              const std::shared_ptr<SystemEventHandler>& eventHandlerPtr = nullptr);
+std::unique_ptr<IntegratorBase> newIntegrator(IntegratorType integratorType);
 
 }  // namespace ocs2

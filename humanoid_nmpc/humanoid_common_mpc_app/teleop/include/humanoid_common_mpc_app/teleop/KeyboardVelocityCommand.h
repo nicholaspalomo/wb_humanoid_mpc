@@ -64,8 +64,7 @@ absl::StatusOr<KeyboardCommandLimits> loadKeyboardCommandLimits(const std::strin
 
 /**
  * The command of one typed line, "v_x v_y delta_height yaw_rate" separated by white space, of the PELVIS: words left
- * out are 0 and words past the fourth are ignored, as the ROS keyboard node read them. InvalidArgument naming the word
- * that is not a finite number (the ROS node ended on one).
+ * out are 0 and words past the fourth are ignored. InvalidArgument naming the word that is not a finite number.
  */
 absl::StatusOr<vector4_t> parseKeyboardCommandLine(absl::string_view line);
 

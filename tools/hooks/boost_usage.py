@@ -27,10 +27,10 @@
 
 """Flags Boost in the project's C++ and Bazel files, so that it cannot creep back.
 
-The project does not use Boost: the configuration is typed textprotos where boost::property_tree used to read it, the
-integrators are native ports of the odeint loops, and the lib/ocs2 fork is Boost-free. Boost stays installed only
-because Pinocchio's public headers include it, so the @pinocchio target in bazel/system_libs.bzl is the one target that
-depends on @boost and the one that carries Boost's configuration defines. This check flags, in code only:
+The project does not use Boost: the configuration is typed textprotos, the integrators are native ports of the odeint
+loops, and the lib/ocs2 fork is Boost-free. Boost stays installed only because Pinocchio's public headers include it,
+so the @pinocchio target in bazel/system_libs.bzl is the one target that depends on @boost and the one that carries
+Boost's configuration defines. This check flags, in code only:
 
   C++ files, lib/ocs2 included. Only the vendored CppAD headers in lib/ocs2/thirdparty/ are exempt: their disabled
   uBLAS test-vector option still names Boost.
@@ -54,22 +54,16 @@ is still read. In Bazel files, `#` comments are skipped, and a `#` inside a quot
 start one. Bazel strings ARE checked, because labels and flags are strings. A BUILD file that a .bzl writes from a
 multi-line string is checked as the BUILD file it is, with its own `#` comment lines skipped.
 
-A justified exception is marked where it is, with its reason, in a comment, as the @pinocchio target marks its own (the
-text of a string literal is not a comment, so a marker there exempts nothing):
+A justified exception is marked where it is, with its reason, in a comment, as the @pinocchio target marks its own; the
+registry engine applies the markers (tools/hooks/checks.py, tools/hooks/nolint.py):
   - `NOLINT(boost): <reason>` in a comment exempts its own line;
   - `NOLINTNEXTLINE(boost): <reason>` exempts the line after it;
   - `NOLINTBEGIN(boost): <reason>` ... `NOLINTEND(boost)` exempts the lines from the one to the other.
-A marker without a reason exempts nothing. A NOLINTBEGIN(boost) that is never closed, or a NOLINTEND(boost) that
-closes nothing, is reported in its own right.
 """
 
-import argparse
 import bisect
-from collections.abc import Iterable
 import os
 import re
-import sys
-from typing import NamedTuple
 
 from tools.hooks import check_types
 from tools.hooks import cpp_source
@@ -115,24 +109,7 @@ _MESSAGES = {
         "@pinocchio carries (bazel/system_libs.bzl).",
         _BAZEL_ADVICE,
     ),
-    "unclosed": (
-        "`{text}` is never closed by a NOLINTEND(boost), so it exempts nothing.",
-        "",
-    ),
-    "unopened": ("`{text}` closes no NOLINTBEGIN(boost).", ""),
 }
-
-
-class Violation(NamedTuple):
-    path: str
-    line: int
-    col: int
-    kind: str  # a key of _MESSAGES
-    text: str
-
-    def __str__(self) -> str:
-        finding, advice = _MESSAGES[self.kind]
-        return f"{self.path}:{self.line}:{self.col}: {finding.replace('{text}', self.text)}{advice}"
 
 
 def kind_of(path: str) -> str | None:
@@ -262,47 +239,6 @@ def _check_bazel(source: str, kind: str) -> list[tuple[int, int, str, str]]:
     return findings
 
 
-# ----------------------------------------------------------------------------------------------------------------------
-# Exemptions
-# ----------------------------------------------------------------------------------------------------------------------
-_MARKER = re.compile(r"\bNOLINT(NEXTLINE|BEGIN|END)?\(boost\)([^\n]*)")
-
-
-def _has_reason(rest: str) -> bool:
-    """True when the comment text after a NOLINT marker gives a reason, that is any word before the comment ends."""
-    return re.search(r"\w", rest.split("*/", 1)[0]) is not None
-
-
-def _exempt_lines(lines: list[str]) -> tuple[set[int], list[tuple[int, int, str, str]]]:
-    """The line numbers the NOLINT(boost) markers in `lines` exempt, and the markers that are themselves wrong."""
-    exempt: set[int] = set()
-    problems = []
-    open_blocks: list[tuple[int, int, bool]] = []  # line, column, has a reason
-    for number, line in enumerate(lines, start=1):
-        for marker in _MARKER.finditer(line):
-            variant = marker.group(1)
-            reason = _has_reason(marker.group(2))
-            if variant is None:
-                if reason:
-                    exempt.add(number)
-            elif variant == "NEXTLINE":
-                if reason:
-                    exempt.add(number + 1)
-            elif variant == "BEGIN":
-                open_blocks.append((number, marker.start() + 1, reason))
-            elif open_blocks:
-                begin, _, begin_reason = open_blocks.pop()
-                if begin_reason:
-                    exempt.update(range(begin, number + 1))
-            else:
-                problems.append(
-                    (number, marker.start() + 1, "unopened", "NOLINTEND(boost)")
-                )
-    for begin, column, _ in open_blocks:
-        problems.append((begin, column, "unclosed", "NOLINTBEGIN(boost)"))
-    return exempt, problems
-
-
 def _raw_findings(source: str, kind: str) -> list[tuple[int, int, str, str]]:
     """The (line, column, kind, text) of every Boost use in `source`, a file of the given kind, before any marker."""
     if kind == CPP:
@@ -311,83 +247,6 @@ def _raw_findings(source: str, kind: str) -> list[tuple[int, int, str, str]]:
     if kind in (STARLARK, BAZELRC):
         return _check_bazel(source, kind)
     raise ValueError(f"not a kind of file this check reads: {kind!r}")
-
-
-def _comment_lines(source: str, kind: str) -> list[str]:
-    if kind == CPP:
-        without_comments, _ = mask_cpp(source)
-        return cpp_source.comment_text(source, without_comments).split("\n")
-    return [nolint.hash_comment_text(line) for line in source.split("\n")]
-
-
-def check_source(source: str, kind: str, path: str = "<source>") -> list[Violation]:
-    """Every Boost use in `source`, a file of the given kind (CPP, STARLARK or BAZELRC), that no marker exempts.
-
-    The markers are read from the comments alone: one in a string literal is text, not a justification.
-
-    Args:
-        source: The text of the file.
-        kind: CPP, STARLARK or BAZELRC.
-        path: The file's path, which the violations name.
-
-    Returns:
-        The violations, sorted by line and column; a malformed marker is one too.
-    """
-    findings = _raw_findings(source, kind)
-    exempt, problems = _exempt_lines(_comment_lines(source, kind))
-    findings = [f for f in findings if f[0] not in exempt] + problems
-    return [
-        Violation(path, line, column, finding_kind, text)
-        for line, column, finding_kind, text in sorted(findings)
-    ]
-
-
-def check_files(paths: Iterable[str], root: str) -> list[Violation]:
-    """Checks every file of `paths` this check reads, by its path relative to `root`; the others are skipped."""
-    violations: list[Violation] = []
-    for path in paths:
-        relative = os.path.relpath(path, root)
-        kind = kind_of(relative)
-        if kind is None:
-            continue
-        with open(path, encoding="utf-8", errors="ignore") as f:
-            violations += check_source(f.read(), kind, relative)
-    return violations
-
-
-def repository_files(root: str) -> list[str]:
-    """The absolute paths of the files in the repository at `root` that this check reads.
-
-    These are the files git tracks or would track, which leaves out Bazel's output trees and git-ignored files. When git
-    cannot list them, the tree is walked instead, without .git and the top-level build output directories.
-    """
-    return [
-        os.path.join(root, path)
-        for path in lint_files.repository_files(root)
-        if kind_of(path)
-    ]
-
-
-def check_staged(repository: str) -> list[Violation]:
-    """Checks the STAGED version of every file of a checked kind staged for commit - the index, not the working tree.
-
-    This is what the pre-commit hook runs: it judges exactly what is about to be committed, a partial `git add -p`
-    included, and only the files the commit touches, so a commit is never blocked by a file it does not change.
-
-    Args:
-        repository: The root of the git checkout.
-
-    Returns:
-        The violations of the staged files, file by file.
-    """
-    violations: list[Violation] = []
-    for path in lint_files.staged_files(repository):
-        kind = kind_of(path)
-        if kind is not None:
-            violations += check_source(
-                lint_files.staged_source(repository, path), kind, path
-            )
-    return violations
 
 
 _LANGUAGE_KINDS = {
@@ -425,29 +284,3 @@ CHECKS = [
         "NOLINT(boost): <reason> on its line.",
     )
 ]
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument(
-        "paths", nargs="*", help="C++ and Bazel files to check (others are skipped)"
-    )
-    parser.add_argument(
-        "--git-staged",
-        action="store_true",
-        help="check the staged version of every C++ and Bazel file staged for commit (the pre-commit hook)",
-    )
-    args = parser.parse_args(argv)
-    if args.git_staged == bool(args.paths):
-        parser.error("give either file paths or --git-staged")
-    if args.git_staged:
-        violations = check_staged(os.getcwd())
-    else:
-        violations = check_files(args.paths, os.getcwd())
-    for violation in violations:
-        print(violation)
-    return 1 if violations else 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

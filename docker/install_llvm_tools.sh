@@ -1,6 +1,7 @@
 #!/bin/sh
-# Installs the repository's LLVM tools: clang-format, which formats the C++ (`make format`), and clang-tidy, which lints
-# it (`make lint-tidy`, tools/clang_tidy/README.md).
+# Installs the repository's LLVM tools: clang-format, which formats the C++ (`make format`), clang-tidy, which lints
+# it (`make lint-tidy`, tools/clang_tidy/README.md), and, in the dev image only, clangd, the editor's language server
+# (tools/ide/README.md).
 #
 # The dev image (docker/Dockerfile), CI's build job (.github/workflows/build_test.yml) and the local CI emulator
 # (tools/ci_local.sh) all run this one script, so all three lint with the same clang-tidy.
@@ -18,7 +19,7 @@
 #   newest build of a branch, so once it has moved on the install fails and lists what it offers; bump the pin here, in
 #   docker/Dockerfile and in tools/clang_tidy/run_clang_tidy.sh together.
 #
-# Usage, as root: sh docker/install_llvm_tools.sh format|tidy|all
+# Usage, as root: sh docker/install_llvm_tools.sh format|tidy|all (all is format, tidy and clangd)
 # CLANG_FORMAT_VERSION and CLANG_TIDY_VERSION in the environment override the major versions below, and
 # CLANG_TIDY_PACKAGE_VERSION the exact clang-tidy build; the Dockerfile passes its build arguments that way. The apt lists are left in place, as docker/install_robotpkg.sh leaves them; the
 # image deletes them in the same layer. POSIX sh, so that it runs in any container before anything else is set up.
@@ -28,7 +29,7 @@ set -eu
 CLANG_FORMAT_VERSION="${CLANG_FORMAT_VERSION:-18}"
 CLANG_TIDY_VERSION="${CLANG_TIDY_VERSION:-21}"
 CLANG_TIDY_PACKAGE_VERSION="${CLANG_TIDY_PACKAGE_VERSION:-1:21.1.8~++20251221032922+2078da43e25a-1~exp1~20251221153059.70}"
-# LINT.ThenChange(//docker/Dockerfile:clang_format_version, //docker/Dockerfile:clang_tidy_version, //tools/clang_tidy/run_clang_tidy.sh:clang_tidy_version)
+# LINT.ThenChange(//docker/Dockerfile:clang_format_version, //docker/Dockerfile:clang_tidy_version, //tools/clang_tidy/run_clang_tidy.sh:clang_tidy_version, //tools/ide/clangd_in_dev_container.sh:clangd_version)
 
 # apt.llvm.org's signing key ("Sylvestre Ledru - Debian LLVM packages"). The key is checked against its fingerprint
 # before apt is told to trust it, as docker/install_robotpkg.sh checks robotpkg's.
@@ -85,6 +86,13 @@ install_clang_tidy() {
   clang-tidy --version
 }
 
+# clangd of the same build as clang-tidy, from the repository install_clang_tidy added, so that the editor reports
+# what `make lint-tidy` does. It keeps its versioned name, which tools/ide/clangd_in_dev_container.sh runs.
+install_clangd() {
+  apt-get install -y --no-install-recommends "clangd-${CLANG_TIDY_VERSION}=${CLANG_TIDY_PACKAGE_VERSION}"
+  "clangd-${CLANG_TIDY_VERSION}" --version
+}
+
 [ "$#" -eq 1 ] || usage
 case "$1" in
   format) install_clang_format ;;
@@ -92,6 +100,7 @@ case "$1" in
   all)
     install_clang_format
     install_clang_tidy
+    install_clangd
     ;;
   *) usage ;;
 esac

@@ -33,8 +33,7 @@ the structs nproto generates from their schemas. Two checks keep the YAML that t
 
   config-yaml  a `.yaml` or `.yml` file under robot_models/ or humanoid_nmpc/, where the configuration files live. A
                YAML file there would be read by nothing, or by a loader that is not the typed one. Git-ignored files
-               (the stale `<file>.live.yaml` copies a working tree may still hold) are not files of the repository,
-               so the linter never sees them.
+               are not files of the repository, so the linter never sees them.
   yaml-cpp     an #include (or #include_next) of a header under yaml-cpp/, in quotes or angle brackets, in C++; and a
                label of the yaml-cpp repository (@yaml_cpp, @@yaml_cpp) in a Bazel file. The repository is no longer
                registered (bazel/system_libs.bzl), so a label would fail anyway; the check says why.

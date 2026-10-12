@@ -43,7 +43,8 @@ configuration").
   edit, logs why, and keeps the values it runs with.
 - **By name.** Weights and states name what they weigh, never an index: `{x y z}` blocks
   (`state_weights { base_position { x: 0 y: 0 z: 0 } }`), the base orientation as Euler angles
-  (`base_orientation { yaw: 0 pitch: 0 roll: 85 }`), and every joint of the MPC model exactly once, in any order
+  (`base_orientation { yaw: 0 pitch: 0 roll: 85 }`, which one layer maps onto the MPC's unit-quaternion state:
+  humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 2.10), and every joint of the MPC model exactly once, in any order
   (`joint_positions { joint: "back_bkz" value: 5 }`). A block that names a joint the model does not have, or misses
   one, is refused with the joint's name.
 - **What applies when.** The schemas mark each field `RELOAD_HOT` or `RELOAD_START_UP`

@@ -2,7 +2,8 @@
 # The launch sessions of the Makefile's launch targets (humanoid_nmpc/docs/distributed_runtime/README.md, "Deployment"):
 #
 #   session.sh sim --robot drc_atlas --launch_file <robot>/launch/mpc.textproto --build "<bazel targets>" \
-#       [--netem "delay 3ms 1ms loss 0.5%"] [--headless] [--set name=value ...] [--skip_build]
+#       [--netem "delay 3ms 1ms loss 0.5%"] [--viewer glfw|web|none] [--plot_config <file>] [--set name=value ...] \
+#       [--skip_build]
 #   session.sh laptop --launch_file <launch file> --build "<bazel targets>" [--set name=value ...] [--skip_build]
 #   session.sh stop          # what a session left running: the robot container, the laptop side, a NETEM qdisc
 #   session.sh project       # the compose project of this checkout's simulation (its robot container)
@@ -14,7 +15,11 @@
 # over the remote MPC link. When the laptop side ends (Ctrl-C, or its MPC exits) the robot container stops too. The
 # robot container's bundled files are this checkout's robot_models (mounted read-only over the image's copy), which seed
 # its stored configuration at every start: it starts on the files the MPC node reads, and the GUI's Save reaches it over
-# the bus while it runs, as on the robot.
+# the bus while it runs, as on the robot. The MuJoCo viewer is the mujoco_viewer of the plot configuration --plot_config
+# names (a file of this checkout, mounted read-only, which the laptop side's Rerun bridge reads too; default the shipped
+# one, whose viewer is web: a page at http://localhost:6090, which the session prints), unless --viewer names one
+# (WB_ROBOT_VIEWER): glfw is the window on DISPLAY, none runs without one, and a list such as web,none falls back in
+# order. Without --viewer the file must be a PlotConfig textproto that says so in its header.
 # `laptop` runs only the laptop side of a launch file (the dummy simulator, the MPC against a robot, the sandbox).
 #
 # The bus's ports (config/ipc/network.textproto) are the host's: a session refuses to start while another holds them -
@@ -42,9 +47,39 @@ PID_FILE=".deploy/laptop_side.pid"
 LAUNCHER=".bazel/bin/tools/launch/launch"
 
 usage() {
-    sed -n '2,27p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+    sed -n '2,33p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
     exit 2
 }
+
+# The shipped plot configuration, the Rerun bridge's default too.
+# LINT.IfChange(default_plot_config)
+DEFAULT_PLOT_CONFIG="humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto"
+# LINT.ThenChange(//Makefile:plot_config_variable, //humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/cli.py:default_plot_config, //docker-compose.robot.sim.yaml:sim_plot_config_mount)
+# The launch targets' build, which also refreshes the editor's compilation database (tools/ide/README.md).
+BUILD_AND_INDEX="python3 -m tools.ide.compile_commands --after bazel build"
+
+# Whether the file $1 names the message the robot reads it into: the first `# proto-message:` line of its leading
+# comment block (the comment lines before the first that is neither blank nor a comment), read as the textproto
+# parsers read it.
+# LINT.IfChange(plot_config_header)
+declares_plot_config() {
+    awk '
+        /^[[:space:]]*$/ { next }
+        !/^[[:space:]]*#/ { exit }
+        {
+            line = $0
+            sub(/^[[:space:]]*#[[:space:]]*/, "", line)
+            if (line ~ /^proto-message:/) {
+                sub(/^proto-message:[[:space:]]*/, "", line)
+                sub(/[[:space:]]*$/, "", line)
+                found = line == "humanoid_rerun_viewer_proto.PlotConfig"
+                exit
+            }
+        }
+        END { exit !found }
+    ' "$1"
+}
+# LINT.ThenChange(//tools/hooks/textproto_headers.py:header_lines)
 
 compose_files=(-f docker-compose.robot.yaml -f docker-compose.robot.sim.yaml)
 
@@ -119,7 +154,8 @@ robot=""
 launch_file=""
 build_targets=""
 netem=""
-headless=""
+viewer=""
+plot_config="${DEFAULT_PLOT_CONFIG}"
 skip_build="no"
 overrides=()
 while [ "$#" -gt 0 ]; do
@@ -128,7 +164,8 @@ while [ "$#" -gt 0 ]; do
         --launch_file) launch_file="$2"; shift 2 ;;
         --build) build_targets="$2"; shift 2 ;;
         --netem) netem="$2"; shift 2 ;;
-        --headless) headless="true"; shift ;;
+        --viewer) viewer="$2"; shift 2 ;;
+        --plot_config) plot_config="$2"; shift 2 ;;
         --set) overrides+=(--set "$2"); shift 2 ;;
         --skip_build) skip_build="yes"; shift ;;
         -h | --help) usage ;;
@@ -174,7 +211,7 @@ if [ "${command}" = "laptop" ]; then
         *dummy_sim.textproto) refuse_if_ports_taken ;;
     esac
     if [ "${skip_build}" != "yes" ]; then
-        tools/deploy/in_dev_container.sh "bazel build //tools/launch ${build_targets}"
+        tools/deploy/in_dev_container.sh "${BUILD_AND_INDEX} //tools/launch ${build_targets}"
     fi
     trap 'stop' EXIT
     trap 'exit 130' INT
@@ -184,6 +221,40 @@ if [ "${command}" = "laptop" ]; then
 fi
 
 [ -n "${robot}" ] || usage
+# The plot configuration of both sides: its mujoco_viewer names the robot's viewer without --viewer, and the Rerun
+# bridge plots what it lists. It is checked before anything is built or stopped: a file of the checkout, by a path
+# relative to it, which the robot container mounts and the laptop side reads in the dev container's checkout. The
+# bridge's "none" (no plots) leaves the robot the shipped one's viewer.
+case "$(printf '%s' "${plot_config}" | tr 'A-Z' 'a-z')" in
+    "" | none | off | false | 0) robot_plot_config="${DEFAULT_PLOT_CONFIG}" ;;
+    *)
+        case "${plot_config}" in
+            "${repo}"/*) plot_config="${plot_config#"${repo}"/}" ;;
+            /*)
+                echo "session.sh: --plot_config ${plot_config} is outside the checkout ${repo}: the robot and the dev" \
+                    "container see only the checkout, so copy the file into it" >&2
+                exit 2
+                ;;
+        esac
+        robot_plot_config="${plot_config}"
+        ;;
+esac
+if [ ! -f "${robot_plot_config}" ]; then
+    echo "session.sh: --plot_config ${robot_plot_config}: no such file in the checkout ${repo}" >&2
+    exit 2
+fi
+# The robot reads the file only without --viewer, and strictly, into a PlotConfig: a plain list of signals, which the
+# bridge reads too, would end its start, after the build and the stop of the running simulation.
+if [ -z "${viewer}" ] && ! declares_plot_config "${robot_plot_config}"; then
+    echo "session.sh: --plot_config ${robot_plot_config} does not declare '# proto-message:" \
+        "humanoid_rerun_viewer_proto.PlotConfig' in its leading comment block: without --viewer the robot reads its" \
+        "MuJoCo viewer (mujoco_viewer) from it, which only a PlotConfig textproto names. Give it the header of" \
+        "${DEFAULT_PLOT_CONFIG}, or name the viewer: make ... VIEWER=web|glfw|none" >&2
+    exit 2
+fi
+# The laptop side reads the same file, by the same checkout-relative path: a later --set wins (tools/launch), over the
+# Makefile's of PLOT_CONFIG, whose absolute path of the host the dev container would not find.
+overrides+=(--set "plot_config=${plot_config}")
 # The robot container and the laptop side meet on the host's loopback (config/ipc/network.textproto): the dev
 # container must be on the host's network, as docker-compose.yaml puts it (docker-compose.bridge.yaml, for Docker
 # Desktop, does not, and the -sim targets do not run there).
@@ -207,7 +278,7 @@ fi
 
 if [ "${skip_build}" != "yes" ]; then
     tools/deploy/deploy_robot.sh image --target robot-sim
-    tools/deploy/in_dev_container.sh "bazel build //tools/launch ${build_targets}"
+    tools/deploy/in_dev_container.sh "${BUILD_AND_INDEX} //tools/launch ${build_targets}"
 fi
 
 stop
@@ -216,12 +287,45 @@ trap 'stop' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 export ROBOT="${robot}" NETEM="${netem}" DISPLAY="${DISPLAY:-:99}"
-export WB_ROBOT_HEADLESS="${headless}"
+export WB_ROBOT_VIEWER="${viewer}"
 # The checkout's robot_models, the seeds of the simulated robot's stored configuration (docker-compose.robot.sim.yaml).
 # LINT.IfChange(sim_models)
 WB_ROBOT_SIM_MODELS="${WB_HOST_CHECKOUT:-$(host_checkout)}/robot_models"
 # LINT.ThenChange(//docker-compose.robot.sim.yaml:sim_models_mount)
 export WB_ROBOT_SIM_MODELS
+# The checkout's plot configuration, mounted read-only where the robot container reads it (docker-compose.robot.sim.yaml).
+# LINT.IfChange(sim_plot_config)
+WB_ROBOT_SIM_PLOT_CONFIG="${WB_HOST_CHECKOUT:-$(host_checkout)}/${robot_plot_config}"
+sim_plot_config_target="/etc/wb-humanoid-robot/plot_config.textproto"
+# LINT.ThenChange(//docker-compose.robot.sim.yaml:sim_plot_config_mount)
+export WB_ROBOT_SIM_PLOT_CONFIG
+# The robot's errors about the file name it by the path the container sees.
+[ -n "${viewer}" ] ||
+    echo "session.sh: the robot reads its MuJoCo viewer from ${robot_plot_config}, which it sees as ${sim_plot_config_target}"
 compose up --detach --force-recreate
+# Whether the robot starts the web viewer, for the address below: --viewer lists it, or no --viewer is given and the plot
+# configuration's mujoco_viewer lists it or nothing (the default, web). A hint only: the robot process reads the file
+# strictly and logs the viewer it chose.
+# LINT.IfChange(default_viewer_hint)
+starts_web_viewer() {
+    case ",${viewer}," in
+        ,,) ;;
+        *,web,*) return 0 ;;
+        *) return 1 ;;
+    esac
+    grep -Eq '^[[:space:]]*mujoco_viewer:.*"web"' "${robot_plot_config}" ||
+        ! grep -Eq '^[[:space:]]*mujoco_viewer:' "${robot_plot_config}"
+}
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/RobotAppOptions.h:default_viewer)
+if starts_web_viewer; then
+    # The robot container is on the host's network, and the viewer binds its loopback (--web_viewer_address).
+    # LINT.IfChange(web_viewer_port)
+    web_viewer_port="${WB_ROBOT_WEB_VIEWER_PORT:-6090}"
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotAppFlags.cpp:web_viewer_port)
+    chosen_by=""
+    [ -n "${viewer}" ] || chosen_by=" (the mujoco_viewer of ${robot_plot_config}; VIEWER=glfw is the window on DISPLAY)"
+    echo "session.sh: the MuJoCo web viewer${chosen_by}: http://localhost:${web_viewer_port} (from another machine:" \
+        "ssh -L ${web_viewer_port}:127.0.0.1:${web_viewer_port} <this host>)"
+fi
 compose logs --follow --no-log-prefix robot 2>&1 | sed -u 's/^/[robot] /' &
 run_laptop_side

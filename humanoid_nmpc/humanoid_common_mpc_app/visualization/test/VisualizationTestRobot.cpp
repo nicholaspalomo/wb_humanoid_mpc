@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
+#include "humanoid_common_mpc/common/StateManifoldFactory.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
 #include "humanoid_common_mpc/config/model/MpcFormulationFromConfig.h"
@@ -167,8 +168,14 @@ std::unique_ptr<TestRobot> TestRobot::load(const RobotFiles& files, Formulation 
   const absl::StatusOr<vector_t> initialState =
       stateValuesFromConfig(taskFile.initial_state, stateInputLayout(*robot->modelSettings_, mpc), /*fieldPath=*/"initial_state");
   CHECK_OK(initialState.status());
-  CHECK_EQ(initialState->size(), static_cast<Eigen::Index>(robot->robotModel_->getStateDim()));
-  robot->nominalState_ = *initialState;
+  // The one mapping of the tuning layout onto the state, as the MPC interfaces build their initial state.
+  absl::StatusOr<vector_t> nominalState = robot->robotModel_->stateFromTuning(*initialState);
+  CHECK_OK(nominalState.status());
+  CHECK_EQ(nominalState->size(), static_cast<Eigen::Index>(robot->robotModel_->getStateDim()));
+  robot->nominalState_ = *std::move(nominalState);
+  absl::StatusOr<std::shared_ptr<const StateManifold>> stateManifold = stateManifoldOf(*robot->robotModel_);
+  CHECK_OK(stateManifold.status());
+  robot->stateManifold_ = *std::move(stateManifold);
   return robot;
 }
 
@@ -177,8 +184,11 @@ PinocchioInterface TestRobot::makeReferencePinocchioInterface() const {
 }
 
 VisualizationModel TestRobot::model() const {
-  return VisualizationModel{
-      .taskFile = taskFile_, .urdfFile = urdfFile_, .pinocchioInterface = pinocchioInterface_.get(), .mpcRobotModel = robotModel_.get()};
+  return VisualizationModel{.taskFile = taskFile_,
+                            .urdfFile = urdfFile_,
+                            .pinocchioInterface = pinocchioInterface_.get(),
+                            .mpcRobotModel = robotModel_.get(),
+                            .stateManifold = stateManifold_.get()};
 }
 
 SystemObservation TestRobot::observation(scalar_t time, size_t mode) const {
@@ -204,10 +214,10 @@ void TestRobot::makePolicy(scalar_t startTime,
     const scalar_t fraction = static_cast<scalar_t>(node) / static_cast<scalar_t>(nodes - 1);
     const scalar_t time = startTime + fraction * duration;
     vector_t state = nominalState_;
-    vector6_t basePose = robotModel_->getBasePose(state);
+    vector6_t basePose = robotModel_->getBasePoseEulerZyx(state);
     basePose[0] += 0.3 * fraction;
     basePose[3] += 0.2 * fraction;
-    robotModel_->setBasePose(state, basePose);
+    robotModel_->setBasePoseEulerZyx(state, basePose);
     vector_t joints = robotModel_->getJointAngles(state);
     for (Eigen::Index joint = 0; joint < joints.size(); ++joint) {
       joints[joint] += 0.05 * std::sin(3.0 * fraction + 0.3 * static_cast<scalar_t>(joint));

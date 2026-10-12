@@ -131,7 +131,8 @@ PrimalSolution toPrimalSolution(const std::vector<AnnotatedTime>& time, ModeSche
 
 /**
  * Constructs a primal solution with a ManifoldLinearController, u = u*_k + K_k (x (-) x_k), from the LQ subproblem
- * solution of a problem on a state manifold. Pre-event nodes take the anchor state, input and gain of the node before
+ * solution of a problem on a state manifold. K_k is the pre-step QP gain, kept in body-frame components at the post-step
+ * anchor x_k (ManifoldLinearController.h). Pre-event nodes take the anchor state, input and gain of the node before
  * them, as the flat version copies its feedforward term and gain.
  *
  * @param [in] time : The annotated time trajectory

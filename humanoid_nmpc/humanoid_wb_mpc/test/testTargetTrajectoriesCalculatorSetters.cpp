@@ -29,7 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -47,7 +49,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 
+#include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
@@ -58,10 +62,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /**
  * The speed setters of TargetTrajectoriesCalculatorBase: a pose command reaches its target in the time the distance
- * takes at the set speed. setTargetRotationVelocity assigned its own parameter to itself and so set nothing; it had no
- * caller, so fixing it changed no behavior. Built on the G1 whole-body calculator, which needs no Pinocchio model. Also
- * the calculator's Create(): the typed reference file and its path build the same calculator, and a reference file that
- * does not parse or convert is an InvalidArgument naming the file and the field.
+ * takes at the set speed, starting level at the measured heading. setTargetRotationVelocity assigned its own parameter
+ * to itself and so set nothing; it had no caller, so fixing it changed no behavior. Built on the G1 whole-body
+ * calculator, which needs no Pinocchio model. Also the calculator's Create(): the typed reference file and its path
+ * build the same calculator, and a reference file that does not parse or convert is an InvalidArgument naming the file
+ * and the field.
  */
 namespace ocs2::humanoid {
 namespace {
@@ -98,8 +103,8 @@ class TargetTrajectoriesCalculatorSettersTest : public ::testing::Test {
     model_ = std::make_unique<WBAccelMpcRobotModel<scalar_t>>(*modelSettings_);
     calculator_ = WBMpcTargetTrajectoriesCalculator::Create(referenceFile_, *model_, kHorizon).value();
     reference_ = loadReferenceFile(referenceFile_).value();
-    // At the origin, facing along x.
-    initState_ = vector_t::Zero(model_->getStateDim());
+    // At the origin, level, facing along x: the identity orientation.
+    initState_ = model_->getNeutralState();
   }
 
   /** [s] how long the pose command (dx, dy, dz, dyaw in degrees) is given to reach its target. */
@@ -116,25 +121,89 @@ class TargetTrajectoriesCalculatorSettersTest : public ::testing::Test {
   vector_t initState_;
 };
 
+/**
+ * Expects the reference of `targets` to turn the base by `turn` [rad] from its first knot: knots at most
+ * kMaxKnotYawSpacing apart in heading, as many as subdivideYawKnots() makes, and between them the robot model's slerp of
+ * the orientation turning the commanded way at every step, level, by `turn` in all.
+ */
+void expectTheReferenceTurnsBy(const MpcRobotModelBase<scalar_t>& model, const TargetTrajectories& targets, scalar_t turn) {
+  const size_t parts =
+      std::max<size_t>(1, static_cast<size_t>(std::ceil(std::abs(turn) / TargetTrajectoriesCalculatorBase::kMaxKnotYawSpacing)));
+  ASSERT_EQ(targets.stateTrajectory.size(), parts + 1);
+  for (size_t i = 1; i < targets.stateTrajectory.size(); ++i) {
+    const scalar_t step =
+        std::remainder(model.getBaseHeading(targets.stateTrajectory[i]) - model.getBaseHeading(targets.stateTrajectory[i - 1]), 2.0 * M_PI);
+    EXPECT_LE(std::abs(step), TargetTrajectoriesCalculatorBase::kMaxKnotYawSpacing + 1.0e-12) << "knot " << i;
+  }
+  constexpr int kSamples = 400;
+  const scalar_t startTime = targets.timeTrajectory.front();
+  const scalar_t duration = targets.timeTrajectory.back() - startTime;
+  scalar_t turned = 0.0;
+  scalar_t previousHeading = model.getBaseHeading(model.getDesiredState(targets, startTime));
+  for (int sample = 1; sample <= kSamples; ++sample) {
+    const vector_t desired = model.getDesiredState(targets, startTime + duration * static_cast<scalar_t>(sample) / kSamples);
+    const scalar_t heading = model.getBaseHeading(desired);
+    const scalar_t step = std::remainder(heading - previousHeading, 2.0 * M_PI);
+    EXPECT_GT(step * turn, 0.0) << "the reference turns against the command at sample " << sample;
+    const vector3_t eulerZyx = model.getBaseOrientationEulerZyx(desired);
+    EXPECT_NEAR(eulerZyx(1), 0.0, 1.0e-12) << "sample " << sample;
+    EXPECT_NEAR(eulerZyx(2), 0.0, 1.0e-12) << "sample " << sample;
+    turned += step;
+    previousHeading = heading;
+  }
+  EXPECT_NEAR(turned, turn, 1.0e-9);
+}
+
 TEST_F(TargetTrajectoriesCalculatorSettersTest, APoseCommandTurnsAtTheRotationVelocitySet) {
-  const vector4_t turn(0.0, 0.0, 0.0, kTurnDegrees);
-  const scalar_t yaw = kTurnDegrees * M_PI / 180.0;
+  // A quarter turn is one segment; a turn of three quarters, or of three eighths the other way, is cut into knots at most
+  // a quarter turn apart (subdivideYawKnots()), so that the slerp of the orientation between them turns the commanded way.
+  // Either way the time is the turn at the rotation velocity.
   const scalar_t fileVelocity = reference_.target_rotation_velocity.value_or(0.0);
   ASSERT_GT(fileVelocity, 0.0);
-  EXPECT_DOUBLE_EQ(timeToTarget(turn), yaw / fileVelocity);
-
-  // Speeds other than the file's, so that a setter that sets nothing cannot pass.
-  for (const scalar_t factor : {0.5, 2.0, 3.0}) {
-    const scalar_t velocity = factor * fileVelocity;
-    calculator_->setTargetRotationVelocity(velocity);
-    EXPECT_DOUBLE_EQ(timeToTarget(turn), yaw / velocity) << "rotation velocity " << velocity;
-  }
-
-  // A reload of the reference file puts the file's speed back.
   const absl::StatusOr<ReferenceSettings> settings = referenceSettingsFromConfig(reference_);
   ASSERT_TRUE(settings.ok()) << settings.status();
-  calculator_->applyCommandLimits(*settings);
-  EXPECT_DOUBLE_EQ(timeToTarget(turn), yaw / fileVelocity);
+  for (const scalar_t turnDegrees : {kTurnDegrees, 270.0, -135.0}) {
+    SCOPED_TRACE(turnDegrees);
+    const vector4_t turn(0.0, 0.0, 0.0, turnDegrees);
+    const scalar_t yaw = turnDegrees * M_PI / 180.0;
+    EXPECT_DOUBLE_EQ(timeToTarget(turn), std::abs(yaw) / fileVelocity);
+    expectTheReferenceTurnsBy(*model_, calculator_->commandedPositionToTargetTrajectories(turn, kInitTime, initState_), yaw);
+
+    // Speeds other than the file's, so that a setter that sets nothing cannot pass.
+    for (const scalar_t factor : {0.5, 2.0, 3.0}) {
+      const scalar_t velocity = factor * fileVelocity;
+      calculator_->setTargetRotationVelocity(velocity);
+      EXPECT_DOUBLE_EQ(timeToTarget(turn), std::abs(yaw) / velocity) << "rotation velocity " << velocity;
+      expectTheReferenceTurnsBy(*model_, calculator_->commandedPositionToTargetTrajectories(turn, kInitTime, initState_), yaw);
+    }
+
+    // A reload of the reference file puts the file's speed back.
+    calculator_->applyCommandLimits(*settings);
+    EXPECT_DOUBLE_EQ(timeToTarget(turn), std::abs(yaw) / fileVelocity);
+  }
+}
+
+TEST_F(TargetTrajectoriesCalculatorSettersTest, APoseCommandStartsLevelAtTheTwistHeadingOfTheMeasuredAttitude) {
+  // Measured at a stored yaw beyond pi and tilted: the first knot faces the twist heading of that attitude, wrapped into
+  // (-pi, pi], with no pitch or roll (design decision D9), and the turn takes its time at the rotation velocity from
+  // there. The heading differs from the stored yaw by the wrap and by -2 atan(tan(theta / 2) tan(phi / 2)).
+  constexpr scalar_t kStoredYaw = 3.5;
+  constexpr scalar_t kPitch = 0.1;
+  constexpr scalar_t kRoll = -0.12;
+  vector_t state = initState_;
+  model_->setBaseOrientationEulerZyx(state, vector3_t(kStoredYaw, kPitch, kRoll));
+  const TargetTrajectories targets =
+      calculator_->commandedPositionToTargetTrajectories(vector4_t(0.0, 0.0, 0.0, kTurnDegrees), kInitTime, state);
+  ASSERT_EQ(targets.stateTrajectory.size(), 2);
+  const vector6_t first = model_->getBasePoseEulerZyx(targets.stateTrajectory.front());
+  const vector6_t last = model_->getBasePoseEulerZyx(targets.stateTrajectory.back());
+  EXPECT_EQ(first(3), model_->getBaseHeading(state));
+  EXPECT_NEAR(first(3), std::remainder(kStoredYaw - 2.0 * std::atan(std::tan(kPitch / 2.0) * std::tan(kRoll / 2.0)), 2.0 * M_PI), 1.0e-12);
+  EXPECT_EQ(first(4), 0.0);
+  EXPECT_EQ(first(5), 0.0);
+  const scalar_t yaw = kTurnDegrees * M_PI / 180.0;
+  EXPECT_NEAR(last(3) - first(3), yaw, 1.0e-12);
+  EXPECT_NEAR(targets.timeTrajectory.back() - kInitTime, yaw / reference_.target_rotation_velocity.value_or(0.0), 1.0e-12);
 }
 
 TEST_F(TargetTrajectoriesCalculatorSettersTest, APoseCommandMovesAtTheDisplacementVelocitySet) {

@@ -4,9 +4,12 @@
 #   ROBOT=drc_atlas docker compose -f docker-compose.robot.yaml -f docker-compose.robot.sim.yaml up
 #
 # `make launch-<robot>-sim` runs it. The image is robot-sim: robot-runtime plus the GL libraries of the viewer, so the
-# robot process, its realtime settings and its bus are the robot's. The viewer draws on DISPLAY (the VNC desktop :99,
-# or the host's display after `xhost +SI:localuser:root`); the container reaches the X server through its abstract
-# socket on the host's network, without a mount. WB_ROBOT_HEADLESS=true turns the viewer off.
+# robot process, its realtime settings and its bus are the robot's. The viewer is the mujoco_viewer of the plot
+# configuration (the checkout's file WB_ROBOT_SIM_PLOT_CONFIG, which session.sh sets from the Makefile's PLOT_CONFIG,
+# mounted read-only): web, the shipped one's, serves it at http://localhost:6090 (host network: no port mapping; about
+# 16 fps on llvmpipe, through EGL, which honors the Mesa settings below). WB_ROBOT_VIEWER (VIEWER=) overrides it: glfw
+# draws on DISPLAY (the VNC desktop :99, or the host's display after `xhost +SI:localuser:root`), which the container
+# reaches through the X server's abstract socket on the host's network, without a mount; none turns it off.
 #
 # The checkout's robot_models (WB_ROBOT_SIM_MODELS, which session.sh sets to the host's path of it) is mounted
 # read-only over the image's copy: the robot's bundled files - the seeds of its stored configuration - are the ones the
@@ -29,6 +32,14 @@ services:
         target: /opt/wb-humanoid-robot/robot_models
         read_only: true
       # LINT.ThenChange(//tools/deploy/session.sh:sim_models, //tools/deploy/test_deploy_files.py:sim_models_mount)
+      # LINT.IfChange(sim_plot_config_mount)
+      # The checkout's plot configuration, whose mujoco_viewer names the viewer unless WB_ROBOT_VIEWER does; by default
+      # the shipped one (the Makefile's PLOT_CONFIG).
+      - type: bind
+        source: ${WB_ROBOT_SIM_PLOT_CONFIG:-./humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto}
+        target: /etc/wb-humanoid-robot/plot_config.textproto
+        read_only: true
+      # LINT.ThenChange(//tools/deploy/session.sh:sim_plot_config, //tools/deploy/session.sh:default_plot_config, //Makefile:plot_config_variable, //humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/cli.py:default_plot_config, //tools/deploy/test_deploy_files.py:sim_plot_config_mount)
       # LINT.IfChange(robot_config_store)
       # In place of the base file's bind mount of the same target: a volume of this compose project, which survives
       # `down`.
@@ -45,6 +56,8 @@ services:
       LP_NUM_THREADS: ${LP_NUM_THREADS:-2}
       # The checkout's files at every start (the robot's default keeps its saves until a deploy changes a file).
       WB_ROBOT_CONFIG_SEED: ${WB_ROBOT_CONFIG_SEED:-every_start}
+      # The mounted plot configuration above.
+      WB_ROBOT_PLOT_CONFIG: /etc/wb-humanoid-robot/plot_config.textproto
 
 volumes:
   robot_config: {}

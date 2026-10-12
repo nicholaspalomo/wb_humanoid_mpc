@@ -3,8 +3,8 @@ load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 
-# humanoid_common_mpc_app/teleop - the keyboard velocity teleoperation of the C++ era on the IPC bus: a walking command
-# typed as a line, published on operator/walking_velocity_command as the bus node "teleop". See README.md.
+# humanoid_common_mpc_app/teleop - the keyboard velocity teleoperation on the IPC bus: a walking command typed as a
+# line, published on operator/walking_velocity_command as the bus node "teleop". See README.md.
 
 package(default_visibility = ["//visibility:public"])
 

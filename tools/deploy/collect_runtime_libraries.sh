@@ -14,9 +14,10 @@
 set -eu
 
 # The robot binaries link GLFW, GLEW and libGL's dispatch library because the MuJoCo viewer is compiled in, but
-# robot-runtime runs without it (--headless). Installed with apt, these packages pull in Mesa and LLVM (some 180 MB)
-# through libglx0's dependency on libglx-mesa0, so their libraries are copied instead; robot-sim installs the packages
-# themselves, with Mesa, over the copies.
+# robot-runtime runs without a viewer (--viewer=none). Installed with apt, these packages pull in Mesa and LLVM (some
+# 180 MB) through libglx0's dependency on libglx-mesa0, so their libraries are copied instead; robot-sim installs the
+# packages themselves, with Mesa, over the copies. The web viewer opens libEGL.so.1 at run time (dlopen) instead of
+# linking it, so EGL is no library of the binaries here: robot-sim installs it, robot-runtime has none.
 # LINT.IfChange(copied_packages)
 COPIED_PACKAGES="libgl1 libglew2.2 libglfw3 libglvnd0 libglx0"
 # LINT.ThenChange(//docker/Dockerfile:robot_images)

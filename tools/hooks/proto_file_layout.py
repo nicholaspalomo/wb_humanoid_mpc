@@ -60,18 +60,14 @@ protobuf's C++ text parser skips a reserved name without a word, so a configurat
 key would silently stop meaning anything. List the name in `(nproto.retired_field)` instead, which turns it into an
 error that says what replaced it (tools/nproto/README.md, "Retired fields"). Reserving field numbers is fine.
 
-    python3 -m tools.hooks.proto_file_layout <files>       # check
-    python3 -m tools.hooks.proto_file_layout --git-staged  # check the staged .proto files
+`python3 -m tools.hooks.lint_code` (make lint) and the pre-commit hook run it as the registry check proto-file-layout:
 
-`python3 -m tools.hooks.lint_code` (make lint) and the pre-commit hook run it as the registry check proto-file-layout.
+    python3 -m tools.hooks.lint_code --only proto-file-layout --paths <files>
 """
 
-import argparse
-from collections.abc import Iterable
 import dataclasses
 import os
 import re
-import sys
 from typing import NamedTuple
 
 from tools.hooks import check_types
@@ -102,9 +98,6 @@ class Violation(NamedTuple):
     path: str
     line: int
     text: str
-
-    def __str__(self) -> str:
-        return f"{self.path}:{self.line}: {self.text}"
 
 
 def snake_case(name: str) -> str:
@@ -423,23 +416,6 @@ def check_source(source: str, path: str) -> list[Violation]:
     return violations
 
 
-def check_files(paths: Iterable[str], root: str) -> list[Violation]:
-    violations: list[Violation] = []
-    for path in paths:
-        with open(path, encoding="utf-8") as f:
-            violations += check_source(f.read(), os.path.relpath(path, root))
-    return violations
-
-
-def check_staged(repository: str) -> list[Violation]:
-    """Checks the STAGED version of every .proto file staged for commit, as the pre-commit hook needs."""
-    violations: list[Violation] = []
-    for path in lint_files.staged_files(repository):
-        if path.endswith(PROTO_EXTENSION):
-            violations += check_source(lint_files.staged_source(repository, path), path)
-    return violations
-
-
 def _findings(source: str, path: str) -> list[check_types.Finding]:
     return [
         check_types.Finding(path, v.line, 1, NAME, v.text)
@@ -460,27 +436,3 @@ CHECKS = [
         '(nproto.retired_field), not with `reserved "name"`.',
     )
 ]
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("paths", nargs="*", help=".proto files")
-    parser.add_argument(
-        "--git-staged",
-        action="store_true",
-        help="check the staged version of every .proto file staged for commit (the pre-commit hook)",
-    )
-    args = parser.parse_args(argv)
-    if args.git_staged == bool(args.paths):
-        parser.error("give either .proto paths or --git-staged")
-    if args.git_staged:
-        violations = check_staged(os.getcwd())
-    else:
-        violations = check_files(args.paths, os.getcwd())
-    for violation in violations:
-        print(violation)
-    return 1 if violations else 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

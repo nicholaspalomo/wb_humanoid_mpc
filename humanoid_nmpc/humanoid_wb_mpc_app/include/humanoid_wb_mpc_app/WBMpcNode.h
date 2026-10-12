@@ -51,9 +51,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The MPC node of the whole-body MPC (humanoid_wb_mpc_node; humanoid_nmpc/docs/distributed_runtime/README.md): the MPC
- * the whole-body SQP node of the ROS era built, served on the bus by an MpcServer (node::MpcNodeRuntime) to the robot
- * process, or to a dummy simulator:
+ * The MPC node of the whole-body MPC (humanoid_wb_mpc_node; humanoid_nmpc/docs/distributed_runtime/README.md): a
+ * whole-body SQP MPC served on the bus by an MpcServer (node::MpcNodeRuntime) to the robot process, or to a dummy
+ * simulator:
  *
  *   - WBMpcInterface::Create() and an SqpMpc on its optimal control problem;
  *   - the procedural motion manager (gait changes and the velocity targets of WBMpcTargetTrajectoriesCalculator), fed
@@ -66,11 +66,10 @@ namespace ocs2::humanoid {
  *     solve, the RELOAD_START_UP ones that differ logged as taking effect at the next start; a saved reference file's
  *     command limits reach the calculator and the motion manager (makeCommandLimitsReloaders());
  *   - every policy carries the scaled velocity command (ViewerAnnotations);
- *   - the visualization publisher (humanoid_common_mpc_app/visualization), as the ROS nodes always ran their
- *     visualizer: viz/scene and viz/telemetry for the Rerun bridge, from every published policy and every robot/state
- *     sample, on a thread of its own.
+ *   - the visualization publisher (humanoid_common_mpc_app/visualization), always running: viz/scene and viz/telemetry
+ *     for the Rerun bridge, from every published policy and every robot/state sample, on a thread of its own.
  *
- * As in the ROS node, the whole-body MPC has no contact planner, and the policies carry no target contact patch.
+ * The whole-body MPC has no contact planner, and the policies carry no target contact patch.
  */
 class WBMpcNode {
  public:

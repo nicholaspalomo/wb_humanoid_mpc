@@ -103,7 +103,7 @@ class DcmTerminalCostTest : public ::testing::Test {
     // schedule on every preSolverRun, so the phase has to be inserted there.
     referenceManager_->getGaitSchedule()->insertModeSequenceTemplate(
         ModeSequenceTemplate({0.0, 0.5, 1.0}, {ModeNumber::kRf, ModeNumber::kStance}), /*startTime=*/1.0, /*finalTime=*/3.0);
-    initialState_ = initialStateOf(atlas_.task, *modelSettings_).value();
+    initialState_ = initialStateOnModel(atlas_.task, *robotModel_).value();
     // The reference manager needs one preSolverRun to swap in the buffered mode schedule.
     referenceManager_->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, initialState_, ModeNumber::kStance);
 
@@ -264,8 +264,10 @@ TEST_F(DcmTerminalCostTest, GaussNewtonApproximationMatchesFiniteDifferences) {
   vector_t state = initialState_;
   state(0) = 0.25;
   state(1) = -0.15;
-  state(9) = 0.2;   // base yaw
-  state(10) = 0.1;  // base pitch
+  vector3_t eulerZyx = robotModel_->getBaseOrientationEulerZyx(state);
+  eulerZyx(0) = 0.2;  // base yaw
+  eulerZyx(1) = 0.1;  // base pitch
+  robotModel_->setBaseOrientationEulerZyx(state, eulerZyx);
   state(13) = 0.3;  // a torso joint
   const TargetTrajectories emptyTargets;
   const ScalarFunctionQuadraticApproximation approximation =

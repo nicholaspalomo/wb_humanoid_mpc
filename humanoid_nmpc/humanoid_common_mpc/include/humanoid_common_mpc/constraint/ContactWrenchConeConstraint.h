@@ -74,7 +74,8 @@ namespace ocs2::humanoid {
  *
  *   d(l_R_w v) / dq = [l_R_w v]x * J_omega,local(q),
  *
- * with J_omega,local the angular rows of the contact frame's LOCAL Jacobian, for both the force and the moment.
+ * with J_omega,local the angular rows of the contact frame's LOCAL Jacobian, for both the force and the moment, and dq a
+ * step of q in Pinocchio's tangent, which MpcRobotModelBase::getPinocchioTangentJacobian() takes to the state.
  *
  * WRENCH-SPACE MODELS ONLY. The rows are written into the input Jacobian at getContactForceStartIndices() and
  * getContactMomentStartIndices(), three columns each, which is the layout of a model whose input stores the contact
@@ -133,8 +134,9 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
 
   /**
    * The constructor, with the model and the configuration checked first: a basis-vector model, or any model whose input
-   * does not store this contact's wrench as six consecutive entries, and a Config that validateConfig() refuses, are
-   * reported with InvalidArgument instead of a CHECK. Prefer it.
+   * does not store this contact's wrench as six consecutive entries, a robot model whose Pinocchio velocity is not the
+   * Pinocchio model's (checkPinocchioVelocityDim()), and a Config that validateConfig() refuses, are reported with
+   * InvalidArgument instead of a CHECK. Prefer it.
    *
    * The reference manager, the Pinocchio interface and the robot model are BORROWED, as by every other contact term:
    * they are owned by the MPC interface, which outlives its optimal control problem and every copy of it.
@@ -152,6 +154,14 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
    * entries - the wrench-space layout this term writes its Jacobian in - and InvalidArgument otherwise.
    */
   static absl::Status checkWrenchSpaceInput(const MpcRobotModelBase<scalar_t>& mpcRobotModel, size_t contactPointIndex);
+
+  /**
+   * OkStatus when the robot model's Pinocchio velocity (MpcRobotModelBase::getVelocityDim()) has the Pinocchio model's nv
+   * entries - the columns of the frame Jacobian this term takes to the state through getPinocchioTangentJacobian() - and
+   * InvalidArgument otherwise.
+   */
+  static absl::Status checkPinocchioVelocityDim(const PinocchioInterface& pinocchioInterface,
+                                                const MpcRobotModelBase<scalar_t>& mpcRobotModel);
 
   /** Whether this term is gated on the mode schedule's contact flag; see the constructor. */
   bool isScheduleGated() const { return scheduleGated_; }
@@ -233,11 +243,6 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
   /// Constant offset/bias vector for the linear inequality constraint: A_f_local * f_local + A_tau_local * tau_local + b_local >= 0.
   /// Encodes constant terms such as minimum normal force (-minNormalForce) and gripper adhesion forces (mu * F_grip).
   vector_t b_local_;
-
-  /// d(generalized coordinates) / d(state), getGenCoordinatesDim() x getStateDim(), read off the model once at
-  /// construction. getGeneralizedCoordinates() is a selection of the state in every model (the tail of a centroidal
-  /// state, the head of a whole-body one), so this is how the frame Jacobian, which is taken in q, reaches the state.
-  matrix_t generalizedCoordinatesStateJacobian_;
 };
 
 /**

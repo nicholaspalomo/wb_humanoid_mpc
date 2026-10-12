@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "ocs2_core/Types.h"
+#include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/penalties/Penalties.h"
 #include "ocs2_mpc/MPC_Settings.h"
 #include "ocs2_oc/rollout/TimeTriggeredRollout.h"
@@ -144,6 +145,12 @@ class WBMpcInterface final : public RobotInterface {
     CHECK(rolloutPtr_ != nullptr) << "[WBMpcInterface] built by CreateControllerModels(): there is no rollout";
     return *rolloutPtr_;
   }
+  /**
+   * The state manifold of the whole-body state (stateManifoldOf()): the product [E(3), unit quaternion, E(2 nj + 6)],
+   * never null, also on an interface of CreateControllerModels(). The problem, the rollout and every MRT of this MPC share
+   * it.
+   */
+  const std::shared_ptr<const StateManifold>& getStateManifold() const { return stateManifold_; }
   PinocchioInterface& getPinocchioInterface() { return *pinocchioInterfacePtr_; }
   std::shared_ptr<SwitchedModelReferenceManager> getSwitchedModelReferenceManagerPtr() const { return referenceManagerPtr_; }
 
@@ -240,6 +247,9 @@ class WBMpcInterface final : public RobotInterface {
 
   std::unique_ptr<WBAccelMpcRobotModel<scalar_t>> mpcRobotModelPtr_;
   std::unique_ptr<WBAccelMpcRobotModel<ad_scalar_t>> mpcRobotModelADPtr_;
+  // The state manifold of the robot model's layout, set by setupModels(), never null after it. A std::shared_ptr because
+  // OptimalControlProblem::stateManifoldPtr and RolloutBase::setStateManifold take one.
+  std::shared_ptr<const StateManifold> stateManifold_;
 
   std::unique_ptr<RolloutBase> rolloutPtr_;
   std::unique_ptr<WeightCompInitializer> initializerPtr_;

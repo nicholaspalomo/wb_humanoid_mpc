@@ -30,28 +30,33 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <string>
+#include <system_error>
+#include <utility>
 #include <vector>
 
 #include "Eigen/Geometry"
 #include "absl/base/nullability.h"
+#include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopMetrics.h"
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopMetricsSchema.h"
 #include "humanoid_mpc_validation/closed_loop/MetricBands.h"
-#include "humanoid_mpc_validation/closed_loop/TimeSeriesLabels.h"
-#include "humanoid_mpc_validation/io/GoldenIo.h"
 #include "humanoid_mpc_validation/io/JsonValue.h"
 
 /*
  * The closed-loop metrics: each definition on synthetic samples whose answer is known (perfect tracking is no error, a
  * constant height has no spread, a turn at a constant rate unwraps through +/-pi to rate * time, a planted foot does not
  * slip), and the schema test - every document the metrics write validates, the validator catches what is missing,
- * mistyped or unknown, and every document recorded under data/closed_loop/ still validates.
+ * mistyped or unknown. Then the comparison rules (MetricBands.h): the band directions, improvements reported and
+ * passed, and the offline comparison of two labels archived from synthetic runs, which reaches the verdict of the runs
+ * as held in memory, run by run, names the runs without a baseline and refuses what it cannot compare.
  */
 
 namespace ocs2::humanoid::validation {
@@ -276,96 +281,270 @@ TEST(ClosedLoopMetricsSchema, MissingMistypedAndUnknownFieldsAreNamed) {
   EXPECT_FALSE(validateClosedLoopMetrics(wrongVersion).ok());
 }
 
-TEST(ClosedLoopMetricsSchema, EveryRecordedDocumentValidates) {
-  const std::filesystem::path directory("humanoid_nmpc/humanoid_mpc_validation/data/closed_loop");
-  ASSERT_TRUE(std::filesystem::is_directory(directory)) << "the recorded documents are a data dependency of this test";
-  size_t documents = 0;
-  for (const std::filesystem::directory_entry& entry : std::filesystem::recursive_directory_iterator(directory)) {
-    if (entry.path().extension() != ".json") continue;
-    const absl::StatusOr<JsonValue> document = readJsonFile(entry.path().string());
-    ASSERT_TRUE(document.ok()) << document.status();
-    EXPECT_TRUE(validateClosedLoopMetrics(*document).ok()) << entry.path() << ": " << validateClosedLoopMetrics(*document);
-    ++documents;
+// ----------------------------------------------------------------------------------------------- the band rules
+
+/** A surviving run's metrics document with the numbers at their dotted paths (each "<group>.<field>"). */
+JsonValue documentWith(const std::vector<std::pair<std::string, double>>& numbers) {
+  JsonValue document = JsonValue::object();
+  document.set("survival", JsonValue::object()).set("survived", JsonValue::boolean(/*value=*/true));
+  for (const std::pair<std::string, double>& number : numbers) {
+    const size_t dot = number.first.find('.');
+    const std::string group = number.first.substr(0, dot);
+    const JsonValue* absl_nullable existing = document.find(group);
+    JsonValue members = existing != nullptr ? *existing : JsonValue::object();
+    members.set(number.first.substr(dot + 1), JsonValue::number(number.second));
+    document.set(group, members);
   }
-  RecordProperty("documents", static_cast<int>(documents));
+  return document;
 }
 
-TEST(ClosedLoopMetricsSchema, EveryRecordedRunWhoseHeadingReachesPiKeepsItsTimeSeries) {
-  // The 720-degree turn exception of section 4.5 locates the crossings of the Euler yaw's cut in the baseline's time
-  // series, so a baseline run that reaches +-pi must have it archived beside its document, and it must cross there.
-  const std::filesystem::path directory("humanoid_nmpc/humanoid_mpc_validation/data/closed_loop");
-  ASSERT_TRUE(std::filesystem::is_directory(directory));
-  for (const std::filesystem::directory_entry& entry : std::filesystem::recursive_directory_iterator(directory)) {
-    if (entry.path().extension() != ".json") continue;
-    const absl::StatusOr<JsonValue> document = readJsonFile(entry.path().string());
-    ASSERT_TRUE(document.ok()) << document.status();
-    const JsonValue* absl_nullable peak = document->findPath("heading.cumulative_max_rad");
-    const JsonValue* absl_nullable trough = document->findPath("heading.cumulative_min_rad");
-    const bool reachesPi = (peak != nullptr && peak->isNumber() && peak->asNumber() >= M_PI) ||
-                           (trough != nullptr && trough->isNumber() && trough->asNumber() <= -M_PI);
-    if (!reachesPi) continue;
-    std::filesystem::path seriesFile = entry.path();
-    seriesFile.replace_filename(entry.path().stem().string() + "_timeseries.txt");
-    ASSERT_TRUE(std::filesystem::exists(seriesFile)) << entry.path() << " reaches pi; archive " << seriesFile;
-    const absl::StatusOr<GoldenFile> series = readGoldenFile(seriesFile.string());
-    ASSERT_TRUE(series.ok()) << series.status();
-    const absl::StatusOr<std::vector<double>> crossings = eulerYawCrossingTimes(*series);
-    ASSERT_TRUE(crossings.ok()) << crossings.status();
-    EXPECT_FALSE(crossings->empty()) << seriesFile;
-  }
+/** Every banded metric at `value`, but `path` at `pathValue`. */
+JsonValue bandedDocument(double value, const std::string& path, double pathValue) {
+  std::vector<std::pair<std::string, double>> numbers;
+  for (const MetricBand& band : closedLoopMetricBands()) numbers.emplace_back(band.path, band.path == path ? pathValue : value);
+  return documentWith(numbers);
 }
 
-TEST(ClosedLoopMetricsSchema, EveryRecordedPerSolveGapSeriesHoldsItsDocumentsMaximum) {
-  // The 720-degree turn exception trusts a series' per-solve gaps only as the document's own: its largest must be the
-  // document's initial_state_gap.max_rotation_rad.
-  const std::filesystem::path directory("humanoid_nmpc/humanoid_mpc_validation/data/closed_loop");
-  for (const std::filesystem::directory_entry& entry : std::filesystem::recursive_directory_iterator(directory)) {
-    const std::string name = entry.path().filename().string();
-    if (!absl::EndsWith(name, "_timeseries.txt")) continue;
-    const absl::StatusOr<GoldenFile> series = readGoldenFile(entry.path().string());
-    ASSERT_TRUE(series.ok()) << series.status();
-    const golden_matrix_t* absl_nullable gaps = series->find(time_series::kSolveRotationGap);
-    if (gaps == nullptr) continue;
-    std::filesystem::path documentFile = entry.path();
-    documentFile.replace_filename(name.substr(0, name.size() - std::string("_timeseries.txt").size()) + ".json");
-    const absl::StatusOr<JsonValue> document = readJsonFile(documentFile.string());
-    ASSERT_TRUE(document.ok()) << document.status();
-    const JsonValue* absl_nullable maximum = document->findPath("initial_state_gap.max_rotation_rad");
-    ASSERT_TRUE(maximum != nullptr && maximum->isNumber()) << documentFile;
-    ASSERT_EQ(gaps->cols(), 2) << entry.path();
-    ASSERT_GT(gaps->rows(), 0) << entry.path();
-    EXPECT_EQ(gaps->col(1).maxCoeff(), maximum->asNumber()) << entry.path();
+double allowedDifference(const MetricBand& band, double reference) {
+  return std::max(band.relative * std::abs(reference), band.absolute);
+}
+
+TEST(MetricBands, TheErrorsMayOnlyImproveAndTheHeightMeanMovesNeitherWay) {
+  const std::vector<std::pair<std::string, BandDirection>> expected = {
+      {"base_height.mean_m", BandDirection::kTwoSided},    {"base_height.rms_error_m", BandDirection::kNoWorse},
+      {"tilt.rms_rad", BandDirection::kNoWorse},           {"tilt.max_rad", BandDirection::kNoWorse},
+      {"velocity.rms_error_mps", BandDirection::kNoWorse}, {"yaw_rate.rms_error_radps", BandDirection::kNoWorse},
+      {"stance_foot_slip.max_m", BandDirection::kNoWorse},
+  };
+  ASSERT_EQ(closedLoopMetricBands().size(), expected.size());
+  for (size_t i = 0; i < expected.size(); ++i) {
+    EXPECT_EQ(closedLoopMetricBands()[i].path, expected[i].first);
+    EXPECT_EQ(closedLoopMetricBands()[i].direction, expected[i].second) << expected[i].first;
   }
 }
 
-TEST(ClosedLoopMetricsSchema, TheMainLinesEulerTurnSpikesOnlyAtItsOwnWraps) {
-  // The whole-body G1's 720-degree turn of M0_main against M0's, both on Euler coordinates: each wrap of the measured
-  // yaw makes a 2 pi gap that decays over a few solves, a little later than in M0, and nothing else spikes. The
-  // exception lets exactly that through.
-  const std::filesystem::path directory("humanoid_nmpc/humanoid_mpc_validation/data/closed_loop");
-  const absl::StatusOr<JsonValue> candidate = readJsonFile((directory / "M0_main/unitree_g1_wb_turn_in_place_720.json").string());
-  const absl::StatusOr<GoldenFile> candidateSeries =
-      readGoldenFile((directory / "M0_main/unitree_g1_wb_turn_in_place_720_timeseries.txt").string());
-  const absl::StatusOr<JsonValue> baseline = readJsonFile((directory / "M0/unitree_g1_wb_turn_in_place_720.json").string());
-  const absl::StatusOr<GoldenFile> baselineSeries =
-      readGoldenFile((directory / "M0/unitree_g1_wb_turn_in_place_720_timeseries.txt").string());
-  ASSERT_TRUE(candidate.ok() && candidateSeries.ok() && baseline.ok() && baselineSeries.ok());
-  ASSERT_NE(candidateSeries->find(time_series::kSolveRotationGap), nullptr) << "recorded with its per-solve gaps";
-  const std::vector<std::string> violations =
-      compareClosedLoopRuns(*candidate, *candidateSeries, *baseline, &*baselineSeries, BandOptions(), HeadingCrossingOptions());
-  for (const std::string& violation : violations) {
-    EXPECT_NE(violation.rfind("initial_state_gap", 0), 0u) << violation;
-    EXPECT_NE(violation.rfind("candidate time series", 0), 0u) << violation;
+TEST(MetricBands, AnImprovementPassesAndIsReportedAndARegressionFails) {
+  const double reference = 0.1;
+  for (const MetricBand& band : closedLoopMetricBands()) {
+    if (band.direction != BandDirection::kNoWorse) continue;
+    const double allowed = allowedDifference(band, reference);
+    const JsonValue baseline = bandedDocument(reference, band.path, reference);
+
+    const ClosedLoopComparison better =
+        compareClosedLoopMetrics(bandedDocument(reference, band.path, reference - 2.0 * allowed), baseline, BandOptions());
+    EXPECT_TRUE(better.violations.empty()) << band.path << ": " << describeClosedLoopComparison(better);
+    ASSERT_EQ(better.improvements.size(), 1u) << band.path;
+    EXPECT_EQ(better.improvements[0].rfind(band.path, 0), 0u) << better.improvements[0];
+
+    const ClosedLoopComparison worse =
+        compareClosedLoopMetrics(bandedDocument(reference, band.path, reference + 2.0 * allowed), baseline, BandOptions());
+    EXPECT_TRUE(worse.improvements.empty()) << band.path;
+    ASSERT_EQ(worse.violations.size(), 1u) << band.path;
+    EXPECT_EQ(worse.violations[0].rfind(band.path, 0), 0u) << worse.violations[0];
+
+    // Within the band either way: nothing to say.
+    for (const double value : {reference - 0.5 * allowed, reference + 0.5 * allowed}) {
+      const ClosedLoopComparison within = compareClosedLoopMetrics(bandedDocument(reference, band.path, value), baseline, BandOptions());
+      EXPECT_TRUE(within.violations.empty() && within.improvements.empty()) << band.path << ": " << describeClosedLoopComparison(within);
+    }
   }
-  // Without the localization the same comparison would have to pass any spike; a gap moved away from the wraps fails.
-  GoldenFile shifted = *candidateSeries;
-  for (GoldenEntry& entry : shifted.entries) {
-    if (entry.label == time_series::kSolveRotationGap) entry.value.col(0).array() += 5.0;
+}
+
+TEST(MetricBands, TheHeightMeanIsHeldWithinItsBandBothWays) {
+  const JsonValue baseline = bandedDocument(/*value=*/0.1, "base_height.mean_m", /*pathValue=*/0.8);
+  for (const double mean : {0.79, 0.81}) {
+    const ClosedLoopComparison moved =
+        compareClosedLoopMetrics(bandedDocument(/*value=*/0.1, "base_height.mean_m", mean), baseline, BandOptions());
+    ASSERT_EQ(moved.violations.size(), 1u) << mean;
+    EXPECT_EQ(moved.violations[0].rfind("base_height.mean_m", 0), 0u) << moved.violations[0];
+    EXPECT_TRUE(moved.improvements.empty()) << "a height is no error: neither way is better";
   }
-  const std::vector<std::string> moved =
-      compareClosedLoopRuns(*candidate, shifted, *baseline, &*baselineSeries, BandOptions(), HeadingCrossingOptions());
-  EXPECT_TRUE(std::any_of(moved.begin(), moved.end(),
-                          [](const std::string& violation) { return violation.rfind("initial_state_gap.max_rotation_rad", 0) == 0; }));
+  EXPECT_TRUE(compareClosedLoopMetrics(bandedDocument(/*value=*/0.1, "base_height.mean_m", /*pathValue=*/0.796), baseline, BandOptions())
+                  .violations.empty());
+}
+
+TEST(MetricBands, TheDescriptionListsBothKinds) {
+  const ClosedLoopComparison comparison{.violations = {"tilt.max_rad: worse"}, .improvements = {"tilt.rms_rad: better", "slip: better"}};
+  EXPECT_EQ(describeClosedLoopComparison(comparison),
+            "violations (1):\n  tilt.max_rad: worse\nimprovements (2):\n  tilt.rms_rad: better\n  slip: better");
+  EXPECT_EQ(describeClosedLoopComparison(ClosedLoopComparison()), "violations (0):\nimprovements (0):");
+}
+
+// ------------------------------------------------------------------------------- the offline comparison of two labels
+
+/** A surviving run's metrics document, as ClosedLoopMetrics writes it: a walk at `forwardVelocity`, one solve. */
+JsonValue walkDocument(double forwardVelocity) {
+  ClosedLoopMetrics metrics;
+  for (size_t k = 0; k < 100; ++k) metrics.addControlCycle(trackingSample(k, forwardVelocity, /*yawRate=*/0.1));
+  SolveSample solve;
+  solve.wallTimeMs = 5.0;
+  solve.quaternionNormDeviation = 1.0e-12;
+  metrics.addSolve(solve);
+  return reportOf(metrics);
+}
+
+/** `document` with the number `value` at the two-level path `path` ("<group>.<field>"); members keep their order. */
+JsonValue withNumberAt(const JsonValue& document, const std::string& path, double value) {
+  const size_t dot = path.find('.');
+  const std::string group = path.substr(0, dot);
+  const JsonValue* absl_nullable existing = document.find(group);
+  JsonValue members = existing != nullptr ? *existing : JsonValue::object();
+  members.set(path.substr(dot + 1), JsonValue::number(value));
+  JsonValue copy = document;
+  copy.set(group, members);
+  return copy;
+}
+
+/** One run of a label: what a run holds in memory and `make closed-loop-metrics` archives. */
+struct LabelRun {
+  std::string robot;
+  std::string scenario;
+  JsonValue document;
+};
+
+/** A fresh directory of the test's temporary directory, `name`, with `runs` archived as `make closed-loop-metrics` does. */
+std::string archiveLabel(const std::string& name, const std::vector<LabelRun>& runs) {
+  const std::filesystem::path directory = std::filesystem::path(::testing::TempDir()) / name;
+  std::error_code error;
+  std::filesystem::remove_all(directory, error);
+  std::filesystem::create_directories(directory, error);
+  for (const LabelRun& run : runs) {
+    const absl::Status written = writeJsonFile((directory / absl::StrCat(run.robot, "_", run.scenario, ".json")).string(), run.document);
+    EXPECT_TRUE(written.ok()) << written;
+  }
+  return directory.string();
+}
+
+/** The runs of a baseline label and of a candidate that changed two of them, ran one more and left one out. */
+struct TwoLabels {
+  std::vector<LabelRun> baseline;
+  std::vector<LabelRun> candidate;
+};
+
+TwoLabels twoLabels() {
+  const JsonValue walk = walkDocument(/*forwardVelocity=*/0.5);
+  const JsonValue standing = walkDocument(/*forwardVelocity=*/0.0);
+  TwoLabels labels;
+  labels.baseline = {
+      {.robot = "drc_atlas", .scenario = "standing", .document = withNumberAt(standing, "stance_foot_slip.max_m", /*value=*/0.05)},
+      {.robot = "unitree_g1", .scenario = "standing", .document = standing},
+      {.robot = "unitree_g1", .scenario = "walk_0p5", .document = walk},
+      {.robot = "unitree_r1", .scenario = "standing", .document = standing}};
+  // Out of order on purpose: the comparison lists the runs as robotConfigurations(), then closedLoopScenarios() do.
+  labels.candidate = {{.robot = "unitree_g1", .scenario = "walk_0p5", .document = withNumberAt(walk, "tilt.max_rad", /*value=*/0.2)},
+                      {.robot = "unitree_g1", .scenario = "standing", .document = standing},
+                      {.robot = "engineai_sa01", .scenario = "standing", .document = standing},
+                      {.robot = "drc_atlas", .scenario = "standing", .document = standing}};
+  return labels;
+}
+
+/** The candidate's run `robot` `scenario` of `labels`, which it has. */
+const LabelRun& candidateRun(const TwoLabels& labels, const std::string& robot, const std::string& scenario) {
+  const std::vector<LabelRun>::const_iterator run =
+      std::find_if(labels.candidate.begin(), labels.candidate.end(),
+                   [&robot, &scenario](const LabelRun& candidate) { return candidate.robot == robot && candidate.scenario == scenario; });
+  CHECK(run != labels.candidate.end()) << robot << " " << scenario;
+  return *run;
+}
+
+TEST(ArchivedComparison, HoldsEveryRunToTheSameRunOfTheBaselineAsTheRunItselfDoes) {
+  const TwoLabels labels = twoLabels();
+  const absl::StatusOr<ArchivedComparison> comparison =
+      compareArchivedClosedLoopRuns({.candidateDirectory = archiveLabel("candidate", labels.candidate),
+                                     .baselineDirectory = archiveLabel("baseline", labels.baseline),
+                                     .robot = "",
+                                     .compareSolveTime = false});
+  ASSERT_TRUE(comparison.ok()) << comparison.status();
+  ASSERT_EQ(comparison->runs.size(), 3u);
+  EXPECT_EQ(comparison->withoutBaseline, std::vector<std::string>({"engineai_sa01 standing"}));
+  const std::vector<std::pair<std::string, std::string>> order = {
+      {"drc_atlas", "standing"}, {"unitree_g1", "standing"}, {"unitree_g1", "walk_0p5"}};
+  for (size_t i = 0; i < order.size(); ++i) {
+    const ArchivedRunComparison& run = comparison->runs[i];
+    EXPECT_EQ(run.robot, order[i].first);
+    EXPECT_EQ(run.scenario, order[i].second);
+    // The archived documents read back bit for bit: the verdict is the run's own, sentence for sentence.
+    const std::vector<LabelRun>::const_iterator baseline =
+        std::find_if(labels.baseline.begin(), labels.baseline.end(),
+                     [&run](const LabelRun& entry) { return entry.robot == run.robot && entry.scenario == run.scenario; });
+    ASSERT_NE(baseline, labels.baseline.end());
+    const ClosedLoopComparison inRun = compareClosedLoopMetrics(candidateRun(labels, run.robot, run.scenario).document, baseline->document,
+                                                                BandOptions{.compareSolveTime = false});
+    EXPECT_EQ(run.comparison.violations, inRun.violations) << run.robot << " " << run.scenario;
+    EXPECT_EQ(run.comparison.improvements, inRun.improvements) << run.robot << " " << run.scenario;
+  }
+  // The unchanged run says nothing; the tilt spike is a violation, the slip that went from 5 cm to none an improvement.
+  EXPECT_TRUE(comparison->runs[1].comparison.violations.empty() && comparison->runs[1].comparison.improvements.empty())
+      << describeClosedLoopComparison(comparison->runs[1].comparison);
+  ASSERT_EQ(comparison->runs[2].comparison.violations.size(), 1u) << describeClosedLoopComparison(comparison->runs[2].comparison);
+  EXPECT_EQ(comparison->runs[2].comparison.violations[0].rfind("tilt.max_rad: ", 0), 0u) << comparison->runs[2].comparison.violations[0];
+  EXPECT_TRUE(comparison->runs[0].comparison.violations.empty()) << describeClosedLoopComparison(comparison->runs[0].comparison);
+  ASSERT_EQ(comparison->runs[0].comparison.improvements.size(), 1u) << describeClosedLoopComparison(comparison->runs[0].comparison);
+  EXPECT_EQ(comparison->runs[0].comparison.improvements[0].rfind("stance_foot_slip.max_m: ", 0), 0u)
+      << comparison->runs[0].comparison.improvements[0];
+}
+
+TEST(ArchivedComparison, ComparesOneRobotOrTheSolveTimesOnRequest) {
+  const TwoLabels labels = twoLabels();
+  const std::string candidate = archiveLabel("candidate_one_robot", labels.candidate);
+  const std::string baseline = archiveLabel("baseline_one_robot", labels.baseline);
+  const absl::StatusOr<ArchivedComparison> oneRobot = compareArchivedClosedLoopRuns(
+      {.candidateDirectory = candidate, .baselineDirectory = baseline, .robot = "unitree_g1", .compareSolveTime = false});
+  ASSERT_TRUE(oneRobot.ok()) << oneRobot.status();
+  ASSERT_EQ(oneRobot->runs.size(), 2u);
+  EXPECT_EQ(oneRobot->runs[0].robot, "unitree_g1");
+  EXPECT_EQ(oneRobot->runs[1].robot, "unitree_g1");
+  EXPECT_TRUE(oneRobot->withoutBaseline.empty()) << "the run without a baseline is another robot's";
+
+  // A candidate twice as slow passes unless the solve times are compared (labels of one machine).
+  const JsonValue standing = walkDocument(/*forwardVelocity=*/0.0);
+  JsonValue slowDocument = standing;
+  JsonValue times = *standing.find("solve_time_ms");
+  JsonValue total = *times.find("total");
+  total.set("p99", JsonValue::number(2.0 * total.find("p99")->asNumber()));
+  times.set("total", total);
+  slowDocument.set("solve_time_ms", times);
+  const std::string slow = archiveLabel("slow", {{.robot = "unitree_g1", .scenario = "standing", .document = slowDocument}});
+  for (const bool compareSolveTime : {false, true}) {
+    const absl::StatusOr<ArchivedComparison> timed = compareArchivedClosedLoopRuns(
+        {.candidateDirectory = slow, .baselineDirectory = baseline, .robot = "", .compareSolveTime = compareSolveTime});
+    ASSERT_TRUE(timed.ok()) << timed.status();
+    ASSERT_EQ(timed->runs.size(), 1u);
+    EXPECT_EQ(timed->runs[0].comparison.violations.size(), compareSolveTime ? 1u : 0u)
+        << describeClosedLoopComparison(timed->runs[0].comparison);
+  }
+}
+
+TEST(ArchivedComparison, RefusesWhatItCannotCompare) {
+  const TwoLabels labels = twoLabels();
+  const std::string candidate = archiveLabel("candidate_refused", labels.candidate);
+  const std::string baseline = archiveLabel("baseline_refused", labels.baseline);
+  const std::string missing = (std::filesystem::path(::testing::TempDir()) / "no_such_label").string();
+  EXPECT_EQ(
+      compareArchivedClosedLoopRuns({.candidateDirectory = missing, .baselineDirectory = baseline, .robot = "", .compareSolveTime = false})
+          .status()
+          .code(),
+      absl::StatusCode::kNotFound);
+  EXPECT_EQ(
+      compareArchivedClosedLoopRuns({.candidateDirectory = candidate, .baselineDirectory = missing, .robot = "", .compareSolveTime = false})
+          .status()
+          .code(),
+      absl::StatusCode::kNotFound);
+  EXPECT_EQ(compareArchivedClosedLoopRuns(
+                {.candidateDirectory = candidate, .baselineDirectory = baseline, .robot = "atlas", .compareSolveTime = false})
+                .status()
+                .code(),
+            absl::StatusCode::kNotFound);
+
+  // A document that does not parse is an error of its own, not a run without a baseline.
+  const std::filesystem::path broken = std::filesystem::path(archiveLabel("broken", /*runs=*/{})) / "unitree_g1_standing.json";
+  {
+    std::ofstream out(broken);
+    out << "{ not json";
+  }
+  const absl::StatusOr<ArchivedComparison> unreadable = compareArchivedClosedLoopRuns(
+      {.candidateDirectory = broken.parent_path().string(), .baselineDirectory = baseline, .robot = "", .compareSolveTime = false});
+  EXPECT_FALSE(unreadable.ok());
 }
 
 }  // namespace

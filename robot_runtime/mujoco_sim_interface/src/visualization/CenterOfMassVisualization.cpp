@@ -35,8 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::mujoco_sim_interface {
 
 void CenterOfMassVisualization::addSceneGeoms(const VisualizationFrame& frame) {
-  if (frame.sim == nullptr || frame.state == nullptr || frame.scene == nullptr) return;
-  const RobotCentroidalState state = robotCentroidalState(frame.sim->getModel(), frame.state->data);
+  if (frame.model == nullptr || frame.state == nullptr || frame.scene == nullptr) return;
+  const RobotCentroidalState state = robotCentroidalState(frame.model, frame.state->data);
   if (!state.valid) return;
   const MarkerColor blue{.r = 0.2f, .g = 0.5f, .b = 1.0f, .a = 0.9f};
   const MarkerColor shadow{.r = 0.2f, .g = 0.5f, .b = 1.0f, .a = 0.5f};

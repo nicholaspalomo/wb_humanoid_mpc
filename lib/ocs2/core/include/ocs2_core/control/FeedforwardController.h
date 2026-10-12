@@ -57,17 +57,6 @@ class FeedforwardController final : public ControllerBase {
   FeedforwardController(scalar_array_t controllerTime, vector_array_t controllerFeedforward)
       : timeStamp_(std::move(controllerTime)), uffArray_(std::move(controllerFeedforward)) {}
 
-  /**
-   * Constructor to initialize the feedforward input data with a general controller rolled-out along a nominal stateTrajectory
-   *
-   * @param [in] controllerTime the times for the rollout
-   * @param [in] stateTrajectory the states for the rollout
-   * @param [in] controller the controller to extract the feedforward controls from during a rollout
-   */
-  FeedforwardController(const scalar_array_t& controllerTime,
-                        const vector_array_t& stateTrajectory,
-                        ControllerBase* absl_nonnull controller);
-
   /** Copy constructor */
   FeedforwardController(const FeedforwardController& other);
 
@@ -80,16 +69,7 @@ class FeedforwardController final : public ControllerBase {
   /** Destructor */
   ~FeedforwardController() override = default;
 
-  /**
-   * setController Assign control law
-   * @param [in] controllerTime: Time stamp array of the controller
-   * @param [in] controllerFeedforward: The feedforward control input array.
-   */
-  void setController(const scalar_array_t& controllerTime, const vector_array_t& controllerFeedforward);
-
   vector_t computeInput(scalar_t t, const vector_t& x) override;
-
-  void concatenate(const ControllerBase* absl_nonnull nextController, int index, int length) override;
 
   int size() const override;
 

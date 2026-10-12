@@ -30,37 +30,39 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/cost/StateInputQuadraticCost.h"
 
-#include <cmath>
-#include <numbers>
+#include <memory>
 #include <utility>
 
-#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "absl/base/nullability.h"
+#include "absl/log/die_if_null.h"
+#include "absl/memory/memory.h"
+#include "absl/status/statusor.h"
+
+#include "humanoid_common_mpc/common/StatusMacros.h"
 
 namespace ocs2::humanoid {
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-StateInputQuadraticCost::StateInputQuadraticCost(matrix_t Q,
-                                                 matrix_t R,
-                                                 const SwitchedModelReferenceManager& referenceManager,
-                                                 const MpcRobotModelBase<scalar_t>& mpcRobotModel)
-    : QuadraticStateInputCost(std::move(Q), std::move(R)), referenceManagerPtr_(&referenceManager), mpcRobotModelPtr_(&mpcRobotModel) {}
+absl::StatusOr<std::unique_ptr<StateInputQuadraticCost>> StateInputQuadraticCost::Create(
+    matrix_t stateWeights,
+    matrix_t inputWeights,
+    const SwitchedModelReferenceManager* absl_nonnull referenceManager,
+    const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel) {
+  // The constructor is private, so std::make_unique cannot reach it.
+  std::unique_ptr<StateInputQuadraticCost> cost = absl::WrapUnique(new StateInputQuadraticCost(referenceManager, mpcRobotModel));
+  RETURN_IF_ERROR(cost->setStateWeights(std::move(stateWeights)));
+  RETURN_IF_ERROR(cost->setInputWeights(std::move(inputWeights)));
+  return cost;
+}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
+StateInputQuadraticCost::StateInputQuadraticCost(const SwitchedModelReferenceManager* absl_nonnull referenceManager,
+                                                 const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModel)
+    : TuningQuadraticStateInputCost(mpcRobotModel), referenceManagerPtr_(ABSL_DIE_IF_NULL(referenceManager)) {}
 
-StateInputQuadraticCost::StateInputQuadraticCost(const StateInputQuadraticCost& rhs) = default;
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
-std::pair<vector_t, vector_t> StateInputQuadraticCost::getStateInputDeviation(scalar_t time,
-                                                                              const vector_t& state,
-                                                                              const vector_t& input,
-                                                                              const TargetTrajectories& targetTrajectories) const {
+StateInputReference StateInputQuadraticCost::getReference(scalar_t time,
+                                                          const vector_t& state,
+                                                          const vector_t& /*input*/,
+                                                          const TargetTrajectories& targetTrajectories,
+                                                          const PreComputation& /*preComputation*/) const {
   // The nominal input hands the robot's weight to the feet the mode schedule calls stance feet, and none to a swinging
   // one. This stays schedule-derived under the contact-implicit formulation, deliberately.
   //
@@ -82,9 +84,9 @@ std::pair<vector_t, vector_t> StateInputQuadraticCost::getStateInputDeviation(sc
   // same reasons, as in InputQuadraticCost. With no wrench heuristic listed getDesiredInput() makes exactly the call
   // this line used to make, so nothing changes on any robot shipped here; with one listed it is the seam Bledt's H_f
   // heuristics shape (humanoid_nmpc/docs/locomotion_heuristics/README.md).
-  const vector_t uNominal = referenceManagerPtr_->getDesiredInput(targetTrajectories, state, time);
+  vector_t uNominal = referenceManagerPtr_->getDesiredInput(targetTrajectories, state, time);
 
-  return {state - xNominal, input - uNominal};
+  return StateInputReference{.state = std::move(xNominal), .input = std::move(uNominal)};
 }
 
 }  // namespace ocs2::humanoid

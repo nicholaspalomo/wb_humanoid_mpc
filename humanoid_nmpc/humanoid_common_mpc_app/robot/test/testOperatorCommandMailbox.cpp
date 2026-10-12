@@ -182,7 +182,7 @@ TEST_F(OperatorCommandMailboxTest, TheModeNamesOfTheCommands) {
   EXPECT_EQ(modeName("SAFETY"), "SAFETY");
   EXPECT_EQ(modeName("ZERO_TORQUE"), "ZERO_TORQUE");
   EXPECT_EQ(modeName("UNLOCK_GANTRY"), "");
-  EXPECT_FALSE(parseFsmCommand("joint_pd").has_value()) << "names are case-sensitive, as the ROS FSM bridge compared them";
+  EXPECT_FALSE(parseFsmCommand("joint_pd").has_value()) << "names are case-sensitive";
 }
 
 TEST_F(OperatorCommandMailboxTest, JointTargetsAreMergedIntoThePostureAndTheNewestWins) {

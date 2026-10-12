@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
+#include "humanoid_common_mpc/orientation/BaseOrientation.h"
 
 namespace ocs2::humanoid {
 
@@ -93,27 +94,18 @@ class AngularCenterOfMassTest : public ::testing::Test {
 };
 
 TEST_F(AngularCenterOfMassTest, FloatingBaseEquivariance) {
-  vector_t qJoints = vector_t::Random(inputDim_);
+  const vector_t qJoints = vector_t::Random(static_cast<Eigen::Index>(inputDim_));
 
-  // Configuration with base at origin
-  vector_t q1 = vector_t::Zero(6 + inputDim_);
-  q1.tail(inputDim_) = qJoints;
+  // The ACoM attitude of a base at the identity, and of the same joints on a turned and tilted base: the joint rotation
+  // composes on the right of the base, so rotating the whole robot rotates the ACoM one for one.
+  const vector4_t identity(0.0, 0.0, 0.0, 1.0);
+  const vector4_t baseRotation = quaternionExp(vector3_t(0.2, -0.3, 0.5));
+  const vector4_t atIdentity = acom_->acomAttitude(identity, qJoints);
+  const vector4_t rotated = acom_->acomAttitude(baseRotation, qJoints);
 
-  // Configuration with translated and rotated base
-  vector_t q2 = vector_t::Zero(6 + inputDim_);
-  q2.segment<3>(0) << 1.5, -2.0, 0.8;  // Position shift
-  q2.segment<3>(3) << 0.2, -0.3, 0.5;  // ZYX Euler shift
-  q2.tail(inputDim_) = qJoints;
-
-  vector3_t theta1 = acom_->computeAcomOrientation(q1);
-  vector3_t theta2 = acom_->computeAcomOrientation(q2);
-
-  // The joint offset cancels in the difference, so the change in aCOM orientation
-  // must equal the change in base Euler angles exactly.
-  vector3_t deltaTheta = theta2 - theta1;
-  vector3_t expectedDelta = q2.segment<3>(3) - q1.segment<3>(3);
-
-  EXPECT_LT((deltaTheta - expectedDelta).norm(), 1.0e-12);
+  EXPECT_LT((atIdentity - quaternionExp(acom_->computeJointOrientationOffset(qJoints))).norm(), 1.0e-15);
+  EXPECT_LT((rotated - quaternionProduct(baseRotation, atIdentity)).norm(), 1.0e-15);
+  EXPECT_NEAR(rotated.norm(), 1.0, 1.0e-15);
 }
 
 TEST_F(AngularCenterOfMassTest, AnalyticalJacobianVsFiniteDifference) {
@@ -141,20 +133,32 @@ TEST_F(AngularCenterOfMassTest, AnalyticalJacobianVsFiniteDifference) {
   EXPECT_LT(error, 1.0e-5);
 }
 
-TEST_F(AngularCenterOfMassTest, FullAcomJacobianStructure) {
-  vector_t q = vector_t::Random(6 + inputDim_);
+TEST_F(AngularCenterOfMassTest, AttitudeTangentJacobianStructure) {
+  const vector_t qJoints = vector_t::Random(static_cast<Eigen::Index>(inputDim_));
+  const vector3_t offset = acom_->computeJointOrientationOffset(qJoints);
+  const AcomAttitudeTangentJacobian jacobian = acom_->acomAttitudeTangentJacobian(qJoints);
 
-  matrix_t J_full = acom_->computeAcomJacobian(q);
+  // The base block is the adjoint R(Delta_theta)^T, a rotation: a base perturbation is carried into the ACoM frame.
+  EXPECT_LT((jacobian.baseOrientation - quaternionRotationMatrix(quaternionExp(offset)).transpose()).norm(), 1.0e-12);
+  EXPECT_LT((jacobian.baseOrientation.transpose() * jacobian.baseOrientation - matrix3_t::Identity()).norm(), 1.0e-12);
 
-  // Base position block must be zero: translating the base does not rotate it.
-  EXPECT_LT(J_full.block(0, 0, 3, 3).norm(), 1.0e-12);
+  // The joint block is the right Jacobian of SO(3) at Delta_theta times the network's joint Jacobian.
+  ASSERT_EQ(jacobian.jointAngles.cols(), static_cast<Eigen::Index>(inputDim_));
+  EXPECT_LT((jacobian.jointAngles - so3RightJacobian(offset) * acom_->computeJointOffsetJacobian(qJoints)).norm(), 1.0e-12);
 
-  // Base orientation block must be the identity.
-  EXPECT_LT((J_full.block(0, 3, 3, 3) - matrix_t::Identity(3, 3)).norm(), 1.0e-12);
-
-  // Joint block must be the joint Jacobian reordered from XYZ to ZYX.
-  const matrix_t J_joints_zyx = acomJacobianXyzToZyx(acom_->computeJointOffsetJacobian(q.tail(inputDim_)));
-  EXPECT_LT((J_full.block(0, 6, 3, inputDim_) - J_joints_zyx).norm(), 1.0e-12);
+  // And it is the derivative of the attitude: central differences of the body rotation a joint step makes.
+  const vector4_t base = quaternionExp(vector3_t(-0.4, 0.1, 1.2));
+  const vector4_t attitude = acom_->acomAttitude(base, qJoints);
+  const double eps = 1.0e-7;
+  for (Eigen::Index joint = 0; joint < static_cast<Eigen::Index>(inputDim_); ++joint) {
+    vector_t plus = qJoints;
+    vector_t minus = qJoints;
+    plus(joint) += eps;
+    minus(joint) -= eps;
+    const vector3_t forward = quaternionLog(quaternionProduct(quaternionConjugate(attitude), acom_->acomAttitude(base, plus)));
+    const vector3_t backward = quaternionLog(quaternionProduct(quaternionConjugate(attitude), acom_->acomAttitude(base, minus)));
+    EXPECT_LT(((forward - backward) / (2.0 * eps) - jacobian.jointAngles.col(joint)).norm(), 1.0e-5) << "joint " << joint;
+  }
 }
 
 }  // namespace ocs2::humanoid

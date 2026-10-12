@@ -78,7 +78,12 @@ def without_comments(text: str) -> str:
 ROBOT_ENVIRONMENT = (
     "WB_ROBOT_NETWORK_FILE",
     "WB_ROBOT_BACKEND",
-    "WB_ROBOT_HEADLESS",
+    "WB_ROBOT_VIEWER",
+    "WB_ROBOT_PLOT_CONFIG",
+    "WB_ROBOT_WEB_VIEWER_ADDRESS",
+    "WB_ROBOT_WEB_VIEWER_PORT",
+    "WB_ROBOT_WEB_VIEWER_ALLOWED_HOSTS",
+    "WB_ROBOT_VIEWER_CORES",
     "WB_ROBOT_REALTIME_PRIORITY",
     "WB_ROBOT_REALTIME_CORES",
     "WB_ROBOT_BACKEND_CORES",
@@ -89,6 +94,25 @@ ROBOT_ENVIRONMENT = (
 
 # Where the robot images keep the robot's stored configuration (docker-compose.robot.yaml), one directory per robot.
 CONFIG_STORE_TARGET = "/var/lib/wb-humanoid-robot/config"
+# Where the simulated robot reads its plot configuration (docker-compose.robot.sim.yaml).
+SIM_PLOT_CONFIG_TARGET = "/etc/wb-humanoid-robot/plot_config.textproto"
+# The shipped plot configuration, and the header that makes a file one the robot reads its viewer from.
+SHIPPED_PLOT_CONFIG = "humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto"
+PLOT_CONFIG_HEADER = (
+    "# proto-file: humanoid_nmpc/humanoid_rerun_viewer/proto/plot_config.proto\n"
+    "# proto-message: humanoid_rerun_viewer_proto.PlotConfig\n"
+)
+# Stand-ins for what a sim session runs, which record their command lines to SESSION_LOG: Docker, with the viewer and the
+# plot configuration it would give the robot container, has nothing running; the dev container's runner and the image
+# build do nothing.
+FAKE_DOCKER = """#!/bin/sh
+echo "docker $* | viewer=${WB_ROBOT_VIEWER-} plot_config=${WB_ROBOT_SIM_PLOT_CONFIG-}" >> "$SESSION_LOG"
+"""
+FAKE_RECORDER = """#!/bin/sh
+echo "$(basename "$0") $*" >> "$SESSION_LOG"
+"""
+# The host's path of the fake checkout, as WB_HOST_CHECKOUT gives it.
+HOST_CHECKOUT = "/host/checkout"
 
 # A `tc` that records its arguments, one call per line, and answers `qdisc show` with the file TC_SHOW names.
 FAKE_TC = """#!/bin/sh
@@ -233,7 +257,7 @@ class EntrypointTest(unittest.TestCase):
             )
         self.write_robot(
             "fake",
-            'echo "pid=$$"\necho "headless=${WB_ROBOT_HEADLESS:-}"\nexit "${FAKE_STATUS:-0}"\n',
+            'echo "pid=$$"\necho "viewer=${WB_ROBOT_VIEWER:-}"\nexit "${FAKE_STATUS:-0}"\n',
         )
         self.write_robot(
             "patient",
@@ -288,16 +312,24 @@ class EntrypointTest(unittest.TestCase):
 
     def test_the_image_decides_the_viewer_unless_the_environment_does(self) -> None:
         cases: tuple[tuple[dict[str, str], str], ...] = (
-            ({}, "headless="),
-            ({"WB_ROBOT_DEFAULT_HEADLESS": "true"}, "headless=true"),
+            ({}, "viewer="),
+            ({"WB_ROBOT_DEFAULT_VIEWER": "none"}, "viewer=none"),
+            ({"WB_ROBOT_DEFAULT_VIEWER": "none", "WB_ROBOT_VIEWER": ""}, "viewer=none"),
+            ({"WB_ROBOT_DEFAULT_VIEWER": "glfw"}, "viewer=glfw"),
             (
-                {"WB_ROBOT_DEFAULT_HEADLESS": "true", "WB_ROBOT_HEADLESS": ""},
-                "headless=true",
+                {"WB_ROBOT_DEFAULT_VIEWER": "none", "WB_ROBOT_VIEWER": "web,none"},
+                "viewer=web,none",
             ),
+            # A plot configuration the environment names chooses instead of the image (robot-sim's mount).
             (
-                {"WB_ROBOT_DEFAULT_HEADLESS": "true", "WB_ROBOT_HEADLESS": "false"},
-                "headless=false",
+                {
+                    "WB_ROBOT_DEFAULT_VIEWER": "none",
+                    "WB_ROBOT_PLOT_CONFIG": "/etc/wb-humanoid-robot/plot_config.textproto",
+                },
+                "viewer=",
             ),
+            # robot-sim names no viewer of its own: the launch file's plot configuration chooses.
+            ({"WB_ROBOT_DEFAULT_VIEWER": ""}, "viewer="),
         )
         for environment, expected in cases:
             with self.subTest(environment=environment):
@@ -445,7 +477,12 @@ class ComposeTest(unittest.TestCase):
         self.assertIn("DISPLAY", sim["environment"])
         mounts = {volume["target"]: volume for volume in sim["volumes"]}
         self.assertEqual(
-            set(mounts), {"/opt/wb-humanoid-robot/robot_models", CONFIG_STORE_TARGET}
+            set(mounts),
+            {
+                "/opt/wb-humanoid-robot/robot_models",
+                SIM_PLOT_CONFIG_TARGET,
+                CONFIG_STORE_TARGET,
+            },
         )
         # LINT.IfChange(sim_config_store)
         # The stored configuration is a volume of the compose project, at the base file's target, which merging the
@@ -473,6 +510,26 @@ class ComposeTest(unittest.TestCase):
             read("tools/deploy/session.sh"),
         )
         # LINT.ThenChange(//docker-compose.robot.sim.yaml:sim_models_mount)
+        # LINT.IfChange(sim_plot_config_mount)
+        # The checkout's plot configuration (the Makefile's PLOT_CONFIG, by default the shipped one), read-only, whose
+        # mujoco_viewer names the MuJoCo viewer unless WB_ROBOT_VIEWER does.
+        mount = mounts[SIM_PLOT_CONFIG_TARGET]
+        self.assertEqual(mount["type"], "bind")
+        self.assertIs(mount["read_only"], True)
+        self.assertEqual(
+            mount["source"],
+            "${WB_ROBOT_SIM_PLOT_CONFIG:-./humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto}",
+        )
+        self.assertEqual(
+            sim["environment"]["WB_ROBOT_PLOT_CONFIG"], SIM_PLOT_CONFIG_TARGET
+        )
+        session = read("tools/deploy/session.sh")
+        self.assertIn(
+            'WB_ROBOT_SIM_PLOT_CONFIG="${WB_HOST_CHECKOUT:-$(host_checkout)}/${robot_plot_config}"',
+            session,
+        )
+        self.assertIn(f'sim_plot_config_target="{SIM_PLOT_CONFIG_TARGET}"', session)
+        # LINT.ThenChange(//docker-compose.robot.sim.yaml:sim_plot_config_mount)
 
     def test_net_admin_only_with_the_netem_override(self) -> None:
         netem = load_yaml("docker-compose.robot.netem.yaml")["services"]["robot"]
@@ -600,7 +657,9 @@ class DockerfileTest(unittest.TestCase):
         self.assertIn(
             'ENTRYPOINT ["/opt/wb-humanoid-robot/bin/robot_entrypoint.sh"]', runtime
         )
-        self.assertIn("ENV WB_ROBOT_DEFAULT_HEADLESS=true", runtime)
+        # No viewer by default: the image has no GL to draw with.
+        self.assertIn("ENV WB_ROBOT_DEFAULT_VIEWER=none", runtime)
+        self.assertNotRegex(runtime, r"\blibegl")
         self.assertIn("collect_runtime_libraries.sh check", runtime)
 
     def test_the_sim_image_adds_the_viewers_gl_only(self) -> None:
@@ -609,7 +668,14 @@ class DockerfileTest(unittest.TestCase):
         self.assertEqual(
             [p for p in packages if not re.match(r"^lib(gl|glx|egl|x)", p)], []
         )
-        self.assertIn("ENV WB_ROBOT_DEFAULT_HEADLESS=false", self.stages["robot-sim"])
+        # The glfw viewer's GLX and the web viewer's EGL, each with Mesa's vendor library.
+        for package in ("libglx-mesa0", "libegl1", "libegl-mesa0"):
+            self.assertIn(package, packages)
+        # No viewer of the image's own, in place of robot-runtime's none: the plot configuration's chooses (web).
+        self.assertRegex(
+            self.stages["robot-sim"],
+            re.compile(r"^ENV WB_ROBOT_DEFAULT_VIEWER=$", re.M),
+        )
 
     def test_pinocchio_from_robotpkg_on_amd64_and_from_source_on_arm64(self) -> None:
         self.assertIn(
@@ -977,9 +1043,7 @@ class MakefileTest(unittest.TestCase):
         self,
     ) -> None:
         code = without_comments(self.makefile)
-        self.assertNotRegex(
-            code, r"ros2 |rviz|plotjuggler|\.bazel_ros_install|DISPLAY=:100|6082"
-        )
+        self.assertNotRegex(code, r"ros2 |rviz|plotjuggler")
         self.assertNotIn("in_process", code)
         self.assertRegex(code, r"\$\(session\) sim --robot")
 
@@ -1013,6 +1077,223 @@ class SessionTest(unittest.TestCase):
             )
 
     # LINT.ThenChange(//tools/deploy/session.sh:sim_project)
+
+    def session(self, *arguments: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["bash", runfile("tools/deploy/session.sh"), *arguments],
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            timeout=60,
+            check=False,  # The tests check the return code.
+        )
+
+    def test_an_unknown_option_stops_the_session_at_its_usage(self) -> None:
+        # The usage is the script's header comment, all of it and no code, printed before Docker is reached.
+        unknown = self.session("sim", "--robot", "drc_atlas", "--no_such_option")
+        self.assertEqual(unknown.returncode, 2)
+        self.assertIn("unknown option --no_such_option", unknown.stderr)
+        self.assertIn("Environment: DISPLAY", unknown.stderr)
+        self.assertNotIn("set -euo pipefail", unknown.stderr)
+
+    def test_the_viewer_is_chosen_by_name(self) -> None:
+        # --viewer takes a name; without a launch file the session stops at its usage, before Docker.
+        named = self.session("sim", "--robot", "drc_atlas", "--viewer", "web")
+        self.assertEqual(named.returncode, 2)
+        self.assertNotIn("unknown option", named.stderr)
+        self.assertIn("--viewer glfw|web|none", named.stderr)
+        # Without --viewer, the plot configuration's mujoco_viewer chooses: --plot_config names it.
+        configured = self.session(
+            "sim", "--robot", "drc_atlas", "--plot_config", "my.textproto"
+        )
+        self.assertEqual(configured.returncode, 2)
+        self.assertNotIn("unknown option", configured.stderr)
+        self.assertIn("[--plot_config <file>]", configured.stderr)
+        # A file the robot container cannot see, or none, is refused before anything is built or stopped.
+        launch = ("sim", "--robot", "drc_atlas", "--launch_file", "mpc.textproto")
+        outside = self.session(*launch, "--plot_config", "/elsewhere/plots.textproto")
+        self.assertEqual(outside.returncode, 2)
+        self.assertIn("is outside the checkout", outside.stderr)
+        missing = self.session(*launch, "--plot_config", "no_such_plots.textproto")
+        self.assertEqual(missing.returncode, 2)
+        self.assertIn("no such file in the checkout", missing.stderr)
+
+    def test_the_sim_targets_pass_the_plot_configuration_to_the_robot_side(
+        self,
+    ) -> None:
+        makefile = read("Makefile")
+        targets = re.findall(
+            r"^launch-\$\(call field,\$\(1\),1\)-sim(?:-vnc)?:.*\n((?:\t.*\n)+)",
+            makefile,
+            re.M,
+        )
+        self.assertEqual(len(targets), 2)
+        for recipe in targets:
+            self.assertIn('--plot_config "$$(PLOT_CONFIG)"', recipe)
+            self.assertIn('--viewer "$$(VIEWER)"', recipe)
+        self.assertRegex(makefile, re.compile(r"^VIEWER \?=$", re.M))
+
+    def fake_checkout(self, files: dict[str, str]) -> str:
+        """A checkout with session.sh, the shipped plot configuration (web) and `files`, whose sessions run on stand-ins."""
+        checkout = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, checkout)
+        executables = {
+            "tools/deploy/in_dev_container.sh": FAKE_RECORDER,
+            "tools/deploy/deploy_robot.sh": FAKE_RECORDER,
+            "fake_bin/docker": FAKE_DOCKER,
+            "fake_bin/tc": "#!/bin/sh\n",
+        }
+        texts = {
+            SHIPPED_PLOT_CONFIG: PLOT_CONFIG_HEADER + 'mujoco_viewer: "web"\n',
+            **files,
+            **executables,
+        }
+        for name, text in texts.items():
+            path = os.path.join(checkout, name)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as stream:
+                stream.write(text)
+            if name in executables:
+                os.chmod(path, 0o755)
+        shutil.copy(
+            runfile("tools/deploy/session.sh"),
+            os.path.join(checkout, "tools", "deploy"),
+        )
+        return checkout
+
+    def run_sim(
+        self, checkout: str, *arguments: str
+    ) -> tuple[subprocess.CompletedProcess, list[str]]:
+        """Runs `session.sh sim` with `arguments` in a fake checkout.
+
+        Args:
+            checkout: A checkout of fake_checkout().
+            *arguments: The session's arguments after its launch file and build.
+
+        Returns:
+            How it ended, and the command lines the stand-ins recorded, in order.
+        """
+        log = os.path.join(checkout, "session.log")
+        if os.path.exists(log):
+            os.remove(log)
+        env = dict(os.environ)
+        env.pop("WB_ROBOT_WEB_VIEWER_PORT", None)
+        env.update(
+            PATH=os.pathsep.join((os.path.join(checkout, "fake_bin"), env["PATH"])),
+            SESSION_LOG=log,
+            WB_HOST_CHECKOUT=HOST_CHECKOUT,
+        )
+        result = subprocess.run(
+            [
+                "bash",
+                os.path.join(checkout, "tools", "deploy", "session.sh"),
+                "sim",
+                "--robot",
+                "drc_atlas",
+                "--launch_file",
+                "mpc.textproto",
+                "--build",
+                "//tools/launch",
+                "--skip_build",
+                *arguments,
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            timeout=60,
+            check=False,  # The tests check the return code.
+        )
+        recorded: list[str] = []
+        if os.path.exists(log):
+            with open(log, encoding="utf-8") as stream:
+                recorded = stream.read().splitlines()
+        return result, recorded
+
+    def laptop_plot_config(self, recorded: list[str]) -> str:
+        """The plot_config the laptop side's launcher gets: its last --set of it."""
+        launches = [line for line in recorded if "tools/launch/launch " in line]
+        self.assertEqual(len(launches), 1, recorded)
+        return re.findall(r"--set plot_config=(\S*)", launches[0])[-1]
+
+    def robot_container(self, recorded: list[str]) -> tuple[str, str]:
+        """The viewer and the plot configuration of the robot container the session started."""
+        starts = [
+            line
+            for line in recorded
+            if line.startswith("docker compose ") and " up " in line
+        ]
+        self.assertEqual(len(starts), 1, recorded)
+        match = search(r"\| viewer=(\S*) plot_config=(\S*)$", starts[0])
+        return match.group(1), match.group(2)
+
+    def test_an_absolute_plot_configuration_reaches_both_sides_relative_to_the_checkout(
+        self,
+    ) -> None:
+        # The Makefile gives PLOT_CONFIG to the laptop side (--set) and to the session (--plot_config); an absolute path
+        # of the host is not one of the dev container, which mounts the checkout elsewhere, so both sides get the path
+        # relative to the checkout: the robot container its file of the host, the launcher the same file in the dev
+        # container's checkout.
+        checkout = self.fake_checkout(
+            {"plots/mine.textproto": PLOT_CONFIG_HEADER + 'mujoco_viewer: "none"\n'}
+        )
+        absolute = os.path.join(checkout, "plots", "mine.textproto")
+        result, recorded = self.run_sim(
+            checkout, "--set", f"plot_config={absolute}", "--plot_config", absolute
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.laptop_plot_config(recorded), "plots/mine.textproto")
+        self.assertEqual(
+            self.robot_container(recorded),
+            ("", f"{HOST_CHECKOUT}/plots/mine.textproto"),
+        )
+        # The robot's errors name the file by the path the container sees: the session says which file that is.
+        self.assertIn(
+            "the robot reads its MuJoCo viewer from plots/mine.textproto, which it sees as "
+            f"{SIM_PLOT_CONFIG_TARGET}",
+            result.stdout,
+        )
+        self.assertNotIn("localhost:6090", result.stdout, "its viewer is none")
+
+    def test_a_plot_configuration_the_robot_cannot_read_is_refused_before_anything_starts(
+        self,
+    ) -> None:
+        # A plain list of signals, which the Rerun bridge reads, is no PlotConfig textproto: without a viewer named, the
+        # robot would refuse it at start-up, after the build and the stop of the running simulation.
+        checkout = self.fake_checkout({"plots/signals.txt": "base_pose/*\njoints/*\n"})
+        refused, recorded = self.run_sim(checkout, "--plot_config", "plots/signals.txt")
+        self.assertEqual(refused.returncode, 2)
+        self.assertIn(
+            "does not declare '# proto-message: humanoid_rerun_viewer_proto.PlotConfig'",
+            refused.stderr,
+        )
+        self.assertIn("VIEWER=web|glfw|none", refused.stderr)
+        self.assertEqual(recorded, [], "nothing was built, stopped or started")
+        # A viewer named on the command line is the robot's, which then does not read the file.
+        named, recorded = self.run_sim(
+            checkout, "--plot_config", "plots/signals.txt", "--viewer", "glfw"
+        )
+        self.assertEqual(named.returncode, 0, named.stderr)
+        self.assertEqual(
+            self.robot_container(recorded),
+            ("glfw", f"{HOST_CHECKOUT}/plots/signals.txt"),
+        )
+        self.assertEqual(self.laptop_plot_config(recorded), "plots/signals.txt")
+        self.assertNotIn("the robot reads its MuJoCo viewer from", named.stdout)
+
+    def test_without_plots_the_robot_gets_the_shipped_plot_configuration(self) -> None:
+        # The Rerun bridge's "none" turns its plots off; the robot reads the shipped file's viewer, web.
+        checkout = self.fake_checkout({})
+        result, recorded = self.run_sim(
+            checkout, "--set", "plot_config=none", "--plot_config", "none"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.laptop_plot_config(recorded), "none")
+        self.assertEqual(
+            self.robot_container(recorded),
+            ("", f"{HOST_CHECKOUT}/{SHIPPED_PLOT_CONFIG}"),
+        )
+        self.assertIn("http://localhost:6090", result.stdout)
 
 
 if __name__ == "__main__":

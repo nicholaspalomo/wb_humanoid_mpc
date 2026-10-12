@@ -42,6 +42,15 @@ message MpcPolicy {
   // are time_trajectory, as OCS2's multiple-shooting solvers build it, travels as its own node values, so that the pre-
   // and post-event nodes of an event, which share one time, keep theirs; ControllerBase::flatten() would give both the
   // pre-event values. A controller on other time stamps is sampled at time_trajectory with ControllerBase::flatten().
+  // LINT.IfChange(controller_data)
+  // A ManifoldLinearController (CONTROLLER_TYPE_MANIFOLD_LINEAR) travels only as its own node arrays: node i is
+  // [u*_i (nu), xbar_i (nx), vec K_i (nu x ndx, column-major)], from its getNominalInputs(), getAnchorStates() and
+  // getFeedbackGains(), the layout its flatten() writes at a node time. ndx is the tangent dimension of the state
+  // manifold the receiver decodes it on (StateManifold::getTangentDim()), nx its ambient one. The anchors are not
+  // state_trajectory: multiple_shooting::toPrimalSolution() gives every pre-event node the anchor, input and gain of the
+  // node before it, and the last node those of the one before. A ManifoldLinearController whose time stamps are not
+  // time_trajectory is refused by the encoder (InvalidArgument); the SQP always builds it on the time trajectory.
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_ipc/src/MpcMessageConversions.cpp:manifold_node_writer)
   // See humanoid_nmpc/humanoid_mpc_ipc/include/humanoid_mpc_ipc/MpcMessageConversions.h.
   repeated Vector controller_data = 12;
 

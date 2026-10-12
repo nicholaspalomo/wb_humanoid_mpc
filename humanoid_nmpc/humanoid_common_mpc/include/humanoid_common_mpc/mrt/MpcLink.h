@@ -62,7 +62,8 @@ namespace ocs2::humanoid {
  *
  * IMPLEMENTATIONS.
  *  - InProcessMpcLink (InProcessMpcLink.h): ocs2::MPC_MRT_Interface and a solver thread of this process.
- *  - RemoteMpcLink (humanoid_mpc_ipc, written separately): the MPC node, over the bus. It must provide
+ *  - RemoteMpcLinkAdapter (humanoid_common_mpc_app/robot) over ipc::RemoteMpcLink (humanoid_mpc_ipc): the MPC node, over
+ *    the bus. It provides
  *      - mrt(): an MRT_BASE whose setCurrentObservation() never blocks the control thread (a triple buffer the
  *        communication thread publishes from, not a mutex), and whose buffer the communication thread fills with
  *        MRT_BASE::moveToBuffer() for every policy received, after dropping any policy that was solved before a reset

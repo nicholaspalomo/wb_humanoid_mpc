@@ -69,6 +69,32 @@ TEST(ThreadAffinity, ThePartitionsOfAWholeMachineAreTheShippedOnes) {
   EXPECT_EQ(eight.mpcCores, range(/*first=*/3, /*count=*/5));
 }
 
+bool intersects(const std::vector<int>& cores, const std::vector<int>& others) {
+  return std::any_of(cores.begin(), cores.end(),
+                     [&others](int core) { return std::find(others.begin(), others.end(), core) != others.end(); });
+}
+
+TEST(ThreadAffinity, TheViewerTakesTheLeftOverCoresOrTheSimulationCoresButNeverTheMpcCores) {
+  // Cores beyond the 16 the partitions name are the viewer's (this 20-core workstation: 16..19).
+  const SystemCoreAllocation twenty = coreAllocationFor(range(/*first=*/0, /*count=*/20));
+  EXPECT_EQ(twenty.viewerCores, range(/*first=*/16, /*count=*/4));
+  // Without a core left over the viewer shares the simulation's.
+  for (const int count : {16, 8, 4}) {
+    const SystemCoreAllocation allocation = coreAllocationFor(range(/*first=*/0, count));
+    EXPECT_EQ(allocation.viewerCores, allocation.simCores) << count << " cores";
+  }
+  // Under four cores nothing is restricted.
+  EXPECT_EQ(coreAllocationFor(range(/*first=*/0, /*count=*/3)).viewerCores, range(/*first=*/0, /*count=*/3));
+  // A cpuset is taken in order, as for the other partitions.
+  EXPECT_EQ(coreAllocationFor(range(/*first=*/2, /*count=*/18)).viewerCores, (std::vector<int>{18, 19}));
+  for (int count = 4; count <= 40; ++count) {
+    const SystemCoreAllocation allocation = coreAllocationFor(range(/*first=*/0, count));
+    EXPECT_FALSE(allocation.viewerCores.empty()) << count << " cores";
+    EXPECT_FALSE(intersects(allocation.viewerCores, allocation.mpcCores)) << count << " cores";
+    EXPECT_FALSE(intersects(allocation.viewerCores, allocation.mrtCores)) << count << " cores";
+  }
+}
+
 TEST(ThreadAffinity, ThePartitionsOfACpusetNameItsCoresOnly) {
   // deploy_robot.sh --cpuset 12-15 on a 16-core robot.
   const std::vector<int> cpuset = range(/*first=*/12, /*count=*/4);
@@ -92,7 +118,8 @@ TEST(ThreadAffinity, TheDefaultFollowsTheCallersAffinity) {
   const std::vector<int> all = availableCores();
   ASSERT_FALSE(all.empty());
   const SystemCoreAllocation unrestricted = getDefaultCoreAllocation();
-  for (const std::vector<int>& partition : {unrestricted.simCores, unrestricted.mrtCores, unrestricted.mpcCores}) {
+  for (const std::vector<int>& partition :
+       {unrestricted.simCores, unrestricted.mrtCores, unrestricted.mpcCores, unrestricted.viewerCores}) {
     EXPECT_TRUE(within(partition, all));
   }
 
@@ -112,6 +139,7 @@ TEST(ThreadAffinity, TheDefaultFollowsTheCallersAffinity) {
   EXPECT_EQ(seen, std::vector<int>{last});
   EXPECT_EQ(restricted.mrtCores, std::vector<int>{last});
   EXPECT_EQ(restricted.simCores, std::vector<int>{last});
+  EXPECT_EQ(restricted.viewerCores, std::vector<int>{last});
 }
 
 }  // namespace

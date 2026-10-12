@@ -42,7 +42,10 @@ namespace ocs2::humanoid {
  * The target trajectories the whole-body MPC restarts from after a reset served at `observation`: the observed
  * configuration held still and upright, with the weight on both feet.
  *
- *  - the state is the observation's, with every generalized velocity zeroed and the base pitch and roll zeroed;
+ *  - the state is the observation's, with every generalized velocity zeroed and the base upright at the observed
+ *    heading: the attitude is the heading quaternion of the observed one (its twist about the world z axis,
+ *    headingQuaternion()), so the yaw is the observation's getBaseHeading(), wrapped into (-pi, pi], and the pitch and
+ *    roll are zero;
  *  - the input carries the robot's weight evenly on both feet (weightCompensatingInput()), as the centroidal MPC's
  *    reset target does: a zero input asked the first solve after a reset to hold the robot up with no contact force;
  *  - two nodes, at the observation time and 2 s later, so that the target holds over the horizon rather than being a

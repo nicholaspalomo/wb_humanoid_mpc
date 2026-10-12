@@ -152,7 +152,7 @@ class RemoteMpcLinkTest : public ::testing::Test {
       test_support::connectBoth(*robotBus_, *mpcBus_);
     }
 
-    absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(*robotBus_, robotSupervisor_, linkConfig);
+    absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(*robotBus_, robotSupervisor_, std::move(linkConfig));
     CHECK_OK(link.status());
     link_ = std::move(*link);
     MpcServer::Hooks hooks;

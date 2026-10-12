@@ -3,7 +3,7 @@
 The operator tools of the humanoid on the IPC bus (`robot_runtime/robot_ipc`, see
 [`humanoid_nmpc/docs/distributed_runtime/README.md`](../docs/distributed_runtime/README.md)): the Tk GUI and the
 keyboard and Xbox teleoperation publishers. They run on the laptop, under Bazel's hermetic Python 3.11 with the
-`@operator_deps` packages; nothing here imports ROS.
+`@operator_deps` packages.
 
 ```bash
 bazel run //humanoid_nmpc/remote_control:base_velocity_controller_gui -- \

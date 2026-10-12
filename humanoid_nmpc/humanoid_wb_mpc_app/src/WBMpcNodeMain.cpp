@@ -105,7 +105,8 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   ocs2::humanoid::WBMpcNode::Options options;
   options.solverThread = ocs2::humanoid::node::defaultSolverThreadConfig(absl::GetFlag(FLAGS_realtime_priority));
   // The node also publishes viz/scene and viz/telemetry for the Rerun bridge (humanoid_common_mpc_app/visualization), from
-  // a thread of its own at a raised nice value, on the MPC cores it inherits from this thread.
+  // a thread of its own under SCHED_IDLE, on the MPC cores it inherits from this thread: a solver thread that wakes
+  // there takes the core at once.
   absl::StatusOr<std::unique_ptr<ocs2::humanoid::WBMpcNode>> node =
       ocs2::humanoid::WBMpcNode::Create(files, *std::move(bus), std::move(options));
   if (!node.ok()) {

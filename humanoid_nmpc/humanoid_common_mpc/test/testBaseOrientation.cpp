@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <random>
 #include <utility>
 #include <vector>
@@ -42,7 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 
 /*
- * Step 5 of humanoid_nmpc/docs/quaternion_base_orientation/README.md: the heading-tilt split of design section 2.8.1.
+ * The heading-tilt split of humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 2.8.1.
  * The closed-form Jacobian is checked against central finite differences in the body tangent, xi (x) Exp(h e_i), and in
  * the stored coefficients, xi + h e_i; then the residual at a level attitude, at a pitch of 90 degrees and upside down;
  * and every row of the design's property table with its stated value. Quaternions are composed here with Eigen's own
@@ -333,6 +334,70 @@ TEST(BaseOrientation, TiltIsExactlyZeroAndRegularAtALevelAttitude) {
   }
 }
 
+TEST(BaseOrientation, InsideTheNormalizationGuardEveryFunctionReadsTheZeroQuaternion) {
+  // A quaternion the safe normalization leaves unchanged (|xi| <= epsilon) is the identity to the rotation matrix, to
+  // within 2 |xi|^2, and the heading-tilt functions read it as the zero quaternion, exactly. Read as the non-unit
+  // xi_hat = xi, its tilt took the small-tilt series whatever the tilt: (0.6028, 0.6401) instead of (0.6085, 0.6462) at
+  // ZYX (0.8, 0.6, 0.7), and -12.15 rad for a roll of 2.5 rad.
+  const vector4_t identity(0.0, 0.0, 0.0, 1.0);
+  const vector4_t reference = eulerZyxQuaternion(0.4, -0.2, 0.3);
+  const QuaternionFunction residual = [&reference](const vector4_t& attitude) { return headingTiltResidual(attitude, reference); };
+  for (const vector4_t& unit :
+       {eulerZyxQuaternion(0.8, 0.6, 0.7), rollRotation(2.5), pitchRotation(3.1), eulerZyxQuaternion(-2.0, 0.3, -1.2)}) {
+    for (const scalar_t scale : {0.999 * kQuaternionNormGuard, 5.0e-7, 1.0e-9, 1.0e-150}) {
+      const vector4_t xi = scale * unit;
+      ASSERT_EQ(safelyNormalizedQuaternion(xi), xi);
+      EXPECT_LT((quaternionRotationMatrix<scalar_t>(xi) - matrix3_t::Identity()).cwiseAbs().maxCoeff(), 2.0 * xi.squaredNorm() + 2.0e-16);
+      EXPECT_EQ(twistHeading(xi), 0.0) << xi.transpose();
+      EXPECT_EQ(headingQuaternion(xi), identity) << xi.transpose();
+      EXPECT_EQ(swingQuaternion(xi), vector4_t(vector4_t::Zero())) << xi.transpose();
+      EXPECT_EQ(tiltVector(xi), vector2_t::Zero()) << xi.transpose();
+      EXPECT_EQ(headingTiltResidual(xi, reference), headingTiltResidual(identity, reference)) << xi.transpose();
+      EXPECT_EQ(headingTiltResidual(reference, xi), headingTiltResidual(reference, identity)) << xi.transpose();
+      EXPECT_EQ(headingTiltJacobian(xi), matrix3_t::Zero()) << xi.transpose();
+      // Zero is the derivative: xi (x) Exp(dphi) keeps the norm of xi, so the residual is constant around it.
+      EXPECT_EQ(tangentFiniteDifference(residual, xi), matrix_t(matrix_t::Zero(3, 3))) << xi.transpose();
+    }
+    // Just above the guard the quaternion is normalized, and every value is the unit quaternion's, to round-off.
+    const scalar_t jacobianScale = std::max(1.0, headingTiltJacobian(unit).cwiseAbs().maxCoeff());
+    for (const scalar_t scale : {1.001 * kQuaternionNormGuard, 2.0e-6, 1.0e-5}) {
+      const vector4_t xi = scale * unit;
+      EXPECT_NEAR(twistHeading(xi), twistHeading(unit), kRoundOffTolerance) << xi.transpose();
+      EXPECT_LT((tiltVector(xi) - tiltVector(unit)).cwiseAbs().maxCoeff(), kRoundOffTolerance) << xi.transpose();
+      EXPECT_LT((headingTiltJacobian(xi) - headingTiltJacobian(unit)).cwiseAbs().maxCoeff(), 1.0e-13 * jacobianScale) << xi.transpose();
+    }
+  }
+}
+
+TEST(BaseOrientation, AQuaternionWithANaNIsNotReadAsTheIdentity) {
+  // The guard is |xi|^2 <= epsilon^2, which a NaN squared norm fails: the quaternion is not taken for the zero one, and
+  // its NaN reaches every function that reads the coefficient. It was !(|xi|^2 > epsilon^2), which a NaN passes, so a
+  // NaN quaternion read as the identity: heading 0, tilt 0, a finite residual and a zero Jacobian.
+  const scalar_t nan = std::numeric_limits<scalar_t>::quiet_NaN();
+  const vector4_t reference = eulerZyxQuaternion(0.4, -0.2, 0.3);
+  const vector4_t attitude = eulerZyxQuaternion(0.8, 0.6, 0.7);
+  for (int coefficient = 0; coefficient <= 4; ++coefficient) {
+    SCOPED_TRACE(coefficient);
+    // One coefficient NaN, or all four (coefficient 4).
+    vector4_t xi = attitude;
+    if (coefficient < 4) {
+      xi(coefficient) = nan;
+    } else {
+      xi.setConstant(nan);
+    }
+    const bool readsTheHeadingCoefficients = coefficient >= 2;
+    EXPECT_EQ(std::isnan(twistHeading(xi)), readsTheHeadingCoefficients) << "the heading reads z and w only";
+    EXPECT_EQ(!headingQuaternion(xi).allFinite(), readsTheHeadingCoefficients);
+    EXPECT_FALSE(swingQuaternion(xi).allFinite());
+    EXPECT_FALSE(tiltVector(xi).allFinite());
+    EXPECT_FALSE(headingTiltResidual(xi, reference).allFinite());
+    EXPECT_FALSE(headingTiltResidual(reference, xi).allFinite());
+    EXPECT_FALSE(allFinite(headingTiltJacobian(xi)));
+  }
+  // A finite quaternion inside the guard is still the identity.
+  EXPECT_EQ(headingTiltResidual(1.0e-7 * attitude, reference), headingTiltResidual(vector4_t(0.0, 0.0, 0.0, 1.0), reference));
+}
+
 /******************************************************************************************************/
 /* The closed-form Jacobian                                                                           */
 /******************************************************************************************************/
@@ -576,6 +641,76 @@ TEST(BaseOrientationProperties, HeadingKeepsItsRangeAndTheDoubleCoverAtSignedZer
   for (const scalar_t w : {0.0, -0.0}) {
     EXPECT_EQ(twistHeading(vector4_t(0.0, 0.0, 1.0, w)), M_PI);
     EXPECT_EQ(twistHeading(vector4_t(0.0, 0.0, -1.0, w)), M_PI);
+  }
+}
+
+TEST(BaseOrientationProperties, ExactlyUpsideDownMinusXiGivesTheOtherLogarithmOfTheHalfTurn) {
+  // At rho = 0 the heading is read as zero and q_t as the identity for xi and -xi alike (the previous test), so the two
+  // signs give the two logarithms +-pi n of the same half turn about the horizontal axis n. -xi has the coefficients of
+  // xi^-1 up to signed zeros, and tau(xi^-1) = -tau(xi), the identity of every heading-zero attitude, is the one kept.
+  // A rotation about world z by alpha turns the half turn's axis by alpha / 2.
+  const vector4_t reference = eulerZyxQuaternion(0.4, 0.2, -0.3);
+  const vector2_t referenceTilt = tiltVector(reference);
+  for (const scalar_t axisAngle : {0.0, 0.6, -2.0, 0.5 * M_PI}) {
+    const vector4_t upsideDown(std::cos(axisAngle), std::sin(axisAngle), 0.0, 0.0);
+    const vector4_t negated = -upsideDown;
+    const vector2_t tilt = tiltVector(upsideDown);
+    EXPECT_LT((tilt - M_PI * vector2_t(std::cos(axisAngle), std::sin(axisAngle))).cwiseAbs().maxCoeff(), kRoundOffTolerance);
+    EXPECT_EQ(swingQuaternion(negated), vector4_t(-swingQuaternion(upsideDown))) << axisAngle;
+    EXPECT_EQ(tiltVector(negated), vector2_t(-tilt)) << axisAngle;
+    EXPECT_EQ(tiltVector(conjugate(upsideDown)), vector2_t(-tilt)) << axisAngle;
+    // Both are logarithms of the same rotation: Exp of either tilt, a rotation about a horizontal axis, is +-xi.
+    for (const vector2_t& eitherTilt : {tilt, vector2_t(-tilt)}) {
+      const vector4_t fromTilt = expMap(vector3_t(eitherTilt(0), eitherTilt(1), 0.0));
+      EXPECT_LT(std::min((fromTilt - upsideDown).cwiseAbs().maxCoeff(), (fromTilt + upsideDown).cwiseAbs().maxCoeff()), kRoundOffTolerance);
+    }
+    // So the residual's tilt rows flip with the sign of xi there; its yaw row and J_HT do not.
+    const vector3_t residual = headingTiltResidual(upsideDown, reference);
+    const vector3_t negatedResidual = headingTiltResidual(negated, reference);
+    EXPECT_EQ(negatedResidual(0), residual(0));
+    EXPECT_NEAR(residual(1), tilt(1) - referenceTilt(1), kRoundOffTolerance);
+    EXPECT_NEAR(residual(2), tilt(0) - referenceTilt(0), kRoundOffTolerance);
+    EXPECT_NEAR(negatedResidual(1), -tilt(1) - referenceTilt(1), kRoundOffTolerance);
+    EXPECT_NEAR(negatedResidual(2), -tilt(0) - referenceTilt(0), kRoundOffTolerance);
+    EXPECT_EQ(headingTiltJacobian(negated), headingTiltJacobian(upsideDown));
+    // A heading-zero rule cannot be invariant to world yaw here: q_z(alpha) (x) xi is the half turn about R_z(alpha / 2) n.
+    for (const scalar_t alpha : {0.7, -2.4, M_PI}) {
+      const vector4_t rotated = product(yawRotation(alpha), upsideDown);
+      ASSERT_EQ(rotated(2), 0.0);
+      ASSERT_EQ(rotated(3), 0.0);
+      const scalar_t turnedAxis = axisAngle + 0.5 * alpha;
+      EXPECT_LT((tiltVector(rotated) - M_PI * vector2_t(std::cos(turnedAxis), std::sin(turnedAxis))).cwiseAbs().maxCoeff(), 1.0e-14);
+    }
+  }
+}
+
+TEST(BaseOrientationProperties, DoubleCoverIsExactInTheUpsideDownBand) {
+  // For 0 < rho <= kMinimumTwistNorm q_t is computed from the angle of (z, w), taken in the hemisphere w > 0 and signed
+  // back, so -xi gives -q_t and the same swing bit for bit, as the division does above the band. The angle of the raw
+  // (z, w) differs between xi and -xi by pi only to round-off.
+  const vector4_t reference = eulerZyxQuaternion(-1.1, 0.25, 0.1);
+  for (const scalar_t axisAngle : {0.3, -2.2}) {
+    for (const scalar_t twistNorm : {1.0e-15, 1.0e-12, 3.0e-10, 1.0e-9}) {
+      const scalar_t horizontal = std::sqrt(1.0 - twistNorm * twistNorm);
+      std::vector<vector2_t> twists;
+      for (const scalar_t halfHeading : {0.4, 2.0, -1.0, -2.9}) {
+        twists.emplace_back(twistNorm * std::sin(halfHeading), twistNorm * std::cos(halfHeading));
+      }
+      twists.emplace_back(twistNorm, 0.0);
+      twists.emplace_back(-twistNorm, -0.0);
+      for (const vector2_t& twist : twists) {
+        const vector4_t xi(horizontal * std::cos(axisAngle), horizontal * std::sin(axisAngle), twist(0), twist(1));
+        const vector4_t negated = -xi;
+        EXPECT_EQ(headingQuaternion(negated), vector4_t(-headingQuaternion(xi))) << xi.transpose();
+        EXPECT_EQ(swingQuaternion(negated), swingQuaternion(xi)) << xi.transpose();
+        EXPECT_EQ(tiltVector(negated), tiltVector(xi)) << xi.transpose();
+        EXPECT_EQ(headingTiltResidual(negated, reference), headingTiltResidual(xi, reference)) << xi.transpose();
+        EXPECT_EQ(headingTiltResidual(reference, negated), headingTiltResidual(reference, xi)) << xi.transpose();
+        EXPECT_EQ(headingTiltJacobian(negated), headingTiltJacobian(xi)) << xi.transpose();
+        EXPECT_LT((product(headingQuaternion(xi), swingQuaternion(xi)) - xi).cwiseAbs().maxCoeff(), kRoundOffTolerance);
+        EXPECT_NEAR(tiltVector(xi).norm(), M_PI, 3.0 * twistNorm + kRoundOffTolerance) << xi.transpose();
+      }
+    }
   }
 }
 

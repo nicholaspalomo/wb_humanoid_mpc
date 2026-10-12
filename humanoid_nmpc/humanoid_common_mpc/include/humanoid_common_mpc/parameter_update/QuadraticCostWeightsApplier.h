@@ -39,12 +39,17 @@ namespace ocs2::humanoid {
 
 /**
  * Applies the weights of the quadratic costs: Q of state_weights to the running quadratic state cost
- * (stateInputQuadraticCost or stateQuadraticCost), R of input_weights to the running quadratic input cost
- * (stateInputQuadraticCost or inputQuadraticCost), and terminal_cost_scaling times final_state_weights to the quadratic
- * terminal cost (terminalCost). Under the CoM + ACoM tracking cost the base-pose blocks of Q and Q_final are zeroed
- * first, as the factory does, because that cost regulates the base pose; whether the problem carries it is read off the
- * running problem, never the reloaded file. A Q whose size is not the problem's state dimension, and an R whose size is
- * not its input dimension, are refused by field.
+ * (stateInputQuadraticCost or stateQuadraticCost, TuningQuadraticStateInputCost), R of input_weights to the running
+ * quadratic input cost (stateInputQuadraticCost or inputQuadraticCost, InputQuadraticCost), and terminal_cost_scaling
+ * times final_state_weights to the quadratic terminal cost (terminalCost, TuningQuadraticStateCost). The weights are
+ * converted by the helpers the start-up factory converts with (trackingStateWeightsFromConfig(),
+ * terminalStateWeightsFromConfig()) and handed to the same setters, so that each cost's TuningLayoutDeviation is the one
+ * map from their Euler-written rows to the state in both paths. Under the CoM + ACoM tracking cost the base-pose blocks
+ * of Q and Q_final are zeroed first, as the factory does, because that cost regulates the base pose; whether the
+ * problem carries it is read off the running problem, never the reloaded file. A Q that does not have the rows of the
+ * tuning layout, and an R that does not have the problem's input dimension, are refused by field; a weight matrix a
+ * cost's setter refuses (its size against the running term's, symmetry, finiteness) is reported as a failed update of
+ * that term, and the term keeps its running weights.
  *
  * Shared by both formulations. Not thread-safe (HotFieldApplier).
  */

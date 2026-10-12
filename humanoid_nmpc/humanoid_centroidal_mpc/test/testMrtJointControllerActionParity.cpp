@@ -62,11 +62,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * diverged policy. The link is the lockstep one (InProcessMpcLink::Execution::kCaller), so every run solves at the same
  * cycles and the run is the same run every time.
  *
- * The golden file was recorded by the control loop that read every joint action with `.at(index).value()`, before the
- * constructor validated the joint indices once and the loop stopped checking them per cycle; it is what shows that the
- * rewrite changed no action. A change that alters the actions on purpose re-records it: on a mismatch the test writes
- * what it computed to $TEST_UNDECLARED_OUTPUTS_DIR/mrt_joint_controller_actions.txt (in the test's outputs.zip), which
+ * The golden file was first recorded by the control loop that read every joint action with `.at(index).value()`, before
+ * the constructor validated the joint indices once and the loop stopped checking them per cycle; it is what showed that
+ * the rewrite changed no action. A change that alters the actions on purpose re-records it: on a mismatch the test writes
+ * what it computed to $TEST_UNDECLARED_OUTPUTS_DIR/mrt_joint_controller_actions.txt (in the test's outputs), which
  * replaces test/golden/mrt_joint_controller_actions.txt.
+ *
+ * The golden file holds the actions on the quaternion base orientation. There, "the base held" of
+ * computeBaseHeldJointTorques() is the inverse dynamics at a zero body angular acceleration, a zero twist rate (design
+ * README section 2.5).
  */
 
 namespace ocs2::humanoid {
@@ -145,7 +149,7 @@ class ActionRecorder {
     const scalar_t phase = 0.3 * static_cast<scalar_t>(cycle);
     robotState_.setConfigurationToZero();
     robotState_.setRootPositionInWorldFrame(model.getBasePosition(state) + vector3_t(0.01 * std::sin(phase), 0.005 * std::cos(phase), 0.0));
-    const vector3_t eulerZyx(model.getBaseOrientationEulerZYX(state) + vector3_t(0.02 * std::sin(phase), 0.01, -0.01 * std::cos(phase)));
+    const vector3_t eulerZyx(model.getBaseOrientationEulerZyx(state) + vector3_t(0.02 * std::sin(phase), 0.01, -0.01 * std::cos(phase)));
     const quaternion_t orientation = getQuaternionFromEulerAnglesZyx(eulerZyx);
     robotState_.setRootRotationLocalToWorldFrame(orientation);
     robotState_.setRootLinearVelocityInLocalFrame(vector3_t(0.1 * std::cos(phase), -0.05, 0.02));

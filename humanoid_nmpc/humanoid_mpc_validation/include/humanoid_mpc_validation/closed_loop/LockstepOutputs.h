@@ -45,7 +45,9 @@ std::string metricsFileName(const std::string& robot, const std::string& scenari
 std::string timeSeriesFileName(const std::string& robot, const std::string& scenario);
 /** <robot>_<scenario>_states.txt: the robot at the recorded solves, the input of the solve benchmark. */
 std::string recordedStatesFileName(const std::string& robot, const std::string& scenario);
-// LINT.ThenChange(//Makefile:closed_loop_targets, //humanoid_nmpc/humanoid_mpc_validation/README.md:output_names)
+// clang-format off
+// LINT.ThenChange(//Makefile:closed_loop_targets, //humanoid_nmpc/humanoid_mpc_validation/README.md:output_names, //humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/MetricBands.cpp:archived_file_names)
+// clang-format on
 
 /**
  * Writes `result` into `outputDir`: the metrics document, the time series, and the recorded states when the run recorded

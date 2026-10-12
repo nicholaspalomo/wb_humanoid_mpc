@@ -48,10 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
-#include "ocs2_core/cost/QuadraticStateCost.h"
-#include "ocs2_core/cost/QuadraticStateInputCost.h"
 #include "ocs2_oc/approximate_model/LinearQuadraticApproximator.h"
-#include "ocs2_oc/oc_problem/OptimalControlProblemHelperFunction.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
@@ -66,8 +63,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
+#include "humanoid_common_mpc/cost/TuningQuadraticStateCost.h"
+#include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "support/ProblemFingerprint.h"
@@ -195,18 +195,16 @@ TEST_F(AcomWiringTest, theNamedCostAssemblesExactlyTheProblemTheBooleanDid) {
 
   // The effects of `useComAndAcomTracking: true`, re-applied by hand to the problem built without the name.
   OptimalControlProblem& problem = (*unlisted)->getOptimalControlProblemRef();
-  QuadraticStateInputCost& stateCost = problem.costPtr->get<QuadraticStateInputCost>("stateQuadraticCost");
-  matrix_t Q;
-  matrix_t R;
-  matrix_t P;
-  stateCost.getGains(Q, R, P);
+  TuningQuadraticStateInputCost& stateCost = problem.costPtr->get<TuningQuadraticStateInputCost>("stateQuadraticCost");
+  matrix_t Q = stateCost.getStateWeights();
   ASSERT_GT(Q.block(kBasePoseIndex, kBasePoseIndex, kBasePoseDim, kBasePoseDim).norm(), 0.0);
   Q.block(kBasePoseIndex, kBasePoseIndex, kBasePoseDim, kBasePoseDim).setZero();
-  stateCost.setGains(Q, R, P);
+  ASSERT_TRUE(stateCost.setStateWeights(Q).ok());
   const matrix_t Q_com = converted(comWeightsFromConfig(unlistedTask.com_weights, "com_weights"));
   const matrix_t Q_acom = converted(acomWeightsFromConfig(unlistedTask.acom_weights, "acom_weights"));
-  absl::StatusOr<std::unique_ptr<ComAndAcomTrackingCost>> acom = ComAndAcomTrackingCost::Create(
-      Q_com, Q_acom, (*unlisted)->getPinocchioInterface(), (*unlisted)->getCentroidalModelInfo(), (*unlisted)->modelSettings().robotName);
+  absl::StatusOr<std::unique_ptr<ComAndAcomTrackingCost>> acom =
+      ComAndAcomTrackingCost::Create(Q_com, Q_acom, (*unlisted)->getPinocchioInterface(), (*unlisted)->getCentroidalModelInfo(),
+                                     &(*unlisted)->getEffectiveMpcRobotModel(), (*unlisted)->modelSettings().robotName);
   ASSERT_TRUE(acom.ok()) << acom.status();
   problem.stateCostPtr->add("comAndAcomTrackingCost", *std::move(acom));
   ASSERT_TRUE((*unlisted)->getSwitchedModelReferenceManagerPtr()->isArmSwingReferenceActive());
@@ -236,10 +234,7 @@ TEST_F(AcomWiringTest, theNamedCostReplacesTheBasePoseInWhicheverQuadraticStateC
       << "the ACoM cost was dropped beside state_input_quadratic_cost";
   const matrix_t fileQ = converted(stateWeightsFromConfig(base.state_weights, layout(), "state_weights"));
   ASSERT_GT(fileQ.block(kBasePoseIndex, kBasePoseIndex, kBasePoseDim, kBasePoseDim).norm(), 0.0);
-  matrix_t Q;
-  matrix_t R;
-  matrix_t P;
-  problem.costPtr->get<QuadraticStateInputCost>("stateInputQuadraticCost").getGains(Q, R, P);
+  matrix_t Q = problem.costPtr->get<TuningQuadraticStateInputCost>("stateInputQuadraticCost").getStateWeights();
   EXPECT_TRUE(Q.block(kBasePoseIndex, kBasePoseIndex, kBasePoseDim, kBasePoseDim).isZero(0.0));
   matrix_t expected = fileQ;
   expected.block(kBasePoseIndex, kBasePoseIndex, kBasePoseDim, kBasePoseDim).setZero();
@@ -248,7 +243,7 @@ TEST_F(AcomWiringTest, theNamedCostReplacesTheBasePoseInWhicheverQuadraticStateC
   // Positive control: without the name the same file's base-pose block reaches the cost untouched.
   absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> unlisted = create(withoutAcomCost(base));
   ASSERT_TRUE(unlisted.ok()) << unlisted.status();
-  (*unlisted)->getOptimalControlProblem().costPtr->get<QuadraticStateInputCost>("stateInputQuadraticCost").getGains(Q, R, P);
+  Q = (*unlisted)->getOptimalControlProblem().costPtr->get<TuningQuadraticStateInputCost>("stateInputQuadraticCost").getStateWeights();
   EXPECT_TRUE(Q == fileQ);
   EXPECT_EQ(
       (*unlisted)->getOptimalControlProblem().stateCostPtr->getTermNameMap().count(std::string(ComAndAcomTrackingCost::kRunningTermName)),
@@ -276,8 +271,7 @@ TEST_F(AcomWiringTest, theTerminalNodeIsRegulatedInCoMAndAcomCoordinatesBesideTh
   // Q_final's base-pose block is zeroed, as before...
   const matrix_t fileQFinal = converted(stateWeightsFromConfig(task.final_state_weights, layout(), "final_state_weights"));
   ASSERT_GT(fileQFinal.block(kBasePoseIndex, kBasePoseIndex, kBasePoseDim, kBasePoseDim).norm(), 0.0);
-  matrix_t QFinal;
-  problem.finalCostPtr->get<QuadraticStateCost>("terminalCost").getGains(QFinal);
+  const matrix_t QFinal = problem.finalCostPtr->get<TuningQuadraticStateCost>("terminalCost").getStateWeights();
   EXPECT_TRUE(QFinal.block(kBasePoseIndex, kBasePoseIndex, kBasePoseDim, kBasePoseDim).isZero(0.0));
   // ...and the terminal instance is weighted like Q_final: by terminalCostScaling.
   if (!task.terminal_cost_scaling.has_value()) GTEST_FAIL() << "the shipped task file has no terminal_cost_scaling";
@@ -296,16 +290,14 @@ TEST_F(AcomWiringTest, theTerminalNodeIsRegulatedInCoMAndAcomCoordinatesBesideTh
   state(kBasePositionZIndex) += 0.03;
   state(kBasePitchIndex) += 0.1;
   const scalar_t finalTime = 1.5;
-  MultiplierCollection multipliers;
-  initializeFinalMultiplierCollection(problem, finalTime, multipliers);
-  const ModelData withTerminalAcom = approximateFinalLQ(problem, finalTime, state, multipliers);
+  const ModelData withTerminalAcom = approximateFinalLQ(problem, finalTime, state);
   EXPECT_GT(std::abs(withTerminalAcom.cost.dfdx(kBasePitchIndex)), 1.0);
   EXPECT_GT(std::abs(withTerminalAcom.cost.dfdx(kBasePositionZIndex)), 1.0);
 
   // ...which, positive control, nothing else in the terminal cost does: without the terminal instance both vanish.
   OptimalControlProblem withoutTerminalAcom(problem);
   ASSERT_TRUE(withoutTerminalAcom.finalCostPtr->erase(std::string(ComAndAcomTrackingCost::kTerminalTermName)));
-  const ModelData bare = approximateFinalLQ(withoutTerminalAcom, finalTime, state, multipliers);
+  const ModelData bare = approximateFinalLQ(withoutTerminalAcom, finalTime, state);
   EXPECT_EQ(bare.cost.dfdx(kBasePitchIndex), 0.0);
   EXPECT_EQ(bare.cost.dfdx(kBasePositionZIndex), 0.0);
 }
@@ -370,7 +362,7 @@ class HeadingModelReloadTest : public ::testing::Test {
         loadCustomPinocchioInterface(atlas_.task, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false).value());
     info_ = centroidalModelInfoOf(atlas_, *pinocchioInterface_, *modelSettings_).value();
     robotModel_ = std::make_unique<CentroidalMpcRobotModel<scalar_t>>(*modelSettings_, *pinocchioInterface_, info_);
-    initialState_ = initialStateOf(atlas_.task, *modelSettings_).value();
+    initialState_ = initialStateOnModel(atlas_.task, *robotModel_).value();
 
     // The shipped planner configuration with the heading model on, its model parameters derived as the interface
     // derives them, and the same configuration with the heading model off.
@@ -429,11 +421,12 @@ TEST_F(HeadingModelReloadTest, aReloadThatSwitchesTheHeadingModelOnInstallsTheAc
   EXPECT_FALSE(manager->hasAngularCenterOfMass()) << "nothing needs the network while the heading model is off";
 
   const vector_t state = bentState();
-  const scalar_t baseYaw = robotModel_->getBaseOrientationEulerZYX(state)(0);
+  const scalar_t baseYaw = robotModel_->getBaseHeading(state);
   absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> acom =
       AngularCenterOfMass::Create(modelSettings_->robotName, modelSettings_->mpcModelJointNames);
   ASSERT_TRUE(acom.ok()) << acom.status();
-  const scalar_t acomYaw = (*acom)->computeAcomOrientation(robotModel_->getGeneralizedCoordinates(state))(0);
+  // The twist heading of the ACoM attitude, xi (x) Exp(Delta_theta(q_j)).
+  const scalar_t acomYaw = twistHeading((*acom)->acomAttitude(robotModel_->getBaseOrientation(state), robotModel_->getJointAngles(state)));
   // Positive control: at this state the two headings are different quantities, so the check below can fail.
   ASSERT_GT(std::abs(acomYaw - baseYaw), 1.0e-3);
   EXPECT_EQ(manager->computeHeading(state), baseYaw);
@@ -489,7 +482,7 @@ TEST_F(HeadingModelReloadTest, aRobotWithoutANetworkKeepsTheBaseYawAsItsHeading)
   EXPECT_TRUE(manager->getConfig().usesHeadingModel());
   EXPECT_FALSE(manager->hasAngularCenterOfMass());
   const vector_t state = bentState();
-  EXPECT_EQ(manager->computeHeading(state), model.getBaseOrientationEulerZYX(state)(0));
+  EXPECT_EQ(manager->computeHeading(state), model.getBaseHeading(state));
 }
 
 }  // namespace ocs2::humanoid

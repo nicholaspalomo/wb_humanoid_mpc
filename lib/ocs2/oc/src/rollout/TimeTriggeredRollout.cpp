@@ -37,9 +37,9 @@ namespace ocs2 {
 /******************************************************************************************************/
 /******************************************************************************************************/
 TimeTriggeredRollout::TimeTriggeredRollout(const ControlledSystemBase& systemDynamics, rollout::Settings rolloutSettings)
-    : RolloutBase(std::move(rolloutSettings)), systemDynamicsPtr_(systemDynamics.clone()), systemEventHandlersPtr_(new SystemEventHandler) {
+    : RolloutBase(std::move(rolloutSettings)), systemDynamicsPtr_(systemDynamics.clone()) {
   // construct dynamicsIntegratorsPtr
-  dynamicsIntegratorPtr_ = std::move(newIntegrator(this->settings().integratorType, systemEventHandlersPtr_));
+  dynamicsIntegratorPtr_ = std::move(newIntegrator(this->settings().integratorType));
 }
 
 /******************************************************************************************************/
@@ -58,7 +58,7 @@ vector_t TimeTriggeredRollout::run(scalar_t initTime,
                                    const vector_t& initState,
                                    scalar_t finalTime,
                                    ControllerBase* absl_nullable controller,
-                                   ModeSchedule& modeSchedule,
+                                   const ModeSchedule& modeSchedule,
                                    scalar_array_t& timeTrajectory,
                                    size_array_t& postEventIndices,
                                    vector_array_t& stateTrajectory,
@@ -93,9 +93,6 @@ vector_t TimeTriggeredRollout::run(scalar_t initTime,
 
   // reset function calls counter
   systemDynamicsPtr_->resetNumFunctionCalls();
-
-  // reset the event class
-  systemEventHandlersPtr_->reset();
 
   vector_t beginState = initState;
   int k_u = 0;  // control input iterator

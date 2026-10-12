@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/multibody/data.hpp"
@@ -69,6 +70,13 @@ namespace ocs2::humanoid::visualization {
  * after reset(), when the robot's clock went back, or across a gap of a second or more); the reference's and the
  * plan's are central differences along their own trajectories over kAccelerationHalfInterval, so that they do not
  * jump when a new policy arrives.
+ *
+ * Orientation: the MPC's q holds the base quaternion and v the body angular velocity w_B (Composite(Translation,
+ * Spherical) root). The plots show the ZYX Euler angles, their rates T_B(Theta)^-1 w_B (eulerZyxRatesForDisplay(), NaN
+ * near a pitch of +-90 degrees) and w_B itself; the groups of generalized coordinates (dofs/position, the coordinates
+ * of generalized_base) plot a display buffer [p_W, (yaw, pitch, roll), q_j] of each source's q, and the groups of
+ * generalized velocities and forces plot v as it is (getBaseVelocityDofNames()). These are display values only,
+ * computed here on the MPC node's visualization thread into buffers sized at construction.
  *
  * The group layout (paths, names) is fixed at construction; build() only writes values. Not thread-safe.
  */
@@ -114,6 +122,14 @@ class TelemetryBuilder {
     vector_t q;
     vector_t v;
     vector_t a;
+    /**
+     * For the plots: the ZYX Euler angles (yaw, pitch, roll) of the base orientation in q, their rates of the body
+     * angular velocity in v (eulerZyxRatesForDisplay(): NaN near a pitch of +-90 degrees), and q with the angles in
+     * place of the quaternion, [p_W, (yaw, pitch, roll), q_j], sized at construction.
+     */
+    vector3_t eulerAnglesZyx = vector3_t::Zero();
+    vector3_t eulerZyxRates = vector3_t::Zero();
+    vector_t displayCoordinates;
     feet_array_t<vector6_t> contactWrenches = makeFeetArray<vector6_t>(vector6_t::Zero());
     std::unique_ptr<PinocchioInterface::Data> data;
   };
@@ -131,10 +147,17 @@ class TelemetryBuilder {
   void computeReference(const DecodedRobotState& measured, const PolicySnapshot* absl_nullable policy);
   void computePlan(const DecodedRobotState& measured, const PolicySnapshot* absl_nullable policy);
   void updateKinematics(Source* absl_nonnull source);
+  /**
+   * Writes the Euler rates and the display coordinates of `source` from its q, v and Euler angles, which the caller
+   * wrote. Allocates nothing.
+   */
+  static void updateDisplayValues(Source* absl_nonnull source);
 
   PinocchioInterface pinocchioInterface_;
   std::unique_ptr<MpcRobotModelBase<scalar_t>> robotModel_;
   const ModelSettings& modelSettings_;
+  // VisualizationModel::stateManifold, retained (Create() refuses a null one).
+  const StateManifold* absl_nonnull stateManifold_;
   feet_array_t<pinocchio::FrameIndex> contactFrames_{};
 
   humanoid_mpc_msgs::TelemetrySeries series_;
@@ -143,6 +166,8 @@ class TelemetryBuilder {
   // The groups, by what they plot. Panel groups:
   std::array<int, 3> basePosition_{};
   std::array<int, 3> baseRollPitchYaw_{};
+  std::array<int, 3> baseRollPitchYawRates_{};
+  std::array<int, 3> baseAngularVelocityLocal_{};
   std::array<int, 3> baseLinearVelocity_{};
   std::array<int, 3> baseAngularVelocity_{};
   feet_array_t<int> normalForce_{};
@@ -165,9 +190,8 @@ class TelemetryBuilder {
 
   // The three sources: measured, reference, plan.
   std::array<Source, 3> sources_;
-  // The reference's base, as the base panels plot it.
+  // The reference's base, as the base panels plot it; its orientation is the reference source's.
   vector3_t referenceBasePosition_ = vector3_t::Zero();
-  vector3_t referenceRollPitchYaw_ = vector3_t::Zero();
   vector3_t referenceBaseLinearVelocity_ = vector3_t::Zero();
 
   bool hasPreviousSample_ = false;

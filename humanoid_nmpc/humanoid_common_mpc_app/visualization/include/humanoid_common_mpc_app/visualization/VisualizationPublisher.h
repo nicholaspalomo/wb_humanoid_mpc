@@ -63,6 +63,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_core/TripleBuffer.h"
 #include "robot_ipc/Bus.h"
 #include "robot_realtime/SpscQueue.h"
+#include "web_viewer/ViewerThreadPriority.h"
 
 namespace ocs2::humanoid::visualization {
 
@@ -75,8 +76,12 @@ struct VisualizationPublisherOptions {
   /** The thread's name and the CPU cores it may run on (empty: any). */
   std::string threadName = "mpc_visualize";
   std::vector<int> cores;
-  /** Added to the thread's nice value (0 leaves it). */
-  int niceIncrement = 10;
+  /**
+   * The thread's scheduling: SCHED_IDLE by default (kIdle), so that a solver thread that wakes on its core takes the
+   * core at once, which a raised nice value does not do under EEVDF; kInherited keeps the starting thread's, for tests
+   * on a machine busy with other tests.
+   */
+  robot::web_viewer::ViewerThreadPriority threadPriority = robot::web_viewer::ViewerThreadPriority::kIdle;
   /**
    * The measured robot is drawn from the latest robot/state sample while one has arrived within this long, and from
    * the latest observation's state otherwise (a robot process that publishes no samples, such as the dummy sim).
@@ -109,9 +114,9 @@ struct VisualizationPublisherStatistics {
  *   - viz/scene (SceneBuilder) at the task file's rerun_scene_frequency at most, when something new arrived;
  *   - viz/telemetry (TelemetryBuilder), one message per robot/state sample.
  *
- * THREADS. Everything is computed on a thread of its own, start() to stop(), which runs on the time-sharing scheduler
- * with its nice value raised by Options::niceIncrement, so that it yields to the solver. It is fed through lock-free
- * mailboxes that never block the feeding thread and never wait for the visualization:
+ * THREADS. Everything is computed on a thread of its own, start() to stop(), which runs under SCHED_IDLE
+ * (Options::threadPriority), so that it yields its core to the solver at once. It is fed through lock-free mailboxes
+ * that never block the feeding thread and never wait for the visualization:
  *   - setObservation(): the latest observation (a triple buffer: a newer one replaces one not yet drawn);
  *   - setPolicy(): the latest solution and its command (a triple buffer);
  *   - pushRobotState(): every robot/state sample, through a bounded queue: when the visualization falls behind, new
@@ -171,10 +176,11 @@ class VisualizationPublisher {
   /**
    * The attacher of an MPC node's publisher: on the node's bus, Create() into `*publisher`, subscribeRobotState(), and
    * postSolveObserver(). The node starts the publisher with itself (start() before the runtime's), and stops it before
-   * the runtime, which owns the bus. The objects `model` points to are read only while the attacher runs (in
-   * MpcNodeRuntime::Create()). `*publisher` must outlive the node's MpcServer, whose observer reaches it: the node
-   * declares it before its runtime, so that it is destroyed after it. The attacher fails with the errors of Create() and
-   * subscribeRobotState(), and with InvalidArgument for a null `publisher`.
+   * the runtime, which owns the bus. The models `model` points to are read only while the attacher runs (in
+   * MpcNodeRuntime::Create()); its state manifold must outlive the publisher (VisualizationModel::stateManifold).
+   * `*publisher` must outlive the node's MpcServer, whose observer reaches it: the node declares it before its runtime,
+   * so that it is destroyed after it. The attacher fails with the errors of Create() and subscribeRobotState(), and with
+   * InvalidArgument for a null `publisher`.
    */
   static BusAttacher MakeBusAttacher(VisualizationModel model,
                                      Options options,

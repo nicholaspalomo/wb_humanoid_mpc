@@ -50,6 +50,7 @@ from tools.hooks import boost_usage
 from tools.hooks import check_types
 from tools.hooks import cpp_google_style
 from tools.hooks import cpp_totw
+from tools.hooks import euler_boundary
 from tools.hooks import include_style
 from tools.hooks import inclusive_language
 from tools.hooks import license_header
@@ -62,6 +63,9 @@ from tools.hooks import proto_next_id
 from tools.hooks import python_docstrings
 from tools.hooks import python_imports
 from tools.hooks import python_language
+from tools.hooks import quaternion_scalar_constructor
+from tools.hooks import spherical_zyx
+from tools.hooks import state_interpolation
 from tools.hooks import textproto_headers
 from tools.hooks import todo_format
 from tools.hooks import yaml_usage
@@ -136,8 +140,12 @@ _MODULE_CHECKS: list[Check] = (
     + python_imports.CHECKS
     + python_docstrings.CHECKS
     + python_language.CHECKS
+    + spherical_zyx.CHECKS
+    + euler_boundary.CHECKS
+    + state_interpolation.CHECKS
+    + quaternion_scalar_constructor.CHECKS
 )
-# LINT.ThenChange(//AGENTS.md:cpp_style, //AGENTS.md:nullability, //AGENTS.md:totw_rules, //AGENTS.md:python_style, //AGENTS.md:protobuf_rules)
+# LINT.ThenChange(//AGENTS.md:cpp_style, //AGENTS.md:nullability, //AGENTS.md:totw_rules, //AGENTS.md:python_style, //AGENTS.md:protobuf_rules, //AGENTS.md:orientation_rules)
 
 REGISTRY: tuple[Check, ...] = tuple(_NOLINT_CHECKS + _MODULE_CHECKS)
 

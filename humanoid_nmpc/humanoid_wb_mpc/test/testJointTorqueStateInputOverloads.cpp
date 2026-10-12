@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/algorithm/rnea.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -96,13 +97,19 @@ class JointTorqueStateInputOverloadsTest : public ::testing::Test {
     pinocchioInterface_ = std::make_unique<PinocchioInterface>(*std::move(pinocchioInterface));
     model_ = std::make_unique<WBAccelMpcRobotModel<scalar_t>>(*modelSettings_);
 
-    // A moving, tilted robot with every joint accelerating and a different wrench under each sole.
+    // A moving, tilted robot with every joint accelerating and a different wrench under each sole. The configuration is a
+    // point of Pinocchio's configuration space, seeded: the joints within their limits and the base orientation a uniformly
+    // random unit quaternion (pinocchio::randomConfiguration, which draws from std::rand), the base within a box.
     const pinocchio::Model& model = pinocchioInterface_->getModel();
-    q_ = vector_t(model.nq);
+    vector_t lower = model.lowerPositionLimit;
+    vector_t upper = model.upperPositionLimit;
+    lower.head<3>() = vector3_t(-1.0, -1.0, 0.6);
+    upper.head<3>() = vector3_t(1.0, 1.0, 1.0);
+    std::srand(20'261'009);
+    q_ = pinocchio::randomConfiguration(model, lower, upper);
+    ASSERT_NEAR(q_.segment<4>(3).norm(), 1.0, 1.0e-12) << "the base orientation of the sample is not a unit quaternion";
     v_ = vector_t(model.nv);
     qddJoints_ = vector_t(model.nv - 6);
-    for (Eigen::Index i = 0; i < q_.size(); ++i) q_(i) = 0.4 * spread(i, /*phase=*/0.7);
-    q_(2) = 0.8;
     for (Eigen::Index i = 0; i < v_.size(); ++i) v_(i) = 0.8 * spread(i, /*phase=*/1.9);
     for (Eigen::Index i = 0; i < qddJoints_.size(); ++i) qddJoints_(i) = 3.0 * spread(i, /*phase=*/0.4);
     wrenches_[0] << 30.0, -12.0, 320.0, 4.0, -6.0, 1.5;
@@ -114,7 +121,7 @@ class JointTorqueStateInputOverloadsTest : public ::testing::Test {
                                               const vector_t& v,
                                               const vector_t& qddJoints,
                                               const std::array<vector6_t, 2>& wrenches) const {
-    vector_t state = vector_t::Zero(model_->getStateDim());
+    vector_t state = model_->getNeutralState();
     model_->setGeneralizedCoordinates(state, q);
     state.tail(v.size()) = v;
     vector_t input = vector_t::Zero(model_->getInputDim());

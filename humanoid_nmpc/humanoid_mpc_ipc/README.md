@@ -3,7 +3,7 @@
 The MPC link's side of the IPC bus ([`humanoid_nmpc/docs/distributed_runtime/README.md`](../docs/distributed_runtime/README.md)).
 It builds on OCS2 (`ocs2_core`, `ocs2_oc`, `ocs2_mpc`), the `humanoid_mpc_msgs` protos and Abseil; the two ends of the
 link add the bus (`robot_runtime/robot_ipc`), `robot::TripleBuffer`, `robot_runtime/robot_realtime` and the reset
-supervisor (`humanoid_common_mpc:mpc_reset_supervisor`). No Pinocchio, no robot model and no ROS.
+supervisor (`humanoid_common_mpc:mpc_reset_supervisor`). No Pinocchio and no robot model.
 
 | File | Target | What |
 |---|---|---|
@@ -11,7 +11,7 @@ supervisor (`humanoid_common_mpc:mpc_reset_supervisor`). No Pinocchio, no robot 
 | `python/humanoid_mpc_ipc/topics.py` | `:topics_py` | the same names for the Python tools: `from humanoid_mpc_ipc import topics` |
 | `include/humanoid_mpc_ipc/MpcMessageConversions.h` | `:humanoid_mpc_ipc` | OCS2 types <-> messages |
 | `include/humanoid_mpc_ipc/SolutionTimeWindow.h` | `:humanoid_mpc_ipc` | cuts a solution to `mpc.solution_time_window` |
-| `include/humanoid_mpc_ipc/PolicyControllers.h` | `:humanoid_mpc_ipc` | a policy's controller as the `FeedforwardController` or `LinearController` the link carries, by its exact type |
+| `include/humanoid_mpc_ipc/PolicyControllers.h` | `:humanoid_mpc_ipc` | a policy's controller as the `FeedforwardController`, `LinearController` or `ManifoldLinearController` the link carries, by its exact type |
 | `include/humanoid_mpc_ipc/RemoteMpcLink.h` | `:remote_mpc_link` | the robot side of the network MPC link, an `ocs2::MRT_BASE` |
 | `include/humanoid_mpc_ipc/RealtimePolicyEvaluator.h` | `:realtime_policy_evaluator` | evaluates the policy in use on the realtime thread, without allocating or logging |
 | `include/humanoid_mpc_ipc/MpcServer.h` | `:mpc_server` | the MPC side: the solve loop, driven by the bus |
@@ -31,22 +31,44 @@ absl::Status fromProto(const humanoid_mpc_msgs::SystemObservation&, SystemObserv
 // ... the same pair for ModeSchedule, TargetTrajectories and PerformanceIndex.
 
 absl::Status policyToProto(const CommandData&, const PrimalSolution&, const PerformanceIndex&, humanoid_mpc_msgs::MpcPolicy*);
-absl::Status policyFromProto(const humanoid_mpc_msgs::MpcPolicy&, CommandData*, PrimalSolution*, PerformanceIndex*);
+// The receiver's state on a manifold, or nullptr for a flat state.
+absl::Status policyFromProto(const humanoid_mpc_msgs::MpcPolicy&, std::shared_ptr<const StateManifold>, CommandData*,
+                             PrimalSolution*, PerformanceIndex*);
 
 absl::Status checkDimensions(const humanoid_mpc_msgs::SystemObservation&, const ModelDimensions&);
 absl::Status checkDimensions(const humanoid_mpc_msgs::MpcPolicy&, const ModelDimensions&);
 ```
 
-**Lossless.** Doubles travel as doubles, and modes and post-event indices as `uint64` (the ROS messages truncated them
-to octets). A round trip reproduces every bit, and a policy rebuilt from a message computes the same input as the one it
+**Lossless.** Doubles travel as doubles, and modes and post-event indices as `uint64`. A round trip reproduces every bit, and a policy rebuilt from a message computes the same input as the one it
 was made from at any time and state.
 
-**The controller is rebuilt.** `policyFromProto()` builds a `FeedforwardController` or a `LinearController` on the time
-trajectory (the ROS version of this code left the received policy without one).
+**The controller is rebuilt.** `policyFromProto()` builds a `FeedforwardController`, a `LinearController` or a
+`ManifoldLinearController` on the time trajectory, so that the received policy always carries a controller.
+
+**The controllers.** Each travels as one `Vector` per node of `time_trajectory`, tagged by `controller_type`
+(`humanoid_mpc_msgs/controller_type.proto`; the codes are the wire's own, not `ocs2::ControllerType`'s):
+
+| `controller_type` | OCS2 controller | Node `k` | Doubles per node | Receiver |
+|---|---|---|---|---|
+| `CONTROLLER_TYPE_FEEDFORWARD` (1) | `FeedforwardController` | `uff_k` | `nu` | flat or on a state manifold |
+| `CONTROLLER_TYPE_LINEAR` (2) | `LinearController` | per input `i`, `uff_k(i)` then row `i` of `K_k` | `nu (nx + 1)` | flat only |
+| `CONTROLLER_TYPE_MANIFOLD_LINEAR` (3) | `ManifoldLinearController` | `[u*_k, xbar_k, vec K_k]`, `K_k` column-major | `nu + nx + nu ndx` | on a state manifold only |
+
+A `ManifoldLinearController` is the feedback policy of a solver on a state manifold (`ocs2::StateManifold`, a unit
+quaternion in the state), `u = u*_k + K_k (x (-) xbar_k)` blended between the nodes, its gains acting on the `ndx`
+tangent directions of the state rather than its `nx` stored entries. Its anchors `xbar_k` travel explicitly because they
+are not the state trajectory: `multiple_shooting::toPrimalSolution()` gives every pre-event node the anchor, input and
+gain of the node before it, and the last node those of the one before. It is sent only as its own nodes, so
+`policyToProto()` refuses one whose time stamps are not the time trajectory (the SQP always builds it there). The
+encoder needs no manifold; the receiver decodes on its own (`policyFromProto(message, stateManifold, ...)`,
+`RemoteMpcLink::Config::stateManifold`), whose ambient dimension must be the states' and whose tangent dimension gives
+`ndx`. A receiver on a manifold refuses `CONTROLLER_TYPE_LINEAR`, whose gains would act on the stored state; a flat
+receiver refuses `CONTROLLER_TYPE_MANIFOLD_LINEAR`. A robot and an MPC node that disagree on the state therefore surface
+as an invalid policy, not as a wrong input.
 
 **Events.** OCS2's multiple-shooting solvers give the pre- and post-event nodes of an event the same time, and build the
-controller on that time trajectory. `ControllerBase::flatten()` at the time trajectory, which the ROS interface sent,
-samples the pre-event node for both, so the received policy would have applied the pre-event input after every event.
+controller on that time trajectory. `ControllerBase::flatten()` at the time trajectory samples the pre-event node for
+both, so the received policy would have applied the pre-event input after every event.
 `policyToProto()` therefore sends such a controller's own node values, in the layout `flattenSingle()` writes and
 `unFlatten()` reads (`:test_mpc_message_conversions` checks both). Only a controller on other time stamps is sampled with
 `flatten()`.
@@ -82,10 +104,16 @@ communication thread decodes the policy and hands it over with `MRT_BASE::moveTo
 `isHealthy()` on its own `MpcResetSupervisor`, as with `MPC_MRT_Interface`. It evaluates the policy in use with a
 `RealtimePolicyEvaluator`, which computes what `MRT_BASE::evaluatePolicy()` computes, to the bit, without its heap
 allocations (OCS2's interpolation and controllers return by value) and without its logging past the end of the plan.
+On a state manifold (`RealtimePolicyEvaluator(dimensions, link.getStateManifold().get())`, the manifold retained) it
+evaluates a feedforward or a manifold-linear policy as `MRT_BASE::evaluatePolicy()` does after `setStateManifold()`,
+through the manifold's allocation-free `StateManifold::differenceInto()` and `interpolateInto()` into buffers sized at
+construction; it reports a policy of the other kind as `kUnsupportedController` rather than leaving it to OCS2's
+allocating evaluation.
 
 ```cpp
 RemoteMpcLink::Config config;
 config.dimensions = {.stateDim = nx, .inputDim = nu, .numModes = 4};  // checked on every observation and policy
+config.stateManifold = stateManifold;                 // nullptr: a flat state; else its ambient dimension is nx
 config.policyTimeout = 0.5;                           // [s, robot clock], mpc_link.policy_timeout
 absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(bus, resetSupervisor, config);
 // ... or RemoteMpcLink::Create(busOptions, resetSupervisor, config) for a bus of its own, started and owned.
@@ -139,6 +167,7 @@ config.solverThread = {.name = "mpc_solver", .priority = 0, .cores = mpcCores, .
 MpcServer::Hooks hooks;
 hooks.annotationsProvider = ...;  // fills MpcPolicy.annotations
 hooks.postSolveObserver = ...;    // the visualization publisher
+hooks.preSolveObserver = ...;     // the observation of each solve, before it: the motion manager's observe()
 // The formulation's reset target, the one its MRT joint controller hands the in-process link
 // (centroidalMpcResetTargetTrajectories(), wbMpcResetTargetTrajectories()).
 const MpcServer::ResetTargetTrajectoriesFunction resetTargets = [&](const SystemObservation& observation) {
@@ -170,13 +199,13 @@ bazel test //humanoid_nmpc/humanoid_mpc_ipc/...
 | Target | What it pins |
 |---|---|
 | `:test_topics`, `:test_topics_py` | the topic names in C++ and Python |
-| `:test_mpc_message_conversions`, `:test_mpc_message_conversions_allocations` | lossless conversions; encoding into a kept message does not allocate |
-| `:test_solution_time_window` | upstream OCS2 GaussNewtonDDP's window rule on trajectories, events and both controllers |
-| `:test_policy_controllers` | the two controllers are told apart by their exact type, not by `getType()`: a `StateBasedLinearController` is refused by the conversions and the evaluator and left alone by the window |
+| `:test_mpc_message_conversions`, `:test_mpc_message_conversions_allocations` | lossless conversions, of the SQP's manifold policy with an event too (anchors, inputs and gains bitwise, the same input on both sides of the event; wrong strides, a missing manifold and a linear policy on a manifold refused); encoding into a kept message does not allocate |
+| `:test_solution_time_window` | upstream OCS2 GaussNewtonDDP's window rule on trajectories, events and the three controllers |
+| `:test_policy_controllers` | the three controllers are told apart by their exact type, not by `getType()`: a controller of another class that reports `LINEAR` is refused by the conversions and the evaluator and left alone by the window |
 | `:test_remote_mpc_link_protocol` | the robot side against a scripted MPC node: which policies are taken, the handshake, health, link loss (the full reset it requests, the realtime thread's watchdog with the IO thread stalled, rewinds), lifetime |
 | `:test_mpc_server` | the MPC side against a scripted robot: resets and stamps, restarts, statuses, window, hooks, pacing, back-off |
 | `:test_remote_mpc_link` | both ends over loopback with OCS2's `ScriptedMpc`: a reset with a policy in flight, lost observations, solver failures, the policy timeout |
-| `:test_remote_mpc_link_parity` | the same script in process (`MPC_MRT_Interface`) and over the network gives the same policies, cycle by cycle |
+| `:test_remote_mpc_link_parity` | the same script in process (`MPC_MRT_Interface`) and over the network gives the same policies, cycle by cycle; on a state manifold with a `ManifoldLinearController` and an event too, where the robot's `RealtimePolicyEvaluator` matches the in-process `evaluatePolicy()` on both sides of it |
 | `:test_remote_mpc_link_annotations` | the annotations of the newest accepted policy reach `takeAnnotations()`, once each |
-| `:test_remote_mpc_link_allocations` | the realtime thread's calls on the link, and `RealtimePolicyEvaluator` on its policy, allocate nothing; measures OCS2's `evaluatePolicy()` |
-| `:test_realtime_policy_evaluator` | `RealtimePolicyEvaluator` computes the doubles `MRT_BASE::evaluatePolicy()` computes, for both controllers, at events and past both ends, and refuses what it cannot evaluate without touching its outputs |
+| `:test_remote_mpc_link_allocations` | the realtime thread's calls on the link, and `RealtimePolicyEvaluator` on its policy, flat or on a state manifold, allocate nothing, nor do `differenceInto()` / `interpolateInto()`; measures OCS2's `evaluatePolicy()` |
+| `:test_realtime_policy_evaluator` | `RealtimePolicyEvaluator` computes the doubles `MRT_BASE::evaluatePolicy()` computes, for the flat controllers and, with the MRT's state manifold set, for a feedforward and a manifold-linear one, at events, past both ends and at either sign of the quaternion, and refuses what it cannot evaluate without touching its outputs |

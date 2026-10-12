@@ -10,19 +10,28 @@ current_path := $(dir $(mkfile_path))
 # Source the Bazel environment (setup_env.sh)
 source_env := source $(current_path)/setup_env.sh
 
+# Every target that builds runs Bazel through tools/ide/compile_commands.py --after, which refreshes compile_commands.json,
+# the editor's view of the build, after the build (tools/ide/README.md): $(bazel_indexed) in a recipe, and
+# $(bazel_indexed_in_repo) in a command for the dev container ($(dev_run)), which starts in the checkout. Only the dev
+# container refreshes; in CI and on the host the runner runs the Bazel command alone.
+# LINT.IfChange(bazel_indexed)
+bazel_indexed_in_repo := python3 -m tools.ide.compile_commands --after bazel
+bazel_indexed := cd $(current_path) && $(bazel_indexed_in_repo)
+# LINT.ThenChange(//tools/ide/test_ide_setup.py:bazel_indexed)
+
 # The launch targets stop their processes themselves (tools/launch tears down every process group it started, and
 # tools/deploy/session.sh the robot container), so an interrupted target leaves nothing running.
 
 ############################################################
 # Build targets
 ############################################################
-.PHONY: help build-all build-debug build-release build-relwithdebinfo build \
+.PHONY: help build-all build-debug build-release build-relwithdebinfo build compile-commands \
         test-all test test-heuristic-parameters derive-heuristic-parameters clean clean-all format lint ci-local \
         lint-tidy lint-tidy-fix \
         test-pinocchio-model-atlas test-pinocchio-model-r1 test-pinocchio-model-sa01 \
         start-vnc stop-vnc kill-sims check-zombies \
         deploy-robot robot-images rerun-viewer rerun-web ipc-list ipc-echo ipc-hz \
-        closed-loop-metrics benchmark-mpc-solve \
+        closed-loop-metrics benchmark-mpc-solve compare-closed-loop \
         run-ocs2-tests run-mpc-tests test-rl train-rl train-cartpole train-cartpole-vnc train-bc export-rollouts lock-rl-deps echo-packages update-submodules install-hooks train-acom-jupyter
 # The launch targets are declared .PHONY where the robot table below generates them.
 
@@ -62,23 +71,28 @@ check-zombies:
 
 ## Build everything
 build-all:
-	$(source_env) && bazel build //...
+	$(source_env) && $(bazel_indexed) build //...
 
 ## Build a single target: make build PKG=//humanoid_nmpc/humanoid_common_mpc
 build:
-	@$(if $(PKG),bazel build $(PKG),@echo "Usage: make build PKG=//path/to:target")
+	@$(if $(PKG),$(bazel_indexed) build $(PKG),@echo "Usage: make build PKG=//path/to:target")
 
 ## Debug build
 build-debug:
-	bazel build //... --config=dbg
+	$(bazel_indexed) build //... --config=dbg
 
 ## Release build
 build-release:
-	bazel build //...
+	$(bazel_indexed) build //...
 
 ## Release with debug info
 build-relwithdebinfo:
-	bazel build //... --config=relwithdebinfo
+	$(bazel_indexed) build //... --config=relwithdebinfo
+
+## Refresh compile_commands.json for the editor's clangd, building the generated headers first (tools/ide/README.md).
+## The build and test targets refresh it themselves; this is for a checkout nothing has built yet.
+compile-commands:
+	@$(dev_run) 'python3 -m tools.ide.compile_commands --build_headers'
 
 ############################################################
 # Test targets
@@ -86,7 +100,7 @@ build-relwithdebinfo:
 
 ## Run all tests
 test-all:
-	$(source_env) && bazel test //...
+	$(source_env) && $(bazel_indexed) test //...
 
 ## Run local CI emulator (matches GitHub Actions clean container setup)
 ci-local:
@@ -94,35 +108,35 @@ ci-local:
 
 ## Run a single test: make test PKG=//humanoid_nmpc/humanoid_centroidal_mpc_test:test_pinocchio_frame_conversions
 test:
-	@$(if $(PKG),bazel test $(PKG),@echo "Usage: make test PKG=//path/to:test_target")
+	@$(if $(PKG),$(bazel_indexed) test $(PKG),@echo "Usage: make test PKG=//path/to:test_target")
 
 ## Run OCS2 library tests
 run-ocs2-tests:
-	bazel test //lib/ocs2:all
+	$(bazel_indexed) test //lib/ocs2:all
 
 ## Run MPC tests
 run-mpc-tests:
-	bazel test //humanoid_nmpc/...
+	$(bazel_indexed) test //humanoid_nmpc/...
 
 ## Run MuJoCo Playground RL tests
 test-rl:
-	bazel test //humanoid_learning/...
+	$(bazel_indexed) test //humanoid_learning/...
 
 ## Run MuJoCo Playground RL PPO Training
 train-rl:
-	bazel run //humanoid_learning/training:train_ppo
+	$(bazel_indexed) run //humanoid_learning/training:train_ppo
 
 ## Train Cartpole RL example with visual progress rendering
 train-cartpole:
-	bazel run //humanoid_learning/examples:train_cartpole
+	$(bazel_indexed) run //humanoid_learning/examples:train_cartpole
 
 ## Train Cartpole RL with interactive 3D MuJoCo Viewer in VNC
 train-cartpole-vnc: start-vnc
-	$(VNC_GL_ENV) && bazel run //humanoid_learning/examples:train_cartpole -- --vnc
+	$(VNC_GL_ENV) && $(bazel_indexed) run //humanoid_learning/examples:train_cartpole -- --vnc
 
 ## Behavioral Cloning pretraining on MPC demos
 train-bc:
-	bazel run //humanoid_learning/training:bc_warmstart
+	$(bazel_indexed) run //humanoid_learning/training:bc_warmstart
 
 ## Export recorded MPC trajectories to HDF5 demos
 export-rollouts:
@@ -130,19 +144,19 @@ export-rollouts:
 
 ## Lock / Update RL pip dependencies
 lock-rl-deps:
-	bazel run //humanoid_learning:requirements.update
+	$(bazel_indexed) run //humanoid_learning:requirements.update
 
 ## Run Pinocchio Model Atlas test
 test-pinocchio-model-atlas:
-	bazel run //robot_models/drc_atlas/drc_atlas_centroidal_mpc:test_pinocchio_model
+	$(bazel_indexed) run //robot_models/drc_atlas/drc_atlas_centroidal_mpc:test_pinocchio_model
 
 ## Run Pinocchio Model R1 test
 test-pinocchio-model-r1:
-	bazel run //robot_models/unitree_r1/unitree_r1_centroidal_mpc:test_pinocchio_model
+	$(bazel_indexed) run //robot_models/unitree_r1/unitree_r1_centroidal_mpc:test_pinocchio_model
 
 ## Run Pinocchio Model EngineAI SA01 test
 test-pinocchio-model-sa01:
-	bazel run //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc:test_pinocchio_model
+	$(bazel_indexed) run //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc:test_pinocchio_model
 
 ############################################################
 # Utility targets
@@ -182,7 +196,7 @@ clang_tidy_bep_cleanup := $(if $(CLANG_TIDY_BEP),,rm -f "$$bep";)
 ## make lint-tidy [PKG=//humanoid_nmpc/...]
 lint-tidy:
 	@$(source_env) && mkdir -p .bazel && status=0 && $(clang_tidy_bep); \
-	bazel build --config=clang-tidy --keep_going --build_event_json_file="$$bep" \
+	$(bazel_indexed) build --config=clang-tidy --keep_going --build_event_json_file="$$bep" \
 		$(or $(PKG),//...) //tools/clang_tidy:selftest || status=$$?; \
 	python3 -m tools.clang_tidy.clang_tidy_report "$$bep" || status=$$?; \
 	$(clang_tidy_bep_cleanup) exit $$status
@@ -192,7 +206,7 @@ lint-tidy:
 lint-tidy-fix:
 	@$(if $(CHECKS),,$(error lint-tidy-fix needs CHECKS=<glob>, e.g. CHECKS=modernize-use-override))
 	@$(source_env) && mkdir -p .bazel && status=0 && $(clang_tidy_bep); \
-	bazel build --config=clang-tidy-fix --keep_going --build_event_json_file="$$bep" \
+	$(bazel_indexed) build --config=clang-tidy-fix --keep_going --build_event_json_file="$$bep" \
 		$(or $(PKG),//...) || status=$$?; \
 	python3 -m tools.clang_tidy.clang_tidy_apply "$$bep" --checks '$(CHECKS)' \
 		$(if $(PATHS),--paths $(PATHS)) || status=$$?; \
@@ -203,51 +217,68 @@ lint-tidy-fix:
 # Closed-loop metrics and the solve benchmark (humanoid_nmpc/humanoid_mpc_validation/README.md)
 ############################################################
 # Both run under `bazel test`, so that tools/bazel's machine lock keeps them from running next to another build: each
-# run compiles CppAD libraries and simulates for minutes. One robot at a time. The commit and the worktree state go into
-# every document; pass VALIDATION_GIT_COMMIT and VALIDATION_WORKTREE_STATE where git cannot see the checkout.
+# run compiles CppAD libraries and simulates for minutes. One robot at a time. The commit, the worktree state, the
+# machine and the toolchain go into every document; pass VALIDATION_GIT_COMMIT and VALIDATION_WORKTREE_STATE where git
+# cannot see the checkout, and VALIDATION_CONTAINER_IMAGE (the container cannot see its image) from the host:
+# VALIDATION_CONTAINER_IMAGE=$(docker inspect --format '{{.Image}}' <container>), else the documents say unknown.
 # LINT.IfChange(closed_loop_targets)
 VALIDATION_PKG := humanoid_nmpc/humanoid_mpc_validation
 # Both are computed in the recipe, by the bash that already runs it: a $(shell) starts a bash of its own, which in the dev
 # container prints the environment banner (BASH_ENV) into the value, before any `| tail` can drop it. The worktree state
-# hashes the diff, the status and the contents of every untracked file (tools/worktree_state.sh); POSIX sh prints none.
+# hashes the diff, the status and the contents of every untracked file ($(VALIDATION_PKG)/tools/worktree_state.sh); POSIX
+# sh prints none.
 VALIDATION_GIT_COMMIT ?=
 VALIDATION_WORKTREE_STATE ?=
+VALIDATION_CONTAINER_IMAGE ?=
+# HPIPM's build target is read from its repository rule, the one place it is set (-DTARGET=, bazel/system_libs.bzl).
 validation_provenance = commit="$(VALIDATION_GIT_COMMIT)"; [ -n "$$commit" ] || commit=$$(git rev-parse HEAD 2>/dev/null || echo unknown); \
-	state="$(VALIDATION_WORKTREE_STATE)"; [ -n "$$state" ] || state=$$(sh $(VALIDATION_PKG)/tools/worktree_state.sh);
+	state="$(VALIDATION_WORKTREE_STATE)"; [ -n "$$state" ] || state=$$(sh $(VALIDATION_PKG)/tools/worktree_state.sh); \
+	hpipm=$$(sed -n 's/^ *"-DTARGET=\([A-Za-z0-9_]*\)",.*/\1/p' bazel/system_libs.bzl | head -n 1); [ -n "$$hpipm" ] || hpipm=unknown;
 validation_env = --test_env=WB_VALIDATION_GIT_COMMIT="$$commit" --test_env=WB_VALIDATION_WORKTREE_STATE="$$state" \
 	$(if $(VALIDATION_MACHINE),--test_env=WB_VALIDATION_MACHINE="$(VALIDATION_MACHINE)") \
+	--test_env=WB_VALIDATION_HPIPM_TARGET="$$hpipm" \
+	$(if $(VALIDATION_CONTAINER_IMAGE),--test_env=WB_VALIDATION_CONTAINER_IMAGE="$(VALIDATION_CONTAINER_IMAGE)") \
 	--nozip_undeclared_test_outputs --cache_test_results=no --test_output=errors
 
-## Closed-loop metrics of one robot: make closed-loop-metrics ROBOT=<robot> LABEL=M0 [SCENARIO=walk_0p5] [BASELINE=M0] [RECORD_STATES=1]
+## Closed-loop metrics of one robot: make closed-loop-metrics ROBOT=<robot> LABEL=<label> [SCENARIO=walk_0p5] [BASELINE=<label>] [RECORD_STATES=1]
 # ROBOT: drc_atlas, engineai_sa01, unitree_g1, unitree_r1 or unitree_g1_wb. Without SCENARIO every scenario runs. The
-# metrics land in data/closed_loop/$(LABEL)/ with the time series of the turning scenarios, which the 720-degree turn
-# exception of a later comparison reads; RECORD_STATES=1 also keeps the walking states for the solve benchmark.
+# metrics land in data/closed_loop/$(LABEL)/ and the time series stay in the test's outputs; RECORD_STATES=1 also keeps
+# the walking states for the solve benchmark. With BASELINE each run's violations and improvements against it are printed
+# at the end.
 closed-loop-metrics:
 	@$(if $(and $(ROBOT),$(LABEL)),,$(error Usage: make closed-loop-metrics ROBOT=drc_atlas|engineai_sa01|unitree_g1|unitree_r1|unitree_g1_wb LABEL=<label> [SCENARIO=<scenario>] [BASELINE=<label>] [RECORD_STATES=1]))
 	@$(validation_provenance) outputs=.bazel/testlogs/$(VALIDATION_PKG)/closed_loop_$(ROBOT)/test.outputs; \
-	bazel test //$(VALIDATION_PKG):closed_loop_$(ROBOT) $(validation_env) --test_arg=--label=$(LABEL) \
+	$(bazel_indexed) test //$(VALIDATION_PKG):closed_loop_$(ROBOT) $(validation_env) --test_arg=--label=$(LABEL) \
 		$(if $(SCENARIO),--test_filter='*/$(SCENARIO)') $(if $(BASELINE),--test_arg=--baseline=$(BASELINE)); status=$$?; \
 	mkdir -p $(VALIDATION_PKG)/data/closed_loop/$(LABEL); \
 	install -m 644 $$outputs/*.json $(VALIDATION_PKG)/data/closed_loop/$(LABEL)/ 2>/dev/null; \
-	for series in $$outputs/*_turn_*_timeseries.txt $$outputs/*_arc_timeseries.txt; do \
-		[ -f "$$series" ] && install -m 644 "$$series" $(VALIDATION_PKG)/data/closed_loop/$(LABEL)/; \
-	done; \
 	$(if $(RECORD_STATES),install -D -m 644 -t $(VALIDATION_PKG)/data/benchmark/states/ $$outputs/*_states.txt 2>/dev/null;) \
+	for comparison in $$outputs/*_comparison.txt; do [ -f "$$comparison" ] && cat "$$comparison"; done; \
 	echo "Metrics in $(VALIDATION_PKG)/data/closed_loop/$(LABEL)/, time series in $$outputs/."; exit $$status
 
-## Solve benchmark of one robot: make benchmark-mpc-solve ROBOT=<robot> LABEL=B0 [STATES=<recorded states>] [BASELINE=B0]
+## Solve benchmark of one robot: make benchmark-mpc-solve ROBOT=<robot> LABEL=<label> [STATES=<recorded states>] [BASELINE=<label>]
 # Replays data/benchmark/states/<robot>_<walking scenario>_states.txt by default: walk_0p5, or walk_0p3 for EngineAI SA01
 # and Unitree R1 (RobotConfiguration::walkingScenario). The document lands in data/benchmark/$(LABEL)/; with BASELINE the
-# run is held to the real-time gate of section 4.6 against data/benchmark/$(BASELINE)/.
+# run is held to the real-time gate (SolveBenchmarkGate.h, $(VALIDATION_PKG)/README.md) against
+# data/benchmark/$(BASELINE)/.
 benchmark-mpc-solve:
 	@$(if $(and $(ROBOT),$(LABEL)),,$(error Usage: make benchmark-mpc-solve ROBOT=drc_atlas|engineai_sa01|unitree_g1|unitree_r1|unitree_g1_wb LABEL=<label> [STATES=<file>] [BASELINE=<label>]))
 	@$(validation_provenance) outputs=.bazel/testlogs/$(VALIDATION_PKG)/benchmark_mpc_solve_$(ROBOT)/test.outputs; \
-	bazel test //$(VALIDATION_PKG):benchmark_mpc_solve_$(ROBOT) $(validation_env) --test_arg=--label=$(LABEL) \
+	$(bazel_indexed) test //$(VALIDATION_PKG):benchmark_mpc_solve_$(ROBOT) $(validation_env) --test_arg=--label=$(LABEL) \
 		$(if $(STATES),--test_arg=--states=$(STATES)) $(if $(BASELINE),--test_arg=--baseline=$(BASELINE)); status=$$?; \
 	mkdir -p $(VALIDATION_PKG)/data/benchmark/$(LABEL); \
 	install -m 644 $$outputs/*.json $(VALIDATION_PKG)/data/benchmark/$(LABEL)/ 2>/dev/null; \
 	echo "Benchmark in $(VALIDATION_PKG)/data/benchmark/$(LABEL)/."; exit $$status
-# LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/RobotConfiguration.h:robot_configurations, //humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/LockstepOutputs.h:output_names, //humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/io/RunProvenance.h:provenance_environment, //humanoid_nmpc/humanoid_mpc_validation/exe/benchmarkMpcSolveMain.cpp:benchmark_paths)
+
+## Two recorded labels compared offline: make compare-closed-loop CANDIDATE=<label> BASELINE=<label> [ROBOT=<robot>]
+# Every run of data/closed_loop/$(CANDIDATE)/ that data/closed_loop/$(BASELINE)/ has too, held to it as closed-loop-metrics
+# with BASELINE holds a run (compareClosedLoopMetrics()), from the archived documents: no simulation. Prints each run's
+# violations and improvements; fails when a run has a violation.
+compare-closed-loop:
+	@$(if $(and $(CANDIDATE),$(BASELINE)),,$(error Usage: make compare-closed-loop CANDIDATE=<label> BASELINE=<label> [ROBOT=drc_atlas|engineai_sa01|unitree_g1|unitree_r1|unitree_g1_wb]))
+	@$(bazel_indexed) test //$(VALIDATION_PKG):compare_closed_loop_labels --test_arg=--candidate=$(CANDIDATE) --test_arg=--baseline=$(BASELINE) \
+		$(if $(ROBOT),--test_arg=--robot=$(ROBOT)) --cache_test_results=no --test_output=all
+# LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/RobotConfiguration.h:robot_configurations, //humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/LockstepOutputs.h:output_names, //humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/io/RunProvenance.h:provenance_environment, //humanoid_nmpc/humanoid_mpc_validation/exe/benchmarkMpcSolveMain.cpp:benchmark_paths, //humanoid_nmpc/humanoid_mpc_validation/exe/compareClosedLoopMain.cpp:comparison_paths, //humanoid_nmpc/humanoid_mpc_validation/test/closedLoopScenarios.cpp:comparison_file)
 
 ## Check the locomotion-heuristic coefficients against the robots' URDFs (humanoid_nmpc/docs/locomotion_heuristics)
 # Not a bazel target: Pinocchio reaches Python through robotpkg's bindings in /opt/openrobots (setup_env.sh puts them on
@@ -298,7 +329,7 @@ VNC_GL_ENV := export DISPLAY=:99 && \
 	export MESA_GL_VERSION_OVERRIDE=3.3 && \
 	export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
 # Printed right before a -vnc target launches, so the URLs are not buried under the build output.
-vnc_urls := echo "🖥️  noVNC: http://localhost:6080/vnc.html (MuJoCo viewer & operator GUI)" && \
+vnc_urls := echo "🖥️  noVNC: http://localhost:6080/vnc.html (operator GUI; the MuJoCo window with VIEWER=glfw)" && \
 	echo "🌐 Rerun: http://localhost:9090/?url=rerun+http://localhost:9876/proxy (host browser; set RERUN_SINK=spawn to view in noVNC)"
 # LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //docker-compose.bridge.yaml:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/README.md:vnc_ports)
 
@@ -326,29 +357,40 @@ vnc_urls := echo "🖥️  noVNC: http://localhost:6080/vnc.html (MuJoCo viewer 
 #   RERUN_SINK=serve_web|spawn|connect|save   the Rerun bridge's sink (default serve_web: the
 #                                             web viewer at http://localhost:9090; spawn: the native viewer; save: to RRD_PATH=<file>.rrd)
 #   NETEM="<netem parameters>"                -sim: tc netem on the bus's packets on lo (default: none)
-#   HEADLESS=true                             -sim: the robot process without the MuJoCo viewer
+#   VIEWER=glfw|web|none                      -sim: the robot process's MuJoCo viewer by name (default: the
+#                                             mujoco_viewer of PLOT_CONFIG, the shipped one's web: a page at
+#                                             http://localhost:6090, whose address the target prints); glfw is the
+#                                             window on DISPLAY, and a list such as web,none falls back in order
 #   NETWORK=<network file>                    -mpc: the network file with the robot's address (required); a path
 #                                             inside the checkout, relative to it or absolute: deploy-robot reads it on
 #                                             the host, the launch targets in the dev container, which sees the checkout
 #                                             only
 #   JOINT_SOURCE=sliders|nominal              -sandbox: where the joint positions come from (default sliders)
 #   DEV_CONTAINER=<name>                      the dev container, when make runs on the host (default devcontainer-app-1)
-#   PLOT_CONFIG=<file>                        the Rerun bridge's plot configuration (default:
+#   PLOT_CONFIG=<file>                        the plot configuration: the Rerun bridge's plots and, for -sim, the robot
+#                                             process's MuJoCo viewer without VIEWER= (its mujoco_viewer); a file of
+#                                             the checkout (default:
 #                                             humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto)
 #
-# The sandbox replaces RViz's display launch files: the model sandbox publishes the URDF's link poses at the nominal
-# joint positions, or at those of its Tk window with a slider per joint (joint_state_publisher_gui's), and the Rerun
-# bridge draws them. RViz's interactive markers and its other displays are not reproduced.
+# The sandbox: the model sandbox publishes the URDF's link poses at the nominal joint positions, or at those of its Tk
+# window with a slider per joint, and the Rerun bridge draws them. It draws no TF frames, interactive markers or
+# collision geometry.
 
 DEV_CONTAINER ?= devcontainer-app-1
 export WB_DEV_CONTAINER := $(DEV_CONTAINER)
 RERUN_SINK ?= serve_web
 NETEM ?=
-HEADLESS ?=
+# LINT.IfChange(viewer_variable)
+# The robot process's MuJoCo viewer, by name (robot_runtime/mujoco_sim_interface/README.md); empty: the mujoco_viewer of
+# PLOT_CONFIG, web unless it names another. web serves http://localhost:6090 (session.sh prints it).
+VIEWER ?=
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/viewer/ViewerNames.h:viewer_names, //humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotAppFlags.cpp:web_viewer_port)
 NETWORK ?=
 JOINT_SOURCE ?= sliders
 RRD_PATH ?=
+# LINT.IfChange(plot_config_variable)
 PLOT_CONFIG ?= humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto
+# LINT.ThenChange(//tools/deploy/session.sh:default_plot_config, //humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/cli.py:default_plot_config, //docker-compose.robot.sim.yaml:sim_plot_config_mount)
 # The Rerun bridge's sink, and the recording of RERUN_SINK=save (relative to the checkout, where the bridge runs).
 rerun_sets = --set rerun_sink=$(RERUN_SINK) $(if $(RRD_PATH),--set rrd_path=$(RRD_PATH)) $(if $(PLOT_CONFIG),--set plot_config=$(PLOT_CONFIG))
 # deploy-robot and launch-<robot>-robot
@@ -421,13 +463,15 @@ define robot_launch_targets
 launch-$(call field,$(1),1)-sim: kill-sims
 	@$(session) sim --robot $(call field,$(1),2) --launch_file $(call field,$(1),3)/launch/mpc.textproto \
 		--build "$(mpc_binaries_$(call field,$(1),4)) $(laptop_binaries)" $$(rerun_sets) \
-		$$(if $$(NETEM),--netem "$$(NETEM)") $$(if $$(filter true,$$(HEADLESS)),--headless)
+		$$(if $$(NETEM),--netem "$$(NETEM)") $$(if $$(VIEWER),--viewer "$$(VIEWER)") \
+		$$(if $$(PLOT_CONFIG),--plot_config "$$(PLOT_CONFIG)")
 
 launch-$(call field,$(1),1)-sim-vnc: kill-sims start-vnc
 	@$$(vnc_urls)
 	@DISPLAY=:99 $(session) sim --robot $(call field,$(1),2) --launch_file $(call field,$(1),3)/launch/mpc.textproto \
 		--build "$(mpc_binaries_$(call field,$(1),4)) $(laptop_binaries)" $$(rerun_sets) \
-		$$(if $$(NETEM),--netem "$$(NETEM)") $$(if $$(filter true,$$(HEADLESS)),--headless)
+		$$(if $$(NETEM),--netem "$$(NETEM)") $$(if $$(VIEWER),--viewer "$$(VIEWER)") \
+		$$(if $$(PLOT_CONFIG),--plot_config "$$(PLOT_CONFIG)")
 
 launch-$(call field,$(1),1)-dummy-sim: kill-sims
 	@$(session) laptop --launch_file $(call field,$(1),3)/launch/dummy_sim.textproto \
@@ -488,41 +532,43 @@ rerun_urdf_unitree_g1_wb := $(rerun_urdf_unitree_g1)
 rerun_urdf_unitree_r1 := robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf
 rerun_flags = $(if $(ROBOT),--urdf=$(rerun_urdf_$(ROBOT))) $(if $(NETWORK),--network_config=$(network_file))
 rerun-viewer:
-	@$(dev_run) 'bazel run //humanoid_nmpc/humanoid_rerun_viewer -- $(rerun_flags) --rerun_sink=spawn'
+	@$(dev_run) '$(bazel_indexed_in_repo) run //humanoid_nmpc/humanoid_rerun_viewer -- $(rerun_flags) --rerun_sink=spawn'
 
 rerun-web:
 	@echo "🌐 Rerun web viewer: http://localhost:9090/?url=rerun+http://localhost:9876/proxy"
-	@$(dev_run) 'bazel run //humanoid_nmpc/humanoid_rerun_viewer -- $(rerun_flags) --rerun_sink=serve_web'
+	@$(dev_run) '$(bazel_indexed_in_repo) run //humanoid_nmpc/humanoid_rerun_viewer -- $(rerun_flags) --rerun_sink=serve_web'
 
 ## Inspect the bus (tools/ipc): make ipc-list, make ipc-echo TOPIC=mpc/status, make ipc-hz TOPIC=robot/mpc_observation
 ipc_network = $(if $(NETWORK),--network_config=$(network_file))
 ipc-list:
-	@$(dev_run) 'bazel run //tools/ipc:ipc_tool -- list $(ipc_network)'
+	@$(dev_run) '$(bazel_indexed_in_repo) run //tools/ipc:ipc_tool -- list $(ipc_network)'
 
 ipc-echo:
 	@$(if $(TOPIC),,$(error ipc-echo needs TOPIC=<topic>, e.g. TOPIC=mpc/status))
-	@$(dev_run) 'bazel run //tools/ipc:ipc_tool -- echo $(TOPIC) $(ipc_network)'
+	@$(dev_run) '$(bazel_indexed_in_repo) run //tools/ipc:ipc_tool -- echo $(TOPIC) $(ipc_network)'
 
 ipc-hz:
 	@$(if $(TOPIC),,$(error ipc-hz needs TOPIC=<topic>, e.g. TOPIC=robot/mpc_observation))
-	@$(dev_run) 'bazel run //tools/ipc:ipc_tool -- hz $(TOPIC) $(ipc_network)'
+	@$(dev_run) '$(bazel_indexed_in_repo) run //tools/ipc:ipc_tool -- hz $(TOPIC) $(ipc_network)'
 
 ## The launch, deployment, inspection and style-check targets
 help:
 	@echo "Launch targets, for <robot> in $(foreach c,$(ROBOT_CONFIGURATIONS),$(call field,$(c),1)):"
 	@echo "  launch-<robot>-sim[-vnc]        robot side in the robot-sim container + MPC, GUI and Rerun bridge in the dev"
-	@echo "                                  container, over the bus (NETEM=, HEADLESS=true, RERUN_SINK=)"
+	@echo "                                  container, over the bus (NETEM=, VIEWER=glfw|web|none, RERUN_SINK=,"
+	@echo "                                  PLOT_CONFIG=); the MuJoCo viewer is the plot configuration's, by default"
+	@echo "                                  web at http://localhost:6090"
 	@echo "  launch-<robot>-dummy-sim[-vnc]  the MPC against the dummy simulator, with the GUI and the Rerun bridge"
 	@echo "  launch-<robot>-robot HOST=      the deployed robot side, in the foreground (ssh to HOST, or localhost)"
 	@echo "  launch-<robot>-mpc NETWORK=     the laptop side against the robot of the network file"
 	@echo "  launch-<robot>-sandbox[-vnc]    for <robot> in $(SANDBOX_ROBOTS): the URDF in Rerun at its nominal pose or"
-	@echo "                                  at a slider per joint (JOINT_SOURCE=sliders|nominal); RViz's interactive"
-	@echo "                                  markers and other displays are not reproduced"
+	@echo "                                  at a slider per joint (JOINT_SOURCE=sliders|nominal)"
 	@echo "Deployment: deploy-robot ROBOT= HOST= NETWORK= [SERVICE=install|enable] [REGISTRY=] [PLATFORM=] [BACKEND=]"
 	@echo "            [MEMORY_LIMIT=], robot-images"
 	@echo "Viewers and the bus: rerun-viewer, rerun-web [ROBOT=] [NETWORK=], ipc-list, ipc-echo TOPIC=, ipc-hz TOPIC="
 	@echo "Validation (humanoid_nmpc/humanoid_mpc_validation): closed-loop-metrics ROBOT= LABEL= [SCENARIO=] [BASELINE=]"
-	@echo "            [RECORD_STATES=1], benchmark-mpc-solve ROBOT= LABEL= [STATES=] [BASELINE=]"
+	@echo "            [RECORD_STATES=1] [VALIDATION_CONTAINER_IMAGE=], benchmark-mpc-solve ROBOT= LABEL= [STATES=] [BASELINE=],"
+	@echo "            compare-closed-loop CANDIDATE= BASELINE= [ROBOT=]"
 	@echo "Clean-up: kill-sims, check-zombies"
 	@echo "Style checks (AGENTS.md, \"Running the style checks\"; tools/hooks/README.md, tools/clang_tidy/README.md):"
 	@echo "  format                          clang-format, black, isort and the enforced checks' safe rewrites"

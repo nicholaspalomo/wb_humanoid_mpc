@@ -562,13 +562,17 @@ TEST_F(ContactConstraintScheduleGatingTest, theNominalInputLeavesTheScheduledSwi
 }
 
 TEST_F(ContactConstraintScheduleGatingTest, theQuadraticCostPricesALoadedSwingFootAboveAnUnloadedOne) {
-  const size_t stateDim = model_->wrenchModel().getStateDim();
+  // Q weighs the state's tangent, the tuning layout's rows (the quaternion's three).
+  const size_t tangentDim = model_->wrenchModel().getStateTangentDim();
   const size_t inputDim = model_->wrenchModel().getInputDim();
-  const matrix_t Q = matrix_t::Identity(stateDim, stateDim);
+  const matrix_t Q = matrix_t::Identity(tangentDim, tangentDim);
   const matrix_t R = matrix_t::Identity(inputDim, inputDim);
   const PreComputation preComp;
   const TargetTrajectories target({kTime}, {model_->nominalState()}, {vector_t::Zero(inputDim)});
-  const StateInputQuadraticCost cost(Q, R, model_->referenceManager(), model_->wrenchModel());
+  const absl::StatusOr<std::unique_ptr<StateInputQuadraticCost>> created =
+      StateInputQuadraticCost::Create(Q, R, &model_->referenceManager(), &model_->wrenchModel());
+  ASSERT_TRUE(created.ok()) << created.status();
+  const StateInputQuadraticCost& cost = **created;
 
   // The schedule says the left foot is swinging. An input that loads it must cost more than one that does not, or
   // nothing in the problem prefers the gait the plan is proposing.
@@ -804,7 +808,8 @@ TEST_F(ContactConstraintScheduleGatingTest, theContactWrenchDominatesTheJointTor
   const PinocchioInterface& pinocchioInterface = model_->pinocchioInterface();
   const vector_t q = model_->wrenchModel().getGeneralizedCoordinates(model_->nominalState());
   const size_t jointDim = model_->wrenchModel().getJointDim();
-  const vector_t qd = vector_t::Zero(q.size());
+  // v has nv entries, one fewer than q (the quaternion's four coefficients for the rotation's three).
+  const vector_t qd = vector_t::Zero(static_cast<Eigen::Index>(model_->wrenchModel().getVelocityDim()));
   const vector_t qdd_j = vector_t::Zero(jointDim);
 
   // Feet clear of the ground: the result must be exactly the base-held gravity torques, which is the gantry case and
@@ -852,14 +857,14 @@ struct InstalledPenalty {
 
 InstalledPenalty installedPenalty(StateInputSoftConstraint& softConstraint) {
   InstalledPenalty installed;
-  const std::vector<std::unique_ptr<augmented::AugmentedPenaltyBase>>& penalties = softConstraint.getPenalty().getPenaltyPtrArray();
+  const std::vector<std::unique_ptr<PenaltyBase>>& penalties = softConstraint.getPenalty().getPenaltyPtrArray();
   EXPECT_EQ(penalties.size(), 1U) << "one penalty for every row of the cone";
   if (penalties.empty()) return installed;
   installed.name = penalties.front()->name();
   penalties.front()->getParameters(installed.parameters);
-  installed.valueAtZeroSlack = penalties.front()->getValue(kTime, /*l=*/0.0, /*h=*/0.0);
-  installed.derivativeAtZeroSlack = penalties.front()->getDerivative(kTime, /*l=*/0.0, /*h=*/0.0);
-  installed.derivativeAtNegativeSlack = penalties.front()->getDerivative(kTime, /*l=*/0.0, /*h=*/-1.0);
+  installed.valueAtZeroSlack = penalties.front()->getValue(kTime, /*h=*/0.0);
+  installed.derivativeAtZeroSlack = penalties.front()->getDerivative(kTime, /*h=*/0.0);
+  installed.derivativeAtNegativeSlack = penalties.front()->getDerivative(kTime, /*h=*/-1.0);
   return installed;
 }
 

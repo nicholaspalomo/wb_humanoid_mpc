@@ -80,7 +80,7 @@ vector3_t toVector(const humanoid_mpc_msgs::Vector3& vector) {
 }
 
 matrix3_t toRotation(const humanoid_mpc_msgs::Quaternion& quaternion) {
-  return quaternion_t(quaternion.w(), quaternion.x(), quaternion.y(), quaternion.z()).normalized().toRotationMatrix();
+  return quaternion_t(vector4_t(quaternion.x(), quaternion.y(), quaternion.z(), quaternion.w())).normalized().toRotationMatrix();
 }
 
 const humanoid_mpc_msgs::RobotModelInstance* absl_nullable findInstance(const humanoid_mpc_msgs::VisualizationScene& scene,
@@ -215,7 +215,7 @@ class SceneBuilderTest : public ::testing::TestWithParam<test::Formulation> {
   vector_t inputAtObservation() const {
     vector_t state;
     vector_t input;
-    samplePlan(policy_, observation_.time, &state, &input);
+    samplePlan(policy_, robot_->stateManifold(), observation_.time, &state, &input);
     return input;
   }
 
@@ -258,13 +258,14 @@ TEST_P(SceneBuilderTest, TheMeasuredRobotHasEveryJointOfTheUrdf) {
   const humanoid_mpc_msgs::RobotModelInstance* absl_nullable measured = findInstance(scene, scene::kMeasuredInstance);
   ASSERT_NE(measured, nullptr);
 
-  // An independent model of the whole URDF with the MPC's root (Euler angles instead of a quaternion), every joint set
-  // by name from the sample.
+  // An independent model of the whole URDF with the MPC's Composite(Translation, Spherical) root, its quaternion
+  // (x, y, z, w) built from the sample's roll, pitch and yaw, every joint set by name from the sample.
   PinocchioInterface reference = createDefaultPinocchioInterface(robot_->urdfFile());
   const Model& model = reference.getModel();
   vector_t q = vector_t::Zero(model.nq);
+  ASSERT_EQ(model.nq, model.nv + 1);
   q.head<3>() = vector3_t(sample_.base_position_world.x, sample_.base_position_world.y, sample_.base_position_world.z);
-  q.segment<3>(3) = vector3_t(0.4, -0.1, 0.05);  // yaw, pitch, roll
+  q.segment<4>(3) = test::quaternionFromRollPitchYaw(vector3_t(0.05, -0.1, 0.4)).coeffs();
   absl::flat_hash_map<std::string, scalar_t> positions;
   for (size_t joint = 0; joint < sample_.joint_names.size(); ++joint) {
     positions[sample_.joint_names[joint]] = sample_.joint_positions[static_cast<Eigen::Index>(joint)];
@@ -520,7 +521,7 @@ TEST_P(SceneBuilderTest, AFootholdIsWhereAFootLandsInTheHorizon) {
   ASSERT_EQ(footholds.colors_size(), 1);
   vector_t state;
   vector_t input;
-  samplePlan(policy_, /*time=*/0.6, &state, &input);
+  samplePlan(policy_, robot_->stateManifold(), /*time=*/0.6, &state, &input);
   PinocchioInterface reference = robot_->makeReferencePinocchioInterface();
   forwardKinematics(reference, robot_->robotModel().getGeneralizedCoordinates(state));
   const vector3_t foot =
@@ -577,9 +578,9 @@ TEST_P(SceneBuilderTest, ThePlanIsComputedAgainOnlyForANewPolicy) {
   SceneInputs inputs = allInputs();
   const humanoid_mpc_msgs::VisualizationScene first = build(inputs);
   for (vector_t& state : policy_.state) {
-    vector6_t basePose = robot_->robotModel().getBasePose(state);
-    basePose[1] += 0.5;
-    robot_->robotModel().setBasePose(state, basePose);
+    vector3_t basePosition = robot_->robotModel().getBasePosition(state);
+    basePosition.y() += 0.5;
+    robot_->robotModel().setBasePosition(state, basePosition);
   }
   const humanoid_mpc_msgs::VisualizationScene same = build(inputs);
   EXPECT_EQ(lineStripsAt(same, scene::kPlanBase).SerializeAsString(), lineStripsAt(first, scene::kPlanBase).SerializeAsString());

@@ -27,14 +27,9 @@
 
 """Tests for boost_usage.py, the lint check that keeps Boost out of the project's C++ and Bazel files."""
 
-import contextlib
-import io
 import os
-import re
-import subprocess
-import tempfile
+from typing import NamedTuple
 import unittest
-from unittest import mock
 
 from tools.hooks import boost_usage
 from tools.hooks import check_test_support
@@ -55,23 +50,41 @@ def _repository_file(relative_path):
     raise FileNotFoundError(relative_path)
 
 
+class Use(NamedTuple):
+    """One Boost use the check finds: where, its kind (a key of boost_usage._MESSAGES) and its text."""
+
+    line: int
+    col: int
+    kind: str
+    text: str
+
+
+def uses(source, kind):
+    """Every Boost use in `source`, a file of the given kind, before any NOLINT marker, in order."""
+    return [Use(*use) for use in sorted(boost_usage._raw_findings(source, kind))]
+
+
 def cpp(source):
     """The (kind, text) of every finding in C++ `source`."""
-    return [(v.kind, v.text) for v in boost_usage.check_source(source, boost_usage.CPP)]
+    return [(v.kind, v.text) for v in uses(source, boost_usage.CPP)]
 
 
 def starlark(source):
     """The (kind, text) of every finding in a BUILD or .bzl `source`."""
-    return [
-        (v.kind, v.text) for v in boost_usage.check_source(source, boost_usage.STARLARK)
-    ]
+    return [(v.kind, v.text) for v in uses(source, boost_usage.STARLARK)]
 
 
 def bazelrc(source):
     """The (kind, text) of every finding in a .bazelrc `source`."""
-    return [
-        (v.kind, v.text) for v in boost_usage.check_source(source, boost_usage.BAZELRC)
-    ]
+    return [(v.kind, v.text) for v in uses(source, boost_usage.BAZELRC)]
+
+
+def registry(source, path, name="boost"):
+    """The (line, check) of every finding of check `name` the registry engine reports for `source` at `path`.
+
+    The engine applies the file's NOLINT markers (tools/hooks/checks.py).
+    """
+    return [(f.line, f.check) for f in check_test_support.findings(name, source, path)]
 
 
 class CppIncludesTest(unittest.TestCase):
@@ -112,7 +125,7 @@ class CppIncludesTest(unittest.TestCase):
                 self.assertEqual(cpp(source), [("header", expected)])
 
     def test_a_continued_directive_is_read_to_its_end(self):
-        violations = boost_usage.check_source(
+        violations = uses(
             "#if defined(X) && \\\n    __has_include(<boost/optional.hpp>)\n#endif\nint y = a < b;\n",
             boost_usage.CPP,
         )
@@ -131,12 +144,10 @@ class CppIncludesTest(unittest.TestCase):
         self.assertEqual(cpp(source), [])
 
     def test_the_location_is_the_header_name(self):
-        violations = boost_usage.check_source(
-            "#include <vector>\n#include <boost/variant.hpp>\n", boost_usage.CPP, "a.h"
+        found = boost_usage._findings(
+            "#include <vector>\n#include <boost/variant.hpp>\n", "a.h"
         )
-        self.assertEqual(
-            [(v.path, v.line, v.col) for v in violations], [("a.h", 2, 10)]
-        )
+        self.assertEqual([(f.path, f.line, f.column) for f in found], [("a.h", 2, 10)])
 
 
 class CppCodeTest(unittest.TestCase):
@@ -193,7 +204,7 @@ class CppCodeTest(unittest.TestCase):
         self.assertEqual(cpp(source), [])
 
     def test_every_use_is_reported_where_it_is(self):
-        violations = boost_usage.check_source(
+        violations = uses(
             "int a;\n  x = boost::get<int>(v);\nBOOST_FOREACH(a, b);\n",
             boost_usage.CPP,
         )
@@ -358,7 +369,7 @@ class StarlarkTest(unittest.TestCase):
             ")\n"
             '""")\n'
         )
-        violations = boost_usage.check_source(source, boost_usage.STARLARK)
+        violations = uses(source, boost_usage.STARLARK)
         self.assertEqual([(v.line, v.kind) for v in violations], [(5, "label")])
 
 
@@ -391,23 +402,29 @@ class BazelrcTest(unittest.TestCase):
 
 
 class NolintTest(unittest.TestCase):
+    """The registry engine applies the markers to this check's findings (tools/hooks/nolint.py)."""
+
     def test_a_marker_with_a_reason_exempts_its_line(self):
         self.assertEqual(
-            cpp(
-                "x = boost::get<J>(joint);  // NOLINT(boost): Pinocchio's joint model is a boost::variant.\n"
+            registry(
+                "x = boost::get<J>(joint);  // NOLINT(boost): Pinocchio's joint model is a boost::variant.\n",
+                "src/a.cpp",
             ),
             [],
         )
         self.assertEqual(
-            starlark(
-                'deps = ["@boost"],  # NOLINT(boost): Pinocchio\'s headers include it.\n'
+            registry(
+                'deps = ["@boost"],  # NOLINT(boost): Pinocchio\'s headers include it.\n',
+                "src/BUILD.bazel",
             ),
             [],
         )
         # Only its own line.
         self.assertEqual(
-            cpp("a = boost::x;  // NOLINT(boost): reason\nb = boost::y;\n"),
-            [("namespace", "boost::")],
+            registry(
+                "a = boost::x;  // NOLINT(boost): reason\nb = boost::y;\n", "src/a.cpp"
+            ),
+            [(2, "boost")],
         )
 
     def test_a_marker_in_a_string_literal_exempts_nothing(self):
@@ -417,35 +434,30 @@ class NolintTest(unittest.TestCase):
             'const char* s = R"(// NOLINT(boost): reason)"; boost::get<int>(v);\n',
         ]:
             with self.subTest(source=source):
-                self.assertEqual(cpp(source), [("namespace", "boost::")])
+                self.assertEqual(registry(source, "src/a.cpp"), [(1, "boost")])
         self.assertEqual(
-            starlark('deps = ["@boost", "NOLINT(boost): reason"]\n'),
-            [("label", "@boost")],
-        )
-        # A block marker in a literal neither opens nor closes a block.
-        self.assertEqual(
-            cpp('const char* s = "NOLINTEND(boost)";\n'),
-            [],
+            registry('deps = ["@boost", "NOLINT(boost): reason"]\n', "src/BUILD.bazel"),
+            [(1, "boost")],
         )
 
     def test_a_marker_without_a_reason_exempts_nothing(self):
         for marker in ["// NOLINT(boost)", "/* NOLINT(boost) */", "// NOLINT(boost):"]:
             with self.subTest(marker=marker):
                 self.assertEqual(
-                    cpp(f"x = boost::get<J>(joint);  {marker}\n"),
-                    [("namespace", "boost::")],
+                    registry(f"x = boost::get<J>(joint);  {marker}\n", "src/a.cpp"),
+                    [(1, "boost")],
                 )
 
     def test_another_checks_marker_exempts_nothing(self):
         for marker in [
-            "// NOLINT(argument-comment)",
+            "// NOLINT(argument-comment): reason",
             "// NOLINT",
             "// NOLINT(boost-ish): reason",
         ]:
             with self.subTest(marker=marker):
                 self.assertEqual(
-                    cpp(f"x = boost::get<J>(joint);  {marker}\n"),
-                    [("namespace", "boost::")],
+                    registry(f"x = boost::get<J>(joint);  {marker}\n", "src/a.cpp"),
+                    [(1, "boost")],
                 )
 
     def test_nextline_exempts_the_line_after_it_only(self):
@@ -454,8 +466,7 @@ class NolintTest(unittest.TestCase):
             "a = boost::x;\n"
             "b = boost::y;\n"
         )
-        violations = boost_usage.check_source(source, boost_usage.CPP)
-        self.assertEqual([v.line for v in violations], [3])
+        self.assertEqual(registry(source, "src/a.cpp"), [(3, "boost")])
 
     def test_a_block_exempts_the_lines_from_begin_to_end(self):
         source = (
@@ -467,32 +478,28 @@ class NolintTest(unittest.TestCase):
             '    "BOOST_X",\n'
             "]\n"
         )
-        violations = boost_usage.check_source(source, boost_usage.STARLARK)
-        self.assertEqual([(v.line, v.text) for v in violations], [(6, "BOOST_X")])
+        self.assertEqual(registry(source, "src/BUILD.bazel"), [(6, "boost")])
 
     def test_a_block_without_a_reason_exempts_nothing(self):
         source = '# NOLINTBEGIN(boost)\n"BOOST_X",\n# NOLINTEND(boost)\n'
-        self.assertEqual(starlark(source), [("define", "BOOST_X")])
+        self.assertEqual(registry(source, "src/BUILD.bazel"), [(2, "boost")])
 
     def test_unmatched_block_markers_are_reported_and_exempt_nothing(self):
-        unclosed = boost_usage.check_source(
-            '# NOLINTBEGIN(boost): reason\n"BOOST_X",\n', boost_usage.STARLARK, "BUILD"
+        unclosed = '# NOLINTBEGIN(boost): reason\n"BOOST_X",\n'
+        self.assertEqual(registry(unclosed, "src/BUILD.bazel"), [(2, "boost")])
+        self.assertEqual(
+            registry(unclosed, "src/BUILD.bazel", "nolint-unbalanced"),
+            [(1, "nolint-unbalanced")],
         )
         self.assertEqual(
-            [(v.line, v.kind) for v in unclosed], [(1, "unclosed"), (2, "define")]
+            registry("int x;\n// NOLINTEND(boost)\n", "src/a.cpp", "nolint-unbalanced"),
+            [(2, "nolint-unbalanced")],
         )
-        self.assertIn("never closed by a NOLINTEND(boost)", str(unclosed[0]))
-        unopened = boost_usage.check_source(
-            "int x;\n// NOLINTEND(boost)\n", boost_usage.CPP
-        )
-        self.assertEqual([(v.line, v.kind) for v in unopened], [(2, "unopened")])
 
 
 class MessageTest(unittest.TestCase):
     def test_a_cpp_finding_says_what_to_use_and_how_to_justify_an_exception(self):
-        message = str(
-            boost_usage.check_source("boost::any x;", boost_usage.CPP, "a.cpp")[0]
-        )
+        message = str(boost_usage._findings("boost::any x;", "a.cpp")[0])
         self.assertTrue(
             message.startswith("a.cpp:1:1: `boost::` uses the boost namespace.")
         )
@@ -500,11 +507,7 @@ class MessageTest(unittest.TestCase):
         self.assertIn("// NOLINT(boost): <reason>", message)
 
     def test_a_bazel_finding_points_at_the_pinocchio_target(self):
-        message = str(
-            boost_usage.check_source(
-                'deps = ["@boost"]', boost_usage.STARLARK, "BUILD"
-            )[0]
-        )
+        message = str(boost_usage._findings('deps = ["@boost"]', "BUILD")[0])
         self.assertIn("@pinocchio", message)
         self.assertIn("bazel/system_libs.bzl", message)
         self.assertIn("# NOLINT(boost): <reason>", message)
@@ -532,79 +535,6 @@ class ScopeTest(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(boost_usage.kind_of(path), kind)
 
-    def test_check_files_skips_the_vendored_cppad_and_other_files(self):
-        with tempfile.TemporaryDirectory() as root:
-            for path in [
-                "lib/ocs2/thirdparty/include/cppad/core/testvector.hpp",
-                "lib/ocs2/core/src/a.cpp",
-                "notes.md",
-            ]:
-                os.makedirs(os.path.join(root, os.path.dirname(path)), exist_ok=True)
-                with open(os.path.join(root, path), "w", encoding="utf-8") as f:
-                    f.write("# include <boost/numeric/ublas/vector.hpp>\n")
-            found = boost_usage.check_files(
-                [
-                    os.path.join(
-                        root, "lib/ocs2/thirdparty/include/cppad/core/testvector.hpp"
-                    ),
-                    os.path.join(root, "lib/ocs2/core/src/a.cpp"),
-                    os.path.join(root, "notes.md"),
-                ],
-                root,
-            )
-            self.assertEqual(
-                [(v.path, v.kind) for v in found],
-                [("lib/ocs2/core/src/a.cpp", "include")],
-            )
-
-
-class RepositoryFilesTest(unittest.TestCase):
-    def setUp(self):
-        # pylint: disable-next=consider-using-with  # tearDown() deletes it.
-        self.directory = tempfile.TemporaryDirectory()
-        self.root = self.directory.name
-        for path in [
-            "src/a.cpp",
-            "src/untracked.h",
-            "src/ignored.cpp",
-            "src/notes.md",
-            "BUILD.bazel",
-            "bazel-out/k8-opt/bin/generated.cpp",
-            ".bazel/bin/generated.h",
-        ]:
-            os.makedirs(os.path.join(self.root, os.path.dirname(path)), exist_ok=True)
-            with open(os.path.join(self.root, path), "w", encoding="utf-8") as f:
-                f.write("int x;\n")
-
-    def tearDown(self):
-        self.directory.cleanup()
-
-    def relative(self, paths):
-        return sorted(os.path.relpath(p, self.root) for p in paths)
-
-    def test_the_files_git_tracks_or_would_track(self):
-        def git(*args):
-            subprocess.run(
-                ["git", "-C", self.root, *args], check=True, capture_output=True
-            )
-
-        git("init", "-q")
-        with open(os.path.join(self.root, ".gitignore"), "w", encoding="utf-8") as f:
-            f.write("src/ignored.cpp\nbazel-out/\n.bazel/\n")
-        git("add", "src/a.cpp", "BUILD.bazel")
-        self.assertEqual(
-            self.relative(boost_usage.repository_files(self.root)),
-            ["BUILD.bazel", "src/a.cpp", "src/untracked.h"],
-        )
-
-    def test_without_git_the_tree_is_walked_without_build_output(self):
-        with mock.patch.object(subprocess, "run", side_effect=OSError("no git")):
-            files = boost_usage.repository_files(self.root)
-        self.assertEqual(
-            self.relative(files),
-            ["BUILD.bazel", "src/a.cpp", "src/ignored.cpp", "src/untracked.h"],
-        )
-
 
 class ShippedConfigurationTest(unittest.TestCase):
     """The Bazel configuration as shipped: Boost is reached through the @pinocchio target alone."""
@@ -612,16 +542,10 @@ class ShippedConfigurationTest(unittest.TestCase):
     def test_the_pinocchio_target_is_the_only_exemption(self):
         with open(_repository_file("bazel/system_libs.bzl"), encoding="utf-8") as f:
             source = f.read()
-        self.assertEqual(
-            boost_usage.check_source(
-                source, boost_usage.STARLARK, "bazel/system_libs.bzl"
-            ),
-            [],
-        )
-        # Without its markers, everything the file exempts must lie in the Pinocchio repository rule, and be its
+        self.assertEqual(registry(source, "bazel/system_libs.bzl"), [])
+        # Before its markers, everything the file exempts must lie in the Pinocchio repository rule, and be its
         # dependency on @boost and its Boost defines.
-        unmarked = re.sub(r"NOLINT(NEXTLINE|BEGIN|END)?\(boost\)", "", source)
-        exempted = boost_usage.check_source(unmarked, boost_usage.STARLARK)
+        exempted = uses(source, boost_usage.STARLARK)
         lines = source.split("\n")
         begin = next(
             i
@@ -640,86 +564,6 @@ class ShippedConfigurationTest(unittest.TestCase):
         self.assertEqual({v.kind for v in exempted}, {"label", "define"})
         self.assertEqual({v.text for v in exempted if v.kind == "label"}, {"@boost"})
         self.assertEqual([v.line for v in exempted if not begin < v.line < end], [])
-
-
-class StagedModeTest(unittest.TestCase):
-    """The pre-commit hook's mode: the index of a real git repository, not its working tree."""
-
-    def setUp(self):
-        # pylint: disable-next=consider-using-with  # tearDown() deletes it.
-        self.directory = tempfile.TemporaryDirectory()
-        self.root = self.directory.name
-        self.run_git("init", "-q")
-        self.run_git("config", "user.email", "test@example.com")
-        self.run_git("config", "user.name", "test")
-
-    def tearDown(self):
-        self.directory.cleanup()
-
-    def run_git(self, *args):
-        subprocess.run(
-            ["git", "-C", self.root, *args], check=True, capture_output=True, text=True
-        )
-
-    def write(self, path, text):
-        full = os.path.join(self.root, path)
-        os.makedirs(os.path.dirname(full), exist_ok=True)
-        with open(full, "w", encoding="utf-8") as f:
-            f.write(text)
-
-    def staged(self):
-        return [(v.path, v.kind) for v in boost_usage.check_staged(self.root)]
-
-    def test_staged_cpp_and_bazel_violations_are_reported(self):
-        self.write("src/a.cpp", "#include <boost/variant.hpp>\n")
-        self.write("src/BUILD.bazel", 'cc_library(name = "a", deps = ["@boost"])\n')
-        self.write(".bazelrc", "build --copt=-DBOOST_X\n")
-        self.run_git("add", ".")
-        self.assertEqual(
-            sorted(self.staged()),
-            [
-                (".bazelrc", "define"),
-                ("src/BUILD.bazel", "label"),
-                ("src/a.cpp", "include"),
-            ],
-        )
-
-    def test_the_index_is_checked_not_the_working_tree(self):
-        self.write("a.cpp", "std::optional<int> x;\n")
-        self.run_git("add", "a.cpp")
-        self.write("a.cpp", "boost::optional<int> x;\n")
-        self.assertEqual(self.staged(), [])
-        # And the reverse: a violation staged, fixed only in the working tree, still blocks.
-        self.run_git("add", "a.cpp")
-        self.write("a.cpp", "std::optional<int> x;\n")
-        self.assertEqual(self.staged(), [("a.cpp", "namespace")])
-
-    def test_only_files_the_commit_touches(self):
-        self.write("old.cpp", "boost::optional<int> x;\n")
-        self.run_git("add", "old.cpp")
-        self.run_git("commit", "-q", "-m", "legacy")
-        self.write("new.cpp", "std::optional<int> x;\n")
-        self.run_git("add", "new.cpp")
-        self.assertEqual(
-            self.staged(), [], "a committed file the commit does not touch blocked it"
-        )
-
-    def test_vendored_cppad_other_languages_and_deletions_are_ignored(self):
-        self.write(
-            "lib/ocs2/thirdparty/include/cppad/x.hpp",
-            "# include <boost/numeric/ublas/vector.hpp>\n",
-        )
-        self.write("tool.py", "import boost\n")
-        self.write("gone.h", "boost::optional<int> x;\n")
-        self.run_git("add", ".")
-        self.run_git("commit", "-q", "-m", "base")
-        self.run_git("rm", "-q", "gone.h")
-        self.write(
-            "lib/ocs2/thirdparty/include/cppad/x.hpp",
-            "# include <boost/numeric/ublas/matrix.hpp>\n",
-        )
-        self.run_git("add", ".")
-        self.assertEqual(self.staged(), [])
 
 
 class WiringTest(unittest.TestCase):
@@ -741,36 +585,6 @@ class WiringTest(unittest.TestCase):
 
     def test_the_hook_runs_the_staged_check_after_formatting_and_fails_on_it(self):
         check_test_support.assert_hook_runs_the_linter(self)
-
-
-class CommandLineTest(unittest.TestCase):
-    def test_exit_status_and_report(self):
-        with tempfile.TemporaryDirectory() as directory:
-            bad = os.path.join(directory, "bad.cpp")
-            good = os.path.join(directory, "good.cpp")
-            with open(bad, "w", encoding="utf-8") as f:
-                f.write("int x;\n#include <boost/variant.hpp>\n")
-            with open(good, "w", encoding="utf-8") as f:
-                f.write("// Replaces boost::variant.\n#include <variant>\n")
-            output = io.StringIO()
-            with contextlib.redirect_stdout(output), mock.patch.object(
-                os, "getcwd", return_value=directory
-            ):
-                self.assertEqual(boost_usage.main([good]), 0)
-                self.assertEqual(boost_usage.main([good, bad]), 1)
-            self.assertIn(
-                "bad.cpp:2:10: `#include <boost/variant.hpp>` includes a Boost header.",
-                output.getvalue(),
-            )
-
-    def test_paths_and_staged_mode_are_exclusive(self):
-        with contextlib.redirect_stdout(io.StringIO()), mock.patch(
-            "sys.stderr", io.StringIO()
-        ):
-            with self.assertRaises(SystemExit):
-                boost_usage.main([])
-            with self.assertRaises(SystemExit):
-                boost_usage.main(["--git-staged", "a.cpp"])
 
 
 if __name__ == "__main__":

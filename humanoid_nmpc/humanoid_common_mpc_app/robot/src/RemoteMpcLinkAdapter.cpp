@@ -40,7 +40,7 @@ absl::StatusOr<std::unique_ptr<RemoteMpcLinkAdapter>> RemoteMpcLinkAdapter::Crea
                                                                                    ipc::RemoteMpcLink::Config config,
                                                                                    MpcResetSupervisor::Config supervisorConfig) {
   std::unique_ptr<RemoteMpcLinkAdapter> adapter = absl::WrapUnique(new RemoteMpcLinkAdapter(supervisorConfig));
-  absl::StatusOr<std::unique_ptr<ipc::RemoteMpcLink>> link = ipc::RemoteMpcLink::Create(bus, adapter->resetSupervisor(), config);
+  absl::StatusOr<std::unique_ptr<ipc::RemoteMpcLink>> link = ipc::RemoteMpcLink::Create(bus, adapter->resetSupervisor(), std::move(config));
   if (!link.ok()) {
     return link.status();
   }

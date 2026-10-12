@@ -129,9 +129,9 @@ RobotConfigDirectory::Files writeStore(const std::string& directory) {
 /** The store's configuration over `files`, for the whole-body G1. */
 ConfigFileStore::Config storeConfig(const RobotConfigDirectory::Files& files) {
   ConfigFileStore::Config config;
-  config.task = {.path = files.taskFile, .identity = kTaskIdentity};
-  config.reference = {.path = files.referenceFile, .identity = kReferenceIdentity};
-  config.pdGains = {.path = files.pdGainsFile, .identity = kPdGainsIdentity};
+  config.task = {.path = files.taskFile, .identity = kTaskIdentity, .inPlacePath = ""};
+  config.reference = {.path = files.referenceFile, .identity = kReferenceIdentity, .inPlacePath = ""};
+  config.pdGains = {.path = files.pdGainsFile, .identity = kPdGainsIdentity, .inPlacePath = ""};
   config.robotName = kRobotName;
   config.maxTextBytes = 4096;
   return config;

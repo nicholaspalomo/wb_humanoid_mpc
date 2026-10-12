@@ -46,15 +46,34 @@ class TestPinocchioFrameConversions : public ::testing::Test {
   CentroidalTestingModelInterface testingModelInterface_ = CentroidalTestingModelInterface();
   PinocchioInterface pinocchioInterface_ = testingModelInterface_.getPinocchioInterface();
   const CentroidalMpcRobotModel<scalar_t>& mpcRobotModel_ = testingModelInterface_.getMpcRobotModel();
-  vector_t q_ = vector_t::Zero(mpcRobotModel_.getGenCoordinatesDim());
+  vector_t q_ = levelConfiguration(/*hipPitchAngle=*/0.0);
 
-  void SetUp() override {
-    q_ = vector_t::Zero(mpcRobotModel_.getGenCoordinatesDim());
-    q_[2] = 0.8415;
+  /**
+   * q = [p_W, xi, q_j] of the level base (the identity quaternion) at standing height, both hip pitches at
+   * `hipPitchAngle` and every other joint straight. The testing model is the G1, whose MPC joint order starts
+   * left_hip_pitch, left_hip_roll, left_hip_yaw, left_knee, left_ankle_pitch, left_ankle_roll, right_hip_pitch, ...: the
+   * hip pitches are joints 0 and 6. Both legs are rotated, because both contact frames are checked against the same
+   * expected rotation (setting only the left one left the right foot at identity).
+   */
+  vector_t levelConfiguration(scalar_t hipPitchAngle) const {
+    vector_t state = mpcRobotModel_.getNeutralState();
+    mpcRobotModel_.setBasePosition(state, vector3_t(0.0, 0.0, 0.8415));
+    vector_t joints = vector_t::Zero(static_cast<Eigen::Index>(mpcRobotModel_.getJointDim()));
+    joints(0) = hipPitchAngle;
+    joints(6) = hipPitchAngle;
+    mpcRobotModel_.setJointAngles(state, joints);
+    return mpcRobotModel_.getGeneralizedCoordinates(state);
   }
 
-  void TearDown() override {
-    // This will be called after each test
+  /** A configuration of the base at 0.88 m height, a random attitude and random joint angles. */
+  vector_t randomConfiguration() const {
+    vector_t state = mpcRobotModel_.getNeutralState();
+    vector3_t position = vector3_t::Random();
+    position.z() = 0.88;
+    mpcRobotModel_.setBasePosition(state, position);
+    mpcRobotModel_.setBaseOrientation(state, vector4_t::Random());
+    mpcRobotModel_.setJointAngles(state, vector_t::Random(static_cast<Eigen::Index>(mpcRobotModel_.getJointDim())));
+    return mpcRobotModel_.getGeneralizedCoordinates(state);
   }
 };
 
@@ -66,14 +85,9 @@ TEST_F(TestPinocchioFrameConversions, rotateVectorLocalToWorld3D) {
     EXPECT_TRUE(testVector.isApprox(rotateVectorLocalToWorld<scalar_t>(testVector, pinocchioInterface_.getData(), contactIndex)));
   }
 
-  // Both contact frames are checked against the same expected rotation below, so BOTH legs have to be rotated by it.
-  // The generalized coordinates are [base(6), joints], and the testing model is the G1, whose MPC joint order starts
-  // left_hip_pitch, left_hip_roll, left_hip_yaw, left_knee, left_ankle_pitch, left_ankle_roll, right_hip_pitch, ...
-  // so the two hip pitches are q[6] and q[12]. Setting only q[6] leaves the right foot at identity, which is what
-  // made this assertion fail for the right foot once the loop actually started iterating.
+  // Both legs rotated by the hip pitch (levelConfiguration()).
   scalar_t hipPitchAngle = 0.5;
-  q_[6] = hipPitchAngle;
-  q_[12] = hipPitchAngle;
+  q_ = levelConfiguration(hipPitchAngle);
 
   matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(vector3_t(0.0, hipPitchAngle, 0.0));
   updateFramePlacements<scalar_t>(q_, pinocchioInterface_);
@@ -93,14 +107,9 @@ TEST_F(TestPinocchioFrameConversions, rotateVectorWorldToLocal3D) {
     EXPECT_TRUE(testVector.isApprox(rotateVectorWorldToLocal<scalar_t>(testVector, pinocchioInterface_.getData(), contactIndex)));
   }
 
-  // Both contact frames are checked against the same expected rotation below, so BOTH legs have to be rotated by it.
-  // The generalized coordinates are [base(6), joints], and the testing model is the G1, whose MPC joint order starts
-  // left_hip_pitch, left_hip_roll, left_hip_yaw, left_knee, left_ankle_pitch, left_ankle_roll, right_hip_pitch, ...
-  // so the two hip pitches are q[6] and q[12]. Setting only q[6] leaves the right foot at identity, which is what
-  // made this assertion fail for the right foot once the loop actually started iterating.
+  // Both legs rotated by the hip pitch (levelConfiguration()).
   scalar_t hipPitchAngle = 0.5;
-  q_[6] = hipPitchAngle;
-  q_[12] = hipPitchAngle;
+  q_ = levelConfiguration(hipPitchAngle);
 
   matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(vector3_t(0.0, -hipPitchAngle, 0.0));
   updateFramePlacements<scalar_t>(q_, pinocchioInterface_);
@@ -114,8 +123,7 @@ TEST_F(TestPinocchioFrameConversions, rotateVectorWorldToLocal3D) {
 
 TEST_F(TestPinocchioFrameConversions, backAndForthVector3D) {
   for (int i = 0; i < 25; ++i) {
-    vector_t q = vector_t::Random(mpcRobotModel_.getGenCoordinatesDim());
-    q[2] = 0.88;
+    const vector_t q = randomConfiguration();
 
     updateFramePlacements<scalar_t>(q, pinocchioInterface_);
 
@@ -136,14 +144,9 @@ TEST_F(TestPinocchioFrameConversions, rotateVectorLocalToWorld6D) {
     EXPECT_TRUE(testVector.isApprox(rotateVectorLocalToWorld<scalar_t>(testVector, pinocchioInterface_.getData(), contactIndex)));
   }
 
-  // Both contact frames are checked against the same expected rotation below, so BOTH legs have to be rotated by it.
-  // The generalized coordinates are [base(6), joints], and the testing model is the G1, whose MPC joint order starts
-  // left_hip_pitch, left_hip_roll, left_hip_yaw, left_knee, left_ankle_pitch, left_ankle_roll, right_hip_pitch, ...
-  // so the two hip pitches are q[6] and q[12]. Setting only q[6] leaves the right foot at identity, which is what
-  // made this assertion fail for the right foot once the loop actually started iterating.
+  // Both legs rotated by the hip pitch (levelConfiguration()).
   scalar_t hipPitchAngle = 0.5;
-  q_[6] = hipPitchAngle;
-  q_[12] = hipPitchAngle;
+  q_ = levelConfiguration(hipPitchAngle);
 
   matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(vector3_t(0.0, hipPitchAngle, 0.0));
   updateFramePlacements<scalar_t>(q_, pinocchioInterface_);
@@ -164,14 +167,9 @@ TEST_F(TestPinocchioFrameConversions, rotateVectorWorldToLocal6D) {
     EXPECT_TRUE(testVector.isApprox(rotateVectorWorldToLocal<scalar_t>(testVector, pinocchioInterface_.getData(), contactIndex)));
   }
 
-  // Both contact frames are checked against the same expected rotation below, so BOTH legs have to be rotated by it.
-  // The generalized coordinates are [base(6), joints], and the testing model is the G1, whose MPC joint order starts
-  // left_hip_pitch, left_hip_roll, left_hip_yaw, left_knee, left_ankle_pitch, left_ankle_roll, right_hip_pitch, ...
-  // so the two hip pitches are q[6] and q[12]. Setting only q[6] leaves the right foot at identity, which is what
-  // made this assertion fail for the right foot once the loop actually started iterating.
+  // Both legs rotated by the hip pitch (levelConfiguration()).
   scalar_t hipPitchAngle = 0.5;
-  q_[6] = hipPitchAngle;
-  q_[12] = hipPitchAngle;
+  q_ = levelConfiguration(hipPitchAngle);
 
   matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(vector3_t(0.0, -hipPitchAngle, 0.0));
   updateFramePlacements<scalar_t>(q_, pinocchioInterface_);
@@ -186,8 +184,7 @@ TEST_F(TestPinocchioFrameConversions, rotateVectorWorldToLocal6D) {
 
 TEST_F(TestPinocchioFrameConversions, backAndForthVector6D) {
   for (int i = 0; i < 25; ++i) {
-    vector_t q = vector_t::Random(mpcRobotModel_.getGenCoordinatesDim());
-    q[2] = 0.88;
+    const vector_t q = randomConfiguration();
 
     updateFramePlacements<scalar_t>(q, pinocchioInterface_);
 
@@ -200,46 +197,9 @@ TEST_F(TestPinocchioFrameConversions, backAndForthVector6D) {
   }
 }
 
-// These tests are disabled since they change with model updates
-
-// TEST_F(TestPinocchioFrameConversions, transformPointLocalToWorld) {
-//   scalar_t kneeAngle = 0.5;
-//   q[6] = kneeAngle;
-
-//   updateFramePlacements<scalar_t>(q, pinocchioInterface);
-
-//   vector3_t leftContactPosInWorldFrame(-0.36582, 0.08950, 0.12097);
-//   EXPECT_TRUE(leftContactPosInWorldFrame.isApprox(
-//       transformPointLocalToWorld<scalar_t>(vector3_t::Zero(), pinocchioInterface.getData(), getContactFrameIndex(pinocchioInterface, 0)),
-//       1e-3));
-//   vector3_t rightContactPosInWorldFrame(0.04286, -0.08950, 0.03850);
-//   EXPECT_TRUE(rightContactPosInWorldFrame.isApprox(
-//       transformPointLocalToWorld<scalar_t>(vector3_t::Zero(), pinocchioInterface.getData(), getContactFrameIndex(pinocchioInterface, 1)),
-//       1e-3));
-// }
-
-// TEST_F(TestPinocchioFrameConversions, transformPointWorldToLocal) {
-//   scalar_t kneeAngle = 0.5;
-//   q[2] = 0.88;
-//   q[6] = kneeAngle;
-//   vector3_t zeroVec = vector3_t::Zero();
-
-//   updateFramePlacements<scalar_t>(q, pinocchioInterface);
-
-//   vector3_t leftContactPosInWorldFrame(-0.36582, 0.08950, 0.12097);
-//   EXPECT_TRUE(transformPointWorldToLocal<scalar_t>(leftContactPosInWorldFrame, pinocchioInterface.getData(),
-//                                                    getContactFrameIndex(pinocchioInterface, 0))
-//                   .isZero(1e-3));
-//   vector3_t rightContactPosInWorldFrame(0.04286, -0.08950, 0.03850);
-//   EXPECT_TRUE(transformPointWorldToLocal<scalar_t>(rightContactPosInWorldFrame, pinocchioInterface.getData(),
-//                                                    getContactFrameIndex(pinocchioInterface, 1))
-//                   .isZero(1e-3));
-// }
-
 TEST_F(TestPinocchioFrameConversions, transformPointBackAndForth) {
   for (int i = 0; i < 25; ++i) {
-    vector_t q = vector_t::Random(mpcRobotModel_.getGenCoordinatesDim());
-    q[2] = 0.88;
+    const vector_t q = randomConfiguration();
 
     updateFramePlacements<scalar_t>(q, pinocchioInterface_);
 

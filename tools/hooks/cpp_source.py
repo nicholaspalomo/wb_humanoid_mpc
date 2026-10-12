@@ -412,6 +412,40 @@ def matching(tokens: tuple[Token, ...], index: int) -> int:
     return len(tokens)
 
 
+def call_arguments(
+    tokens: tuple[Token, ...], index: int
+) -> list[tuple[Token, ...]] | None:
+    """Splits the argument list that opens at tokens[index] at its top-level commas.
+
+    Args:
+      tokens: Code tokens (code_tokens()).
+      index: The index of the `(` or `{` that opens the list.
+
+    Returns:
+      The tokens of each argument, in order (an empty list for `()`), or None when the list is never closed. A comma
+      inside a nested bracket does not split; one inside a template argument list does, since a lexer cannot tell `<`
+      from a comparison.
+    """
+    close = matching(tokens, index)
+    if close >= len(tokens):
+        return None
+    arguments: list[tuple[Token, ...]] = []
+    start = index + 1
+    k = start
+    while k < close:
+        text = tokens[k].text
+        if text in _OPENING:
+            k = matching(tokens, k) + 1
+            continue
+        if text == ",":
+            arguments.append(tokens[start:k])
+            start = k + 1
+        k += 1
+    if start < close or arguments:
+        arguments.append(tokens[start:close])
+    return arguments
+
+
 def matching_angle(tokens: tuple[Token, ...], index: int) -> int:
     """Finds the end of the template argument list whose `<` is tokens[index].
 

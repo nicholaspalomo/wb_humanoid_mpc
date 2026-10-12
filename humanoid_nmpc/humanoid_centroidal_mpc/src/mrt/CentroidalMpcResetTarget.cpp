@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
 
+#include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 namespace ocs2::humanoid {
@@ -46,9 +47,9 @@ TargetTrajectories centroidalMpcResetTargetTrajectories(const SystemObservation&
   // Zero out the normalized momentum (linear and angular momentum: the first 6 entries).
   centroidal_model::getNormalizedMomentum(targetState, info).setZero();
 
-  // Zero out the base pitch (index 10) and roll (index 11), so that the target base is upright.
-  targetState(10) = 0.0;
-  targetState(11) = 0.0;
+  // The base upright at the observed heading: the heading quaternion of the observed attitude, its twist about the world
+  // z axis with the tilt dropped (design decision D9). A measured attitude, so it is written as one (setBaseOrientation).
+  effectiveModel.setBaseOrientation(targetState, headingQuaternion(effectiveModel.getBaseOrientation(targetState)));
 
   // Weight-compensating vertical contact forces (mg/2 per foot in stance). The state-aware overload expresses the
   // world-frame force in the effective model's input parameterization at the target configuration.

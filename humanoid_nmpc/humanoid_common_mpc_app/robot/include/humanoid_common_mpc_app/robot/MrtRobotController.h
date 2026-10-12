@@ -45,8 +45,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The order in which the ROS sims handed a cycle's mode and posture to their controller: the centroidal sim set the
- * mode first, the whole-body sim the posture first. Kept per formulation, so that each behaves exactly as before.
+ * The order in which a cycle hands its mode and posture to the controller, per formulation: the centroidal robot process
+ * sets the mode first, the whole-body robot process the posture first.
  */
 enum class CycleInputOrder {
   kModeThenPosture,

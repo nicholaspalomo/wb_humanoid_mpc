@@ -27,13 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <iostream>
-#include <mutex>
-
 #include "absl/base/nullability.h"
-
-#include <ocs2_core/misc/LinearAlgebra.h>
-#include <ocs2_core/misc/Numerics.h>
 
 #include <ocs2_oc/oc_solver/SolverBase.h>
 #include <ocs2_oc/synchronized_module/ReferenceManager.h>
@@ -89,14 +83,6 @@ PrimalSolution SolverBase::primalSolution(scalar_t finalTime) const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void SolverBase::printString(const std::string& text) const {
-  std::lock_guard<std::mutex> outputDisplayGuard(outputDisplayGuardMutex_);
-  std::cerr << text << '\n';
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 void SolverBase::preRun(scalar_t initTime, const vector_t& initState, size_t initMode, scalar_t finalTime) {
   referenceManagerPtr_->preSolverRun(initTime, finalTime, initState, initMode);
 
@@ -109,17 +95,10 @@ void SolverBase::preRun(scalar_t initTime, const vector_t& initState, size_t ini
 /******************************************************************************************************/
 /******************************************************************************************************/
 void SolverBase::postRun() {
-  if (!synchronizedModules_.empty() || !solverObservers_.empty()) {
+  if (!synchronizedModules_.empty()) {
     const auto solution = primalSolution(getFinalTime());
     for (auto& module : synchronizedModules_) {
       module->postSolverRun(solution);
-    }
-    for (auto& observer : solverObservers_) {
-      observer->extractTermConstraint(getOptimalControlProblem(), solution, getSolutionMetrics());
-      observer->extractTermLagrangianMetrics(getOptimalControlProblem(), solution, getSolutionMetrics());
-      if (getDualSolution() != nullptr) {
-        observer->extractTermMultipliers(getOptimalControlProblem(), *getDualSolution());
-      }
     }
   }
 }

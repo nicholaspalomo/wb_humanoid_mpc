@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/StateLayout.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
@@ -102,7 +103,7 @@ TEST(ModelSettingsCreate, LoadsTheActiveJointsOfTheUrdf) {
   EXPECT_EQ(settings->full_joint_dim, 2U);
   EXPECT_THAT(settings->mpcModelJointNames, ::testing::UnorderedElementsAre("shoulder", "hip"));
   EXPECT_FALSE(settings->hasArmSwingJoints) << "a file without arm_joint_names disables the arm swing";
-  EXPECT_EQ(settings->modelFolderCppAd, "cppad_code_gen/cppad_test_two_joints");
+  EXPECT_EQ(settings->modelFolderCppAd, absl::StrCat("cppad_code_gen/cppad_test_two_joints/", kStateLayoutTag));
 }
 
 TEST(ModelSettingsCreate, FixingEveryJointIsRefused) {
@@ -170,7 +171,7 @@ TEST(ModelSettingsCreate, TheSettingsMoveWithEveryField) {
   const ModelSettings moved = *std::move(created);
   EXPECT_EQ(moved.mpc_joint_dim, 2U);
   EXPECT_EQ(moved.jointIndexMap.size(), 2U);
-  EXPECT_EQ(moved.modelFolderCppAd, "cppad_code_gen/cppad_test_two_joints");
+  EXPECT_EQ(moved.modelFolderCppAd, absl::StrCat("cppad_code_gen/cppad_test_two_joints/", kStateLayoutTag));
 }
 
 TEST(GaitScheduleCreate, LoadsTheReferenceFileOrReportsWhyNot) {

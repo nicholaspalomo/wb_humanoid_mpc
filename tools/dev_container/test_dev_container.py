@@ -99,8 +99,6 @@ _CONTAINER_FILES = (
     "dependencies.txt",
     "docker/Dockerfile",
     "docker/install_robotpkg.sh",
-    "docker/image_build.bash",
-    "docker/launch_wb_mpc.bash",
     "docker-compose.yaml",
     "docker-compose.bridge.yaml",
     "docker-compose.gpu.yaml",
@@ -359,17 +357,41 @@ class SystemPackagesTest(unittest.TestCase):
 
     def test_the_image_installs_the_dependency_list(self):
         self.assertIn(
-            "grep -v '^\\s*#' /tmp/dependencies.txt | envsubst | xargs apt-get install",
+            "grep -v '^\\s*#' /tmp/dependencies.txt | xargs apt-get install",
             _read("docker/Dockerfile"),
         )
 
 
+# A `ports:` entry of compose's short syntax: "[<host address>:]<host port>[-<last>]:<container port>[-<last>][/tcp|udp]",
+# the address an IPv4 one or a bracketed IPv6 one.
+_PORT_ENTRY_RE = re.compile(
+    r'^\s+- "(?:(\d{1,3}(?:\.\d{1,3}){3}|\[[0-9A-Fa-f:]+\]):)?'
+    r'(\d+)(?:-(\d+))?:(\d+)(?:-(\d+))?(?:/(?:tcp|udp))?"$',
+    re.M,
+)
+
+
+def _published_addresses(compose: str) -> dict[int, str]:
+    """Container port -> the host address of its `ports:` entry ("" for every interface), ranges expanded."""
+    addresses: dict[int, str] = {}
+    for address, _, _, first, last in _PORT_ENTRY_RE.findall(compose):
+        for port in range(int(first), int(last or first) + 1):
+            addresses[port] = address
+    return addresses
+
+
 def _published_ports(compose: str) -> dict[int, int]:
-    """Container port -> host port of every `ports:` entry of a compose file, ranges expanded."""
+    """Container port -> host port of every `ports:` entry of a compose file, ranges expanded.
+
+    Args:
+        compose: The compose file's text. An entry may name the host address it is published on
+            ("127.0.0.1:6090:6090/tcp"), which _published_addresses returns.
+
+    Returns:
+        The host port of each published container port; an entry this parser does not recognize is left out.
+    """
     published: dict[int, int] = {}
-    for host_first, host_last, first, last in re.findall(
-        r'^\s+- "(\d+)(?:-(\d+))?:(\d+)(?:-(\d+))?(?:/(?:tcp|udp))?"$', compose, re.M
-    ):
+    for _, host_first, host_last, first, last in _PORT_ENTRY_RE.findall(compose):
         host_ports = range(int(host_first), int(host_last or host_first) + 1)
         container_ports = range(int(first), int(last or first) + 1)
         published.update(zip(container_ports, host_ports))
@@ -407,6 +429,30 @@ class HostNetworkTest(unittest.TestCase):
         self.assertRegex(override, r"(?m)^\s+dns:")
 
 
+class PublishedPortsParserTest(unittest.TestCase):
+    """The parser of compose's `ports:` entries, on entries with and without a host address."""
+
+    _COMPOSE = (
+        "    ports:\n"
+        '      - "5600-5602:5600-5602/tcp"\n'
+        '      - "127.0.0.1:6090:6090/tcp"\n'
+        '      - "[::1]:7000:7001"\n'
+        '      - "8888:8888"\n'
+    )
+
+    def test_an_entry_with_a_host_address_is_published_at_its_ports(self):
+        self.assertEqual(
+            _published_ports(self._COMPOSE),
+            {5600: 5600, 5601: 5601, 5602: 5602, 6090: 6090, 7001: 7000, 8888: 8888},
+        )
+
+    def test_the_host_address_of_each_entry(self):
+        self.assertEqual(
+            _published_addresses(self._COMPOSE),
+            {5600: "", 5601: "", 5602: "", 6090: "127.0.0.1", 7001: "[::1]", 8888: ""},
+        )
+
+
 class PortsTest(unittest.TestCase):
     """What docker-compose.bridge.yaml publishes where the host network is not the computer's (Docker Desktop)."""
 
@@ -427,6 +473,16 @@ class PortsTest(unittest.TestCase):
         # Rerun's gRPC server and web viewer, noVNC and VNC, Jupyter.
         for port in (9876, 9090, 6080, 5901, 8888):
             self.assertIn(port, self.published)
+
+    def test_the_mujoco_web_viewer_is_published_on_the_computers_loopback_only(self):
+        # The robot process binds it on every interface of the container's bridge network (--web_viewer_address=0.0.0.0),
+        # so the host side keeps it off the computer's own network.
+        self.assertEqual(self.published.get(6090), 6090)
+        self.assertEqual(
+            _published_addresses(_read("docker-compose.bridge.yaml")).get(6090),
+            "127.0.0.1",
+        )
+        self.assertIn(6090, _devcontainer()["forwardPorts"])
 
     def test_the_ports_of_the_plotjuggler_display_and_of_dds_are_gone(self):
         self.assertEqual(_REMOVED_PORTS & set(self.published), set())
@@ -454,9 +510,9 @@ class DisplayTest(unittest.TestCase):
         self.assertIn('DISPLAY: "%s"' % display.group(1), _read("docker-compose.yaml"))
         self.assertEqual(_devcontainer()["containerEnv"]["DISPLAY"], display.group(1))
 
-    def test_a_stale_second_display_mode_is_refused_before_anything_starts(self):
+    def test_an_argument_that_is_no_resolution_is_refused_before_anything_starts(self):
         script = _runfile(".devcontainer/start_vnc.sh")
-        for argument in ("plotjuggler", "main"):
+        for argument in ("1920", "wide"):
             with self.subTest(argument=argument):
                 result = subprocess.run(
                     ["bash", script, argument],
@@ -472,8 +528,6 @@ class DisplayTest(unittest.TestCase):
             ".devcontainer/start_vnc.sh",
             ".devcontainer/post_create.sh",
             ".devcontainer/shell_init.sh",
-            "docker/image_build.bash",
-            "docker/launch_wb_mpc.bash",
             "tools/ci_local.sh",
         ):
             with self.subTest(path=path):

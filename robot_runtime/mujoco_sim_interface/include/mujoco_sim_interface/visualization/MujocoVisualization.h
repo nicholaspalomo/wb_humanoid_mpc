@@ -46,12 +46,15 @@ class MujocoSimInterface;
  * default-constructed or partial frame, as in the tests), so a hook checks the ones it reads.
  */
 struct VisualizationFrame {
-  const MujocoSimInterface* absl_nullable sim{nullptr};  // simulator (model, config, data published by the control thread)
-  const MjState* absl_nullable state{nullptr};           // copy of the physics state the frame is drawn from (mj_forward has run on it)
-  mjvOption* absl_nullable options{nullptr};             // MuJoCo visualization flags of the viewer
-  mjvScene* absl_nullable scene{nullptr};                // abstract scene; addSceneGeoms appends decor geoms here
-  const mjrContext* absl_nullable context{nullptr};      // GPU context, for text and 2D overlays
-  mjrRect viewport{0, 0, 0, 0};                          // framebuffer rectangle in pixels, origin bottom-left
+  const MujocoSimInterface* absl_nullable sim{nullptr};  // simulator (config, data published by the control thread)
+  // The model the frame is drawn with: the simulator's own (GLFW window) or the viewer's private copy of it (web), which
+  // the physics thread never writes. Visualizations read this one, not sim->getModel().
+  const mjModel* absl_nullable model{nullptr};
+  const MjState* absl_nullable state{nullptr};       // copy of the physics state the frame is drawn from (mj_forward has run on it)
+  mjvOption* absl_nullable options{nullptr};         // MuJoCo visualization flags of the viewer
+  mjvScene* absl_nullable scene{nullptr};            // abstract scene; addSceneGeoms appends decor geoms here
+  const mjrContext* absl_nullable context{nullptr};  // GPU context, for text and 2D overlays
+  mjrRect viewport{0, 0, 0, 0};                      // framebuffer rectangle in pixels, origin bottom-left
   double renderFps = 0.0;
   double elapsedRealTime = 0.0;  // [s] wall-clock time since the viewer started
 };

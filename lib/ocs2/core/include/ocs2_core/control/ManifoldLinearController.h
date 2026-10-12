@@ -52,9 +52,30 @@ namespace ocs2 {
  * LinearController's u = uff + K x cannot represent this: its K would multiply the ambient state, which has more entries
  * than the tangent the gains act on. At a node the law is exact; on a flat manifold it is LinearController's.
  *
+ * K_k is the gain of the solver's last QP, linearized at the pre-step iterate x_old,k. The controller applies it with
+ * unchanged body-frame components at the post-step anchor xbar_k = x_old,k (+) alpha dx_k, as the flat solver applies
+ * its pre-step gain at the post-step state. On a curved manifold that is not the QP's own affine law
+ * u_old,k + alpha k_k + K_k (x (-) x_old,k): with a = alpha dx_k and e = x (-) xbar_k on a quaternion block and K_k,rot
+ * the gain's columns of that block, the two differ by K_k,rot (e + a - Log(Exp(a) Exp(e))) = -K_k,rot (Jr^-1(a) - I) e
+ * + O(|e|^2), where ||Jr^-1(a) - I||_2 = (t / 2) sqrt(1 + 4 c(t)^2 t^2), t = |a| and
+ * c(t) = 1 / t^2 - (1 + cos t) / (2 t sin t): at most 1.037 t / 2 for t <= pi / 2, the warm-start guard's bound on the
+ * step of node 0. Neither law is the linearization of the exact policy at xbar_k; both miss its second derivative along
+ * the step, as every pre-step gain does. The QP's law is exact along directions in which the policy is affine in
+ * x (-) x_old,k. This one is exact along the orbit of a world-frame rotation that leaves the exact policy unchanged when
+ * it turns the orientation block alone, i.e. that leaves the dynamics, every cost and every constraint, the references
+ * held fixed, unchanged: the heading of an attitude-only model whose terms see the orientation through its tilt alone.
+ * The robots' MPCs are not such problems: their world-frame momentum, positions, contact forces and references turn
+ * relative to the base when only its yaw does, so their policy is at most equivariant (u*(g x) = g u*(x), g turning
+ * every world-frame quantity), its gain turns with g, and neither law is exact along the heading. The controller keeps
+ * the body-frame components because no choice is exact without the policy's second derivative, the two laws differ by
+ * a term bilinear in the step and the deviation (the order of the flat solver's own pre-step-gain error), and along a
+ * world-yaw step this law is the Euler layout's (design README section 2.7, "Policy").
+ *
  * The anchor of a pre-event node is copied from the node before it, together with its input and gain, as the flat
  * solver copies uff and K there. Because the difference takes the shortest path, the policy is invariant under the
- * double cover: u(t, x) = u(t, x') whenever x and x' differ by the sign of a quaternion block.
+ * double cover, u(t, x) = u(t, x') whenever x and x' differ by the sign of a quaternion block, except where that block
+ * of x is an exact half turn (w = +-0) from an anchor's: there difference() returns the other logarithm for x'
+ * (StateManifold.h, ocs2::quaternionLog()), and the K_k term of the block changes sign.
  */
 class ManifoldLinearController final : public ControllerBase {
  public:
@@ -84,8 +105,6 @@ class ManifoldLinearController final : public ControllerBase {
 
   vector_t computeInput(scalar_t t, const vector_t& x) override;
 
-  void concatenate(const ControllerBase* absl_nonnull nextController, int index, int length) override;
-
   int size() const override { return static_cast<int>(timeStamp_.size()); }
 
   ControllerType getType() const override { return ControllerType::MANIFOLD_LINEAR; }
@@ -96,7 +115,12 @@ class ManifoldLinearController final : public ControllerBase {
 
   void display() const override;
 
-  scalar_array_t controllerEventTimes() const override;
+  /**
+   * Keeps the first `length` nodes - time stamps, anchor states, nominal inputs and gains - and drops the rest, as a
+   * solution time window cuts a policy (humanoid_mpc_ipc's trimToSolutionWindow()). A length of size() or more keeps
+   * every node. The law on the kept nodes is unchanged, and so is the state manifold.
+   */
+  void keepFirst(size_t length);
 
   /** The gain at `time`, linearly interpolated between the nodes (inputs x tangent). */
   matrix_t getFeedbackGain(scalar_t time) const;

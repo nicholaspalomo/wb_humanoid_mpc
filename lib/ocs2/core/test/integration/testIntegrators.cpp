@@ -52,7 +52,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/integration/Integrator.h>
 #include <ocs2_core/integration/Observer.h>
 #include <ocs2_core/integration/OdeBase.h>
-#include <ocs2_core/integration/SystemEventHandler.h>
 
 namespace ocs2 {
 namespace {
@@ -84,21 +83,6 @@ class RecordingOde final : public OdeBase {
  private:
   flow_t flow_;
   bool alternate_;
-};
-
-/** Throws its event id once the first coordinate of the observed state exceeds a threshold. */
-class ThresholdEventHandler final : public SystemEventHandler {
- public:
-  explicit ThresholdEventHandler(scalar_t threshold) : threshold_(threshold) {}
-
-  std::pair<bool, size_t> checkEvent(OdeBase& /*system*/, scalar_t /*time*/, const vector_t& state) override {
-    return {state(0) > threshold_, kEventId};
-  }
-
-  static constexpr size_t kEventId = 7;
-
- private:
-  scalar_t threshold_;
 };
 
 enum class Mode { kConst, kAdaptive, kTimes };
@@ -628,32 +612,6 @@ TEST(Integrators, theMaximumNumberOfFunctionCallsEndsTheIntegration) {
       } catch (const std::runtime_error& error) {
         EXPECT_NE(std::string(error.what()).find("maximum number of function calls"), std::string::npos) << error.what();
       }
-    }
-  }
-}
-
-TEST(Integrators, anEventOfTheEventHandlerEndsTheIntegrationAtTheObservation) {
-  // x' = 1 from 0 crosses the threshold at t = 0.6.
-  const Problem ramp{[](scalar_t, const vector_t& x) -> vector_t { return vector_t::Ones(x.size()); }, vector_t::Zero(1)};
-  for (IntegratorType type : kOdeintTypes) {
-    const std::shared_ptr<SystemEventHandler> handler = std::make_shared<ThresholdEventHandler>(/*threshold=*/0.6);
-    const std::unique_ptr<IntegratorBase> integrator = newIntegrator(type, handler);
-    scalar_array_t times;
-    vector_array_t states;
-    Observer observer(&states, &times);
-    RecordingOde ode(ramp.flow, /*alternate=*/false);
-    try {
-      integrator->integrateAdaptive(ode, observer, ramp.x0, /*startTime=*/0.0, /*finalTime=*/5.0, /*dtInitial=*/0.01);
-      ADD_FAILURE() << integrator_type::toString(type) << " ran past the event";
-    } catch (size_t eventId) {
-      EXPECT_EQ(eventId, ThresholdEventHandler::kEventId);
-    }
-    // the observer sees the state that triggered the event, and the integration stops there
-    ASSERT_FALSE(states.empty());
-    EXPECT_GT(states.back()(0), 0.6) << integrator_type::toString(type);
-    EXPECT_LT(times.back(), 5.0);
-    for (size_t k = 0; k + 1 < states.size(); ++k) {
-      EXPECT_LE(states[k](0), 0.6);
     }
   }
 }

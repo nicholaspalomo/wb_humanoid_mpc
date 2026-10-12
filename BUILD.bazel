@@ -20,7 +20,9 @@ exports_files([
 # The environment script every shell, CI build and launch sources; //tools/setup_env:test_setup_env pins it.
 exports_files(["setup_env.sh"])
 
-# The Makefile, whose clang-tidy targets //tools/clang_tidy:test_lint_tidy_targets runs with stand-ins for Bazel.
+# The Makefile: //tools/clang_tidy:test_lint_tidy_targets runs its clang-tidy targets with stand-ins for Bazel,
+# //tools/deploy:test_deploy_files checks its launch and deployment targets, and //tools/hooks:test_lint_entry_points and
+# //tools/hooks:test_lint_enforcement check how it runs the hooks.
 exports_files(["Makefile"])
 
 # The issue templates, which //tools/dev_container:test_dev_container keeps free of ROS.
@@ -47,8 +49,6 @@ exports_files([
     ".devcontainer/start_vnc.sh",
     "docker-compose.bridge.yaml",
     "docker-compose.gpu.yaml",
-    "docker/image_build.bash",
-    "docker/launch_wb_mpc.bash",
 ])
 
 # The Bazelisk wrapper that serializes the builds of every container on this machine, and the container shell setup that
@@ -87,14 +87,15 @@ exports_files([
 # configurations.
 exports_files(["AGENTS.md"])
 
-# The robot deployment: the robot's compose files, the build of the robot images, the Pinocchio source build of their
-# arm64 stage, and the Makefile and dev container README that list the launch targets; //tools/deploy:test_deploy_files
-# checks them.
+# The Python import roots of the editor's language server, which //tools/ide:test_ide_setup checks against the BUILD
+# files' `imports`.
+exports_files(["pyrightconfig.json"])
+
+# The robot deployment: the robot's compose files and the dev container README that lists the launch targets;
+# //tools/deploy:test_deploy_files checks them.
 exports_files([
     ".devcontainer/README.md",
-    "Makefile",
     "docker-compose.robot.netem.yaml",
     "docker-compose.robot.sim.yaml",
     "docker-compose.robot.yaml",
-    "docker/build_pinocchio_from_source.sh",
 ])

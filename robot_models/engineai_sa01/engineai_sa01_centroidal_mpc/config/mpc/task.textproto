@@ -317,8 +317,9 @@ contact_implicit {
 # cannot be dragged negative. Several of these are physically negative (height_compensation.height_per_speed, for one).
 # Type the value into the entry box, which widens the bounds.
 #
-# Orientation sign: the base pose is Euler ZYX about a z-up world, so a POSITIVE pitch puts the nose DOWN. Leaning
-# into a forward command is therefore a POSITIVE pitch_per_forward_velocity - the sign of Bledt's own fitted +0.0725.
+# Orientation sign: the heuristic offsets are ZYX Euler angles of the base at the Euler boundary, about a z-up world,
+# so a POSITIVE pitch puts the nose DOWN. Leaning into a forward command is therefore a POSITIVE
+# pitch_per_forward_velocity - the sign of Bledt's own fitted +0.0725.
 locomotion_heuristics {
   # Each list ships empty, its candidate names commented out below, one line per entry, so that uncommenting a line
   # adds that name to its list. The offsets within a list are SUMMED, so the order here is
@@ -348,7 +349,7 @@ locomotion_heuristics {
     roll_per_lateral_velocity: 0.0  # a1 [rad s/m] roll reference per commanded lateral speed
     roll_offset: 0.0  # a0 [rad] standing roll trim
     # 0.0611 puts the nose down 0.049 rad (2.8 deg) at the 0.8 m/s of reference.textproto max_displacement_velocity_x, and
-    # POSITIVE is nose-down here (Euler ZYX about a z-up world). The coefficient is HALF AGAIN Atlas's 0.0407 purely
+    # POSITIVE is nose-down here (ZYX Euler angles about a z-up world). The coefficient is HALF AGAIN Atlas's 0.0407 purely
     # because SA01's stick is smaller (0.8 against 1.2 m/s): the lean at full command is the same 2.8 deg on both.
     pitch_per_forward_velocity: 0.0611  # a1 [rad s/m] pitch per commanded forward speed
     pitch_offset: 0.0  # a0 [rad] standing pitch trim

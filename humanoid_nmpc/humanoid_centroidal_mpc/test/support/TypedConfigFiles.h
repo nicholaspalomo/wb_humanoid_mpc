@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_mpc_config/contact_planning_file.nproto.h"
 #include "humanoid_mpc_config/reference_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
@@ -76,8 +77,18 @@ absl::StatusOr<CentroidalMpcConfig> loadConfigOf(const CentroidalRobotFiles& fil
  */
 absl::StatusOr<vector_t> defaultJointStateOf(const mpc_config::ReferenceFile& reference, const ModelSettings& modelSettings);
 
-/** The task file's initial_state on the centroidal state of `modelSettings` (stateValuesFromConfig()). */
-absl::StatusOr<vector_t> initialStateOf(const mpc_config::TaskFile& task, const ModelSettings& modelSettings);
+/**
+ * The task file's initial_state in the centroidal tuning layout of `modelSettings` (stateValuesFromConfig()): the vector
+ * a robot model's stateFromTuning() maps onto its state (the orientation rows, (yaw, pitch, roll), onto the base
+ * quaternion).
+ */
+absl::StatusOr<vector_t> initialTuningVectorOf(const mpc_config::TaskFile& task, const ModelSettings& modelSettings);
+
+/**
+ * The task file's initial_state on the state of `model`, as CentroidalMpcInterface builds its initial state:
+ * initialTuningVectorOf() of the model's settings, mapped by its stateFromTuning().
+ */
+absl::StatusOr<vector_t> initialStateOnModel(const mpc_config::TaskFile& task, const MpcRobotModelBase<scalar_t>& model);
 
 /**
  * The centroidal model info of `config` on `pinocchioInterface` and `modelSettings`, as CentroidalMpcInterface builds it:

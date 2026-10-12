@@ -71,17 +71,7 @@ class LinearController final : public ControllerBase {
   /** Clone */
   LinearController* absl_nonnull clone() const override;
 
-  /**
-   * @brief setController Assign control law
-   * @param [in] controllerTime: Time stamp array of the controller
-   * @param [in] controllerBias: The bias array.
-   * @param [in] controllerGain: The feedback gain array.
-   */
-  void setController(const scalar_array_t& controllerTime, const vector_array_t& controllerBias, const matrix_array_t& controllerGain);
-
   vector_t computeInput(scalar_t t, const vector_t& x) override;
-
-  void concatenate(const ControllerBase* absl_nonnull nextController, int index, int length) override;
 
   int size() const override;
 
@@ -92,12 +82,6 @@ class LinearController final : public ControllerBase {
   bool empty() const override;
 
   void display() const override;
-
-  void getFeedbackGain(scalar_t time, matrix_t& gain) const;
-
-  void getBias(scalar_t time, vector_t& bias) const;
-
-  scalar_array_t controllerEventTimes() const override;
 
   void flatten(const scalar_array_t& timeArray, const std::vector<std::vector<double>* absl_nonnull>& flatArray2) const override;
 
@@ -112,7 +96,6 @@ class LinearController final : public ControllerBase {
  public:
   scalar_array_t timeStamp_;
   vector_array_t biasArray_;
-  vector_array_t deltaBiasArray_;
   matrix_array_t gainArray_;
 
   friend void swap(LinearController& a, LinearController& b) noexcept;

@@ -48,17 +48,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/acom/AcomSirenWeightsG1.h"
 #include "humanoid_common_mpc/acom/AcomSirenWeightsSa01.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/orientation/BaseOrientation.h"
 
 namespace ocs2::humanoid {
 
 namespace {
-
-/// Number of generalized coordinates the floating base occupies in the Pinocchio
-/// model: 3 for position and 3 for the ZYX Euler angles.
-constexpr Eigen::Index kGeneralizedBaseDim = 6;
-
-/// Index of the first base orientation coordinate within q.
-constexpr Eigen::Index kBaseOrientationOffset = 3;
 
 using RowMajorMatrix = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
 
@@ -267,7 +261,7 @@ vector3_t AngularCenterOfMass::computeJointOrientationOffset(const vector_t& qJo
   return out;
 }
 
-matrix_t AngularCenterOfMass::computeJointOffsetJacobian(const vector_t& qJoints) const {
+AngularCenterOfMass::JointOffsetAndJacobian AngularCenterOfMass::computeJointOffsetAndJacobian(const vector_t& qJoints) const {
   checkWeightsLoaded();
   checkJointVectorSize(qJoints);
 
@@ -286,30 +280,29 @@ matrix_t AngularCenterOfMass::computeJointOffsetJacobian(const vector_t& qJoints
     x = affine.array().sin().matrix();
   }
 
-  // Output layer derivative: J = W_out * J_{L-1}
+  // Output layer: y = W_out * x + b_out, and its derivative J = W_out * J_{L-1}
   const SirenLayerWeights& outLayer = layers_[numLayers_];
-  matrix_t J_out = outLayer.weight * J;
-  return J_out;
+  return JointOffsetAndJacobian{.offset = outLayer.weight * x + outLayer.bias, .jacobian = outLayer.weight * J};
 }
 
-vector3_t AngularCenterOfMass::computeAcomOrientation(const vector_t& q) const {
-  // q = [pos_base(3), euler_zyx_base(3), q_joints(n_j)]
-  const vector3_t eulerZyxBase = q.segment<3>(kBaseOrientationOffset);
-  const vector_t qJoints = q.tail(q.size() - kGeneralizedBaseDim);
-  return eulerZyxBase + acomXyzToZyx(computeJointOrientationOffset(qJoints));
+matrix_t AngularCenterOfMass::computeJointOffsetJacobian(const vector_t& qJoints) const {
+  return computeJointOffsetAndJacobian(qJoints).jacobian;
 }
 
-matrix_t AngularCenterOfMass::computeAcomJacobian(const vector_t& q) const {
-  const Eigen::Index nJoints = q.size() - kGeneralizedBaseDim;
-  const matrix_t J_delta_zyx = acomJacobianXyzToZyx(computeJointOffsetJacobian(q.tail(nJoints)));
-
-  matrix_t J_acom = matrix_t::Zero(3, kGeneralizedBaseDim + nJoints);
-  // The base position columns are zero: translating the base does not rotate it.
-  // The base orientation columns are the identity, since the aCOM orientation is
-  // the base Euler triple plus a joint-only offset.
-  J_acom.block<3, 3>(0, kBaseOrientationOffset).setIdentity();
-  J_acom.block(0, kGeneralizedBaseDim, 3, nJoints) = J_delta_zyx;
-  return J_acom;
+// The JAX model mirrors the composition and its tangent Jacobian, for the training notebook and its tests.
+// LINT.IfChange(acom_attitude)
+vector4_t AngularCenterOfMass::acomAttitude(const vector4_t& xi, const vector_t& qJoints) const {
+  const vector3_t offset = computeJointOrientationOffset(qJoints);
+  return quaternionProduct(safelyNormalizedQuaternion(xi), quaternionExp(offset));
 }
+
+AcomAttitudeTangentJacobian AngularCenterOfMass::acomAttitudeTangentJacobian(const vector_t& qJoints) const {
+  const JointOffsetAndJacobian joints = computeJointOffsetAndJacobian(qJoints);
+  // xi_hat (x) Exp(dphi) (x) Exp(Delta_theta) = xi_a (x) Exp(R(Delta_theta)^T dphi), and
+  // Exp(Delta_theta + J dq) = Exp(Delta_theta) (x) Exp(J_r(Delta_theta) J dq), to first order.
+  return AcomAttitudeTangentJacobian{.baseOrientation = quaternionRotationMatrix(quaternionExp(joints.offset)).transpose(),
+                                     .jointAngles = so3RightJacobian(joints.offset) * joints.jacobian};
+}
+// LINT.ThenChange(//humanoid_learning/acom/models.py:acom_attitude)
 
 }  // namespace ocs2::humanoid

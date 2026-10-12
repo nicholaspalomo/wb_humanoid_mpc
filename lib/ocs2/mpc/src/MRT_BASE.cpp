@@ -184,8 +184,6 @@ bool MRT_BASE::updatePolicy() {
       activePerformanceIndicesPtr_.swap(bufferPerformanceIndicesPtr_);
       std::swap(activePolicyEpoch_, bufferPolicyEpoch_);
       newPolicyInBuffer_ = false;  // make sure we don't swap in the old policy again
-
-      modifyActiveSolution(*activeCommandPtr_, *activePrimalSolutionPtr_);
       return true;
     } else {
       return false;  // No policy update: the buffer contains nothing new.
@@ -225,33 +223,8 @@ void MRT_BASE::moveToBuffer(std::unique_ptr<CommandData> commandDataPtr,
   bufferPerformanceIndicesPtr_.swap(performanceIndicesPtr);
   bufferPolicyEpoch_ = policyEpoch_.load();
 
-  // allow user to modify the buffer
-  modifyBufferedSolution(*bufferCommandPtr_, *bufferPrimalSolutionPtr_);
-
   newPolicyInBuffer_ = true;
   policyReceivedEver_ = true;
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-void MRT_BASE::modifyActiveSolution(const CommandData& command, PrimalSolution& primalSolution) {
-  for (auto& mrtObserver : observerPtrArray_) {
-    if (mrtObserver != nullptr) {
-      mrtObserver->modifyActiveSolution(command, primalSolution);
-    }
-  }
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-void MRT_BASE::modifyBufferedSolution(const CommandData& commandBuffer, PrimalSolution& primalSolutionBuffer) {
-  for (auto& mrtObserver : observerPtrArray_) {
-    if (mrtObserver != nullptr) {
-      mrtObserver->modifyBufferedSolution(commandBuffer, primalSolutionBuffer);
-    }
-  }
 }
 
 }  // namespace ocs2

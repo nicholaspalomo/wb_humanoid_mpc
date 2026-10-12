@@ -79,11 +79,6 @@ SqpSolver::SqpSolver(sqp::Settings settings, const OptimalControlProblem& optima
   // Operating points
   initializerPtr_.reset(initializer.clone());
 
-  // The value function is a quadratic in the ambient state, which a tangent-space QP does not provide.
-  if (optimalControlProblem.stateManifoldPtr != nullptr && settings_.createValueFunction) {
-    throw std::invalid_argument("[SqpSolver] createValueFunction is not supported on a state manifold; set it to false.");
-  }
-
   // Linesearch
   filterLinesearch_.g_max = settings_.g_max;
   filterLinesearch_.g_min = settings_.g_min;
@@ -130,7 +125,6 @@ SqpSolver::~SqpSolver() {
 void SqpSolver::reset() {
   // Clear solution
   primalSolution_ = PrimalSolution();
-  valueFunction_.clear();
   performanceIndeces_.clear();
 
   initialStateGap_.resize(0);
@@ -188,30 +182,6 @@ const std::vector<PerformanceIndex>& SqpSolver::getIterationsLog() const {
   }
 }
 
-ScalarFunctionQuadraticApproximation SqpSolver::getValueFunction(scalar_t time, const vector_t& state) const {
-  if (getStateManifold() != nullptr) {
-    throw std::runtime_error("[SqpSolver] The value function is not available on a state manifold.");
-  }
-  if (valueFunction_.empty()) {
-    throw std::runtime_error("[SqpSolver] Value function is empty! Is createValueFunction true and did the solver run?");
-  } else {
-    // Interpolation
-    const auto indexAlpha = LinearInterpolation::timeSegment(time, primalSolution_.timeTrajectory_);
-
-    ScalarFunctionQuadraticApproximation valueFunction;
-    using T = std::vector<ocs2::ScalarFunctionQuadraticApproximation>;
-    using LinearInterpolation::interpolate;
-    valueFunction.f = 0.0;
-    valueFunction.dfdx = interpolate(indexAlpha, valueFunction_, [](const T& v, size_t ind) -> const vector_t& { return v[ind].dfdx; });
-    valueFunction.dfdxx = interpolate(indexAlpha, valueFunction_, [](const T& v, size_t ind) -> const matrix_t& { return v[ind].dfdxx; });
-
-    // Re-center around query state
-    valueFunction.dfdx.noalias() += valueFunction.dfdxx * state;
-
-    return valueFunction;
-  }
-}
-
 void SqpSolver::runImpl(scalar_t initTime, const vector_t& initState, scalar_t finalTime) {
   if (settings_.printSolverStatus || settings_.printLinesearch) {
     std::cerr << "\n++++++++++++++++++++++++++++++++++++++++++++++++++++++";
@@ -231,7 +201,7 @@ void SqpSolver::runImpl(scalar_t initTime, const vector_t& initState, scalar_t f
 
   // Trajectory spread of primalSolution_
   if (!primalSolution_.timeTrajectory_.empty()) {
-    std::ignore = trajectorySpread(primalSolution_.modeSchedule_, this->getReferenceManager().getModeSchedule(), primalSolution_);
+    trajectorySpread(primalSolution_.modeSchedule_, this->getReferenceManager().getModeSchedule(), primalSolution_);
   }
 
   // Initialize the state and input
@@ -278,7 +248,6 @@ void SqpSolver::runImpl(scalar_t initTime, const vector_t& initState, scalar_t f
       initialStateGap_ = delta_x0;
     }
     const auto deltaSolution = getOCPSolution(delta_x0);
-    extractValueFunction(timeDiscretization, x);
     solveQpTimer_.endTimer();
 
     // Apply step
@@ -361,19 +330,6 @@ SqpSolver::OcpSubproblemSolution SqpSolver::getOCPSolution(const vector_t& delta
   return solution;
 }
 
-void SqpSolver::extractValueFunction(const std::vector<AnnotatedTime>& time, const vector_array_t& x) {
-  if (settings_.createValueFunction) {
-    if (getStateManifold() != nullptr) {
-      throw std::runtime_error("[SqpSolver] createValueFunction is not supported on a state manifold; set it to false.");
-    }
-    valueFunction_ = hpipmInterface_.getRiccatiCostToGo(dynamics_[0], cost_[0]);
-    // Correct for linearization state
-    for (int i = 0; i < time.size(); ++i) {
-      valueFunction_[i].dfdx.noalias() -= valueFunction_[i].dfdxx * x[i];
-    }
-  }
-}
-
 PrimalSolution SqpSolver::toPrimalSolution(const std::vector<AnnotatedTime>& time, vector_array_t&& x, vector_array_t&& u) {
   if (settings_.useFeedbackPolicy) {
     ModeSchedule modeSchedule = this->getReferenceManager().getModeSchedule();
@@ -408,7 +364,6 @@ PerformanceIndex SqpSolver::setupQuadraticSubproblem(const std::vector<Annotated
   stateIneqConstraints_.resize(N + 1);
   stateInputIneqConstraints_.resize(N);
   constraintsProjection_.resize(N);
-  projectionMultiplierCoefficients_.resize(N);
   metrics.resize(N + 1);
 
   std::atomic_int timeIndex{0};
@@ -431,7 +386,6 @@ PerformanceIndex SqpSolver::setupQuadraticSubproblem(const std::vector<Annotated
         stateIneqConstraints_[i] = std::move(result.ineqConstraints);
         stateInputIneqConstraints_[i].resize(0, stateDim);
         constraintsProjection_[i].resize(0, stateDim);
-        projectionMultiplierCoefficients_[i] = multiple_shooting::ProjectionMultiplierCoefficients();
       } else {
         // Normal, intermediate node
         const scalar_t ti = getIntervalStart(time[i]);
@@ -440,7 +394,7 @@ PerformanceIndex SqpSolver::setupQuadraticSubproblem(const std::vector<Annotated
         metrics[i] = multiple_shooting::computeMetrics(result);
         workerPerformance += multiple_shooting::computePerformanceIndex(result, dt);
         if (settings_.projectStateInputEqualityConstraints) {
-          multiple_shooting::projectTranscription(result, settings_.extractProjectionMultiplier);
+          multiple_shooting::projectTranscription(result);
         }
         cost_[i] = std::move(result.cost);
         dynamics_[i] = std::move(result.dynamics);
@@ -448,7 +402,6 @@ PerformanceIndex SqpSolver::setupQuadraticSubproblem(const std::vector<Annotated
         stateIneqConstraints_[i] = std::move(result.stateIneqConstraints);
         stateInputIneqConstraints_[i] = std::move(result.stateInputIneqConstraints);
         constraintsProjection_[i] = std::move(result.constraintsProjection);
-        projectionMultiplierCoefficients_[i] = std::move(result.projectionMultiplierCoefficients);
       }
 
       i = timeIndex++;

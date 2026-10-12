@@ -38,8 +38,10 @@ message StateValues {
   YawPitchRoll base_orientation = 4 [(nproto.optional_message) = true];
   // Both MPCs: [rad] the joint positions, by joint name.
   repeated JointValue joint_positions = 5;
-  // Whole-body MPC: [m/s] the linear velocity of the floating base, [rad/s] the rates of its Euler ZYX angles and the
-  // joint velocities, by joint name.
+  // Whole-body MPC: [m/s] the linear velocity of the floating base in the world frame; [rad/s] its body angular velocity
+  // w_B about the body z, y and x axes, in the order (yaw, pitch, roll) of the rows of
+  // state_weights.base_angular_velocity (design decision D18; at a level attitude these are the ZYX Euler rates, and every
+  // shipped initial state starts level and at rest); and the joint velocities, by joint name.
   Xyz base_linear_velocity = 6 [(nproto.optional_message) = true];
   YawPitchRoll base_angular_velocity = 7 [(nproto.optional_message) = true];
   repeated JointValue joint_velocities = 8;

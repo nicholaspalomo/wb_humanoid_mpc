@@ -59,6 +59,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/ContactTermNames.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
+#include "humanoid_common_mpc/common/StateManifoldFactory.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/costs/JointMimicFromConfig.h"
@@ -299,6 +300,7 @@ absl::Status WBMpcInterface::setupModels(const mpc_config::TaskFile& taskFile,
   // Setup WB State Input Mapping
   mpcRobotModelPtr_ = std::make_unique<WBAccelMpcRobotModel<scalar_t>>(modelSettings_);
   mpcRobotModelADPtr_ = std::make_unique<WBAccelMpcRobotModel<ad_scalar_t>>(modelSettings_);
+  ASSIGN_OR_RETURN(stateManifold_, stateManifoldOf(*mpcRobotModelPtr_));
 
   // Swing trajectory planner
   ASSIGN_OR_RETURN(const SwingTrajectoryPlanner::Config swingConfig, swingTrajectorySettingsFromConfig(taskFile.swing_trajectory_config));
@@ -310,10 +312,12 @@ absl::Status WBMpcInterface::setupModels(const mpc_config::TaskFile& taskFile,
   // A legs-only robot omits model_settings.arm_joint_names and has no arm to swing.
   referenceManagerPtr_->setArmSwingReferenceActive(modelSettings_.hasArmSwingJoints);
 
-  // The initial state, by coordinate and joint name.
+  // The initial state, by coordinate and joint name in the tuning layout, mapped onto the state by the robot model (the
+  // one mapping of tuning values onto the state).
   ASSIGN_OR_RETURN(
-      initialState_,
+      const vector_t initialTuningState,
       stateValuesFromConfig(taskFile.initial_state, stateInputLayout(modelSettings_, StateInputLayout::Mpc::kWholeBody), "initial_state"));
+  ASSIGN_OR_RETURN(initialState_, mpcRobotModelPtr_->stateFromTuning(initialTuningState));
   return absl::OkStatus();
 }
 
@@ -331,8 +335,9 @@ absl::Status WBMpcInterface::setupOptimalControlProblem(const mpc_config::TaskFi
                                               *mpcRobotModelPtr_, *mpcRobotModelADPtr_, modelSettings_, verbose_,
                                               contactConstraintsAreScheduleGated(formulationTasks));
 
-  // Optimal control problem
+  // Optimal control problem, on the state manifold of the quaternion base orientation
   problemPtr_ = std::make_unique<OptimalControlProblem>();
+  problemPtr_->stateManifoldPtr = stateManifold_;
 
   // Dynamics
   std::unique_ptr<SystemDynamicsBase> dynamicsPtr;
@@ -348,8 +353,9 @@ absl::Status WBMpcInterface::setupOptimalControlProblem(const mpc_config::TaskFi
   problemPtr_->preComputationPtr = std::make_unique<WBMpcPreComputation>(
       *pinocchioInterfacePtr_, *referenceManagerPtr_->getSwingTrajectoryPlanner(), *mpcRobotModelPtr_);
 
-  // Rollout
+  // Rollout, projecting every state it outputs onto the manifold
   rolloutPtr_ = std::make_unique<TimeTriggeredRollout>(*problemPtr_->dynamicsPtr, rolloutSettings_);
+  rolloutPtr_->setStateManifold(stateManifold_);
 
   // Initialization
   initializerPtr_ = std::make_unique<WeightCompInitializer>(*pinocchioInterfacePtr_, *referenceManagerPtr_, *mpcRobotModelPtr_);

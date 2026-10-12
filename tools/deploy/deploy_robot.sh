@@ -208,7 +208,7 @@ bundle_architecture() {
 
 build_bundle() {
     run tools/deploy/in_dev_container.sh \
-        "bazel build ${BUNDLE_TARGET} && mkdir -p ${CONTEXT_DIR} && cp -fL ${BUNDLE_OUTPUT} ${CONTEXT_DIR}/robot_bundle.tar"
+        "python3 -m tools.ide.compile_commands --after bazel build ${BUNDLE_TARGET} && mkdir -p ${CONTEXT_DIR} && cp -fL ${BUNDLE_OUTPUT} ${CONTEXT_DIR}/robot_bundle.tar"
 }
 
 build_image() {

@@ -31,17 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // soft equalities
 #include <ocs2_core/penalties/penalties/QuadraticPenalty.h>
-#include <ocs2_core/penalties/penalties/SmoothAbsolutePenalty.h>
 
 // soft inequalities
-#include <ocs2_core/penalties/penalties/DoubleSidedPenalty.h>
 #include <ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h>
 #include <ocs2_core/penalties/penalties/SquaredHingePenalty.h>
-
-// hard equalities
-#include <ocs2_core/penalties/augmented/QuadraticPenalty.h>
-#include <ocs2_core/penalties/augmented/SmoothAbsolutePenalty.h>
-
-// hard inequalities
-#include <ocs2_core/penalties/augmented/ModifiedRelaxedBarrierPenalty.h>
-#include <ocs2_core/penalties/augmented/SlacknessSquaredHingePenalty.h>

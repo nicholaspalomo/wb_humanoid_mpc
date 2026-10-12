@@ -74,7 +74,7 @@ COLOR_MODES = ("auto", "always", "never")
 # ANSI foreground colors of the process prefixes, assigned in launch-file order.
 PREFIX_COLORS = (32, 36, 33, 35, 34, 92, 96, 93, 95, 94)
 
-# What a `terminal: true` process runs inside, its command appended; the ROS 2 launch files used the same.
+# What a `terminal: true` process runs inside, its command appended.
 DEFAULT_TERMINAL_COMMAND = ("x-terminal-emulator", "-e")
 
 # Shell conventions for a program that could not be started.

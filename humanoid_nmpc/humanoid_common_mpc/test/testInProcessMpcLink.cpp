@@ -27,8 +27,10 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <functional>
 #include <memory>
@@ -40,11 +42,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/log/scoped_mock_log.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/control/FeedforwardController.h"
+#include "ocs2_core/manifold/ProductStateManifold.h"
+#include "ocs2_core/manifold/StateManifold.h"
+#include "ocs2_core/manifold/StateManifoldSegment.h"
+#include "ocs2_core/manifold/UnitQuaternionMath.h"
+#include "ocs2_mpc/MPC_BASE.h"
+#include "ocs2_mpc/MPC_MRT_Interface.h"
 #include "ocs2_mpc/MPC_Settings.h"
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_mpc_test/ScriptedMpc.h"
+#include "ocs2_oc/oc_data/PerformanceIndex.h"
+#include "ocs2_oc/oc_data/ProblemMetrics.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
+#include "ocs2_oc/oc_solver/SolverBase.h"
 #include "ocs2_oc/synchronized_module/SolverSynchronizedModule.h"
 
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
@@ -55,7 +69,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * scripted solver: the start-up reset, the requested resets of either kind served before the next solve from the
  * observation current then, the failure back-off and a reset request cutting it short, the pacing at the desired
  * frequency or back to back, the solve observer, and stop(). Then the same iteration run by the caller
- * (Execution::kCaller), as the lockstep closed loop of humanoid_mpc_validation runs it.
+ * (Execution::kCaller), as the lockstep closed loop of humanoid_mpc_validation runs it. Last, the state manifold of the
+ * MPC's own problem reaching the link's MRT, which then slerps the planned base orientation.
  */
 
 namespace ocs2::humanoid {
@@ -85,6 +100,37 @@ class ResetCountingModule final : public SolverSynchronizedModule {
   void postSolverRun(const PrimalSolution& /*primalSolution*/) override {}
   void reset() override { ++numResets; }
   std::atomic<size_t> numResets{0};
+};
+
+/**
+ * Records, in one sequence, the observations handed to the solver observation observer and the initial times and states
+ * the synchronized modules are run with, so that the order of the two shows.
+ */
+class ObservationOrderRecorder final : public SolverSynchronizedModule {
+ public:
+  /** An entry of the sequence. Passive data. */
+  struct Entry {
+    /** Of the observer (true) or of a module's preSolverRun() (false). */
+    bool observed = false;
+    scalar_t time = 0.0;
+    vector_t state;
+    vector_t input;
+  };
+
+  MPC_MRT_Interface::SolverObservationObserver observer() {
+    return [this](const SystemObservation& observation) {
+      entries.push_back(Entry{.observed = true, .time = observation.time, .state = observation.state, .input = observation.input});
+    };
+  }
+  void preSolverRun(scalar_t initTime,
+                    scalar_t /*finalTime*/,
+                    const vector_t& initState,
+                    const ReferenceManagerInterface& /*referenceManager*/) override {
+    entries.push_back(Entry{.observed = false, .time = initTime, .state = initState, .input = vector_t()});
+  }
+  void postSolverRun(const PrimalSolution& /*primalSolution*/) override {}
+
+  std::vector<Entry> entries;
 };
 
 /** The observations the link's reset target was asked for, in order. */
@@ -440,6 +486,178 @@ TEST_F(InProcessMpcLinkTest, TheReportingFactoryHandsTheCallerTheLinkItMade) {
   EXPECT_EQ(created, link.get());
   link->start(observationAt(/*time=*/1.0));
   EXPECT_TRUE(created->runSolverIteration().status.ok());
+}
+
+TEST_F(InProcessMpcLinkTest, EverySolveHandsItsObservationToTheObserverRightBeforeTheModulesRun) {
+  // The motion manager's exact base twist needs the observation's input, which MPC_BASE::run() does not take: the link
+  // hands the solver's own copy over before the solve (ProceduralMpcMotionManager::observe()).
+  const std::shared_ptr<ObservationOrderRecorder> recorder = std::make_shared<ObservationOrderRecorder>();
+  mpc_.getSolverPtr()->addSynchronizedModule(recorder);
+  InProcessMpcLink::Config config;
+  config.execution = InProcessMpcLink::Execution::kCaller;
+  config.solverObservationObserver = recorder->observer();
+  InProcessMpcLink link(mpc_, resetTargets_.function(), std::move(config));
+  link.start(observationAt(/*time=*/1.0));
+  for (const scalar_t time : {1.01, 1.02}) {
+    SystemObservation observation = observationAt(time);
+    observation.input = vector_t::Constant(kInputDim, 10.0 * time);
+    link.setCurrentObservation(observation);
+    ASSERT_TRUE(link.runSolverIteration().status.ok());
+  }
+  ASSERT_EQ(recorder->entries.size(), 4u) << "one observation and one module run per solve";
+  for (size_t solve = 0; solve < 2; ++solve) {
+    SCOPED_TRACE(solve);
+    const ObservationOrderRecorder::Entry& observed = recorder->entries[2 * solve];
+    const ObservationOrderRecorder::Entry& run = recorder->entries[2 * solve + 1];
+    EXPECT_TRUE(observed.observed) << "the observation comes first";
+    EXPECT_FALSE(run.observed);
+    EXPECT_EQ(observed.time, run.time);
+    EXPECT_EQ(observed.state, run.state);
+    EXPECT_EQ(observed.input, vector_t::Constant(kInputDim, 10.0 * observed.time));
+  }
+}
+
+/******************************************************************************************************/
+/* The state manifold of the MPC's problem                                                            */
+/******************************************************************************************************/
+
+/** [rad] The turn about z the plan of TurningQuaternionSolver makes between consecutive nodes. */
+constexpr scalar_t kTurnPerNode = 1.5;
+
+/** The unit quaternion (x, y, z, w) of a turn by `angle` about the world z axis. */
+vector4_t turnAboutZ(scalar_t angle) {
+  return vector4_t(0.0, 0.0, std::sin(0.5 * angle), std::cos(0.5 * angle));
+}
+
+/**
+ * A solver whose problem carries the state manifold of a state that is one unit quaternion, as the MPCs' problems carry
+ * the quaternion state's (stateManifoldOf()), and which plans a turn about z of kTurnPerNode between each of its three
+ * nodes over the horizon. Not thread-safe: the tests run it on their own thread only (Execution::kCaller).
+ */
+class TurningQuaternionSolver final : public SolverBase {
+ public:
+  explicit TurningQuaternionSolver(std::shared_ptr<const StateManifold> stateManifold) { ocp_.stateManifoldPtr = std::move(stateManifold); }
+  ~TurningQuaternionSolver() override = default;
+  TurningQuaternionSolver(const TurningQuaternionSolver&) = delete;
+  TurningQuaternionSolver& operator=(const TurningQuaternionSolver&) = delete;
+  TurningQuaternionSolver(TurningQuaternionSolver&&) = delete;
+  TurningQuaternionSolver& operator=(TurningQuaternionSolver&&) = delete;
+
+  void reset() override { finalTime_ = 0.0; }
+  const OptimalControlProblem& getOptimalControlProblem() const override { return ocp_; }
+  const PerformanceIndex& getPerformanceIndeces() const override { return performanceIndex_; }
+  size_t getNumIterations() const override { return 1; }
+  const std::vector<PerformanceIndex>& getIterationsLog() const override { return iterationsLog_; }
+  scalar_t getFinalTime() const override { return finalTime_; }
+
+  void getPrimalSolution(scalar_t finalTime, PrimalSolution* absl_nonnull primalSolutionPtr) const override {
+    constexpr size_t kNumNodes = 3;
+    primalSolutionPtr->clear();
+    const scalar_t endTime = std::max(finalTime, initTime_ + 1.0);
+    for (size_t k = 0; k < kNumNodes; ++k) {
+      const scalar_t fraction = static_cast<scalar_t>(k) / static_cast<scalar_t>(kNumNodes - 1);
+      primalSolutionPtr->timeTrajectory_.push_back(initTime_ + fraction * (endTime - initTime_));
+      primalSolutionPtr->stateTrajectory_.push_back(turnAboutZ(kTurnPerNode * static_cast<scalar_t>(k)));
+      primalSolutionPtr->inputTrajectory_.push_back(vector_t::Zero(kInputDim));
+    }
+    primalSolutionPtr->modeSchedule_ = modeSchedule_;
+    primalSolutionPtr->controllerPtr_ =
+        std::make_unique<FeedforwardController>(primalSolutionPtr->timeTrajectory_, primalSolutionPtr->inputTrajectory_);
+  }
+
+  const ProblemMetrics& getSolutionMetrics() const override { return problemMetrics_; }
+
+ private:
+  void runImpl(scalar_t initTime, const vector_t& /*initState*/, scalar_t finalTime) override {
+    initTime_ = initTime;
+    finalTime_ = finalTime;
+    modeSchedule_ = getReferenceManager().getModeSchedule();
+  }
+  void runImpl(scalar_t initTime,
+               const vector_t& initState,
+               scalar_t finalTime,
+               const ControllerBase* absl_nullable /*externalControllerPtr*/) override {
+    runImpl(initTime, initState, finalTime);
+  }
+  void runImpl(scalar_t initTime, const vector_t& initState, scalar_t finalTime, const PrimalSolution& /*primalSolution*/) override {
+    runImpl(initTime, initState, finalTime);
+  }
+
+  scalar_t initTime_ = 0.0;
+  scalar_t finalTime_ = 0.0;
+  ModeSchedule modeSchedule_;
+  OptimalControlProblem ocp_;
+  PerformanceIndex performanceIndex_;
+  std::vector<PerformanceIndex> iterationsLog_;
+  ProblemMetrics problemMetrics_;
+};
+
+/** An MPC around a TurningQuaternionSolver. Not thread-safe, as its solver. */
+class TurningQuaternionMpc final : public MPC_BASE {
+ public:
+  explicit TurningQuaternionMpc(std::shared_ptr<const StateManifold> stateManifold)
+      : MPC_BASE(mpc::Settings()), solver_(std::move(stateManifold)) {}
+  ~TurningQuaternionMpc() override = default;
+  TurningQuaternionMpc(const TurningQuaternionMpc&) = delete;
+  TurningQuaternionMpc& operator=(const TurningQuaternionMpc&) = delete;
+  TurningQuaternionMpc(TurningQuaternionMpc&&) = delete;
+  TurningQuaternionMpc& operator=(TurningQuaternionMpc&&) = delete;
+
+  TurningQuaternionSolver* absl_nonnull getSolverPtr() override { return &solver_; }
+  const TurningQuaternionSolver* absl_nonnull getSolverPtr() const override { return &solver_; }
+
+ protected:
+  void calculateController(scalar_t initTime, const vector_t& initState, size_t initMode, scalar_t finalTime) override {
+    solver_.run(initTime, initState, initMode, finalTime);
+  }
+
+ private:
+  TurningQuaternionSolver solver_;
+};
+
+TEST(InProcessMpcLinkStateManifold, TheLinksMrtInterpolatesThePlanOnTheManifoldOfTheMpcsProblem) {
+  // A state of one unit quaternion: the base orientation of the MPCs' quaternion state.
+  absl::StatusOr<std::shared_ptr<const ProductStateManifold>> manifold =
+      ProductStateManifold::create({StateManifoldSegment::unitQuaternion()});
+  ASSERT_TRUE(manifold.ok()) << manifold.status();
+  TurningQuaternionMpc mpc(*std::move(manifold));
+  const std::shared_ptr<const StateManifold>& problemManifold = mpc.getSolverPtr()->getOptimalControlProblem().stateManifoldPtr;
+  ASSERT_NE(problemManifold, nullptr);
+
+  InProcessMpcLink::Config config;
+  config.execution = InProcessMpcLink::Execution::kCaller;
+  const MpcLink::ResetTargetFunction resetTarget = [](const SystemObservation& observation) {
+    return TargetTrajectories({observation.time}, {observation.state}, {vector_t::Zero(kInputDim)});
+  };
+  InProcessMpcLink link(mpc, resetTarget, std::move(config));
+  // The link hands its MRT the manifold of the MPC's own problem, without a configuration of its own.
+  EXPECT_EQ(link.mrt().getStateManifold().get(), problemManifold.get());
+
+  SystemObservation observation;
+  observation.time = 1.0;
+  observation.state = turnAboutZ(0.0);
+  observation.input = vector_t::Zero(kInputDim);
+  link.start(observation);
+  ASSERT_TRUE(link.runSolverIteration().status.ok());
+  link.updatePolicy();
+  ASSERT_TRUE(link.initialPolicyReceived());
+  const PrimalSolution& policy = link.mrt().getPolicy();
+  ASSERT_EQ(policy.timeTrajectory_.size(), 3u);
+
+  // Between the first two nodes the planned orientation is the slerp: a unit quaternion of the turn's fraction - not the
+  // linear interpolation of the coefficients, whose norm is cos(kTurnPerNode / 4) = 0.93 at the midpoint.
+  for (const scalar_t fraction : {0.25, 0.5, 0.75}) {
+    const scalar_t time = policy.timeTrajectory_[0] + fraction * (policy.timeTrajectory_[1] - policy.timeTrajectory_[0]);
+    vector_t mpcState;
+    vector_t mpcInput;
+    size_t mode = 0;
+    link.mrt().evaluatePolicy(time, observation.state, mpcState, mpcInput, mode);
+    ASSERT_EQ(mpcState.size(), 4);
+    EXPECT_NEAR(mpcState.norm(), 1.0, 1.0e-12) << "fraction " << fraction;
+    const vector4_t expected = turnAboutZ(fraction * kTurnPerNode);
+    EXPECT_LT(std::min((mpcState - expected).norm(), (mpcState + expected).norm()), 1.0e-12) << "fraction " << fraction;
+  }
+  link.stop();
 }
 
 }  // namespace

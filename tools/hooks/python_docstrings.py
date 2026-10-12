@@ -29,7 +29,7 @@
 
 - `py-license-docstring` (3.8.2): the license is a `#` comment block above the module docstring, never the docstring
   (a module docstring whose first line, below any `****` rule, starts with "Copyright").
-- `py-license-header` (3.8.2; decision D5): every file starts with the BSD-3 license comment, "Copyright (c) <year>,
+- `py-license-header` (3.8.2; AGENTS.md): every file starts with the BSD-3 license comment, "Copyright (c) <year>,
   <holder>. All rights reserved.", the three conditions and the disclaimer (the C++ files' header, as `#` comments;
   tools/hooks/license_header.py reads it).
 - `py-docstring-summary` (3.8.1): the summary is one physical line of at most 140 columns, ending in `.`, `?` or `!`,
@@ -151,7 +151,7 @@ def check_license_header(source: str, path: str) -> list[check_types.Finding]:
             line,
             1,
             LICENSE_HEADER,
-            f"{message} (Python style 3.8.2; decision D5).",
+            f"{message} (Python style 3.8.2; AGENTS.md).",
         )
         for line, message in license_header.finding_lines(
             license_header.comment_lines("\n".join(lines)), start, end

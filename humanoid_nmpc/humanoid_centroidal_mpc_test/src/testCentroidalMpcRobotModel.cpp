@@ -51,20 +51,20 @@ class CentroidalMpcRobotModelTest : public ::testing::Test {
   }
 
   void setupTestVectors() {
-    // State vector: [centroidal_momentum(6), base_pose(6), joint_angles(12)]
-    testState_ = vector_t::Zero(testingModelInterface_.getMpcRobotModel().getStateDim());
+    const CentroidalMpcRobotModel<scalar_t>& model = testingModelInterface_.getMpcRobotModel();
+    // State vector: [centroidal_momentum(6), base_position(3), base_quaternion(4: x, y, z, w), joint_angles(nj)]
+    testState_ = model.getNeutralState();
 
     // Centroidal momentum [vcom_x, vcom_y, vcom_z, L_x/m, L_y/m, L_z/m]
     testState_.segment(0, 6) << 0.1, 0.2, 0.0, 0.05, -0.03, 0.01;
 
-    // Base pose [px, py, pz, rx, ry, rz]
-    testState_.segment(6, 6) << 0.0, 0.0, 0.85, 0.0, 0.0, 0.1;
+    // Base pose [px, py, pz] and the ZYX Euler angles [yaw, pitch, roll] of its quaternion
+    model.setBasePoseEulerZyx(testState_, (vector6_t() << 0.0, 0.0, 0.85, 0.1, 0.0, 0.0).finished());
 
-    // Joint angles (12 joints)
-    testState_.segment(12, testingModelInterface_.getMpcRobotModel().getJointDim()) =
-        vector_t::Random(testingModelInterface_.getMpcRobotModel().getJointDim());
-
-    testState_.segment(12, 2) = vector2_t(0.1, -0.2);
+    // Joint angles
+    vector_t jointAngles = vector_t::Random(static_cast<Eigen::Index>(model.getJointDim()));
+    jointAngles.head<2>() = vector2_t(0.1, -0.2);
+    model.setJointAngles(testState_, jointAngles);
 
     // Input vector: [contact_wrenches(12), joint_velocities(12)]
     testInput_ = vector_t::Zero(testingModelInterface_.getMpcRobotModel().getInputDim());
@@ -89,8 +89,13 @@ class CentroidalMpcRobotModelTest : public ::testing::Test {
 
 // Test constructor and basic properties
 TEST_F(CentroidalMpcRobotModelTest, ConstructorAndDimensions) {
-  EXPECT_EQ(testingModelInterface_.getMpcRobotModel().getStateDim(), 12 + testingModelInterface_.getMpcRobotModel().getJointDim());
-  EXPECT_EQ(testingModelInterface_.getMpcRobotModel().getInputDim(), 12 + testingModelInterface_.getMpcRobotModel().getJointDim());
+  const CentroidalMpcRobotModel<scalar_t>& model = testingModelInterface_.getMpcRobotModel();
+  // The quaternion layout: 13 + nj stored entries on a tangent of 12 + nj; Pinocchio's q has 7 + nj and v 6 + nj.
+  EXPECT_EQ(model.getStateDim(), 13 + model.getJointDim());
+  EXPECT_EQ(model.getStateTangentDim(), 12 + model.getJointDim());
+  EXPECT_EQ(model.getConfigurationDim(), 7 + model.getJointDim());
+  EXPECT_EQ(model.getVelocityDim(), 6 + model.getJointDim());
+  EXPECT_EQ(model.getInputDim(), 12 + model.getJointDim());
 }
 
 // Test clone functionality
@@ -104,7 +109,8 @@ TEST_F(CentroidalMpcRobotModelTest, CloneTest) {
 // Test start indices
 TEST_F(CentroidalMpcRobotModelTest, StartIndices) {
   EXPECT_EQ(testingModelInterface_.getMpcRobotModel().getBaseStartindex(), 6);
-  EXPECT_EQ(testingModelInterface_.getMpcRobotModel().getJointStartindex(), 12);
+  EXPECT_EQ(testingModelInterface_.getMpcRobotModel().getBaseOrientationStartIndex(), 9);
+  EXPECT_EQ(testingModelInterface_.getMpcRobotModel().getJointStartindex(), 13);
   EXPECT_EQ(testingModelInterface_.getMpcRobotModel().getJointVelocitiesStartindex(), 12);  // 6 * kNumContacts
 
   // Contact indices
@@ -116,28 +122,32 @@ TEST_F(CentroidalMpcRobotModelTest, StartIndices) {
 
 // Test generalized coordinates extraction
 TEST_F(CentroidalMpcRobotModelTest, GeneralizedCoordinates) {
-  vector_t genCoords = testingModelInterface_.getMpcRobotModel().getGeneralizedCoordinates(testState_);
-  EXPECT_EQ(genCoords.size(), 6 + testingModelInterface_.getMpcRobotModel().getJointDim());  // 6 (base) + 12 (joints)
+  const CentroidalMpcRobotModel<scalar_t>& model = testingModelInterface_.getMpcRobotModel();
+  vector_t genCoords = model.getGeneralizedCoordinates(testState_);
+  // q = [p_W(3), xi(4), q_j]: Pinocchio's configuration of the Composite(Translation, Spherical) root.
+  EXPECT_EQ(genCoords.size(), 7 + model.getJointDim());
 
-  // Should contain base pose and joint angles
+  // Should contain the base position, the unit quaternion and the joint angles
   EXPECT_DOUBLE_EQ(genCoords[2], 0.85);  // base z position
-  EXPECT_DOUBLE_EQ(genCoords[6], 0.1);   // first joint angle
+  EXPECT_EQ(vector4_t(genCoords.segment<4>(3)), model.getBaseOrientation(testState_));
+  EXPECT_NEAR(genCoords.segment<4>(3).norm(), 1.0, 1.0e-15);
+  EXPECT_DOUBLE_EQ(genCoords[7], 0.1);  // first joint angle
 }
 
 // Test base pose extraction and setting
 TEST_F(CentroidalMpcRobotModelTest, BasePose) {
-  vector6_t basePose = testingModelInterface_.getMpcRobotModel().getBasePose(testState_);
+  vector6_t basePose = testingModelInterface_.getMpcRobotModel().getBasePoseEulerZyx(testState_);
   EXPECT_EQ(basePose.size(), 6);
-  EXPECT_DOUBLE_EQ(basePose[2], 0.85);  // z position
-  EXPECT_DOUBLE_EQ(basePose[5], 0.1);   // z rotation
+  EXPECT_DOUBLE_EQ(basePose[2], 0.85);     // z position
+  EXPECT_NEAR(basePose[3], 0.1, 1.0e-15);  // yaw, read back from the quaternion
 
   // Test setting base pose
   vector_t modifiedState = testState_;
   vector6_t newBasePose;
   newBasePose << 1.0, 2.0, 1.0, 0.1, 0.2, 0.3;
-  testingModelInterface_.getMpcRobotModel().setBasePose(modifiedState, newBasePose);
+  testingModelInterface_.getMpcRobotModel().setBasePoseEulerZyx(modifiedState, newBasePose);
 
-  vector6_t retrievedPose = testingModelInterface_.getMpcRobotModel().getBasePose(modifiedState);
+  vector6_t retrievedPose = testingModelInterface_.getMpcRobotModel().getBasePoseEulerZyx(modifiedState);
   EXPECT_TRUE(retrievedPose.isApprox(newBasePose, 1.0e-10));
 }
 
@@ -158,16 +168,16 @@ TEST_F(CentroidalMpcRobotModelTest, BasePosition) {
 
 // Test base orientation extraction and setting
 TEST_F(CentroidalMpcRobotModelTest, BaseOrientation) {
-  vector3_t baseOri = testingModelInterface_.getMpcRobotModel().getBaseOrientationEulerZYX(testState_);
+  vector3_t baseOri = testingModelInterface_.getMpcRobotModel().getBaseOrientationEulerZyx(testState_);
   EXPECT_EQ(baseOri.size(), 3);
-  EXPECT_DOUBLE_EQ(baseOri[2], 0.1);  // z rotation
+  EXPECT_NEAR(baseOri[0], 0.1, 1.0e-15);  // yaw, read back from the quaternion
 
   // Test setting orientation
   vector_t modifiedState = testState_;
   vector3_t newOri(0.05, 0.1, 0.15);
-  testingModelInterface_.getMpcRobotModel().setBaseOrientationEulerZYX(modifiedState, newOri);
+  testingModelInterface_.getMpcRobotModel().setBaseOrientationEulerZyx(modifiedState, newOri);
 
-  vector3_t retrievedOri = testingModelInterface_.getMpcRobotModel().getBaseOrientationEulerZYX(modifiedState);
+  vector3_t retrievedOri = testingModelInterface_.getMpcRobotModel().getBaseOrientationEulerZyx(modifiedState);
   EXPECT_TRUE(retrievedOri.isApprox(newOri, 1.0e-10));
 }
 
@@ -294,7 +304,9 @@ TEST_F(CentroidalMpcRobotModelTest, AdaptBasePoseHeight) {
 // Test generalized coordinates setting
 TEST_F(CentroidalMpcRobotModelTest, SetGeneralizedCoordinates) {
   vector_t modifiedState = testState_;
-  vector_t newGenCoords = vector_t::Random(testingModelInterface_.getMpcRobotModel().getGenCoordinatesDim());  // 6 base + 12 joints
+  // 3 base position + 4 unit quaternion + nj joints: the quaternion is read back safely normalized, so it is written unit.
+  vector_t newGenCoords = vector_t::Random(testingModelInterface_.getMpcRobotModel().getConfigurationDim());
+  newGenCoords.segment<4>(3).normalize();
 
   testingModelInterface_.getMpcRobotModel().setGeneralizedCoordinates(modifiedState, newGenCoords);
   vector_t retrievedGenCoords = testingModelInterface_.getMpcRobotModel().getGeneralizedCoordinates(modifiedState);
@@ -315,7 +327,7 @@ TEST_F(CentroidalMpcRobotModelTest, BoundaryConditions) {
   vector_t zeroState = vector_t::Zero(testingModelInterface_.getMpcRobotModel().getStateDim());
   vector_t zeroInput = vector_t::Zero(testingModelInterface_.getMpcRobotModel().getInputDim());
 
-  EXPECT_NO_THROW(testingModelInterface_.getMpcRobotModel().getBasePose(zeroState));
+  EXPECT_NO_THROW(testingModelInterface_.getMpcRobotModel().getBasePoseEulerZyx(zeroState));
   EXPECT_NO_THROW(testingModelInterface_.getMpcRobotModel().getJointAngles(zeroState));
   EXPECT_NO_THROW(testingModelInterface_.getMpcRobotModel().getContactWrench(zeroInput, /*contactIndex=*/0));
   EXPECT_NO_THROW(testingModelInterface_.getMpcRobotModel().getContactWrench(zeroInput, /*contactIndex=*/1));

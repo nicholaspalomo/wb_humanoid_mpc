@@ -45,9 +45,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The `mujoco` backend: robot_runtime/mujoco_sim_interface's MujocoSimInterface, with the configuration the ROS sims
- * built for it (the scene, the initial state, the contact frames, the simulator keys of the task file and the viewer's
- * target patches). initialize() is initSim(), start() is startSim() with the physics thread pinned to the cores given.
+ * The `mujoco` backend: robot_runtime/mujoco_sim_interface's MujocoSimInterface, configured from the backend options (the
+ * scene, the initial state, the contact frames, the simulator keys of the task file and the viewer's target patches)
+ * with the viewer the options name. initialize() is initSim(), which starts the first viewer of the list
+ * that starts, and answers with its viewerStatus(): a viewer list none of whose viewers starts (`web` without EGL or
+ * with its port taken) refuses the start, and `web,none` falls back to no viewer. start() is startSim() with the
+ * physics thread pinned to the cores given.
  */
 class MujocoRobotBackend final : public RobotBackend {
  public:
@@ -71,8 +74,9 @@ class MujocoRobotBackend final : public RobotBackend {
 
   /**
    * What Create() would refuse in `options` without loading the scene: makeConfig()'s refusals (no scene, no initial
-   * state, an unknown gantry_hold) and an unknown sim_projectile. The viewer's sim_visualizations are not refused: the
-   * viewer skips an unknown name with a message, at start-up as later.
+   * state, an unknown gantry_hold, viewer settings that validateViewerSettings() refuses) and an unknown sim_projectile.
+   * The viewer's sim_visualizations are not refused: the viewer skips an unknown name with a message, at start-up as
+   * later.
    */
   static absl::Status checkOptions(const RobotBackendOptions& options);
 

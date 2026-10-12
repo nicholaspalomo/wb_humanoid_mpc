@@ -46,7 +46,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
-#include "ocs2_robotic_tools/common/RotationTransforms.h"
+#include "ocs2_mpc/MPC_MRT_Interface.h"
+#include "ocs2_mpc/SystemObservation.h"
 
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
@@ -103,13 +104,14 @@ class ControllerHarness {
     if (execution == InProcessMpcLink::Execution::kCaller) {
       InProcessMpcLink::Config config;
       config.execution = execution;
+      config.solverObservationObserver = observeInTheMotionManager();
       controller_ = CentroidalMpcMrtJointController::Create(description_, stack_.modelSettings(), stack_.model(),
                                                             InProcessMpcLink::factory(stack_.mpc(), std::move(config), &link_),
                                                             stack_.pinocchioInterface())
                         .value();
     } else {
       controller_ = CentroidalMpcMrtJointController::Create(description_, stack_.modelSettings(), stack_.model(), stack_.mpc(),
-                                                            stack_.pinocchioInterface(), kMpcFrequency)
+                                                            observeInTheMotionManager(), stack_.pinocchioInterface(), kMpcFrequency)
                         .value();
     }
     mpcJointIndices_ = description_.getJointIndices(stack_.modelSettings().mpcModelJointNames);
@@ -132,7 +134,7 @@ class ControllerHarness {
     const CentroidalMpcRobotModel<scalar_t>& model = stack_.model();
     robotState_.setConfigurationToZero();
     robotState_.setRootPositionInWorldFrame(model.getBasePosition(state));
-    const quaternion_t orientation = getQuaternionFromEulerAnglesZyx(vector3_t(model.getBaseOrientationEulerZYX(state)));
+    const quaternion_t orientation(model.getBaseOrientation(state));
     robotState_.setRootRotationLocalToWorldFrame(orientation);
     robotState_.setRootLinearVelocityInLocalFrame(orientation.toRotationMatrix().transpose() * baseVelocity);
     robotState_.setRootAngularVelocityInLocalFrame(vector3_t::Zero());
@@ -187,7 +189,7 @@ class ControllerHarness {
   robot::model::RobotJointAction jointPdActionHere() {
     const std::unique_ptr<CentroidalMpcMrtJointController> referencePtr =
         CentroidalMpcMrtJointController::Create(description_, stack_.modelSettings(), stack_.model(), stack_.mpc(),
-                                                stack_.pinocchioInterface(), kMpcFrequency)
+                                                observeInTheMotionManager(), stack_.pinocchioInterface(), kMpcFrequency)
             .value();
     CentroidalMpcMrtJointController& reference = *referencePtr;
     reference.setNominalJointPositions(nominal_);
@@ -214,6 +216,14 @@ class ControllerHarness {
   const robot::model::RobotState& robotState() const { return robotState_; }
 
  private:
+  /**
+   * What the MPC node hands its motion manager before every solve (MpcNodeRuntime), for a link to call on its solver
+   * thread: the stack outlives every controller of the harness and its link.
+   */
+  MPC_MRT_Interface::SolverObservationObserver observeInTheMotionManager() {
+    return [this](const SystemObservation& observation) { stack_.motionManager().observe(observation); };
+  }
+
   AtlasReferenceStack stack_;
   robot::model::RobotDescription description_;
   robot::model::RobotState robotState_;
@@ -451,7 +461,9 @@ TEST(MrtJointControllerReset, AfterAFallTheFirstPolicyIsPlannedFromTheHeldRobotO
   // The fall: the robot tips over, the loop catches it on the gantry in JOINT_PD and holds the controller; the remote
   // control re-centers its sticks.
   vector_t fallen = state;
-  fallen(11) = 1.2;
+  vector3_t fallenEulerZyx = model.getBaseOrientationEulerZyx(state);
+  fallenEulerZyx(2) = 1.2;  // rolled over by 1.2 rad
+  model.setBaseOrientationEulerZyx(fallen, fallenEulerZyx);
   harness.setState(fallen, vector3_t(0.0, -1.0, -0.5));
   harness.controller().requestMpcResetAndHold();
   harness.controller().setControlMode("JOINT_PD");
@@ -471,7 +483,7 @@ TEST(MrtJointControllerReset, AfterAFallTheFirstPolicyIsPlannedFromTheHeldRobotO
 
   const SystemObservation& solvedFrom = harness.controller().getCommandData().mpcInitObservation_;
   EXPECT_GE(solvedFrom.time, entryTime) << "the policy in use was solved before the entry into WB_MPC";
-  EXPECT_LT((model.getBasePose(solvedFrom.state) - model.getBasePose(held)).cwiseAbs().maxCoeff(), 1.0e-9)
+  EXPECT_LT((model.getBasePoseEulerZyx(solvedFrom.state) - model.getBasePoseEulerZyx(held)).cwiseAbs().maxCoeff(), 1.0e-9)
       << "the policy was not planned from the robot held on the gantry";
   EXPECT_LT((model.getJointAngles(solvedFrom.state) - model.getJointAngles(held)).cwiseAbs().maxCoeff(), 1.0e-9);
   for (scalar_t query = harness.time(); query <= harness.time() + stack.horizon(); query += 0.01) {

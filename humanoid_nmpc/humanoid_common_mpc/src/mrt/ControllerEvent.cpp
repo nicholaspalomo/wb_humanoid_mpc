@@ -85,6 +85,12 @@ std::string formatControllerEvent(const ControllerEvent& event) {
     case ControllerEventCode::kContactWrenchGateRefused:
       return absl::StrCat(prefix, "contact wrench gate refused (debounce_time=", event.values[0], " s, ramp_time=", event.values[1],
                           " s must be non-negative); the gate in use is kept.");
+    case ControllerEventCode::kPolicyRefused:
+      return absl::StrCat(prefix, "the realtime policy evaluator refused the MPC policy in use (",
+                          event.values[0] == static_cast<double>(PolicyRefusal::kMismatchedPolicy)
+                              ? "not of the model's dimensions, or inconsistent"
+                              : "a controller it does not evaluate on the state",
+                          "): holding the robot with the JOINT_PD action until a policy it evaluates is in use.");
   }
   return absl::StrCat(prefix, "controller event ", static_cast<int>(event.code));
 }
@@ -97,6 +103,7 @@ bool isWarningControllerEvent(const ControllerEvent& event) {
     case ControllerEventCode::kSafetyDecayComplete:
     case ControllerEventCode::kContactEstimateRefused:
     case ControllerEventCode::kContactWrenchGateRefused:
+    case ControllerEventCode::kPolicyRefused:
       return true;
     case ControllerEventCode::kContactWrenchGateChanged:
     case ControllerEventCode::kContactEstimatorChanged:

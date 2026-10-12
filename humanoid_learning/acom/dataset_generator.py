@@ -210,7 +210,7 @@ class AcomDatasetGenerator:
         self.nq = self.model.nq
         self.nv = self.model.nv
 
-        # The aCOM decomposition theta_acom = theta_base + Delta_theta(q_j) is only
+        # The aCOM decomposition xi_acom = xi_base (x) Exp(Delta_theta(q_j)) is only
         # defined for a floating base, so a fixed-base model is rejected outright
         # rather than silently yielding un-normalized momentum as the target.
         free_joints = [
@@ -410,10 +410,12 @@ class AcomDatasetGenerator:
         # A_bar_omega transforms as R A_bar_omega.
         #
         # Sampling at the identity is therefore what makes Delta_theta a pure
-        # function of the joint angles, which is exactly the premise the additive
-        # decomposition theta_acom = theta_base + Delta_theta(q_j) rests on: the
-        # network is fitted to the connection expressed in the BASE frame, and
-        # the C++ runtime adds it to the base Euler angles on that understanding.
+        # function of the joint angles, which is exactly the premise the
+        # decomposition xi_acom = xi_base (x) Exp(Delta_theta(q_j)) rests on: the
+        # network is fitted to the connection expressed in the BASE frame - the
+        # free joint's angular velocity qvel[3:6] is the body angular velocity -
+        # and the C++ runtime composes its rotation on the right of the base
+        # orientation on that understanding (AngularCenterOfMass::acomAttitude).
         # Sampling a spread of base orientations here would not enrich the
         # dataset, it would make the target multivalued in q_j and the fit would
         # collapse towards the rotational average.

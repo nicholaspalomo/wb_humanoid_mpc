@@ -27,7 +27,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <cstdlib>
 #include <fstream>
 #include <memory>
 #include <string>
@@ -44,14 +43,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 #include "mujoco/mujoco.h"
 
-#include "mujoco_sim_interface/MujocoRenderer.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/MujocoUtils.h"
+#include "mujoco_sim_interface/viewer/ViewerNames.h"
 
 /*
- * How the simulator and its viewer fail to start: MujocoSimInterface::Create() reports every failure as a Status, and
- * the viewer, which used to end the whole process when there was no display, logs why and lets the simulation run on.
- * Which scenes can hold the robot by the gantry weld, and the hold a scene without one falls back to.
+ * How the simulator fails to start: MujocoSimInterface::Create() reports every failure as a Status. Which scenes can
+ * hold the robot by the gantry weld, and the hold a scene without one falls back to. How the GLFW viewer fails without
+ * a display is testGlfwMujocoViewer.cpp's.
  */
 
 namespace robot::mujoco_sim_interface {
@@ -121,11 +120,11 @@ std::string writeTempFile(const std::string& name, const char* absl_nonnull cont
   return path;
 }
 
-/** A headless simulator configuration of the hinge robot; the scene has no gantry weld. */
+/** A simulator configuration of the hinge robot without a viewer; the scene has no gantry weld. */
 MujocoSimConfig hingeConfig() {
   MujocoSimConfig config;
   config.scenePath = writeTempFile("startup_hinge_scene.xml", kHingeScene);
-  config.headless = true;
+  config.viewer.names = {kNoViewerName};
   config.enableGantry = false;
   config.gantryHold = "kinematic_teleport";
   return config;
@@ -270,38 +269,6 @@ TEST(MujocoSimInterfaceCreate, AUrdfWithTooFewJointsIsAnInvalidArgument) {
 )";
   EXPECT_THAT(MujocoSimInterface::Create(hingeConfig(), writeTempFile("startup_one_joint_robot.urdf", kOneJointUrdf)).status(),
               StatusIs(absl::StatusCode::kInvalidArgument, HasSubstr("startup_one_joint_robot.urdf")));
-}
-
-/** True when GLFW could find a display here, in which case the viewer would really start. */
-bool hasDisplay() {
-  return std::getenv("DISPLAY") != nullptr || std::getenv("WAYLAND_DISPLAY") != nullptr;
-}
-
-TEST(MujocoRenderer, WithoutADisplayTheViewerStopsAndSaysSo) {
-  if (hasDisplay()) GTEST_SKIP() << "a display is available, so the viewer would start";
-  absl::StatusOr<std::unique_ptr<MujocoSimInterface>> sim = MujocoSimInterface::Create(hingeConfig(), hingeUrdf());
-  ASSERT_TRUE(sim.ok()) << sim.status();
-  {
-    MujocoRenderer renderer(sim->get());
-    EXPECT_TRUE(renderer.ok());
-    renderer.launchRenderThread();
-    renderer.waitForInit();
-    EXPECT_FALSE(renderer.ok()) << "the viewer reported a window it could not create";
-  }  // The destructor joins the render thread without touching the window that was never created.
-  (*sim)->simulationStep();
-}
-
-TEST(MujocoRenderer, ASimulatorWithAViewerButNoDisplayRunsOn) {
-  if (hasDisplay()) GTEST_SKIP() << "a display is available, so the viewer would start";
-  MujocoSimConfig config = hingeConfig();
-  config.headless = false;
-  absl::StatusOr<std::unique_ptr<MujocoSimInterface>> sim = MujocoSimInterface::Create(config, hingeUrdf());
-  ASSERT_TRUE(sim.ok()) << sim.status();
-  // This used to end the process: the viewer's GLFW start-up failure was a MuJoCo fatal error.
-  (*sim)->initSim();
-  for (int step = 0; step < 10; ++step) (*sim)->simulationStep();
-  (*sim)->updateInterfaceStateFromRobot();
-  EXPECT_GT((*sim)->getRobotState().getTime(), 0.0) << "the simulation clock advanced";
 }
 
 }  // namespace

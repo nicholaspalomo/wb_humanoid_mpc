@@ -44,10 +44,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
-#include "ocs2_robotic_tools/common/RotationTransforms.h"
+#include "ocs2_mpc/MPC_MRT_Interface.h"
+#include "ocs2_mpc/SystemObservation.h"
 
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
 #include "humanoid_common_mpc/mrt/JointPdGains.h"
+#include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
 #include "humanoid_state_estimation/humanoid_state_estimator/test/AllocationCounter.h"
 #include "robot_model/RobotDescription.h"
@@ -56,13 +58,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "support/AtlasReferenceStack.h"
 
 /*
- * The joint PD gains of CentroidalMpcMrtJointController, set from other threads. computeJointControlAction() used to take
- * the mutex of the ROS callback, write the YAML it received to <gains file>.live.yaml, parse that with YAML::LoadFile and
- * log every joint's gains, and every 100 cycles stat the gains file - all on the realtime thread. The gains are now
- * resolved on the caller's thread (setPdGains() with the typed file the GUI publishes, pollPdGainsFile() with the
- * joint_pd_gains.textproto it watches) and the control cycle takes them into use without a lock or an allocation of
- * its own. This binary links the allocation counter, which interposes malloc for the
- * whole process; the controller's solver thread is never started, so the control thread is the only one allocating.
+ * The joint PD gains of CentroidalMpcMrtJointController, set from other threads. The gains are resolved on the caller's
+ * thread (setPdGains() with the typed file the GUI publishes, pollPdGainsFile() with the joint_pd_gains.textproto it
+ * watches), never on the realtime thread, and the control cycle takes them into use without a lock, a file, a log line
+ * or an allocation of its own. This binary links the allocation counter, which interposes malloc for the whole process;
+ * the controller's solver thread is never started, so the control thread is the only one allocating.
  */
 
 namespace ocs2::humanoid {
@@ -83,19 +83,29 @@ using ::ocs2::humanoid::estimation::heapAllocationCount;
 
 constexpr scalar_t kControlPeriod = 0.01;  // [s]
 
+/**
+ * What the MPC node hands the motion manager of `stack` before every solve (MpcNodeRuntime), for a controller's link to
+ * call on its solver thread: `stack` must outlive the controller.
+ */
+MPC_MRT_Interface::SolverObservationObserver observeInTheMotionManager(AtlasReferenceStack& stack) {
+  ProceduralMpcMotionManager* absl_nonnull motionManager = &stack.motionManager();
+  return [motionManager](const SystemObservation& observation) { motionManager->observe(observation); };
+}
+
 class PdGainsHarness {
  public:
   explicit PdGainsHarness(const std::string& pdGainsFile = "")
       : description_(robot::model::RobotDescription::Create(stack_.urdfFile()).value()), robotState_(description_), action_(description_) {
     controller_ = CentroidalMpcMrtJointController::Create(description_, stack_.modelSettings(), stack_.model(), stack_.mpc(),
-                                                          stack_.pinocchioInterface(), /*mpcDesiredFrequency=*/1000.0, pdGainsFile)
+                                                          observeInTheMotionManager(stack_), stack_.pinocchioInterface(),
+                                                          /*mpcDesiredFrequency=*/1000.0, pdGainsFile)
                       .value();
     mpcJointIndices_ = description_.getJointIndices(stack_.modelSettings().mpcModelJointNames);
     otherJointIndices_ = description_.getJointIndices(stack_.modelSettings().fixedJointNames);
     const CentroidalMpcRobotModel<scalar_t>& model = stack_.model();
     const vector_t& state = stack_.initialState();
     robotState_.setRootPositionInWorldFrame(model.getBasePosition(state));
-    robotState_.setRootRotationLocalToWorldFrame(getQuaternionFromEulerAnglesZyx(vector3_t(model.getBaseOrientationEulerZYX(state))));
+    robotState_.setRootRotationLocalToWorldFrame(quaternion_t(model.getBaseOrientation(state)));
     const vector_t joints = model.getJointAngles(state);
     for (size_t i = 0; i < mpcJointIndices_.size(); ++i) robotState_.setJointPosition(mpcJointIndices_[i], joints[i]);
     robotState_.setContactFlag(/*index=*/0, /*contactFlag=*/true);
@@ -257,9 +267,9 @@ TEST(MrtJointControllerPdGains, CreateReturnsTheRefusalOfAGainsFileAsAStatus) {
   absl::StatusOr<robot::model::RobotDescription> descriptionOrStatus = robot::model::RobotDescription::Create(stack.urdfFile());
   ASSERT_TRUE(descriptionOrStatus.ok()) << descriptionOrStatus.status();
   const robot::model::RobotDescription& description = *descriptionOrStatus;
-  const absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> refused =
-      CentroidalMpcMrtJointController::Create(description, stack.modelSettings(), stack.model(), stack.mpc(), stack.pinocchioInterface(),
-                                              /*mpcDesiredFrequency=*/1000.0, file);
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> refused = CentroidalMpcMrtJointController::Create(
+      description, stack.modelSettings(), stack.model(), stack.mpc(), observeInTheMotionManager(stack), stack.pinocchioInterface(),
+      /*mpcDesiredFrequency=*/1000.0, file);
   ASSERT_FALSE(refused.ok()) << "Create() accepted a gains file it refuses";
   EXPECT_EQ(refused.status().code(), absl::StatusCode::kInvalidArgument) << refused.status();
   EXPECT_TRUE(absl::StrContains(refused.status().message(), file)) << refused.status();
@@ -267,9 +277,9 @@ TEST(MrtJointControllerPdGains, CreateReturnsTheRefusalOfAGainsFileAsAStatus) {
 
   // Positive control: the same file without the mistake.
   writeFile(file, "default_gains { kp: 111.0 torque_limit: 24.0 }\n");
-  const absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> created =
-      CentroidalMpcMrtJointController::Create(description, stack.modelSettings(), stack.model(), stack.mpc(), stack.pinocchioInterface(),
-                                              /*mpcDesiredFrequency=*/1000.0, file);
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> created = CentroidalMpcMrtJointController::Create(
+      description, stack.modelSettings(), stack.model(), stack.mpc(), observeInTheMotionManager(stack), stack.pinocchioInterface(),
+      /*mpcDesiredFrequency=*/1000.0, file);
   ASSERT_TRUE(created.ok()) << created.status();
   EXPECT_EQ((*created)->getPdGains().mpcJointTorqueLimit[1], 24.0);
   std::filesystem::remove(file);

@@ -44,6 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/manifold/ProductStateManifold.h"
+#include "ocs2_core/manifold/StateManifoldSegment.h"
 #include "pinocchio/multibody/joint/joint-free-flyer.hpp"
 #include "pinocchio/parsers/urdf.hpp"
 
@@ -176,12 +178,34 @@ TEST_F(VisualizationConfigTest, AModelThatIsNotTheMpcsIsRefused) {
   VisualizationModel model = robot_->model();
   model.mpcRobotModel = nullptr;
   EXPECT_EQ(checkVisualizationModel(model).code(), absl::StatusCode::kInvalidArgument);
-  // A free-flyer root: a quaternion in the configuration, so nq != nv.
+  // Every humanoid state has the base quaternion block: a model without its manifold is refused, by every builder.
+  model = robot_->model();
+  model.stateManifold = nullptr;
+  EXPECT_EQ(checkVisualizationModel(model).code(), absl::StatusCode::kInvalidArgument);
+  const absl::StatusOr<VisualizationConfig> config = loadVisualizationConfig(robot_->taskFile(), robot_->modelSettings());
+  ASSERT_TRUE(config.ok()) << config.status();
+  EXPECT_EQ(SceneBuilder::Create(model, *config).status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_EQ(TelemetryBuilder::Create(model, *config).status().code(), absl::StatusCode::kInvalidArgument);
+  // The whole URDF on a free-flyer root: the joints the MPC fixes are in its configuration and velocity.
   PinocchioInterface::Model freeFlyerModel;
   pinocchio::urdf::buildModel(robot_->urdfFile(), pinocchio::JointModelFreeFlyerTpl<scalar_t>(), freeFlyerModel);
   const PinocchioInterface fullModel(freeFlyerModel);
   model = robot_->model();
   model.pinocchioInterface = &fullModel;
+  EXPECT_EQ(checkVisualizationModel(model).code(), absl::StatusCode::kInvalidArgument);
+
+  // A state manifold of the model's state is accepted, one of another state refused.
+  const size_t stateDim = robot_->robotModel().getStateDim();
+  const absl::StatusOr<std::shared_ptr<const ProductStateManifold>> flat =
+      ProductStateManifold::create({StateManifoldSegment::euclidean(stateDim)});
+  ASSERT_TRUE(flat.ok()) << flat.status();
+  model = robot_->model();
+  model.stateManifold = flat->get();
+  EXPECT_TRUE(checkVisualizationModel(model).ok()) << checkVisualizationModel(model);
+  const absl::StatusOr<std::shared_ptr<const ProductStateManifold>> longer =
+      ProductStateManifold::create({StateManifoldSegment::euclidean(stateDim + 1)});
+  ASSERT_TRUE(longer.ok()) << longer.status();
+  model.stateManifold = longer->get();
   EXPECT_EQ(checkVisualizationModel(model).code(), absl::StatusCode::kInvalidArgument);
 }
 

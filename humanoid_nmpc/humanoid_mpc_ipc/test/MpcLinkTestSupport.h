@@ -35,16 +35,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "ocs2_core/Types.h"
+#include "ocs2_core/control/ControllerBase.h"
+#include "ocs2_core/manifold/StateManifold.h"
+#include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
+#include "ocs2_mpc/MPC_BASE.h"
 #include "ocs2_mpc/MPC_Settings.h"
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_mpc_test/ScriptedMpc.h"
+#include "ocs2_oc/oc_data/PerformanceIndex.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
+#include "ocs2_oc/oc_data/ProblemMetrics.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
+#include "ocs2_oc/oc_solver/SolverBase.h"
 #include "ocs2_oc/synchronized_module/SolverSynchronizedModule.h"
 
 #include "humanoid_mpc_ipc/MpcMessageConversions.h"
@@ -84,6 +95,90 @@ mpc::Settings mpcSettings(scalar_t solutionTimeWindow = -1.0);
  * observation gives a policy of its own.
  */
 std::unique_ptr<mpc_test::ScriptedMpc> makeScriptedMpc(const mpc::Settings& settings = mpcSettings());
+
+/** The model of the link tests on a state manifold: test_data::toyStateManifold(), [E(3), Q, E(5)], with kInputDim inputs. */
+ModelDimensions manifoldModelDimensions();
+
+/**
+ * An observation at `time` on the toy state manifold: every Euclidean entry `value`, the attitude a rotation by `value`
+ * radians about a fixed axis, and a zero input.
+ */
+SystemObservation manifoldObservationAt(scalar_t time, scalar_t value);
+
+/**
+ * A stand-in for the SQP on a state manifold, for the tests of the MPC link with a ManifoldLinearController. It solves
+ * nothing: from the observation (t0, x0) it solves from, it plans a ManifoldLinearController exactly as SqpSolver hands
+ * one out (multiple_shooting::toPrimalSolution(..., manifold)), on 11 nodes over the horizon with an event halfway, of
+ * the states x0 (+) (t - t0) v along a fixed tangent v that jump at the event, and of inputs and tangent gains that
+ * depend on x0, so that every observation gives a policy of its own. Its mode schedule switches from mode 0 to mode 1
+ * at the event. It never fails.
+ *
+ * Not thread-safe, but for numResets(): the MPC drives it from one thread at a time.
+ */
+class ManifoldScriptedSolver final : public SolverBase {
+ public:
+  /** `stateManifold` is shared with the policies it hands out (ManifoldLinearController takes a std::shared_ptr). */
+  ManifoldScriptedSolver(std::shared_ptr<const StateManifold> stateManifold, size_t inputDim);
+  ~ManifoldScriptedSolver() override = default;
+  ManifoldScriptedSolver(const ManifoldScriptedSolver&) = delete;
+  ManifoldScriptedSolver& operator=(const ManifoldScriptedSolver&) = delete;
+
+  size_t numResets() const { return numResets_.load(); }
+
+  void reset() override;
+  const OptimalControlProblem& getOptimalControlProblem() const override { return ocp_; }
+  const PerformanceIndex& getPerformanceIndeces() const override { return performanceIndex_; }
+  size_t getNumIterations() const override { return 1; }
+  const std::vector<PerformanceIndex>& getIterationsLog() const override { return iterationsLog_; }
+  scalar_t getFinalTime() const override { return finalTime_; }
+  void getPrimalSolution(scalar_t finalTime, PrimalSolution* absl_nonnull primalSolutionPtr) const override;
+  const ProblemMetrics& getSolutionMetrics() const override { return problemMetrics_; }
+
+ private:
+  void runImpl(scalar_t initTime, const vector_t& initState, scalar_t finalTime) override;
+  void runImpl(scalar_t initTime,
+               const vector_t& initState,
+               scalar_t finalTime,
+               const ControllerBase* absl_nullable externalControllerPtr) override;
+  void runImpl(scalar_t initTime, const vector_t& initState, scalar_t finalTime, const PrimalSolution& primalSolution) override;
+
+  const std::shared_ptr<const StateManifold> stateManifold_;
+  const size_t inputDim_;
+  std::atomic<size_t> numResets_{0};
+  scalar_t initTime_ = 0.0;
+  vector_t initState_;
+  scalar_t finalTime_ = 0.0;
+
+  OptimalControlProblem ocp_;
+  PerformanceIndex performanceIndex_;
+  std::vector<PerformanceIndex> iterationsLog_;
+  ProblemMetrics problemMetrics_;
+};
+
+/** An MPC around a ManifoldScriptedSolver. Not thread-safe. */
+class ManifoldScriptedMpc final : public MPC_BASE {
+ public:
+  ManifoldScriptedMpc(const mpc::Settings& settings, std::shared_ptr<const StateManifold> stateManifold, size_t inputDim)
+      : MPC_BASE(settings), solver_(std::move(stateManifold), inputDim) {}
+  ~ManifoldScriptedMpc() override = default;
+  ManifoldScriptedMpc(const ManifoldScriptedMpc&) = delete;
+  ManifoldScriptedMpc& operator=(const ManifoldScriptedMpc&) = delete;
+
+  ManifoldScriptedSolver* absl_nonnull getSolverPtr() override { return &solver_; }
+  const ManifoldScriptedSolver* absl_nonnull getSolverPtr() const override { return &solver_; }
+  ManifoldScriptedSolver& solver() { return solver_; }
+
+ protected:
+  void calculateController(scalar_t initTime, const vector_t& initState, size_t initMode, scalar_t finalTime) override {
+    solver_.run(initTime, initState, initMode, finalTime);
+  }
+
+ private:
+  ManifoldScriptedSolver solver_;
+};
+
+/** A ManifoldScriptedMpc on `stateManifold` with kInputDim inputs and mpcSettings(). */
+std::unique_ptr<ManifoldScriptedMpc> makeManifoldScriptedMpc(std::shared_ptr<const StateManifold> stateManifold);
 
 /** Polls `condition` every millisecond until it holds or `timeout` passes; returns whether it held. */
 bool waitFor(const std::function<bool()>& condition, absl::Duration timeout = kTimeout);

@@ -65,14 +65,25 @@ struct CentroidalModelInfoTpl {
   size_t numThreeDofContacts;                   // 3DOF contacts, force only
   size_t numSixDofContacts;                     // 6DOF contacts, force and torque
   std::vector<size_t> endEffectorFrameIndices;  // indices of end-effector frames [3DOF contacts, 6DOF contacts]
-  size_t generalizedCoordinatesNum;             // number of generalized coordinates in the pinocchio model
+  size_t configurationDim;                      // nq: entries of the pinocchio configuration q = [p_W, xi, q_j], 7 + actuatedDofNum
+  size_t velocityDim;                           // nv: entries of the pinocchio velocity v = [dp_W, w_B, dq_j], 6 + actuatedDofNum
   size_t actuatedDofNum;                        // number of actuated degrees of freedom
-  size_t stateDim;                              // number of states needed to define the system flow map
+  size_t stateDim;                              // nx = 6 + nq: entries of the state x = [h, p_W, xi, q_j] the flow map reads
+  size_t stateTangentDim;                       // ndx = 6 + nv: entries of the state's tangent [h, dp_W, dphi_B, dq_j]
   size_t inputDim;                              // number of inputs needed to define the system flow map
   scalar_t robotMass;                           // total robot mass
   vector_t qPinocchioNominal;                   // nominal robot configuration used in the SRBD model
   matrix3_t centroidalInertiaNominal;           // nominal robot centroidal inertia used in the SRBD model (expressed in nominal base frame)
   vector3_t comToBasePositionNominal;           // nominal CoM to base position used in the SRBD model (expressed in nominal base frame)
+
+  /**
+   * The sizes above under the names of the layout-agnostic robot model (humanoid_common_mpc's MpcRobotModelBase). The
+   * root joint is Composite(Translation, Spherical): q stores the base orientation as the unit quaternion xi = (x, y, z, w)
+   * and v its body angular velocity w_B, so nq = nv + 1 and the state has one entry more than its tangent.
+   */
+  size_t getConfigurationDim() const { return configurationDim; }
+  size_t getVelocityDim() const { return velocityDim; }
+  size_t getStateTangentDim() const { return stateTangentDim; }
 
   /** Casts CentroidalModelInfo to CentroidalModelInfoCppAD. */
   template <typename T = SCALAR, EnableIfScalar_t<T> = true>

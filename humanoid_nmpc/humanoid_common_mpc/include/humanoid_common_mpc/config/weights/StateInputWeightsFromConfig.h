@@ -53,14 +53,44 @@ namespace ocs2::humanoid {
 // MPC does not have (a fixed joint said so); a name given twice; a value that is not finite.
 
 /**
- * The diagonal state weight matrix (stateDimension(layout) square) of `weights`: Q of state_weights, Q_final of
- * final_state_weights, before the terminal scaling and before any zeroing of the base pose block.
+ * The diagonal state weight matrix (tuningDimension(layout) square, on the rows of tuningLayoutOf(layout)) of `weights`:
+ * Q of state_weights, Q_final of final_state_weights, before the terminal scaling and before any zeroing of the base
+ * pose block.
  */
 absl::StatusOr<matrix_t> stateWeightsFromConfig(const mpc_config::StateWeights& weights,
                                                 const StateInputLayout& layout,
                                                 absl::string_view fieldPath);
 
-/** The state vector (stateDimension(layout)) of `values`: the initial state of initial_state. */
+/** What the quadratic state costs do with the base-pose block of their state weights. */
+enum class BasePoseWeights {
+  kKept,
+  // Zeroed (ComAndAcomTrackingCost::zeroBasePoseWeights): the problem carries com_and_acom_tracking_cost, which tracks
+  // the base pose in its own coordinates instead.
+  kZeroedForComAndAcomTracking,
+};
+
+/**
+ * The state weights a running quadratic state cost is set up with, at start-up (HumanoidCostConstraintFactory) and on a
+ * live reload (QuadraticCostWeightsApplier) alike: stateWeightsFromConfig() of `weights` (the field `fieldPath`), its
+ * base-pose block as `basePose` says. The cost's TuningLayoutDeviation then maps these Euler-written rows onto the
+ * state, the one mapping of the weights in both paths.
+ */
+absl::StatusOr<matrix_t> trackingStateWeightsFromConfig(const mpc_config::StateWeights& weights,
+                                                        const StateInputLayout& layout,
+                                                        absl::string_view fieldPath,
+                                                        BasePoseWeights basePose);
+
+/**
+ * The state weights of the quadratic terminal cost, in both paths: `terminalCostScaling` (terminalCostScalingFromConfig())
+ * times trackingStateWeightsFromConfig() of `finalStateWeights`, the base-pose block treated before the scaling.
+ */
+absl::StatusOr<matrix_t> terminalStateWeightsFromConfig(const mpc_config::StateWeights& finalStateWeights,
+                                                        scalar_t terminalCostScaling,
+                                                        const StateInputLayout& layout,
+                                                        absl::string_view fieldPath,
+                                                        BasePoseWeights basePose);
+
+/** The state vector (tuningDimension(layout), on the rows of tuningLayoutOf(layout)) of `values`: initial_state. */
 absl::StatusOr<vector_t> stateValuesFromConfig(const mpc_config::StateValues& values,
                                                const StateInputLayout& layout,
                                                absl::string_view fieldPath);

@@ -45,6 +45,24 @@ scalar_t wrapAngleDifference(scalar_t angle) {
   return angle;
 }
 
+/**
+ * |xi|^2 <= epsilon^2: the finite quaternions the safe normalization (ocs2::quaternionSafeNorm) leaves unchanged, which
+ * every heading-tilt function reads as the zero quaternion, i.e. the identity. False for a quaternion with a NaN
+ * coefficient, whose squared norm compares false with anything: it is normalized like any other and its NaN reaches
+ * every function that reads that coefficient, rather than being read as the identity.
+ */
+bool isInsideNormalizationGuard(const vector4_t& xi) {
+  return xi.squaredNorm() <= kQuaternionNormGuard * kQuaternionNormGuard;
+}
+
+/**
+ * -1 or 1: the sign that brings the twist coefficients (z, w) to the hemisphere w > 0, or w = 0 < z, of design decision
+ * D9. It flips with (z, w), so sign * (z, w) is the same pair for xi and -xi, bit for bit. 1 at z = w = 0.
+ */
+scalar_t twistHemisphereSign(scalar_t z, scalar_t w) {
+  return (w < 0.0 || (w == 0.0 && z < 0.0)) ? -1.0 : 1.0;
+}
+
 /** The twist-swing split xi_hat = q_t (x) s of design section 2.8.1, shared by the heading, the tilt and their Jacobian. */
 struct TwistSwingSplit {
   /** xi_hat = (x, y, z, w). */
@@ -61,7 +79,12 @@ struct TwistSwingSplit {
 
 TwistSwingSplit splitTwistSwing(const vector4_t& xi) {
   TwistSwingSplit split;
-  split.unitQuaternion = safelyNormalizedQuaternion(xi);
+  // Inside the guard the safe normalization leaves xi unchanged, and xi_hat = xi is not a unit quaternion: its swing
+  // would have n and rho of the order of |xi|, and the absolute series test of tiltScale() would apply the small-tilt
+  // series at every tilt (sign-flipped and unbounded near upside down). It is read as the zero quaternion instead, the
+  // identity the rotation matrix also reads it as, so the residual is constant there and the zero Jacobian below is its
+  // derivative.
+  split.unitQuaternion = isInsideNormalizationGuard(xi) ? vector4_t(vector4_t::Zero()) : safelyNormalizedQuaternion(xi);
   const scalar_t x = split.unitQuaternion(0);
   const scalar_t y = split.unitQuaternion(1);
   const scalar_t z = split.unitQuaternion(2);
@@ -71,13 +94,18 @@ TwistSwingSplit splitTwistSwing(const vector4_t& xi) {
     split.headingCos = w / split.twistNorm;
     split.headingSin = z / split.twistNorm;
   } else if (z != 0.0 || w != 0.0) {
-    // Upside down: the same unit quaternion from the angle, without dividing by a vanishing rho.
-    const scalar_t halfHeading = std::atan2(z, w);
-    split.headingCos = std::cos(halfHeading);
-    split.headingSin = std::sin(halfHeading);
+    // Upside down: the same unit quaternion from the angle, without dividing by a vanishing rho. The angle is taken of
+    // (z, w) brought to the hemisphere w > 0 (or w = 0 < z) and the sign is put back afterwards, so that -xi gives
+    // exactly -q_t and therefore exactly the same swing; atan2(z, w) of the raw coefficients would differ between xi and
+    // -xi by pi only to round-off.
+    const scalar_t hemisphere = twistHemisphereSign(z, w);
+    const scalar_t halfHeading = std::atan2(hemisphere * z, hemisphere * w);
+    split.headingCos = hemisphere * std::cos(halfHeading);
+    split.headingSin = hemisphere * std::sin(halfHeading);
   }
-  // At rho = 0 exactly the heading quaternion stays the identity of the initializers: atan2 of two zeros would give
-  // +-pi for a negative zero w (atan2(+-0, -0) = +-pi), i.e. minus the identity.
+  // At rho = 0 exactly the heading quaternion stays the identity of the initializers, for xi and -xi alike: atan2 of two
+  // zeros would give +-pi for a negative zero w (atan2(+-0, -0) = +-pi), i.e. minus the identity. The swing of -xi is
+  // then -s(xi), the other logarithm of the same half turn (BaseOrientation.h).
   // s = q_t^-1 (x) xi_hat with q_t^-1 = (0, 0, -headingSin, headingCos); its z coefficient is zero.
   const scalar_t c = split.headingCos;
   const scalar_t d = split.headingSin;
@@ -101,7 +129,7 @@ vector2_t tiltFromSplit(const TwistSwingSplit& split) {
 
 /** The heading psi_h in (-pi, pi], from the twist coefficients brought to the hemisphere z_w >= 0. */
 scalar_t headingFromTwist(scalar_t z, scalar_t w) {
-  if (w < 0.0 || (w == 0.0 && z < 0.0)) {
+  if (twistHemisphereSign(z, w) < 0.0) {
     z = -z;
     w = -w;
   }
@@ -193,7 +221,9 @@ Eigen::Matrix<scalar_t, 3, 4> configurationTangentLift(const vector4_t& xi) {
 }
 
 scalar_t twistHeading(const vector4_t& xi) {
-  // atan2 is invariant to the scale of its arguments, so the raw coefficients serve.
+  // The zero quaternion's heading inside the guard, as splitTwistSwing() reads it. Above it atan2 is invariant to the
+  // scale of its arguments, so the raw coefficients serve.
+  if (isInsideNormalizationGuard(xi)) return 0.0;
   return headingFromTwist(xi(2), xi(3));
 }
 

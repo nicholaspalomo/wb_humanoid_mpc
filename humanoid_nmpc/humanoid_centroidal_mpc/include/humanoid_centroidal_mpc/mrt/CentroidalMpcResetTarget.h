@@ -43,8 +43,10 @@ namespace ocs2::humanoid {
  * The target trajectories the centroidal MPC restarts from after a reset served at `observation`: the observed
  * configuration held still and upright, with the weight on both feet.
  *
- *  - the state is the observation's, with the normalized linear and angular momentum zeroed and the base pitch and roll
- *    zeroed, so the target base is upright; the joint positions are the observed ones (the nominal ones would make a
+ *  - the state is the observation's, with the normalized linear and angular momentum zeroed and the base upright at the
+ *    observed heading: the attitude is the heading quaternion of the observed one (its twist about the world z axis,
+ *    headingQuaternion()), so the yaw is the observation's getBaseHeading(), wrapped into (-pi, pi], and the pitch and
+ *    roll are zero; the joint positions are the observed ones (the nominal ones would make a
  *    kinematically inconsistent target - the current base height with the nominal joint angles - that the MPC tries to
  *    "correct" by shooting the base upward);
  *  - the input carries the robot's weight evenly on both feet in the effective model's input parameterization at that

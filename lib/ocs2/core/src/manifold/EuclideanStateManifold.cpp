@@ -42,13 +42,25 @@ void EuclideanStateManifold::retract(const vector_t& x, const vector_t& dx, scal
 vector_t EuclideanStateManifold::difference(const vector_t& x0, const vector_t& x1) const {
   CHECK_EQ(static_cast<size_t>(x0.size()), dimension_);
   CHECK_EQ(static_cast<size_t>(x1.size()), dimension_);
-  return x1 - x0;
+  vector_t dx(dimension_);
+  differenceInto(x0, x1, dx);
+  return dx;
 }
 
 vector_t EuclideanStateManifold::interpolate(const vector_t& x0, const vector_t& x1, scalar_t alpha) const {
   CHECK_EQ(static_cast<size_t>(x0.size()), dimension_);
   CHECK_EQ(static_cast<size_t>(x1.size()), dimension_);
-  return (1.0 - alpha) * x0 + alpha * x1;
+  vector_t x(dimension_);
+  interpolateInto(x0, x1, alpha, x);
+  return x;
+}
+
+void EuclideanStateManifold::differenceInto(const vector_t& x0, const vector_t& x1, vector_t& dx) const {
+  dx = x1 - x0;
+}
+
+void EuclideanStateManifold::interpolateInto(const vector_t& x0, const vector_t& x1, scalar_t alpha, vector_t& x) const {
+  x = (1.0 - alpha) * x0 + alpha * x1;
 }
 
 void EuclideanStateManifold::project(vector_t& x) const {

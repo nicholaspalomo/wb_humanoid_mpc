@@ -85,7 +85,7 @@ struct ClosedLoopCounters {
 
 /** What a metrics file says about itself, beside the metrics. */
 struct ClosedLoopRunInfo {
-  std::string label;                           ///< the baseline label, e.g. M0
+  std::string label;                           ///< the label the run is recorded under (make closed-loop-metrics LABEL=)
   std::string robot;                           ///< RobotConfiguration::name
   std::string formulation;                     ///< centroidal or whole_body
   std::string scenario;                        ///< ClosedLoopScenario::name
@@ -105,7 +105,8 @@ struct ClosedLoopRunInfo {
  *  - stance-foot slip: the horizontal drift of a contact point while it stays in measured contact;
  *  - joint torque RMS;
  *  - the largest rotation part and norm of the initial-state gap, and when the rotation part peaked;
- *  - max | |xi| - 1 | of the solutions (null for the Euler formulation);
+ *  - max | |xi| - 1 | of the solutions (null without a solve; the Euler formulation of the labels recorded before the
+ *    switch had none);
  *  - the count of non-finite values;
  *  - solve time [ms]: mean, p50, p99 and max of the solver iteration and of each SQP phase;
  *  - failed solves, resets, simulator resets and the cycles with an unhealthy MPC.

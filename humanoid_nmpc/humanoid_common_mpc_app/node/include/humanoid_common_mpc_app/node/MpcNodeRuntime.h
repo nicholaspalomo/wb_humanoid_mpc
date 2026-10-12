@@ -86,13 +86,15 @@ absl::Status applyWalkingVelocityCommand(const humanoid_mpc_msgs::WalkingVelocit
  *     another configuration (checkMpcParameterUpdate(), Config::robotName, Config::taskFileIdentity) and one that does
  *     not convert are logged and counted, and nothing of them is handed over.
  *
- * With every policy the MpcServer publishes, it sends MpcPolicy.annotations (ViewerAnnotations.h): the contact planner's
- * target contact poses and the motion manager's scaled velocity command, and then calls the visualization publisher's
- * post-solve observer (Components::attachVisualization).
+ * Before every solve the MpcServer hands the observation to the motion manager (ProceduralMpcMotionManager::observe(),
+ * MpcServer::Hooks::preSolveObserver), whose measured motion needs the observation's joint velocities. With every
+ * policy it publishes, it sends MpcPolicy.annotations (ViewerAnnotations.h): the contact planner's target contact poses
+ * and the motion manager's scaled velocity command, and then calls the visualization publisher's post-solve observer
+ * (Components::attachVisualization).
  *
  * THREADS. Create() and start() run on the caller's thread; the handlers above run on the bus's IO thread, the reset
- * target, the annotations and the post-solve observer on the solver thread. The MPC, its reference manager and its
- * synchronized modules are driven from the solver thread only, from start() to stop().
+ * target, the observation hand-over, the annotations and the post-solve observer on the solver thread. The MPC, its reference manager and
+ * its synchronized modules are driven from the solver thread only, from start() to stop().
  *
  * LIFETIME. Everything Components names must outlive the runtime. The runtime owns the bus; stop() (and the destructor)
  * stops the solver thread first, then the bus.

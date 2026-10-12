@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 
 #include "humanoid_common_mpc/mrt/ControlMode.h"
+#include "mujoco_sim_interface/viewer/ViewerNames.h"
 
 namespace ocs2::humanoid::robot_test {
 
@@ -54,7 +55,7 @@ robot::model::RobotDescription atlasDescription() {
 std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface> makeHeadlessAtlas(bool gantryLocked) {
   robot::mujoco_sim_interface::MujocoSimConfig config;
   config.scenePath = kAtlasScene;
-  config.headless = true;
+  config.viewer.names = {robot::mujoco_sim_interface::kNoViewerName};
   config.isGantryLocked = gantryLocked;
   config.gantryHold = "weld_constraint";
   absl::StatusOr<std::unique_ptr<robot::mujoco_sim_interface::MujocoSimInterface>> sim =

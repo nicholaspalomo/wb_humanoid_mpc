@@ -53,7 +53,7 @@ HotUpdateTarget::HotUpdateTarget(const mpc_config::TaskFile* absl_nonnull task,
       solver_(solver),
       referenceManager_(referenceManager),
       layout_(layout),
-      stateDim_(stateDimension(*layout)),
+      tuningDim_(tuningDimension(*layout)),
       inputDim_(inputDim),
       source_(source) {}
 

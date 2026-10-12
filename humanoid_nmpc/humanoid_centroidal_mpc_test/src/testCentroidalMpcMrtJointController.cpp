@@ -149,7 +149,8 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testPdGainsHotReloading) {
   // Create controller
   absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = CentroidalMpcMrtJointController::Create(
       robotDesc, testingModelInterface_.getModelSettings(), testingModelInterface_.getMpcRobotModel(), scriptedMpc_,
-      testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0, tempPdGainsFile_.string());
+      /*solverObservationObserver=*/nullptr, testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
+      tempPdGainsFile_.string());
   ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
   CentroidalMpcMrtJointController& controller = **controllerOrStatus;
 
@@ -182,7 +183,8 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testSafetyModeDecaysADampedPdToZeroT
   const scalar_t timeConstant = 0.5;
   absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = CentroidalMpcMrtJointController::Create(
       robotDesc, testingModelInterface_.getModelSettings(), testingModelInterface_.getMpcRobotModel(), scriptedMpc_,
-      testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0, tempPdGainsFile_.string());
+      /*solverObservationObserver=*/nullptr, testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
+      tempPdGainsFile_.string());
   ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
   CentroidalMpcMrtJointController& controller = **controllerOrStatus;
   controller.setSafetyDecayTimeConstant(timeConstant);
@@ -265,9 +267,10 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testEntryHoldsThePreviousModeUntilAP
   using EntryResult = std::tuple<bool, ::robot::model::RobotJointAction, ::robot::model::RobotJointAction>;
   const std::function<EntryResult(scalar_t)> run = [&](scalar_t blendTime) {
     const std::unique_ptr<CentroidalMpcMrtJointController> controllerPtr =
-        CentroidalMpcMrtJointController::Create(
-            robotDesc, testingModelInterface_.getModelSettings(), testingModelInterface_.getMpcRobotModel(), scriptedMpc_,
-            testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0, tempPdGainsFile_.string())
+        CentroidalMpcMrtJointController::Create(robotDesc, testingModelInterface_.getModelSettings(),
+                                                testingModelInterface_.getMpcRobotModel(), scriptedMpc_,
+                                                /*solverObservationObserver=*/nullptr, testingModelInterface_.getPinocchioInterface(),
+                                                /*mpcDesiredFrequency=*/400.0, tempPdGainsFile_.string())
             .value();
     CentroidalMpcMrtJointController& controller = *controllerPtr;
     controller.setMpcEntryBlendTime(blendTime);
@@ -339,7 +342,8 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testBasisVectorInputsUseWorldFrameWr
 
   absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = CentroidalMpcMrtJointController::Create(
       robotDesc, testingModelInterface_.getModelSettings(), testingModelInterface_.getMpcRobotModel(), scriptedMpc_,
-      testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0, gainsFile.string(), &basisModel);
+      /*solverObservationObserver=*/nullptr, testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
+      gainsFile.string(), &basisModel);
   ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
   CentroidalMpcMrtJointController& controller = **controllerOrStatus;
 
@@ -395,7 +399,8 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testObservationModeFollowsTheContact
   ::robot::model::RobotJointAction jointAction(robotDesc);
   absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = CentroidalMpcMrtJointController::Create(
       robotDesc, testingModelInterface_.getModelSettings(), testingModelInterface_.getMpcRobotModel(), scriptedMpc_,
-      testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0, tempPdGainsFile_.string());
+      /*solverObservationObserver=*/nullptr, testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
+      tempPdGainsFile_.string());
   ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
   CentroidalMpcMrtJointController& controller = **controllerOrStatus;
   controller.setControlMode("JOINT_PD");
@@ -454,7 +459,8 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testFeedforwardWrenchesFollowTheMeas
   }
   absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = CentroidalMpcMrtJointController::Create(
       robotDesc, testingModelInterface_.getModelSettings(), testingModelInterface_.getMpcRobotModel(), scriptedMpc_,
-      testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0, gainsFile.string());
+      /*solverObservationObserver=*/nullptr, testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
+      gainsFile.string());
   ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
   CentroidalMpcMrtJointController& controller = **controllerOrStatus;
   std::filesystem::remove(gainsFile);
@@ -513,7 +519,8 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testAStartedControllerRunsAgainstThe
   ::robot::model::RobotJointAction jointAction(robotDesc);
   absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> controllerOrStatus = CentroidalMpcMrtJointController::Create(
       robotDesc, testingModelInterface_.getModelSettings(), testingModelInterface_.getMpcRobotModel(), scriptedMpc_,
-      testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/100.0, tempPdGainsFile_.string());
+      /*solverObservationObserver=*/nullptr, testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/100.0,
+      tempPdGainsFile_.string());
   ASSERT_TRUE(controllerOrStatus.ok()) << controllerOrStatus.status();
   CentroidalMpcMrtJointController& controller = **controllerOrStatus;
   ASSERT_FALSE(controller.ready()) << "a policy arrived before the link was started";
@@ -537,7 +544,8 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testCreateRefusesAModelJointTheRobot
   ASSERT_TRUE(description.ok()) << description.status();
   const absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> created = CentroidalMpcMrtJointController::Create(
       *description, testingModelInterface_.getModelSettings(), testingModelInterface_.getMpcRobotModel(), scriptedMpc_,
-      testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0, tempPdGainsFile_.string());
+      /*solverObservationObserver=*/nullptr, testingModelInterface_.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
+      tempPdGainsFile_.string());
   EXPECT_EQ(created.status().code(), absl::StatusCode::kNotFound);
   EXPECT_NE(created.status().message().find(testingModelInterface_.getModelSettings().mpcModelJointNames.front()), std::string::npos)
       << created.status();

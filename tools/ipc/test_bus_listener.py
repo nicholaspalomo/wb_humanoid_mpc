@@ -73,10 +73,6 @@ class ParseNetworkConfigTest(unittest.TestCase):
         # same message (its line and column, or the node).
         cases = {
             "an unknown field": ('nodes { name: "robot" prot: 5600 }', ":1:"),
-            "the old YAML file": (
-                "nodes:\n  robot: {host: 127.0.0.1, port: 5600}",
-                ":2:",
-            ),
             "no node": ("", "nodes"),
             "a host missing": ('nodes { name: "robot" port: 5600 }', "(robot).host"),
             "a port out of range": (

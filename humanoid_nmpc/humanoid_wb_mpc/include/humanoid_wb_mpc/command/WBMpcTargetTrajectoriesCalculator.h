@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 
+#include "humanoid_common_mpc/command/BasePlanarMotion.h"
 #include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -89,13 +90,14 @@ class WBMpcTargetTrajectoriesCalculator : public TargetTrajectoriesCalculatorBas
                                                            const vector_t& initState) override;
 
   /**
-   * Converts desired velocities to TargetTrajectories.
-   * @param [in] commandedVelocities : [v_x, v_y, v_yaw] defined in pelvis frame
-   * @param [in] observation : the current observation
+   * The target of a velocity command (TargetTrajectoriesCalculatorBase's class comment): the base knots of
+   * velocityCommandKnots(), each moving at the command in its own heading frame and turning at the commanded yaw rate,
+   * the joints at the default posture and still.
    */
   TargetTrajectories commandedVelocityToTargetTrajectories(const vector4_t& commandedVelocities,
                                                            scalar_t initTime,
-                                                           const vector_t& initState) override;
+                                                           const vector_t& initState,
+                                                           const BasePlanarMotion& measuredMotion) override;
 
  private:
   /** The calculator of the checked `referenceSettings` and `defaultJointState` (one entry per joint of the model). */

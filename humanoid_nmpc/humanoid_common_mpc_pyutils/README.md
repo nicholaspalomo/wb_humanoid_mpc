@@ -29,7 +29,8 @@ it writes an `.npz` file; without any log it writes a synthetic dataset.
 | Target | What it checks |
 |---|---|
 | `:test_mpc_observation_logger` | the CSV columns and file name; every observation of a loopback bus reaches the file in order; observations of other dimensions are skipped; `export_rollouts.py` reads the file |
-| `:test_export_rollouts` | the default columns of the logger's files and of the ROS-era logger's; explicit columns; every row of every file |
+| `:test_export_rollouts` | the default columns of the logger's files, and a file without them refused unless the columns are named; explicit columns; every row of every file |
 
-`test/test_xbox_controller.py` is a manual check of an Xbox controller (it needs the xpad driver,
-https://github.com/paroj/xpad, and a controller), not a Bazel test.
+An Xbox controller is checked by hand with `bazel run //humanoid_nmpc/remote_control:xbox_velocity_publisher` and
+the xpad driver on Linux ([`remote_control/README.md`, "Teleoperation"](../remote_control/README.md#teleoperation));
+`//humanoid_nmpc/remote_control:test_xbox_controller` covers its interface with a fake backend.

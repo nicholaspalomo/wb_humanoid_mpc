@@ -45,15 +45,12 @@ conventional enough that a comment would be noise. Those are exempt:
     protobuf `add_*`), a member or variable being initialized (`stopped_(false)`), or conventional;
   - the callees in CONVENTIONAL_CALLEES and the types matched by CONVENTIONAL_TYPE_PATTERNS (std::max, block, resize,
     StrCat, EXPECT_NEAR, Eigen vectors, ...), where the position of a literal is its meaning;
-  - a line carrying `// NOLINT(argument-comment)`, or following a line carrying `// NOLINTNEXTLINE(argument-comment)`.
+  - a line carrying `// NOLINT(argument-comment): <reason>`, or following a line carrying
+    `// NOLINTNEXTLINE(argument-comment): <reason>` (the registry applies the markers, tools/hooks/checks.py).
 Preprocessor lines (#define bodies included) are not checked.
 """
 
-import argparse
-from collections.abc import Iterable
-import os
 import re
-import sys
 from typing import NamedTuple
 
 from tools.hooks import check_types
@@ -61,8 +58,6 @@ from tools.hooks import cpp_source
 from tools.hooks import lint_files
 
 NAME = "argument-comment"
-NOLINT = "NOLINT(argument-comment)"
-NOLINTNEXTLINE = "NOLINTNEXTLINE(argument-comment)"
 
 # Words that are followed by a parenthesis without being a call.
 KEYWORDS = frozenset(
@@ -240,13 +235,6 @@ class Violation(NamedTuple):
     callee: str
     literal: str
     position: int
-
-    def __str__(self) -> str:
-        return (
-            f"{self.path}:{self.line}:{self.col}: bare literal `{self.literal}` as argument {self.position} of "
-            f"`{self.callee}(...)`; name it with an argument comment, `/*parameter_name=*/{self.literal}` (Google "
-            f"C++ style), or add `// {NOLINT}` if it is self-evident."
-        )
 
 
 _STANDARD_SUFFIX = re.compile(
@@ -502,49 +490,6 @@ def unsuppressed_violations(source: str, path: str = "<source>") -> list[Violati
     return violations
 
 
-def check_source(source: str, path: str = "<source>") -> list[Violation]:
-    """The violations of `source` that no `NOLINT(argument-comment)` or `NOLINTNEXTLINE(argument-comment)` exempts."""
-    suppressed = set()
-    for number, text in enumerate(source.splitlines(), start=1):
-        if NOLINT in text:
-            suppressed.add(number)
-        if NOLINTNEXTLINE in text:
-            suppressed.add(number + 1)
-    return [
-        v for v in unsuppressed_violations(source, path) if v.line not in suppressed
-    ]
-
-
-def check_files(paths: Iterable[str], root: str) -> list[Violation]:
-    violations: list[Violation] = []
-    for path in paths:
-        with open(path, encoding="utf-8", errors="ignore") as f:
-            violations += check_source(f.read(), os.path.relpath(path, root))
-    return violations
-
-
-def check_staged(repository: str) -> list[Violation]:
-    """Checks the STAGED version of every first-party C++ file staged for commit - the index, not the working tree.
-
-    This is what the pre-commit hook runs: it judges exactly what is about to be committed, a partial `git add -p`
-    included, and only the files the commit touches, so a commit is never blocked by a file it does not change.
-
-    Args:
-        repository: The root of the git checkout.
-
-    Returns:
-        The violations of the staged files, file by file.
-    """
-    violations: list[Violation] = []
-    for path in lint_files.staged_files(repository):
-        if not path.endswith(
-            lint_files.CPP_EXTENSIONS
-        ) or not lint_files.is_first_party(path):
-            continue
-        violations += check_source(lint_files.staged_source(repository, path), path)
-    return violations
-
-
 def _findings(source: str, path: str) -> list[check_types.Finding]:
     return [
         check_types.Finding(
@@ -571,27 +516,3 @@ CHECKS = [
         "(tools/hooks/argument_comments.py says what is exempt).",
     )
 ]
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("paths", nargs="*", help="C++ files to check")
-    parser.add_argument(
-        "--git-staged",
-        action="store_true",
-        help="check the staged version of every C++ file staged for commit (the pre-commit hook)",
-    )
-    args = parser.parse_args(argv)
-    if args.git_staged == bool(args.paths):
-        parser.error("give either C++ paths or --git-staged")
-    if args.git_staged:
-        violations = check_staged(os.getcwd())
-    else:
-        violations = check_files(args.paths, os.getcwd())
-    for violation in violations:
-        print(violation)
-    return 1 if violations else 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

@@ -125,10 +125,7 @@ class CentroidalDynamicsBasisInputsAD final : public SystemDynamicsBaseAD {
                                              const VECTOR_T<SCALAR_T>& basisInput) const;
 
  protected:
-  ad_vector_t systemFlowMap(ad_scalar_t time,
-                            const ad_vector_t& state,
-                            const ad_vector_t& input,
-                            const ad_vector_t& parameters) const override;
+  ad_vector_t systemFlowMap(ad_scalar_t time, const ad_vector_t& state, const ad_vector_t& input) const override;
 
  private:
   /** Builds the model from arguments Create() has validated; use Create(). */

@@ -69,9 +69,29 @@ MPC_LAUNCH_FILES = ("robot.textproto", "mpc.textproto", "dummy_sim.textproto")
 # The variables every launch file of a robot configuration gives the same value. The task and reference files are also
 # the configuration's identity on the bus (ConfigFiles.h, configFileIdentity()): the robot and the MPC refuse an update
 # or a save that names another one, so their launch files must name the same files.
-SHARED_VARIABLES = ("task_file", "reference_file", "urdf_file", "network_file")
+# The plot configuration is one for both sides: the bridge's plots and the robot's MuJoCo viewer (mujoco_viewer).
+SHARED_VARIABLES = (
+    "task_file",
+    "reference_file",
+    "urdf_file",
+    "network_file",
+    "plot_config",
+)
 # Flags whose value is a file the process reads.
-_FILE_FLAG = re.compile(r"^--(\w+_file|network_config|urdf)=(.+)$")
+_FILE_FLAG = re.compile(r"^--(\w+_file|network_config|urdf|plot_config)=(.+)$")
+# The MuJoCo viewers of the robot side, by registry name; its `viewer` variable is one of them or a list of them.
+# LINT.IfChange(viewer_names)
+VIEWER_NAMES = ("glfw", "web", "none")
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/viewer/ViewerNames.h:viewer_names)
+# The robot side's viewer variables, each passed as the flag of its name, with one value for every robot configuration.
+VIEWER_VARIABLES = (
+    "viewer",
+    "plot_config",
+    "web_viewer_address",
+    "web_viewer_port",
+    "web_viewer_allowed_hosts",
+    "viewer_cores",
+)
 
 
 def launch_paths() -> list[str]:
@@ -240,22 +260,48 @@ class LaunchFilesTest(unittest.TestCase):
                 self.assertIn("--config_store_dir=", process.command)
                 self.assertIn("--config_seed=when_bundle_changes", process.command)
 
+    def test_the_robot_side_picks_its_viewer_by_name(self) -> None:
+        # The viewer is a registry name or a list of them, never a boolean: every robot side passes it, the plot
+        # configuration whose mujoco_viewer chooses while it is empty, and the web viewer's variables to its binary, with
+        # the same values.
+        values = {}
+        for _, package, _ in ROBOT_CONFIGURATIONS:
+            launch = load(os.path.join(package, "launch", "robot.textproto"))
+            with self.subTest(package=package):
+                self.assertEqual(
+                    launch.variables["viewer"], "", "the plot configuration chooses"
+                )
+                (process,) = launch.processes
+                for variable in VIEWER_VARIABLES:
+                    self.assertIn(
+                        f"--{variable}={launch.variables[variable]}", process.command
+                    )
+            values[package] = tuple(launch.variables[v] for v in VIEWER_VARIABLES)
+        self.assertEqual(len(set(values.values())), 1, values)
+
+    def test_the_plot_configuration_starts_the_web_viewer(self) -> None:
+        # make launch-<robot>-sim's MuJoCo viewer, without VIEWER=: the mujoco_viewer of the robot side's plot
+        # configuration, registry names, the web viewer by default.
+        for _, package, _ in ROBOT_CONFIGURATIONS:
+            launch = load(os.path.join(package, "launch", "robot.textproto"))
+            with self.subTest(package=package):
+                path = os.path.join(RUNFILES, launch.variables["plot_config"])
+                with open(path, encoding="utf-8") as stream:
+                    names = re.findall(
+                        r'^mujoco_viewer:\s*"([^"]*)"', stream.read(), re.MULTILINE
+                    )
+                self.assertEqual(names, ["web"])
+                self.assertLessEqual(set(names), set(VIEWER_NAMES))
+
     def test_the_mpc_and_the_robot_are_never_in_one_launch_file(self) -> None:
-        # Simulation runs the hardware topology: no launch file starts the robot process next to the MPC, and none
-        # passes the retired --mpc_link (the robot binaries refuse it at start-up).
+        # Simulation runs the hardware topology: no launch file starts the robot process next to the MPC.
         for path in launch_paths():
             launch = load(path)
             programs = [os.path.basename(p.command[0]) for p in launch.processes]
-            arguments: list[str] = []
-            for process in launch.processes:
-                arguments.extend(process.command)
             with self.subTest(path=path):
                 self.assertFalse(
                     any(p.endswith("_robot") for p in programs)
                     and any(p.endswith("_node") for p in programs)
-                )
-                self.assertEqual(
-                    [a for a in arguments if a.startswith("--mpc_link")], []
                 )
 
     def test_the_robot_side_exports_to_a_script(self) -> None:

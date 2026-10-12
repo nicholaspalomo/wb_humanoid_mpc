@@ -31,7 +31,7 @@ fi
 container="${WB_DEV_CONTAINER:-devcontainer-app-1}"
 # LINT.IfChange(dev_container_mount)
 container_repo="${WB_DEV_CONTAINER_REPO:-/wb_humanoid_mpc_ws/$(basename "$(dirname "${repo}")")/$(basename "${repo}")}"
-# LINT.ThenChange(//docker-compose.yaml:dev_container_mount)
+# LINT.ThenChange(//docker-compose.yaml:dev_container_mount, //tools/ide/clangd_in_dev_container.sh:dev_container_mount)
 if ! command -v docker > /dev/null 2>&1; then
     echo "in_dev_container.sh: no docker here to reach the dev container '${container}'" >&2
     exit 1
@@ -41,11 +41,11 @@ if [ "$(docker inspect --format '{{.State.Running}}' "${container}" 2> /dev/null
         "Container, or docker compose up -d), or name another with DEV_CONTAINER=<name>." >&2
     exit 1
 fi
-# A dev container of this checkout's image has Pinocchio in /opt/openrobots and no ROS. One created from the image
-# before the switch from ROS has /opt/ros instead, and cannot build this checkout (bazel/system_libs.bzl).
+# A dev container of this checkout's image has Pinocchio in /opt/openrobots; one without it cannot build this checkout
+# (bazel/system_libs.bzl).
 if ! docker exec "${container}" test -d /opt/openrobots; then
-    echo "in_dev_container.sh: the dev container '${container}' has no /opt/openrobots: it was created from the ROS image" \
-        "and cannot build this checkout. Recreate it from docker-compose.yaml (Dev Containers: Rebuild Container, or" \
+    echo "in_dev_container.sh: the dev container '${container}' has no Pinocchio in /opt/openrobots and cannot build this" \
+        "checkout. Recreate it from docker-compose.yaml (Dev Containers: Rebuild Container, or" \
         "docker compose up -d --build --force-recreate), or name another with DEV_CONTAINER=<name>." >&2
     exit 1
 fi

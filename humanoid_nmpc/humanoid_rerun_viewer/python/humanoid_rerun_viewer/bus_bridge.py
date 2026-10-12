@@ -60,14 +60,6 @@ DEFAULT_REPORT_PERIOD_S = 5.0
 SHUTDOWN_FLUSH_TIMEOUT_S = 5.0
 # LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/README.md:bus_defaults)
 
-SUBSCRIBED_TOPICS = (
-    topics.VIZ_SCENE,
-    topics.VIZ_TELEMETRY,
-    topics.ROBOT_FSM_STATE,
-    topics.MPC_STATUS,
-    topics.ROBOT_LOOP_TIMING,
-)
-
 
 class BusBridge:
     """Subscribes `bridge` to the topics of every node of `network`.

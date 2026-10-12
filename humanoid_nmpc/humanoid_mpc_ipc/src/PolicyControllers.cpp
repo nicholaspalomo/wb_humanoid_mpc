@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/control/ControllerBase.h"
 #include "ocs2_core/control/FeedforwardController.h"
 #include "ocs2_core/control/LinearController.h"
+#include "ocs2_core/control/ManifoldLinearController.h"
 
 namespace ocs2::humanoid::ipc {
 namespace {
@@ -62,6 +63,14 @@ const LinearController* absl_nullable asLinearController(const ControllerBase& c
 
 LinearController* absl_nullable asLinearController(ControllerBase& controller) {
   return asExactly<LinearController>(controller);
+}
+
+const ManifoldLinearController* absl_nullable asManifoldLinearController(const ControllerBase& controller) {
+  return asExactly<const ManifoldLinearController>(controller);
+}
+
+ManifoldLinearController* absl_nullable asManifoldLinearController(ControllerBase& controller) {
+  return asExactly<ManifoldLinearController>(controller);
 }
 
 }  // namespace ocs2::humanoid::ipc

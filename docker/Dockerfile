@@ -9,41 +9,38 @@ ARG BASE_IMAGE=ubuntu:24.04
 # LINT.ThenChange(//tools/ci_local.sh:ubuntu_release, //.github/workflows/build_test.yml:container_image)
 FROM ${BASE_IMAGE} AS base
 
-ARG CPP_VERSION=20
 ARG WB_HUMANOID_MPC_DIR="/wb_humanoid_mpc_ws"
-ARG PYTHON_VERSION=3.12
 ENV DEBIAN_FRONTEND=noninteractive
-# The ROS base image used to set these. Without them Python, black and the hooks fall back to ASCII.
+# glibc's built-in UTF-8 locale, which needs no locales package. Without it Python, black and the hooks fall back to
+# ASCII.
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8
 
 # LINT.IfChange(system_dependencies)
 # The base tools, installed first because every later step fetches something.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl wget gnupg lsb-release \
-    locales \
+    ca-certificates curl gnupg \
     git \
     ssh-client \
     x11-apps \
     mesa-utils \
-    gettext-base \
     sudo \
-    ccache \
     bash-completion \
     python3-pip \
     python3-venv \
     && rm -rf /var/lib/apt/lists/*
 # LINT.ThenChange(//dependencies.txt:system_dependencies, //.github/workflows/build_test.yml:system_dependencies)
 
-# clang-format (make format), from Ubuntu's archive as in CI's format job, and clang-tidy (make lint-tidy), from
-# apt.llvm.org. docker/install_llvm_tools.sh says why each comes from where; CI's build job runs the same script.
+# clang-format (make format), from Ubuntu's archive as in CI's format job, and clang-tidy (make lint-tidy) and clangd
+# (the editor's language server, tools/ide/README.md), both from apt.llvm.org. docker/install_llvm_tools.sh says why
+# each comes from where; CI's build job runs the same script for clang-tidy only.
 # LINT.IfChange(clang_format_version)
 ARG CLANG_FORMAT_VERSION=18
 # LINT.ThenChange(//.github/workflows/format_test.yml:formatter_versions, //docker/install_llvm_tools.sh:llvm_versions)
 # LINT.IfChange(clang_tidy_version)
 ARG CLANG_TIDY_VERSION=21
 ARG CLANG_TIDY_PACKAGE_VERSION=1:21.1.8~++20251221032922+2078da43e25a-1~exp1~20251221153059.70
-# LINT.ThenChange(//tools/clang_tidy/run_clang_tidy.sh:clang_tidy_version, //docker/install_llvm_tools.sh:llvm_versions)
+# LINT.ThenChange(//tools/clang_tidy/run_clang_tidy.sh:clang_tidy_version, //docker/install_llvm_tools.sh:llvm_versions, //tools/ide/clangd_in_dev_container.sh:clangd_version)
 
 COPY docker/install_llvm_tools.sh /tmp/install_llvm_tools.sh
 RUN CLANG_FORMAT_VERSION="${CLANG_FORMAT_VERSION}" CLANG_TIDY_VERSION="${CLANG_TIDY_VERSION}" \
@@ -110,7 +107,7 @@ COPY dependencies.txt /tmp/dependencies.txt
 
 # Install dependencies from dependencies.txt
 RUN apt-get update && \
-    grep -v '^\s*#' /tmp/dependencies.txt | envsubst | xargs apt-get install -y --no-install-recommends && \
+    grep -v '^\s*#' /tmp/dependencies.txt | xargs apt-get install -y --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
 # The lint tools of `make lint` (tools/hooks/lint_code.py): cpplint, pylint, mypy and isort at the versions of the hashed
@@ -126,27 +123,16 @@ RUN python3 -m venv /opt/wb-lint && \
 # Set default shell to bash
 SHELL ["/bin/bash", "-c"]
 
-# Set up workspace
+# The workspace: docker-compose.yaml mounts the checkout's grandparent here, so the image holds no copy of the checkout.
 WORKDIR ${WB_HUMANOID_MPC_DIR}
-RUN mkdir -p ${WB_HUMANOID_MPC_DIR}/src/wb_humanoid_mpc
 
-# Copy the Makefile and other necessary files
-COPY . ${WB_HUMANOID_MPC_DIR}/src/wb_humanoid_mpc
-
-# Declare build arguments for user/group ID (passed from docker-compose.yml)
+# The UID of the user the container runs as (docker-compose.yaml passes it).
 ARG USER_ID=1000
-ARG GROUP_ID=1000
 
 # Use the ubuntu user that already exists in the base image
 RUN USERNAME=$(getent passwd ${USER_ID} | cut -d: -f1) && \
     echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
-    # Create symbolic link from /home/devuser to ubuntu's home dir for compatibility
-    ln -sf /home/${USERNAME} /home/devuser && \
-    # Set up directories and permissions
     chown -R ${USERNAME}:${USERNAME} /home/${USERNAME} && \
-    chown -R ${USERNAME}:${USERNAME} ${WB_HUMANOID_MPC_DIR} && \
-    # Ensure volume-mounted directories have correct permissions
-    chown -R ${USERNAME}:${USERNAME} /usr/local && \
     # Check if we found the right username
     echo "Found user with UID ${USER_ID}: ${USERNAME}"
 
@@ -215,17 +201,21 @@ COPY --from=robot-libraries /stage/root/ /
 COPY --from=robot-libraries /opt/wb-humanoid-robot/ /opt/wb-humanoid-robot/
 # The build fails here when a library of the bundle did not make it into the image.
 RUN sh /opt/wb-humanoid-robot/bin/collect_runtime_libraries.sh check /opt/wb-humanoid-robot
-# No GL: the MuJoCo backend runs without its viewer unless WB_ROBOT_HEADLESS says otherwise.
-ENV WB_ROBOT_DEFAULT_HEADLESS=true
+# No GL: the MuJoCo backend runs without a viewer (none) unless WB_ROBOT_VIEWER names one, or WB_ROBOT_PLOT_CONFIG a
+# plot configuration to take it from (robot_entrypoint.sh).
+ENV WB_ROBOT_DEFAULT_VIEWER=none
 WORKDIR /opt/wb-humanoid-robot
 ENTRYPOINT ["/opt/wb-humanoid-robot/bin/robot_entrypoint.sh"]
 
-# The MuJoCo viewer's GL (GLFW over X11 with Mesa) on top of robot-runtime, and nothing else: the GL packages whose
-# libraries robot-runtime copied, now with their Mesa, and the X extension libraries GLFW loads at run time, which its
-# package does not pull in.
+# The MuJoCo viewers' GL on top of robot-runtime, and nothing else: the GL packages whose libraries robot-runtime
+# copied, now with their Mesa, and the X extension libraries GLFW loads at run time, which its package does not pull in,
+# for the glfw viewer (GLFW over X11); EGL with Mesa's vendor library for the web viewer, which renders offscreen and
+# opens libEGL.so.1 at run time (robot-runtime has neither, and the web viewer refuses to start there).
 FROM robot-runtime AS robot-sim
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+        libegl-mesa0 \
+        libegl1 \
         libgl1 \
         libgl1-mesa-dri \
         libglew2.2 \
@@ -240,5 +230,7 @@ RUN apt-get update && \
         libxrandr2 \
         libxxf86vm1 && \
     rm -rf /var/lib/apt/lists/*
-ENV WB_ROBOT_DEFAULT_HEADLESS=false
+# No default viewer of the image: the mujoco_viewer of the plot configuration chooses (web unless it names another;
+# the simulation mounts the checkout's), and WB_ROBOT_VIEWER overrides it.
+ENV WB_ROBOT_DEFAULT_VIEWER=
 # LINT.ThenChange(//tools/deploy/test_deploy_files.py:robot_images, //tools/deploy/README.md:robot_images, //tools/deploy/collect_runtime_libraries.sh:copied_packages)

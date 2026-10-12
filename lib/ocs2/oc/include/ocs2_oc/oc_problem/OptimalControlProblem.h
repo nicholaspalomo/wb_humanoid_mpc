@@ -35,8 +35,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/PreComputation.h>
 #include <ocs2_core/Types.h>
-#include <ocs2_core/augmented_lagrangian/StateAugmentedLagrangianCollection.h>
-#include <ocs2_core/augmented_lagrangian/StateInputAugmentedLagrangianCollection.h>
 #include <ocs2_core/constraint/StateConstraintCollection.h>
 #include <ocs2_core/constraint/StateInputConstraintCollection.h>
 #include <ocs2_core/cost/StateCostCollection.h>
@@ -88,24 +86,6 @@ struct OptimalControlProblem {
   std::unique_ptr<StateConstraintCollection> preJumpInequalityConstraintPtr;
   /** Final inequality constraints */
   std::unique_ptr<StateConstraintCollection> finalInequalityConstraintPtr;
-
-  /* Lagrangians */
-  /** Lagrangian for intermediate equality constraints */
-  std::unique_ptr<StateInputAugmentedLagrangianCollection> equalityLagrangianPtr;
-  /** Lagrangian for intermediate state-only equality constraints */
-  std::unique_ptr<StateAugmentedLagrangianCollection> stateEqualityLagrangianPtr;
-  /** Lagrangian for intermediate inequality constraints */
-  std::unique_ptr<StateInputAugmentedLagrangianCollection> inequalityLagrangianPtr;
-  /** Lagrangian for intermediate state-only inequality constraints */
-  std::unique_ptr<StateAugmentedLagrangianCollection> stateInequalityLagrangianPtr;
-  /** Lagrangian for pre-jump equality constraints */
-  std::unique_ptr<StateAugmentedLagrangianCollection> preJumpEqualityLagrangianPtr;
-  /** Lagrangian for pre-jump inequality constraints */
-  std::unique_ptr<StateAugmentedLagrangianCollection> preJumpInequalityLagrangianPtr;
-  /** Lagrangian for final equality constraints */
-  std::unique_ptr<StateAugmentedLagrangianCollection> finalEqualityLagrangianPtr;
-  /** Lagrangian for final inequality constraints */
-  std::unique_ptr<StateAugmentedLagrangianCollection> finalInequalityLagrangianPtr;
 
   /* Dynamics */
   /** System dynamics pointer */

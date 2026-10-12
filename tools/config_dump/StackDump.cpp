@@ -96,7 +96,8 @@ MpcLinkFactory nullMpcLinkFactory() {
 TargetTrajectories noTargets(const vector4_t& /*velocityTarget*/,
                              scalar_t /*initTime*/,
                              scalar_t /*finalTime*/,
-                             const vector_t& /*initState*/) {
+                             const vector_t& /*initState*/,
+                             const BasePlanarMotion& /*measuredMotion*/) {
   return TargetTrajectories();
 }
 
@@ -113,7 +114,9 @@ vector4_t poseCommand() {
 void dumpTargets(ValueDump& dump, TargetTrajectoriesCalculatorBase& calculator, const vector_t& initialState) {
   dump.addSection("target_trajectories");
   dumpTargetTrajectories(dump, "target_trajectories.velocity_command",
-                         calculator.commandedVelocityToTargetTrajectories(saturatingVelocityCommand(), /*initTime=*/0.0, initialState));
+                         // The shipped initial state is at rest: no measured motion.
+                         calculator.commandedVelocityToTargetTrajectories(saturatingVelocityCommand(), /*initTime=*/0.0, initialState,
+                                                                          /*measuredMotion=*/BasePlanarMotion{}));
   dumpTargetTrajectories(dump, "target_trajectories.position_command",
                          calculator.commandedPositionToTargetTrajectories(poseCommand(), /*initTime=*/0.0, initialState));
 }
@@ -207,7 +210,7 @@ absl::Status dumpCentroidal(ValueDump& dump, const validation::RobotConfiguratio
   ASSIGN_OR_RETURN(
       std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator> calculator,
       CentroidalMpcTargetTrajectoriesCalculator::Create(configuration.referenceFile, effectiveModel, interface->getPinocchioInterface(),
-                                                        interface->getCentroidalModelInfo(), interface->mpcSettings().timeHorizon_));
+                                                        interface->mpcSettings().timeHorizon_));
   dumpTargets(dump, *calculator, interface->getInitialState());
   RETURN_IF_ERROR(dumpMotionManager(dump, configuration, referenceManager, effectiveModel));
 
@@ -223,9 +226,7 @@ absl::Status dumpCentroidal(ValueDump& dump, const validation::RobotConfiguratio
 
   // Last, because it sets a walking schedule and target on the reference manager.
   dump.addSection("problem");
-  dumpProblem(dump, "problem", interface->getOptimalControlProblem(), *referenceManager, interface->getInitialState(),
-              ProblemLayout{.inputDim = effectiveModel.getInputDim(),
-                            .basePositionIndex = static_cast<Eigen::Index>(effectiveModel.getBaseStartindex())});
+  dumpProblem(dump, "problem", interface->getOptimalControlProblem(), *referenceManager, interface->getInitialState(), effectiveModel);
   return absl::OkStatus();
 }
 
@@ -253,8 +254,7 @@ absl::Status dumpWholeBody(ValueDump& dump, const validation::RobotConfiguration
   RETURN_IF_ERROR(dumpApplications(dump, configuration, interface->modelSettings()));
 
   dump.addSection("problem");
-  dumpProblem(dump, "problem", interface->getOptimalControlProblem(), *referenceManager, interface->getInitialState(),
-              ProblemLayout{.inputDim = model.getInputDim(), .basePositionIndex = static_cast<Eigen::Index>(model.getBaseStartindex())});
+  dumpProblem(dump, "problem", interface->getOptimalControlProblem(), *referenceManager, interface->getInitialState(), model);
   return absl::OkStatus();
 }
 

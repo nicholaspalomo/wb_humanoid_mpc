@@ -30,9 +30,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <cstddef>
+#include <memory>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
+#include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/CommandData.h"
@@ -69,6 +71,11 @@ namespace ocs2::humanoid::ipc {
 
 /** The dimensions of the model a message must match, for checkDimensions(). */
 struct ModelDimensions {
+  /**
+   * The size of a stored state. On a state manifold that is its ambient dimension (StateManifold::getAmbientDim()); the
+   * gains of a ManifoldLinearController then have the manifold's tangent dimension as columns, which the manifold itself
+   * gives (StateManifold::getTangentDim()), so it has no field here.
+   */
   size_t stateDim = 0;
   size_t inputDim = 0;
   /**
@@ -156,12 +163,20 @@ absl::Status fromProto(const humanoid_mpc_msgs::PerformanceIndex& message, Perfo
  * the primal solution's time trajectory, which is how OCS2's multiple-shooting solvers build it, travels as its own node
  * values. That keeps the two nodes of an event, which share one time, apart; ControllerBase::flatten() would sample the
  * pre-event node for both and change the policy after every event. A controller on other time stamps is sampled at the
- * time trajectory with ControllerBase::flatten(), as the ROS interface did; that path allocates scratch arrays on every
+ * time trajectory with ControllerBase::flatten(); that path allocates scratch arrays on every
  * call, the other allocates only while the message grows.
  *
+ * A ManifoldLinearController, the policy of a solver on a state manifold, travels only as its own node arrays,
+ * CONTROLLER_TYPE_MANIFOLD_LINEAR: node k is [u*_k, xbar_k, vec K_k] (nu + nx + nu ndx doubles, K_k column-major) from
+ * getNominalInputs(), getAnchorStates() and getFeedbackGains(). The anchors travel because they are not the state
+ * trajectory (multiple_shooting::toPrimalSolution() repeats the previous node's at a pre-event node and at the end).
+ * Sampling one between its nodes would change its law (ManifoldLinearController::flatten()), so a ManifoldLinearController
+ * on other time stamps than the time trajectory is refused. The encoder needs no manifold: the gains carry ndx.
+ *
  * Fails, leaving `message` unchanged, if the primal solution has no controller, a controller other than a
- * FeedforwardController or a LinearController, an empty controller next to a non-empty time trajectory, or a controller
- * whose arrays disagree in length.
+ * FeedforwardController, a LinearController or a ManifoldLinearController, an empty controller next to a non-empty time
+ * trajectory, a controller whose arrays disagree in length or with its manifold, or a ManifoldLinearController whose
+ * time stamps are not the time trajectory.
  */
 absl::Status policyToProto(const CommandData& commandData,
                            const PrimalSolution& primalSolution,
@@ -170,14 +185,24 @@ absl::Status policyToProto(const CommandData& commandData,
 
 /**
  * Reads the command data, the primal solution and the performance index of `message`, and rebuilds the controller:
- * a FeedforwardController or a LinearController on the time trajectory, equal node for node to the one that was sent.
+ * a FeedforwardController, a LinearController or a ManifoldLinearController on the time trajectory, equal node for node
+ * to the one that was sent.
+ *
+ * `stateManifold` is the manifold of the receiver's state, or null for a flat state. A ManifoldLinearController is
+ * rebuilt on it, so it is shared: the controller keeps it (ManifoldLinearController's constructor takes a
+ * std::shared_ptr). With a manifold every state of the solution has its ambient dimension, and a
+ * CONTROLLER_TYPE_LINEAR policy is refused, whose gains would act on the stored state rather than on its tangent;
+ * without one a CONTROLLER_TYPE_MANIFOLD_LINEAR policy is refused, which has no law on a flat state. A feedforward
+ * policy is read either way.
  *
  * Besides the checks of the fromProto() functions above, requires a non-empty time trajectory (a policy without nodes
  * cannot be evaluated), one state, one input and one controller entry per time, finite values throughout, strictly
  * increasing post-event indices in [1, number of nodes], a known controller type, and controller data of the size the
- * node's state and input dimensions imply. Allocates the arrays of the primal solution and a new controller.
+ * node's state and input dimensions (and the manifold's tangent dimension) imply. Allocates the arrays of the primal
+ * solution and a new controller.
  */
 absl::Status policyFromProto(const humanoid_mpc_msgs::MpcPolicy& message,
+                             std::shared_ptr<const StateManifold> stateManifold,
                              CommandData* absl_nonnull commandData,
                              PrimalSolution* absl_nonnull primalSolution,
                              PerformanceIndex* absl_nonnull performanceIndex);

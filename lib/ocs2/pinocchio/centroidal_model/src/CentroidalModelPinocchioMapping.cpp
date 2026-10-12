@@ -33,8 +33,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
 
-#include <pinocchio/algorithm/centroidal-derivatives.hpp>
-#include <pinocchio/algorithm/frames.hpp>
+#include <stdexcept>
+
+#include <ocs2_core/manifold/UnitQuaternionMath.h>
 
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
@@ -76,7 +77,10 @@ void CentroidalModelPinocchioMappingTpl<SCALAR>::setPinocchioInterface(const Pin
 /******************************************************************************************************/
 template <typename SCALAR>
 auto CentroidalModelPinocchioMappingTpl<SCALAR>::getPinocchioJointPosition(const vector_t& state) const -> vector_t {
-  return centroidal_model::getGeneralizedCoordinates(state, centroidalModelInfo_);
+  vector_t qPinocchio = centroidal_model::getGeneralizedCoordinates(state, centroidalModelInfo_);
+  const quaternion_coeffs_t<SCALAR> orientation = centroidal_model::getBaseQuaternion(state, centroidalModelInfo_);
+  qPinocchio.template segment<4>(3) = quaternionSafeNormalize(orientation);
+  return qPinocchio;
 }
 
 /******************************************************************************************************/
@@ -84,8 +88,6 @@ auto CentroidalModelPinocchioMappingTpl<SCALAR>::getPinocchioJointPosition(const
 /******************************************************************************************************/
 template <typename SCALAR>
 auto CentroidalModelPinocchioMappingTpl<SCALAR>::getPinocchioJointVelocity(const vector_t& state, const vector_t& input) const -> vector_t {
-  const auto& model = pinocchioInterfacePtr_->getModel();
-  const auto& data = pinocchioInterfacePtr_->getData();
   const auto& info = centroidalModelInfo_;
   assert(info.stateDim == state.rows());
   assert(info.inputDim == input.rows());
@@ -101,7 +103,7 @@ auto CentroidalModelPinocchioMappingTpl<SCALAR>::getPinocchioJointVelocity(const
     momentum.noalias() -= A.rightCols(info.actuatedDofNum) * jointVelocities;
   }
 
-  vector_t vPinocchio(info.generalizedCoordinatesNum);
+  vector_t vPinocchio(info.velocityDim);
   vPinocchio.template head<6>().noalias() = Ab_inv * momentum;
   vPinocchio.tail(info.actuatedDofNum) = jointVelocities;
 
@@ -112,60 +114,11 @@ auto CentroidalModelPinocchioMappingTpl<SCALAR>::getPinocchioJointVelocity(const
 /******************************************************************************************************/
 /******************************************************************************************************/
 template <typename SCALAR>
-auto CentroidalModelPinocchioMappingTpl<SCALAR>::getOcs2Jacobian(const vector_t& state, const matrix_t& Jq, const matrix_t& Jv) const
-    -> std::pair<matrix_t, matrix_t> {
-  const auto& model = pinocchioInterfacePtr_->getModel();
-  const auto& data = pinocchioInterfacePtr_->getData();
-  const auto& info = centroidalModelInfo_;
-  assert(info.stateDim == state.rows());
-
-  // Partial derivatives of joint velocities
-  matrix_t jointVelocitiesDerivativeInput = matrix_t::Zero(info.actuatedDofNum, info.inputDim);
-  jointVelocitiesDerivativeInput.rightCols(info.actuatedDofNum).setIdentity();
-
-  // Partial derivatives of the floating base variables
-  // TODO: move getFloatingBaseCentroidalMomentumMatrixInverse(Ab) to PreComputation
-  matrix_t floatingBaseVelocitiesDerivativeState = matrix_t::Zero(6, info.stateDim);
-  matrix_t floatingBaseVelocitiesDerivativeInput = matrix_t::Zero(6, info.inputDim);
-  const auto& A = getCentroidalMomentumMatrix(*pinocchioInterfacePtr_);
-  const Eigen::Matrix<SCALAR, 6, 6> Ab = A.template leftCols<6>();
-  const auto Ab_inv = computeFloatingBaseCentroidalMomentumMatrixInverse(Ab);
-  floatingBaseVelocitiesDerivativeState.leftCols(6) = info.robotMass * Ab_inv;
-
-  using matrix6x_t = Eigen::Matrix<SCALAR, 6, Eigen::Dynamic>;
-  matrix6x_t dhdq(6, info.generalizedCoordinatesNum);
-  switch (info.centroidalModelType) {
-    case CentroidalModelType::FullCentroidalDynamics: {
-      pinocchio::translateForceSet(data.dHdq, data.com[0], dhdq.const_cast_derived());
-      for (size_t k = 0; k < model.nv; ++k) {
-        dhdq.template block<3, 1>(pinocchio::Force::ANGULAR, k) +=
-            data.hg.linear().cross(data.dFda.template block<3, 1>(pinocchio::Force::LINEAR, k)) / data.Ig.mass();
-      }
-      dhdq.middleCols(3, 3) = data.dFdq.middleCols(3, 3);
-      const auto Aj = A.rightCols(info.actuatedDofNum);
-      floatingBaseVelocitiesDerivativeState.rightCols(info.generalizedCoordinatesNum).noalias() = -Ab_inv * dhdq;
-      floatingBaseVelocitiesDerivativeInput.rightCols(info.actuatedDofNum).noalias() = -Ab_inv * Aj;
-      break;
-    }
-    case CentroidalModelType::SingleRigidBodyDynamics: {
-      dhdq = data.dFdq;
-      floatingBaseVelocitiesDerivativeState.middleCols(6, 6).noalias() = -Ab_inv * dhdq.leftCols(6);
-      break;
-    }
-    default: {
-      throw std::runtime_error("The chosen centroidal model type is not supported.");
-    }
-  }
-
-  matrix_t dvdx = matrix_t::Zero(info.generalizedCoordinatesNum, info.stateDim);
-  dvdx.template topRows<6>() = floatingBaseVelocitiesDerivativeState;
-  matrix_t dvdu = matrix_t::Zero(info.generalizedCoordinatesNum, info.inputDim);
-  dvdu << floatingBaseVelocitiesDerivativeInput, jointVelocitiesDerivativeInput;
-  matrix_t dfdx = matrix_t::Zero(Jq.rows(), centroidalModelInfo_.stateDim);
-  dfdx.middleCols(6, info.generalizedCoordinatesNum) = Jq;
-  dfdx.noalias() += Jv * dvdx;
-  const matrix_t dfdu = Jv * dvdu;
-  return {dfdx, dfdu};
+auto CentroidalModelPinocchioMappingTpl<SCALAR>::getOcs2Jacobian(const vector_t& /*state*/, const matrix_t& /*Jq*/,
+                                                                const matrix_t& /*Jv*/) const -> std::pair<matrix_t, matrix_t> {
+  throw std::runtime_error(
+      "[CentroidalModelPinocchioMapping] getOcs2Jacobian is not supported on the quaternion base orientation: the terms of "
+      "the centroidal model are differentiated by CppAD only.");
 }
 
 // explicit template instantiation

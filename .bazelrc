@@ -60,8 +60,10 @@ build --action_env=NVIDIA_VISIBLE_DEVICES
 
 # --- Bazel 9.x compatibility ---
 # Auto-load removed built-in rules (cc_library, cc_binary, etc.) for external
-# deps that haven't been updated yet (e.g., googletest)
-build --incompatible_autoload_externally=+cc_library,+cc_binary,+cc_test,+cc_import,+cc_shared_library
+# deps that haven't been updated yet (e.g., googletest). `common`, not `build`: it changes how packages load, and a
+# `bazel query` that loaded them otherwise (tools/ide/compile_commands.py runs one after every build) would make the
+# next build or aquery fetch rules_cc, the pip hubs and the system libraries' CMake builds again (about 12 s).
+common --incompatible_autoload_externally=+cc_library,+cc_binary,+cc_test,+cc_import,+cc_shared_library
 
 # --- rules_foreign_cc ---
 build --allow_unresolved_symlinks
@@ -87,7 +89,7 @@ build:clang-tidy --aspects=//tools/clang_tidy:clang_tidy.bzl%clang_tidy_aspect
 build:clang-tidy --output_groups=clang_tidy
 build:clang-tidy-fix --aspects=//tools/clang_tidy:clang_tidy.bzl%clang_tidy_aspect
 build:clang-tidy-fix --output_groups=clang_tidy,clang_tidy_fixes
-# LINT.ThenChange(//Makefile:lint_tidy, //.github/workflows/build_test.yml:lint_tidy, //tools/ci_local.sh:lint_tidy)
+# LINT.ThenChange(//Makefile:lint_tidy, //.github/workflows/build_test.yml:lint_tidy, //tools/ci_local.sh:lint_tidy, //tools/ide/compile_commands.py:aspect_configs)
 
 # --- Test Configuration ---
 test --test_output=errors

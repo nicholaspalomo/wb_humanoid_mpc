@@ -364,14 +364,15 @@ TEST(MpcResetState, TheTargetCalculatorForgetsItsFilters) {
   const vector_t& state = used.initialState();
   // The command filter of the calculator is driven towards a walk.
   for (int step = 0; step < 20; ++step) {
-    used.targetCalculator().commandedVelocityToTargetTrajectories(vector4_t(1.0, 0.0, 0.0, 0.0), 0.01 * step, state);
+    used.targetCalculator().commandedVelocityToTargetTrajectories(vector4_t(1.0, 0.0, 0.0, 0.0), 0.01 * step, state,
+                                                                  /*measuredMotion=*/BasePlanarMotion{});
   }
   used.targetCalculator().reset();
 
-  const TargetTrajectories afterReset =
-      used.targetCalculator().commandedVelocityToTargetTrajectories(vector4_t::Zero(), /*initTime=*/5.0, state);
-  const TargetTrajectories afterConstruction =
-      fresh.targetCalculator().commandedVelocityToTargetTrajectories(vector4_t::Zero(), /*initTime=*/5.0, state);
+  const TargetTrajectories afterReset = used.targetCalculator().commandedVelocityToTargetTrajectories(
+      vector4_t::Zero(), /*initTime=*/5.0, state, /*measuredMotion=*/BasePlanarMotion{});
+  const TargetTrajectories afterConstruction = fresh.targetCalculator().commandedVelocityToTargetTrajectories(
+      vector4_t::Zero(), /*initTime=*/5.0, state, /*measuredMotion=*/BasePlanarMotion{});
   ASSERT_EQ(afterReset.timeTrajectory, afterConstruction.timeTrajectory);
   for (size_t k = 0; k < afterReset.stateTrajectory.size(); ++k) {
     EXPECT_LT((afterReset.stateTrajectory[k] - afterConstruction.stateTrajectory[k]).cwiseAbs().maxCoeff(), 1.0e-12) << "knot " << k;
@@ -385,28 +386,29 @@ TEST(MpcResetState, TheJointTargetStartsFromTheCurrentJointsHoweverLateTheResetC
   AtlasReferenceStack used;
   AtlasReferenceStack fresh;
   vector_t state = used.initialState();
-  const Eigen::Index numJoints = state.size() - 12;  // [normalized momentum (6), base pose (6), joints]
-  state.tail(numJoints).array() += 0.1;
+  const Eigen::Index numJoints = static_cast<Eigen::Index>(used.model().getJointDim());  // the state ends with the joints
+  used.model().setJointAngles(state, vector_t(used.model().getJointAngles(state).array() + 0.1));
 
-  const TargetTrajectories afterConstruction =
-      fresh.targetCalculator().commandedVelocityToTargetTrajectories(vector4_t::Zero(), /*initTime=*/0.0, state);
+  const TargetTrajectories afterConstruction = fresh.targetCalculator().commandedVelocityToTargetTrajectories(
+      vector4_t::Zero(), /*initTime=*/0.0, state, /*measuredMotion=*/BasePlanarMotion{});
   const vector_t nominalJoints = afterConstruction.stateTrajectory.back().tail(numJoints);
   ASSERT_GT((nominalJoints - state.tail(numJoints)).cwiseAbs().maxCoeff(), 0.05)
       << "positive control: the current joints must differ from the nominal ones for the test to tell them apart";
   EXPECT_LT((afterConstruction.stateTrajectory.front().tail(numJoints) - state.tail(numJoints)).cwiseAbs().maxCoeff(), 1.0e-12);
 
   for (int step = 0; step < 20; ++step) {
-    used.targetCalculator().commandedVelocityToTargetTrajectories(vector4_t(1.0, 0.0, 0.0, 0.0), 0.01 * step, used.initialState());
+    used.targetCalculator().commandedVelocityToTargetTrajectories(vector4_t(1.0, 0.0, 0.0, 0.0), 0.01 * step, used.initialState(),
+                                                                  /*measuredMotion=*/BasePlanarMotion{});
   }
   used.targetCalculator().reset();
-  const TargetTrajectories afterLateReset =
-      used.targetCalculator().commandedVelocityToTargetTrajectories(vector4_t::Zero(), /*initTime=*/21.0, state);
+  const TargetTrajectories afterLateReset = used.targetCalculator().commandedVelocityToTargetTrajectories(
+      vector4_t::Zero(), /*initTime=*/21.0, state, /*measuredMotion=*/BasePlanarMotion{});
   EXPECT_LT((afterLateReset.stateTrajectory.front().tail(numJoints) - state.tail(numJoints)).cwiseAbs().maxCoeff(), 1.0e-12)
       << "after a reset at t = 21 s the joint target jumped towards the nominal joints";
 
   // A gap in the calls (a solver backing off) restarts the filter the same way.
-  const TargetTrajectories afterGap =
-      used.targetCalculator().commandedVelocityToTargetTrajectories(vector4_t::Zero(), /*initTime=*/23.0, state);
+  const TargetTrajectories afterGap = used.targetCalculator().commandedVelocityToTargetTrajectories(
+      vector4_t::Zero(), /*initTime=*/23.0, state, /*measuredMotion=*/BasePlanarMotion{});
   EXPECT_LT((afterGap.stateTrajectory.front().tail(numJoints) - state.tail(numJoints)).cwiseAbs().maxCoeff(), 1.0e-12);
 }
 

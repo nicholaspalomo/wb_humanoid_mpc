@@ -120,7 +120,6 @@ TEST(ManifoldLinearController, UsesTheNodeBeforeAnEvent) {
   const vector_t x = randomState(*manifold);
   EXPECT_TRUE(controller.computeInput(/*t=*/0.1, x).isApprox(nodeLaw(controller, /*k=*/1, x), 1e-14));
   EXPECT_TRUE(controller.computeInput(0.1 + 1e-9, x).isApprox(nodeLaw(controller, /*k=*/2, x), 1e-6));
-  EXPECT_EQ(controller.controllerEventTimes().size(), 2u);  // {0, 0.1}
 }
 
 TEST(ManifoldLinearController, IsInvariantUnderTheDoubleCover) {
@@ -263,27 +262,45 @@ TEST(ManifoldLinearController, ResamplingOffTheNodesIsExactAtTheAnchorAndBilinea
   }
 }
 
-TEST(ManifoldLinearController, ConcatenateCloneAndClear) {
+TEST(ManifoldLinearController, CloneAndClear) {
   const std::shared_ptr<const StateManifold> manifold = attitudeManifold();
-  ManifoldLinearController first = randomController(manifold, {0.0, 0.1});
-  const ManifoldLinearController second = randomController(manifold, {0.2, 0.3, 0.4});
-  first.concatenate(&second, /*index=*/1, /*length=*/2);
-  ASSERT_EQ(first.size(), 4);
-  EXPECT_EQ(first.getTimeStamps()[2], 0.3);
-  EXPECT_EQ(first.getAnchorStates()[3], second.getAnchorStates()[2]);
+  ManifoldLinearController first = randomController(manifold, {0.0, 0.1, 0.3, 0.4});
 
   std::unique_ptr<ManifoldLinearController> copy(first.clone());
   const vector_t x = randomState(*manifold);
   EXPECT_EQ(copy->computeInput(/*t=*/0.25, x), first.computeInput(/*t=*/0.25, x));
-
-  // Another manifold object, or another controller type, cannot be appended.
-  ManifoldLinearController other = randomController(attitudeManifold(), {0.5});
-  EXPECT_THROW(first.concatenate(&other, /*index=*/0, /*length=*/1), std::runtime_error);
-  LinearController linear;
-  EXPECT_THROW(first.concatenate(&linear, /*index=*/0, /*length=*/0), std::runtime_error);
+  EXPECT_EQ(copy->getStateManifold(), manifold);
 
   first.clear();
   EXPECT_TRUE(first.empty());
+}
+
+TEST(ManifoldLinearController, KeepFirstCutsEveryArrayAndKeepsTheLawOnTheKeptNodes) {
+  // A solution time window cuts a policy after the node that spans it; an event among the kept nodes stays whole.
+  const std::shared_ptr<const StateManifold> manifold = attitudeManifold();
+  ManifoldLinearController original = randomController(manifold, {0.0, 0.1, 0.1, 0.2, 0.3, 0.4});
+  ManifoldLinearController cut = original;
+  cut.keepFirst(/*length=*/4);
+  ASSERT_EQ(cut.size(), 4);
+  for (size_t k = 0; k < 4; ++k) {
+    EXPECT_EQ(cut.getTimeStamps()[k], original.getTimeStamps()[k]);
+    EXPECT_EQ(cut.getAnchorStates()[k], original.getAnchorStates()[k]);
+    EXPECT_EQ(cut.getNominalInputs()[k], original.getNominalInputs()[k]);
+    EXPECT_EQ(cut.getFeedbackGains()[k], original.getFeedbackGains()[k]);
+  }
+  EXPECT_EQ(cut.getStateManifold(), manifold);
+  // Up to the last kept node, on both sides of the event, the law is the original's to the bit.
+  for (const scalar_t t : {0.0, 0.05, 0.1, 0.1 + 1e-9, 0.15, 0.2}) {
+    const vector_t x = randomState(*manifold);
+    EXPECT_EQ(cut.computeInput(t, x), original.computeInput(t, x)) << t;
+  }
+
+  // A length beyond the controller keeps it whole; zero empties it.
+  cut.keepFirst(/*length=*/10);
+  EXPECT_EQ(cut.size(), 4);
+  cut.keepFirst(/*length=*/0);
+  EXPECT_TRUE(cut.empty());
+  EXPECT_TRUE(cut.getAnchorStates().empty() && cut.getNominalInputs().empty() && cut.getFeedbackGains().empty());
 }
 
 }  // namespace

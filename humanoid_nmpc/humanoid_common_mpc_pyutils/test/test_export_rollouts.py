@@ -27,8 +27,8 @@
 
 """Tests for export_rollouts.py.
 
-It picks the MPC state and input columns of the logger's files by default, still reads the ROS-era logger's files, and
-writes every row of every file.
+It picks the MPC state and input columns of the logger's files by default, refuses a file without them unless the
+columns are named, and writes every row of every file.
 """
 
 from collections.abc import Sequence
@@ -57,24 +57,9 @@ class DefaultColumnsTest(unittest.TestCase):
             (["x0", "x1"], ["u0"]),
         )
 
-    def test_the_ros_era_columns_are_selected_by_prefix(self) -> None:
-        header = [
-            "h_x",
-            "L_x",
-            "p_x",
-            "euler_z",
-            "q_j_hip",
-            "F_l_x",
-            "M_l_x",
-            "qd_j_hip",
-            "time",
-        ]
+    def test_a_header_without_state_or_input_columns_has_no_defaults(self) -> None:
         self.assertEqual(
-            export_rollouts.default_columns(header),
-            (
-                ["h_x", "L_x", "p_x", "euler_z", "q_j_hip"],
-                ["F_l_x", "M_l_x", "qd_j_hip"],
-            ),
+            export_rollouts.default_columns(["time", "mode", "h_x", "F_l_x"]), ([], [])
         )
 
 
@@ -120,6 +105,25 @@ class ExportTest(unittest.TestCase):
             export_rollouts.export_csv_to_h5(
                 [path], os.path.join(self.directory, "other.npz"), ["x9"]
             )
+
+    def test_a_log_without_state_or_input_columns_needs_named_columns(
+        self,
+    ) -> None:
+        path = os.path.join(self.directory, "mpc_observation_1.csv")
+        write_log(path, ["time", "h_x", "F_l_x"], [[0.0, 1.0, 2.0]])
+        with self.assertRaisesRegex(
+            ValueError, r"no MPC state \(x0, x1, \.\.\.\) columns"
+        ):
+            export_rollouts.export_csv_to_h5(
+                [path], os.path.join(self.directory, "demos.npz")
+            )
+        output = export_rollouts.export_csv_to_h5(
+            [path], os.path.join(self.directory, "demos.npz"), ["h_x"], ["F_l_x"]
+        )
+        assert output is not None
+        data = np.load(output)
+        np.testing.assert_allclose(data["observations"], [[1.0]])
+        np.testing.assert_allclose(data["actions"], [[2.0]])
 
     def test_an_empty_log_exports_nothing(self) -> None:
         path = os.path.join(self.directory, "mpc_observation_1.csv")

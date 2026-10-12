@@ -32,9 +32,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::validation::time_series {
 
 /*
- * The matrices of a lockstep time series (LockstepResult::timeSeries, written as <robot>_<scenario>_timeseries.txt):
- * what LockstepClosedLoop writes and the 720-degree turn exception of MetricBands.h reads. Over the commands; the first
- * five share their rows, one per sample at LockstepOptions::timeSeriesRate.
+ * The matrices of a lockstep time series (LockstepResult::timeSeries, written as <robot>_<scenario>_timeseries.txt into a
+ * run's outputs): what LockstepClosedLoop writes, to plot or inspect a run beyond its metrics document. Over the
+ * commands; the first five share their rows, one per sample at LockstepOptions::timeSeriesRate.
  */
 
 /** [s] Simulation time of the sample (1 column). */
@@ -50,8 +50,8 @@ inline constexpr char kReferenceVelocity[] = "reference_velocity_heading_xy_yaw_
 /**
  * One row per solve of the commands that recorded an initial-state gap, with rows of its own: the observation time of
  * the solve [s] and the rotation part of its gap [rad] (SolveSample::initialStateRotationGap) (2 columns). Its largest
- * value is the metrics document's initial_state_gap.max_rotation_rad. The time series archived with M0 were recorded
- * before it was added and do not have it; only a candidate's series needs it.
+ * value is the metrics document's initial_state_gap.max_rotation_rad (test_lockstep_determinism checks it), which
+ * keeps only the largest.
  */
 inline constexpr char kSolveRotationGap[] = "solve_initial_state_rotation_gap";
 

@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_core/control/ManifoldLinearController.h"
 
+#include <cstddef>
 #include <iostream>
 #include <stdexcept>
 #include <utility>
@@ -38,7 +39,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 
-#include "ocs2_core/NumericTraits.h"
 #include "ocs2_core/misc/LinearInterpolation.h"
 
 namespace ocs2 {
@@ -177,24 +177,15 @@ absl::StatusOr<ManifoldLinearController> ManifoldLinearController::unFlatten(
   return ManifoldLinearController(timeArray, std::move(anchorStates), std::move(nominalInputs), std::move(gains), std::move(stateManifold));
 }
 
-void ManifoldLinearController::concatenate(const ControllerBase* absl_nonnull nextController, int index, int length) {
-  const ManifoldLinearController* absl_nullable next = dynamic_cast<const ManifoldLinearController*>(nextController);
-  if (next == nullptr) {
-    throw std::runtime_error("[ManifoldLinearController::concatenate] Concatenate only works with controllers of the same type.");
+void ManifoldLinearController::keepFirst(size_t length) {
+  if (timeStamp_.size() <= length) {
+    return;
   }
-  if (!timeStamp_.empty() && !next->timeStamp_.empty() && timeStamp_.back() > next->timeStamp_.front()) {
-    throw std::runtime_error("[ManifoldLinearController::concatenate] The next controller must come later in time.");
-  }
-  if (stateManifoldPtr_ == nullptr) {
-    stateManifoldPtr_ = next->stateManifoldPtr_;
-  } else if (next->stateManifoldPtr_ != stateManifoldPtr_) {
-    throw std::runtime_error("[ManifoldLinearController::concatenate] The controllers live on different state manifolds.");
-  }
-  const int last = index + length;
-  timeStamp_.insert(timeStamp_.end(), next->timeStamp_.begin() + index, next->timeStamp_.begin() + last);
-  anchorStateArray_.insert(anchorStateArray_.end(), next->anchorStateArray_.begin() + index, next->anchorStateArray_.begin() + last);
-  nominalInputArray_.insert(nominalInputArray_.end(), next->nominalInputArray_.begin() + index, next->nominalInputArray_.begin() + last);
-  gainArray_.insert(gainArray_.end(), next->gainArray_.begin() + index, next->gainArray_.begin() + last);
+  const std::ptrdiff_t kept = static_cast<std::ptrdiff_t>(length);
+  timeStamp_.erase(timeStamp_.begin() + kept, timeStamp_.end());
+  anchorStateArray_.erase(anchorStateArray_.begin() + kept, anchorStateArray_.end());
+  nominalInputArray_.erase(nominalInputArray_.begin() + kept, nominalInputArray_.end());
+  gainArray_.erase(gainArray_.begin() + kept, gainArray_.end());
 }
 
 void ManifoldLinearController::clear() {
@@ -206,27 +197,6 @@ void ManifoldLinearController::clear() {
 
 void ManifoldLinearController::display() const {
   std::cerr << *this;
-}
-
-scalar_array_t ManifoldLinearController::controllerEventTimes() const {
-  // The same detection as LinearController::controllerEventTimes(): an event is a pair of (nearly) equal node times.
-  if (timeStamp_.size() < 2) {
-    return scalar_array_t(0);
-  }
-  scalar_array_t eventTimes{0.0};
-  scalar_t lastEvent = timeStamp_.front();
-  for (size_t i = 0; i + 1 < timeStamp_.size(); ++i) {
-    const bool eventDetected = timeStamp_[i + 1] - timeStamp_[i] < 2.0 * numeric_traits::weakEpsilon<scalar_t>();
-    const bool sufficientTimeSinceEvent = timeStamp_[i] - lastEvent > 2.0 * numeric_traits::weakEpsilon<scalar_t>();
-    if (eventDetected && sufficientTimeSinceEvent) {
-      eventTimes.push_back(timeStamp_[i]);
-      lastEvent = eventTimes.back();
-    } else if (eventDetected) {
-      eventTimes.back() = timeStamp_[i];
-      lastEvent = eventTimes.back();
-    }
-  }
-  return eventTimes;
 }
 
 std::ostream& operator<<(std::ostream& out, const ManifoldLinearController& controller) {

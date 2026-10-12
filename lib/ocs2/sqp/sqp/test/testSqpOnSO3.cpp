@@ -35,7 +35,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * What an Euler-angle state could not do and the manifold must: the heading crosses +-pi four times without a transient
  * (the initial gap x(t0) (-) x_init stays small: the state stores no angle, so nothing wraps), the heading increases
  * monotonically to 4 pi, every iterate stays on the unit sphere, and starting from -xi instead of xi (the same attitude)
- * produces the same inputs.
+ * produces the same inputs. The published policy is the documented one: the QP's own gain, its components unchanged (not
+ * transported), at the post-step anchor, off the QP's chart law by -K_rot (Jr^-1(a) - I) e to first order
+ * (ManifoldLinearController.h).
  */
 
 #include <gtest/gtest.h>
@@ -164,7 +166,6 @@ sqp::Settings solverSettings() {
   settings.sqpIteration = 3;
   settings.integratorType = SensitivityIntegratorType::RK4;
   settings.useFeedbackPolicy = true;
-  settings.createValueFunction = false;
   settings.printSolverStatistics = false;
   settings.enableLogging = false;
   settings.nThreads = 1;
@@ -343,12 +344,171 @@ TEST(SqpOnSO3, AWarmStartMoreThanAQuarterTurnAwayIsDiscarded) {
             freshNear.primalSolution(kMpcPeriod + kHorizon).stateTrajectory_);
 }
 
-TEST(SqpOnSO3, TheValueFunctionIsRefusedOnAManifold) {
+/** One node of a published manifold policy, with the pre-step iterate of the QP it came from. */
+struct PolicyNode {
+  scalar_t time = 0.0;
+  vector_t anchor;        // xbar_k, the post-step iterate
+  vector_t preStepState;  // x_old,k
+  vector_t nominalInput;  // u*_k
+  matrix_t gain;          // K_k, inputs x tangent
+};
+
+/**
+ * The published law less the QP's chart law at x = node.anchor (+) deviation: policy.computeInput(node.time, x) minus
+ * u*_k + K_k ((x (-) x_old,k) - (xbar_k (-) x_old,k)). `policy` is only read; computeInput() is not const.
+ */
+vector_t publishedLessChartLaw(ControllerBase& policy, const StateManifold& manifold, const PolicyNode& node, const vector_t& deviation) {
+  vector_t x;
+  manifold.retract(node.anchor, deviation, /*alpha=*/1.0, x);
+  const vector_t published = policy.computeInput(node.time, x);
+  const vector_t chart =
+      node.nominalInput + node.gain * (manifold.difference(node.preStepState, x) - manifold.difference(node.preStepState, node.anchor));
+  return published - chart;
+}
+
+TEST(SqpOnSO3, ThePolicyAppliesThePreStepGainAtThePostStepAnchorAsDocumented) {
+  // ManifoldLinearController.h (design README section 2.7, "Which gain at which anchor"): the published law
+  // u*_k + K_k (x (-) xbar_k), with xbar_k the post-step iterate, differs from the QP's chart law
+  // u_old,k + alpha k_k + K_k (x (-) x_old,k) by -K_rot (Jr^-1(a) - I) e + O(|e|^2), with a = xbar_k (-) x_old,k and
+  // e = x (-) xbar_k on the quaternion block, and not at all through the Euclidean columns. One SQP iteration of a fresh
+  // solver starts from x_old,k = x_init (the DefaultInitializer holds the state), and the QP's step satisfies
+  // du = K dx + k, so alpha k_k = u*_k - u_old,k - K_k (xbar_k (-) x_old,k) and the chart law is
+  // u*_k + K_k ((x (-) x_old,k) - (xbar_k (-) x_old,k)), whatever u_old,k. The gain is read from the policy here, so this
+  // pins the anchor and the form of the law; ThePublishedGainIsTheQpsOwnWithItsComponentsUnchanged pins the gain against
+  // the QP's, identified independently.
   AttitudeProblem attitude;
   const DefaultInitializer initializer(3);
   sqp::Settings settings = solverSettings();
-  settings.createValueFunction = true;
-  EXPECT_THROW({ SqpSolver solver(settings, attitude.problem, initializer); }, std::invalid_argument);
+  settings.sqpIteration = 1;
+  SqpSolver solver(settings, attitude.problem, initializer);
+  solver.setReferenceManager(std::make_shared<ReferenceManager>(attitude.targets));
+  vector_t initState = initialState(1.0);
+  initState.head<4>() = quaternionExp(rotation_t(0.3, -0.2, 0.25));
+  solver.run(/*initTime=*/0.0, initState, /*initMode=*/0, /*finalTime=*/kHorizon);
+  PrimalSolution primal = solver.primalSolution(kHorizon);
+  ASSERT_EQ(primal.controllerPtr_->getType(), ControllerType::MANIFOLD_LINEAR);
+  ManifoldLinearController& policy = static_cast<ManifoldLinearController&>(*primal.controllerPtr_);
+
+  // A node in the middle of the horizon, where the plan has stepped away from x_init towards the reference.
+  const size_t node = primal.timeTrajectory_.size() / 2;
+  const scalar_t time = primal.timeTrajectory_[node];
+  const vector_t& anchor = primal.stateTrajectory_[node];
+  EXPECT_LT(attitude.manifold->difference(anchor, policy.getAnchorState(time)).norm(), 1.0e-14) << "the anchor is the post-step iterate";
+  const vector_t step = attitude.manifold->difference(initState, anchor);
+  const rotation_t a = step.head<3>();
+  ASSERT_GT(a.norm(), 0.05) << "the node must have stepped for the gain's anchor to matter";
+  const matrix_t gain = policy.getFeedbackGain(time);
+  const vector_t nominal = policy.getNominalInput(time);
+  ASSERT_GT(gain.leftCols<3>().norm(), 1.0);
+
+  // ||Jr^-1(a) - I||_2 = (t / 2) sqrt(1 + 4 c(t)^2 t^2), c(t) = 1 / t^2 - (1 + cos t) / (2 t sin t).
+  const Eigen::Matrix3d transport = so3RightJacobianInverse(a) - Eigen::Matrix3d::Identity();
+  const scalar_t t = a.norm();
+  const scalar_t c = 1.0 / (t * t) - (1.0 + std::cos(t)) / (2.0 * t * std::sin(t));
+  const Eigen::JacobiSVD<Eigen::Matrix3d> transportSvd(transport);
+  EXPECT_NEAR(transportSvd.singularValues()(0), 0.5 * t * std::sqrt(1.0 + 4.0 * c * c * t * t), 1.0e-13);
+
+  // The law at x = xbar_k (+) s d: the difference, less its documented leading term, is quadratic in s.
+  vector_t direction(6);
+  direction << 0.6, -0.3, 0.74, 0.2, -0.5, 0.1;
+  const PolicyNode policyNode{.time = time, .anchor = anchor, .preStepState = initState, .nominalInput = nominal, .gain = gain};
+  scalar_t previousRemainder = 0.0;
+  std::vector<scalar_t> remainderRatios;
+  for (const scalar_t scale : {0.02, 0.01, 0.005}) {
+    const vector_t deviation = scale * direction;
+    const vector_t predicted = -gain.leftCols<3>() * transport * deviation.head<3>();
+    const vector_t difference = publishedLessChartLaw(policy, *attitude.manifold, policyNode, deviation);
+    const scalar_t remainder = (difference - predicted).norm();
+    EXPECT_LT(remainder, 0.1 * predicted.norm()) << "scale " << scale << ": the documented term leads";
+    // The bound of the documentation, with the Frobenius norm of K_rot (at least its 2-norm).
+    EXPECT_LE(predicted.norm(), 1.037 * 0.5 * t * gain.leftCols<3>().norm() * deviation.head<3>().norm()) << "scale " << scale;
+    if (previousRemainder > 0.0) {
+      EXPECT_NEAR(remainder / previousRemainder, 0.25, 0.03) << "scale " << scale << ": O(|e|^2)";
+      remainderRatios.push_back(remainder / previousRemainder);
+    }
+    previousRemainder = remainder;
+  }
+  // Through the Euclidean (rate) columns the two laws agree to round-off.
+  vector_t rateDeviation = vector_t::Zero(6);
+  rateDeviation.tail<3>() = 0.02 * direction.tail<3>();
+  const vector_t rateDifference = publishedLessChartLaw(policy, *attitude.manifold, policyNode, rateDeviation);
+  EXPECT_LT(rateDifference.cwiseAbs().maxCoeff(), 1.0e-12 * (1.0 + gain.norm()));
+  ASSERT_EQ(remainderRatios.size(), 2u);
+  std::cout << "[SqpOnSO3] node " << node << ": step |a| " << t << " rad, ||K_rot||_F " << gain.leftCols<3>().norm()
+            << ", remainder ratios on halving e " << remainderRatios[0] << " " << remainderRatios[1] << ", rate columns "
+            << rateDifference.cwiseAbs().maxCoeff() << "\n";
+}
+
+/** `state` (+) `tangent` on `manifold`. */
+vector_t retracted(const StateManifold& manifold, const vector_t& state, const vector_t& tangent) {
+  vector_t result;
+  manifold.retract(state, tangent, /*alpha=*/1.0, result);
+  return result;
+}
+
+/**
+ * The policy of a second one-iteration solve at time 0 from `secondInitState`, warm-started by a first one from
+ * `firstInitState`: the second QP is built at the first solve's plan, whatever `secondInitState` is (the initial state
+ * enters the QP only through its gap dx_0 = difference(x_old,0, x_init)).
+ */
+PrimalSolution secondSolveAtTheSameTime(const vector_t& firstInitState, const vector_t& secondInitState) {
+  AttitudeProblem attitude;
+  const DefaultInitializer initializer(3);
+  sqp::Settings settings = solverSettings();
+  settings.sqpIteration = 1;
+  SqpSolver solver(settings, attitude.problem, initializer);
+  solver.setReferenceManager(std::make_shared<ReferenceManager>(attitude.targets));
+  solver.run(/*initTime=*/0.0, firstInitState, /*initMode=*/0, /*finalTime=*/kHorizon);
+  solver.run(/*initTime=*/0.0, secondInitState, /*initMode=*/0, /*finalTime=*/kHorizon);
+  return solver.primalSolution(kHorizon);
+}
+
+TEST(SqpOnSO3, ThePublishedGainIsTheQpsOwnWithItsComponentsUnchanged) {
+  // Design README section 2.7, "Which gain at which anchor": the gain the policy applies at the post-step anchor xbar_0
+  // is the QP's K_0, linearized at the pre-step iterate x_old,0, with its components unchanged, not transported, e.g. to
+  // K_0 Jr^-1(a_0). Identified independently of the published gain: the QP has no inequality constraints, so its
+  // solution is affine in the initial gap, du_0 = k_0 + K_0 dx_0, and two solves of the same QP (warm-started alike, at
+  // the same time) from initial states whose gaps differ by h e_j give, at a full step, u*_0' - u*_0 = h K_0 e_j
+  // exactly, column by column.
+  vector_t firstInitState = initialState(1.0);
+  firstInitState.head<4>() = quaternionExp(rotation_t(0.1, -0.05, 0.2));
+  // The gap of the solve whose policy is checked: 0.39 rad of attitude and a body rate, so that a_0 = dx_0 is far from 0.
+  vector_t gap(6);
+  gap << 0.3, -0.2, 0.15, 0.4, -0.3, 0.2;
+  const AttitudeProblem attitude;
+  const ProductStateManifold& manifold = *attitude.manifold;
+  const vector_t initState = retracted(manifold, firstInitState, gap);
+  const PrimalSolution primal = secondSolveAtTheSameTime(firstInitState, initState);
+  ASSERT_EQ(primal.controllerPtr_->getType(), ControllerType::MANIFOLD_LINEAR);
+  ManifoldLinearController& policy = static_cast<ManifoldLinearController&>(*primal.controllerPtr_);
+  ASSERT_LT(manifold.difference(initState, primal.stateTrajectory_.front()).norm(), 1.0e-12)
+      << "a full step: the anchor of node 0 is the initial state";
+  const matrix_t published = policy.getFeedbackGain(/*time=*/0.0);
+  const vector_t nominal = policy.getNominalInput(/*time=*/0.0);
+
+  constexpr scalar_t kGapStep = 0.05;
+  matrix_t identified(published.rows(), published.cols());
+  for (Eigen::Index j = 0; j < gap.size(); ++j) {
+    vector_t perturbedGap = gap;
+    perturbedGap(j) += kGapStep;
+    const vector_t perturbedInitState = retracted(manifold, firstInitState, perturbedGap);
+    const PrimalSolution perturbed = secondSolveAtTheSameTime(firstInitState, perturbedInitState);
+    ASSERT_LT(manifold.difference(perturbedInitState, perturbed.stateTrajectory_.front()).norm(), 1.0e-12) << "a full step, column " << j;
+    ManifoldLinearController& perturbedPolicy = static_cast<ManifoldLinearController&>(*perturbed.controllerPtr_);
+    EXPECT_LT((perturbedPolicy.getFeedbackGain(/*time=*/0.0) - published).cwiseAbs().maxCoeff(), 1.0e-9 * published.norm())
+        << "the same QP, the same gain, column " << j;
+    identified.col(j) = (perturbedPolicy.getNominalInput(/*time=*/0.0) - nominal) / kGapStep;
+  }
+  const scalar_t gainError = (identified - published).norm();
+  EXPECT_LT(gainError, 1.0e-6 * published.norm());
+  // The transported gain K_0 Jr^-1(a_0) on the rotation columns is off by K_rot (Jr^-1(a_0) - I), about |K_rot| |a_0| / 2.
+  const rotation_t step = gap.head<3>();
+  matrix_t transported = published;
+  transported.leftCols<3>() = published.leftCols<3>() * so3RightJacobianInverse(step);
+  const scalar_t transportError = (identified - transported).norm();
+  EXPECT_GT(transportError, 0.1 * published.leftCols<3>().norm());
+  std::cout << "[SqpOnSO3] node 0, gap |a_0| " << step.norm() << " rad: ||K_published - K_QP|| " << gainError
+            << ", ||K_0 Jr^-1(a_0) - K_QP|| " << transportError << ", ||K_QP|| " << identified.norm() << "\n";
 }
 
 }  // namespace

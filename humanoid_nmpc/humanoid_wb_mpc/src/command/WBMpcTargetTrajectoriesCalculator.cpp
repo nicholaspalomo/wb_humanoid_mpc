@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "absl/log/log.h"
 #include "absl/memory/memory.h"
@@ -48,6 +49,36 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 
 namespace ocs2::humanoid {
+
+namespace {
+
+/**
+ * A target knot of the whole-body state of `model`: the base at the pose `basePoseEulerZyx` ([x, y, z, yaw, pitch,
+ * roll]) and the joints at `jointAngles` (one per joint of the model), every velocity zero.
+ */
+vector_t restingTargetKnot(const MpcRobotModelBase<scalar_t>& model, const vector6_t& basePoseEulerZyx, const vector_t& jointAngles) {
+  vector_t knot = vector_t::Zero(model.getStateDim());
+  model.setBasePoseEulerZyx(knot, basePoseEulerZyx);
+  model.setJointAngles(knot, jointAngles);
+  return knot;
+}
+
+/**
+ * restingTargetKnot() with the base moving at the world-frame planar velocity (`planarVelocityWorld`) and turning at
+ * `yawRate` [rad/s] about the world z axis, the joints still.
+ */
+vector_t movingTargetKnot(const MpcRobotModelBase<scalar_t>& model,
+                          const vector6_t& basePoseEulerZyx,
+                          const vector_t& jointAngles,
+                          const vector2_t& planarVelocityWorld,
+                          scalar_t yawRate) {
+  vector_t knot = restingTargetKnot(model, basePoseEulerZyx, jointAngles);
+  model.setBaseComLinearVelocity(knot, vector3_t(planarVelocityWorld(0), planarVelocityWorld(1), 0.0));
+  model.setBaseAngularVelocityFromWorldYawRate(knot, yawRate);
+  return knot;
+}
+
+}  // namespace
 
 absl::StatusOr<std::unique_ptr<WBMpcTargetTrajectoriesCalculator>> WBMpcTargetTrajectoriesCalculator::Create(
     const mpc_config::ReferenceFile& referenceFile, const MpcRobotModelBase<scalar_t>& mpcRobotModel, scalar_t mpcHorizon) {
@@ -89,16 +120,20 @@ TargetTrajectories WBMpcTargetTrajectoriesCalculator::commandedPositionToTargetT
 
   scalar_t targetReachingTime = initTime + estimateTimeToTarget(targetPose - currentPose);
 
-  // desired time trajectory
-  const scalar_array_t timeTrajectory{initTime, targetReachingTime};
-
-  // desired state trajectory
-  vector_array_t stateTrajectory(2, vector_t::Zero(mpcRobotModelPtr_->getStateDim()));
-  stateTrajectory[0] << currentPose, targetJointState_, vector_t::Zero(mpcRobotModelPtr_->getGenCoordinatesDim());
-  stateTrajectory[1] << targetPose, targetJointState_, vector_t::Zero(mpcRobotModelPtr_->getGenCoordinatesDim());
+  // desired time and state trajectories: resting knots at most a quarter turn apart in yaw, so that the slerp of the
+  // orientation between them turns the commanded way (subdivideYawKnots())
+  const std::vector<PoseCommandKnot> knots = subdivideYawKnots(initTime, currentPose, targetReachingTime, targetPose);
+  scalar_array_t timeTrajectory;
+  timeTrajectory.reserve(knots.size());
+  vector_array_t stateTrajectory;
+  stateTrajectory.reserve(knots.size());
+  for (const PoseCommandKnot& knot : knots) {
+    timeTrajectory.push_back(knot.time);
+    stateTrajectory.push_back(restingTargetKnot(*mpcRobotModelPtr_, knot.basePose, targetJointState_));
+  }
 
   // desired input trajectory (just right dimensions, they are not used)
-  const vector_array_t inputTrajectory(2, vector_t::Zero(mpcRobotModelPtr_->getInputDim()));
+  const vector_array_t inputTrajectory(knots.size(), vector_t::Zero(mpcRobotModelPtr_->getInputDim()));
 
   TargetTrajectories targetTrajectories{timeTrajectory, stateTrajectory, inputTrajectory};
 
@@ -111,58 +146,23 @@ TargetTrajectories WBMpcTargetTrajectoriesCalculator::commandedPositionToTargetT
 
 TargetTrajectories WBMpcTargetTrajectoriesCalculator::commandedVelocityToTargetTrajectories(const vector4_t& commandedVelocities,
                                                                                             scalar_t initTime,
-                                                                                            const vector_t& initState) {
-  // This function constructs a target trajectory that interpolates between the current momentum and desired momentum for the first part
-  // of the horizon while applying the desired momentum fully to the latter half. All position targets are obtained integrating said
-  // velocity profile.
+                                                                                            const vector_t& initState,
+                                                                                            const BasePlanarMotion& measuredMotion) {
+  // The base knots of the command on the arc of its twist, the first segment starting from the measured motion
+  // (TargetTrajectoriesCalculatorBase's class comment; design defect D1). Every knot's base
+  // moves at the command in its own heading frame and turns at the commanded yaw rate about the world z axis.
+  const std::vector<VelocityCommandKnot> knots = velocityCommandKnots(commandedVelocities, initTime, initState, measuredMotion);
 
-  vector_t currentPoseTarget = getCurrentBasePoseTarget(initState);
-  vector4_t commVelTargetGlobal = filterAndTransformVelCommandToLocal(commandedVelocities, currentPoseTarget(3), /*filterAlpha=*/0.8);
-
-  // // Adapt desired base height from velocity command
-  // currentPoseTarget[2] = commVelTargetGlobal[2];
-
-  vector6_t targetBaseVel;
-  targetBaseVel << commVelTargetGlobal(0), commVelTargetGlobal(1), 0.0, commVelTargetGlobal(3), 0.0, 0.0;
-
-  /////////////////////////
-  // Intermediate Target //
-  /////////////////////////
-
-  scalar_t intermediateTargetTime = 0.7 * mpcHorizon_;
-  vector6_t baseVel = mpcRobotModelPtr_->getBaseComVelocity(initState);
-  vector3_t averageVel;
-  averageVel(0) = (baseVel[0] + commVelTargetGlobal[0]) / 2;
-  averageVel(1) = (baseVel[1] + commVelTargetGlobal[1]) / 2;
-  averageVel(2) = (baseVel[5] + commVelTargetGlobal[3]) / 2;
-
-  // The commanded pelvis height (or default_base_height) above the ground the reference manager stands the robot on.
-  const scalar_t targetHeight = commandedBaseHeight(commVelTargetGlobal[2]);
-  currentPoseTarget[2] = targetHeight;
-  vector6_t intermediateTargetPose = integrateTargetBasePose(currentPoseTarget, averageVel, targetHeight, intermediateTargetTime);
-
-  //////////////////
-  // Final Target //
-  //////////////////
-
-  averageVel(0) = (commVelTargetGlobal[0]);
-  averageVel(1) = (commVelTargetGlobal[1]);
-  averageVel(2) = (commVelTargetGlobal[3]);
-
-  vector6_t finalTargetPose =
-      integrateTargetBasePose(intermediateTargetPose, averageVel, targetHeight, (mpcHorizon_ - intermediateTargetTime));
-
-  // desired time trajectory
-  const scalar_array_t timeTrajectory{initTime, initTime + intermediateTargetTime, initTime + mpcHorizon_};
-
-  // desired state trajectory
-  vector_array_t stateTrajectory(3, vector_t::Zero(mpcRobotModelPtr_->getStateDim()));
-  stateTrajectory[0] << currentPoseTarget, targetJointState_, targetBaseVel, vector_t::Zero(mpcRobotModelPtr_->getJointDim());
-  stateTrajectory[1] << intermediateTargetPose, targetJointState_, targetBaseVel, vector_t::Zero(mpcRobotModelPtr_->getJointDim());
-  stateTrajectory[2] << finalTargetPose, targetJointState_, targetBaseVel, vector_t::Zero(mpcRobotModelPtr_->getJointDim());
+  scalar_array_t timeTrajectory;
+  vector_array_t stateTrajectory;
+  for (const VelocityCommandKnot& knot : knots) {
+    timeTrajectory.push_back(knot.time);
+    stateTrajectory.push_back(
+        movingTargetKnot(*mpcRobotModelPtr_, knot.basePose, targetJointState_, knot.commandedVelocityWorld, knot.commandedYawRate));
+  }
 
   // desired input trajectory (just right dimensions, they are not used)
-  const vector_array_t inputTrajectory(3, vector_t::Zero(mpcRobotModelPtr_->getInputDim()));
+  const vector_array_t inputTrajectory(stateTrajectory.size(), vector_t::Zero(mpcRobotModelPtr_->getInputDim()));
 
   TargetTrajectories targetTrajectories{timeTrajectory, stateTrajectory, inputTrajectory};
 

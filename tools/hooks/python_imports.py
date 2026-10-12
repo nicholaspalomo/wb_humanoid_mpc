@@ -281,7 +281,7 @@ CHECKS = [
         languages=PYTHON,
         scope=lint_files.Scope.FIRST_PARTY,
         check_source=check_import_modules,
-        description="import modules, not classes or functions (Python style 2.2.4; decision D7).",
+        description="import modules, not classes or functions (Python style 2.2.4; AGENTS.md).",
     ),
     check_types.Check(
         name=RELATIVE_IMPORT,

@@ -1,0 +1,442 @@
+<!doctype html>
+<!--
+  The MuJoCo web viewer's page (robot_runtime/web_viewer/README.md). Served at / by WebViewerServer; the build embeds
+  this file in the robot binary (tools/embed_page.py), so a change here needs a rebuild. Self-contained: no external
+  scripts, styles or fonts.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MuJoCo viewer</title>
+<style>
+  :root {
+    --background: #15171a;
+    --panel: rgba(24, 27, 31, 0.88);
+    --border: #2f343b;
+    --text: #e6e8eb;
+    --muted: #9aa3ad;
+    --accent: #4ea1ff;
+    --warning: #ffb74d;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--background); color: var(--text);
+    font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  #view { position: fixed; inset: 0; outline: none; cursor: grab; touch-action: none; user-select: none; }
+  #view:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+  #view.dragging { cursor: grabbing; }
+  #frame { width: 100%; height: 100%; display: block; object-fit: contain; }
+  .panel { position: fixed; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
+  #hud { top: 10px; left: 10px; font-variant-numeric: tabular-nums; pointer-events: none; min-width: 210px; }
+  #hud .row { display: flex; justify-content: space-between; gap: 12px; }
+  #hud .label { color: var(--muted); }
+  #status { color: var(--warning); margin-top: 4px; max-width: 320px; }
+  #status:empty { display: none; }
+  #toolbar { top: 10px; right: 10px; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; max-width: 60vw; }
+  button, select { background: #23272d; color: var(--text); border: 1px solid var(--border); border-radius: 4px;
+    padding: 4px 9px; font: inherit; cursor: pointer; }
+  button:hover, select:hover { border-color: var(--accent); }
+  button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  #settings, #visualizations { top: 50px; right: 10px; width: 290px; max-height: calc(100vh - 70px); overflow-y: auto; }
+  #settings[hidden], #visualizations[hidden] { display: none; }
+  .field { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; }
+  .field input[type="range"] { flex: 1; }
+  .presets { display: flex; flex-wrap: wrap; gap: 4px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 4px 0 8px; }
+  .visualization { display: grid; grid-template-columns: 22px 1fr; gap: 2px 6px; padding: 5px 4px; border-radius: 4px; cursor: pointer; }
+  .visualization:hover { background: rgba(78, 161, 255, 0.12); }
+  .visualization .key { color: var(--muted); font-family: ui-monospace, monospace; }
+  .visualization .name { font-weight: 600; }
+  .visualization.on .name::after { content: " on"; color: var(--accent); font-weight: 400; }
+  .visualization .description { grid-column: 2; color: var(--muted); font-size: 12px; }
+  #help { bottom: 10px; left: 10px; color: var(--muted); font-size: 12px; pointer-events: none; }
+  kbd { font-family: ui-monospace, monospace; color: var(--text); }
+</style>
+</head>
+<body>
+<div id="view" tabindex="0" aria-label="MuJoCo simulation view">
+  <canvas id="frame" width="1280" height="720"></canvas>
+</div>
+
+<div id="hud" class="panel" aria-live="polite">
+  <div class="row"><span class="label">frames</span><span id="hudFps">-</span></div>
+  <div class="row"><span class="label">size</span><span id="hudSize">-</span></div>
+  <div class="row"><span class="label">camera</span><span id="hudCamera">-</span></div>
+  <div class="row"><span class="label">sim time</span><span id="hudSimTime">-</span></div>
+  <div class="row"><span class="label">frame age</span><span id="hudAge">-</span></div>
+  <div class="row"><span class="label">viewers</span><span id="hudClients">-</span></div>
+  <div id="status"></div>
+</div>
+
+<div id="toolbar" class="panel">
+  <button id="resetCamera" title="Back to the start-up camera">Reset camera</button>
+  <button id="trackCamera" aria-pressed="true" title="Follow the robot (k)">Track</button>
+  <button id="snapshot" title="Save the current frame">Snapshot</button>
+  <button id="toggleVisualizations" aria-pressed="false" title="Markers and their keys (p)">Markers</button>
+  <button id="toggleSettings" aria-pressed="false" title="Size, rate and quality">Settings</button>
+</div>
+
+<div id="settings" class="panel" hidden>
+  <h2>Stream</h2>
+  <div class="presets">
+    <button data-width="640" data-height="360">640x360</button>
+    <button data-width="960" data-height="540">960x540</button>
+    <button data-width="1280" data-height="720">1280x720</button>
+    <button data-width="1920" data-height="1080">1920x1080</button>
+  </div>
+  <div class="field"><label for="fitWindow">Fit window</label><input id="fitWindow" type="checkbox"></div>
+  <div class="field"><label for="fps">Frames per second</label>
+    <select id="fps"><option>10</option><option>15</option><option>20</option><option selected>30</option><option>60</option></select>
+  </div>
+  <div class="field"><label for="quality">Quality</label><input id="quality" type="range" min="10" max="95" step="5" value="70">
+    <span id="qualityValue">70</span></div>
+</div>
+
+<div id="visualizations" class="panel" hidden>
+  <h2>Markers</h2>
+  <div id="visualizationList"></div>
+</div>
+
+<div id="help" class="panel">
+  Drag: <kbd>left</kbd> rotate, <kbd>right</kbd> move, <kbd>middle</kbd> or wheel zoom, <kbd>shift</kbd> horizontal.
+  Keys (click the view first): <kbd>0</kbd>-<kbd>5</kbd> geom groups, <kbd>k</kbd> track, <kbd>p</kbd> markers.
+</div>
+
+<script>
+"use strict";
+
+// LINT.IfChange(web_viewer_routes)
+// The server's routes and parameters (README.md, "Routes"; WebViewerServer.cpp and ViewerInputParsing.cpp).
+const FRAME_ROUTE = "/frame.jpg";
+const STATE_ROUTE = "/state";
+const INPUT_ROUTE = "/input";
+const SETTINGS_ROUTE = "/settings";
+// Every POST carries it; the server refuses a POST without it.
+const VIEWER_HEADER = "X-MuJoCo-Viewer";
+const BUTTON_NAMES = ["left", "middle", "right"];  // MouseEvent.button 0, 1, 2
+const SETTINGS_NAMES = ["width", "height", "fps", "quality"];
+
+function frameUrl(after) { return `${FRAME_ROUTE}?after=${after}`; }
+function dragInput(drag) {
+  return { type: "drag", button: BUTTON_NAMES[drag.button], shift: drag.shift ? "1" : "0",
+           dx: drag.dx.toFixed(5), dy: drag.dy.toFixed(5) };
+}
+function scrollInput(notches) { return { type: "scroll", notches: notches.toFixed(3) }; }
+function keyInput(key) { return { type: "key", key }; }
+function resetCameraInput() { return { type: "reset_camera" }; }
+function cameraInput(mode) { return { type: "camera", mode }; }  // "free" or "tracking"
+function visualizationInput(name) { return { type: "visualization", name }; }
+function post(route, parameters) {
+  return fetch(`${route}?${new URLSearchParams(parameters)}`, { method: "POST", headers: { [VIEWER_HEADER]: "1" }, cache: "no-store" });
+}
+// LINT.ThenChange(//robot_runtime/web_viewer/src/WebViewerServer.cpp:web_viewer_routes, //robot_runtime/web_viewer/src/ViewerInputParsing.cpp:web_viewer_routes, //robot_runtime/web_viewer/README.md:web_viewer_routes)
+
+const view = document.getElementById("view");
+const canvas = document.getElementById("frame");
+const context = canvas.getContext("2d");
+const statusLine = document.getElementById("status");
+
+function setStatus(text) { statusLine.textContent = text; }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Frames: one GET /frame.jpg?after=<sequence> in flight, the next one after the next animation frame, so a hidden tab
+// stops pulling and the renderer idles. Through a tunnel at most one frame is ever on its way.
+// ---------------------------------------------------------------------------------------------------------------------
+
+let lastSequence = 0;
+let receivedFrames = 0;
+let receivedSince = performance.now();
+let lastAgeMs = null;
+
+async function pullFrame() {
+  const response = await fetch(frameUrl(lastSequence), { cache: "no-store" });
+  if (response.status === 204) return;  // nothing new within 2 s: ask again
+  if (!response.ok) throw new Error(`${response.status} ${(await response.text()).trim()}`);
+  lastSequence = Number(response.headers.get("X-Frame-Sequence")) || 0;
+  lastAgeMs = Number(response.headers.get("X-Frame-Age-Ms"));
+  const bitmap = await createImageBitmap(await response.blob());
+  if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+  }
+  context.drawImage(bitmap, 0, 0);
+  bitmap.close();
+  receivedFrames += 1;
+}
+
+function schedulePull(delayMs) {
+  setTimeout(() => requestAnimationFrame(runPull), delayMs);
+}
+
+async function runPull() {
+  try {
+    await pullFrame();
+    setStatus("");
+    schedulePull(0);
+  } catch (error) {
+    // The simulation may be restarting: retry every second, from the newest frame of whichever viewer answers.
+    lastSequence = 0;
+    setStatus(`No frames (${error.message}); retrying every second.`);
+    schedulePull(1000);
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Input: at most one POST per animation frame and one in flight. A drag accumulates while a POST is on its way and
+// is sent with the next one; keys and buttons queue in order.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const pendingEvents = [];
+const MAX_PENDING_EVENTS = 32;
+let pendingDrag = null;  // { button, shift, dx, dy }
+let pendingNotches = 0;
+let postInFlight = false;
+
+function queueInput(parameters) {
+  if (pendingEvents.length >= MAX_PENDING_EVENTS) pendingEvents.shift();
+  pendingEvents.push([INPUT_ROUTE, parameters]);
+}
+
+function queueSettings(parameters) {
+  pendingEvents.push([SETTINGS_ROUTE, parameters]);
+}
+
+function nextPost() {
+  if (pendingEvents.length > 0) return pendingEvents.shift();
+  if (pendingDrag !== null && (pendingDrag.dx !== 0 || pendingDrag.dy !== 0)) {
+    const drag = pendingDrag;
+    pendingDrag = { ...drag, dx: 0, dy: 0 };
+    return [INPUT_ROUTE, dragInput(drag)];
+  }
+  if (pendingNotches !== 0) {
+    const notches = pendingNotches;
+    pendingNotches = 0;
+    return [INPUT_ROUTE, scrollInput(notches)];
+  }
+  return null;
+}
+
+async function sendInputs() {
+  requestAnimationFrame(sendInputs);
+  if (postInFlight) return;
+  const next = nextPost();
+  if (next === null) return;
+  postInFlight = true;
+  try {
+    const response = await post(next[0], next[1]);
+    if (!response.ok) setStatus(`Input refused: ${response.status} ${(await response.text()).trim()}`);
+  } catch (error) {
+    setStatus(`Input not sent: ${error.message}`);
+  } finally {
+    postInFlight = false;
+  }
+}
+
+// The size the frame is drawn at inside the view (object-fit: contain), in CSS pixels: drags are fractions of it, as
+// GLFW's are fractions of the window.
+function displayedFrameSize() {
+  const box = view.getBoundingClientRect();
+  const scale = Math.min(box.width / canvas.width, box.height / canvas.height);
+  return { width: Math.max(1, canvas.width * scale), height: Math.max(1, canvas.height * scale) };
+}
+
+let dragPointer = null;  // { id, button, x, y }
+
+view.addEventListener("pointerdown", (event) => {
+  view.focus();
+  if (event.button > 2 || dragPointer !== null) return;
+  dragPointer = { id: event.pointerId, button: event.button, x: event.clientX, y: event.clientY };
+  view.setPointerCapture(event.pointerId);
+  view.classList.add("dragging");
+  event.preventDefault();
+});
+
+view.addEventListener("pointermove", (event) => {
+  if (dragPointer === null || event.pointerId !== dragPointer.id) return;
+  const size = displayedFrameSize();
+  const dx = (event.clientX - dragPointer.x) / size.width;
+  const dy = (event.clientY - dragPointer.y) / size.height;
+  dragPointer.x = event.clientX;
+  dragPointer.y = event.clientY;
+  const shift = event.shiftKey;
+  if (pendingDrag !== null && (pendingDrag.button !== dragPointer.button || pendingDrag.shift !== shift)) {
+    if (pendingDrag.dx !== 0 || pendingDrag.dy !== 0) queueInput(dragInput(pendingDrag));
+    pendingDrag = null;
+  }
+  if (pendingDrag === null) pendingDrag = { button: dragPointer.button, shift, dx: 0, dy: 0 };
+  pendingDrag.dx += dx;
+  pendingDrag.dy += dy;
+});
+
+function endDrag(event) {
+  if (dragPointer === null || event.pointerId !== dragPointer.id) return;
+  dragPointer = null;
+  view.classList.remove("dragging");
+}
+view.addEventListener("pointerup", endDrag);
+view.addEventListener("pointercancel", endDrag);
+view.addEventListener("contextmenu", (event) => event.preventDefault());
+
+// Wheel notches with GLFW's sign (positive zooms in): Chromium reports 100 pixels per notch, Firefox 3 lines.
+view.addEventListener("wheel", (event) => {
+  event.preventDefault();
+  const perNotch = event.deltaMode === WheelEvent.DOM_DELTA_PIXEL ? 100 : event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 3 : 1;
+  pendingNotches -= event.deltaY / perNotch;
+}, { passive: false });
+
+// KeyboardEvent.code names physical keys, as GLFW's key codes do.
+function keyOf(event) {
+  if (event.ctrlKey || event.altKey || event.metaKey) return null;
+  const digit = /^Digit([0-5])$/.exec(event.code);
+  if (digit) return digit[1];
+  const letter = /^Key([A-Z])$/.exec(event.code);
+  if (letter) return letter[1].toLowerCase();
+  return null;
+}
+
+view.addEventListener("keydown", (event) => {
+  const key = keyOf(event);
+  if (key === null || event.repeat) return;
+  event.preventDefault();
+  if (key === "p") {
+    togglePanel("visualizations");  // the GLFW viewer prints the hotkeys to the robot's log instead
+    return;
+  }
+  queueInput(keyInput(key));
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Toolbar, panels and settings.
+// ---------------------------------------------------------------------------------------------------------------------
+
+let cameraMode = "tracking";
+
+document.getElementById("resetCamera").addEventListener("click", () => queueInput(resetCameraInput()));
+document.getElementById("trackCamera").addEventListener("click", () => {
+  queueInput(cameraInput(cameraMode === "tracking" ? "free" : "tracking"));
+});
+document.getElementById("snapshot").addEventListener("click", () => {
+  canvas.toBlob((blob) => {
+    if (blob === null) return;
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `mujoco-frame-${lastSequence}.png`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  });
+});
+
+function togglePanel(id) {
+  const panel = document.getElementById(id);
+  panel.hidden = !panel.hidden;
+  const button = document.getElementById(id === "settings" ? "toggleSettings" : "toggleVisualizations");
+  button.setAttribute("aria-pressed", String(!panel.hidden));
+}
+document.getElementById("toggleSettings").addEventListener("click", () => togglePanel("settings"));
+document.getElementById("toggleVisualizations").addEventListener("click", () => togglePanel("visualizations"));
+
+for (const preset of document.querySelectorAll("[data-width]")) {
+  preset.addEventListener("click", () => {
+    document.getElementById("fitWindow").checked = false;
+    queueSettings({ width: preset.dataset.width, height: preset.dataset.height });
+  });
+}
+
+// Fit window: the view's size in CSS pixels (not device pixels, which would cost the renderer up to four times as
+// much); the server caps it.
+let fitTimer = null;
+function fitWindow() {
+  if (!document.getElementById("fitWindow").checked) return;
+  clearTimeout(fitTimer);
+  fitTimer = setTimeout(() => {
+    queueSettings({ width: String(Math.round(view.clientWidth)), height: String(Math.round(view.clientHeight)) });
+  }, 300);
+}
+document.getElementById("fitWindow").addEventListener("change", fitWindow);
+window.addEventListener("resize", fitWindow);
+
+document.getElementById("fps").addEventListener("change", (event) => queueSettings({ fps: event.target.value }));
+const quality = document.getElementById("quality");
+quality.addEventListener("input", () => { document.getElementById("qualityValue").textContent = quality.value; });
+quality.addEventListener("change", () => queueSettings({ quality: quality.value }));
+
+// A bookmark may carry ?width=&height=&fps=&quality=.
+function settingsFromQuery() {
+  const query = new URLSearchParams(window.location.search);
+  const settings = {};
+  for (const name of SETTINGS_NAMES) {
+    if (query.has(name)) settings[name] = query.get(name);
+  }
+  if (Object.keys(settings).length > 0) queueSettings(settings);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// HUD and the marker panel, from GET /state twice a second while the tab is visible.
+// ---------------------------------------------------------------------------------------------------------------------
+
+function renderVisualizations(visualizations) {
+  const list = document.getElementById("visualizationList");
+  list.replaceChildren();
+  if (visualizations.length === 0) {
+    list.textContent = "No markers are configured for this robot.";
+    return;
+  }
+  for (const visualization of visualizations) {
+    const row = document.createElement("div");
+    row.className = `visualization${visualization.enabled ? " on" : ""}`;
+    row.title = "Click to switch it on or off";
+    const key = document.createElement("span");
+    key.className = "key";
+    key.textContent = visualization.hotkey ?? "";
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = visualization.name;
+    const description = document.createElement("span");
+    description.className = "description";
+    description.textContent = visualization.description;
+    row.append(key, name, description);
+    row.addEventListener("click", () => queueInput(visualizationInput(visualization.name)));
+    list.append(row);
+  }
+}
+
+// A number of /state with `digits` decimals; the server sends null for one JSON cannot spell.
+function fixed(value, digits) { return typeof value === "number" ? value.toFixed(digits) : "-"; }
+
+function renderState(state) {
+  const viewer = state.viewer;
+  const now = performance.now();
+  const pageFps = (receivedFrames * 1000) / Math.max(1, now - receivedSince);
+  receivedFrames = 0;
+  receivedSince = now;
+  document.getElementById("hudFps").textContent =
+    `${pageFps.toFixed(1)} shown, ${fixed(viewer.render.measuredFps, 1)} of ${viewer.render.targetFps} rendered`;
+  document.getElementById("hudSize").textContent = `${viewer.render.width}x${viewer.render.height}, q${viewer.render.quality}`;
+  cameraMode = viewer.camera.mode;
+  document.getElementById("hudCamera").textContent = cameraMode;
+  const track = document.getElementById("trackCamera");
+  track.setAttribute("aria-pressed", String(cameraMode === "tracking"));
+  document.getElementById("hudSimTime").textContent = state.frame === null ? "-" : `${fixed(state.frame.simTime, 2)} s`;
+  document.getElementById("hudAge").textContent = lastAgeMs === null ? "-" : `${lastAgeMs} ms`;
+  document.getElementById("hudClients").textContent = `${state.clients} of ${state.maxClients}`;
+  renderVisualizations(viewer.visualizations);
+}
+
+async function pollState() {
+  if (document.hidden) return;
+  try {
+    const response = await fetch(STATE_ROUTE, { cache: "no-store" });
+    if (response.ok) renderState(await response.json());
+  } catch (error) {
+    // The frame loop reports the outage.
+  }
+}
+
+settingsFromQuery();
+requestAnimationFrame(runPull);
+requestAnimationFrame(sendInputs);
+setInterval(pollState, 500);
+pollState();
+</script>
+</body>
+</html>

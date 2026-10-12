@@ -32,7 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/Types.h>
 #include <ocs2_core/integration/SensitivityIntegrator.h>
 
-#include "ocs2_oc/multiple_shooting/ProjectionMultiplierCoefficients.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
 namespace ocs2 {
@@ -60,7 +59,6 @@ struct Transcription {
   VectorFunctionLinearApproximation stateIneqConstraints;
   VectorFunctionLinearApproximation stateInputIneqConstraints;
   VectorFunctionLinearApproximation constraintsProjection;
-  ProjectionMultiplierCoefficients projectionMultiplierCoefficients;
 };
 
 /**
@@ -82,9 +80,8 @@ Transcription setupIntermediateNode(OptimalControlProblem& optimalControlProblem
  * Apply the state-input equality constraint projection for a single intermediate node transcription.
  *
  * @param transcription : Transcription for a single intermediate node
- * @param extractProjectionMultiplier : Whether to extract the projection multiplier.
  */
-void projectTranscription(Transcription& transcription, bool extractProjectionMultiplier = false);
+void projectTranscription(Transcription& transcription);
 
 /**
  * Results of the transcription at a terminal node

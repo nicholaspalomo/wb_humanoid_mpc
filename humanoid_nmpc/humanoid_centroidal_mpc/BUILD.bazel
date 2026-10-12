@@ -41,6 +41,9 @@ cc_library(
         "//humanoid_nmpc/humanoid_common_mpc",
         "//tools/nproto:options_cc_proto",
         "//humanoid_nmpc/humanoid_common_mpc:mrt_control_thread",
+        # The Euler boundary of the robot model (include/humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h).
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "//lib/ocs2:ocs2_robotic_tools",
         "//humanoid_nmpc/humanoid_mpc_ipc:realtime_policy_evaluator",
         "//robot_runtime/robot_model",
         "//lib/ocs2:ocs2_core",
@@ -52,6 +55,8 @@ cc_library(
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/container:flat_hash_map",
         "@abseil-cpp//absl/functional:function_ref",
+        "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/log:absl_log",
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/log:log",
         "@abseil-cpp//absl/memory",
@@ -98,8 +103,8 @@ cc_test(
 )
 
 # The collection names the centroidal MPC registers its terms under and the CppAD library names of its terms, pinned
-# with today's strings: a rename fails here instead of renaming a generated library (and regenerating it). Builds no
-# CppAD model.
+# with today's strings: a rename fails here instead of renaming a generated library (and regenerating it); and the CppAD
+# model folder key of each centroidal model. Builds no CppAD model.
 cc_test(
     name = "testCostTermAndLibraryNames",
     size = "small",
@@ -116,11 +121,14 @@ cc_test(
 )
 
 # A live update of every RELOAD_HOT field of the task file gives the problem a fresh start from the edited file builds,
-# solve for solve (L4, L4t), and an updater fed nothing changes nothing (L5): on the DRC Atlas and the variants the
-# updater tests build. Generates the Atlas CppAD libraries on a cold cache.
+# weight for weight and solve for solve (L4, L4t), also with every base-orientation and ACoM row weighed, and an updater
+# fed nothing changes nothing (L5): on the DRC Atlas and the variants the updater tests build. Generates the Atlas CppAD
+# libraries on a cold cache.
 cc_test(
     name = "testLiveUpdateEqualsFreshStart",
     size = "large",
+    # Its last run under //... took 899 s against large's 900 s: eternal, as the whole body's test_wb_live_tuning.
+    timeout = "eternal",
     srcs = ["test/testLiveUpdateEqualsFreshStart.cpp"],
     copts = FIRST_PARTY_COPTS,
     data = [
@@ -130,8 +138,10 @@ cc_test(
     ],
     deps = [
         ":humanoid_centroidal_mpc",
+        ":shipped_centroidal_robot",
         ":typed_config_support",
         "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
         "//robot_runtime/robot_core:resource_paths",
         "//tools/nproto:options_cc_proto",
         "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
@@ -256,6 +266,8 @@ cc_library(
         ":humanoid_centroidal_mpc",
         "//lib/ocs2:ocs2_oc",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest",
     ],
@@ -621,6 +633,44 @@ cc_test(
     ],
 )
 
+# The layout-agnostic API of the centroidal robot model on its quaternion layout (MpcRobotModelBase): the sizes and the
+# state manifold, the Euler boundary accessors' round trips (the pose modulo 2 pi, the attitude to round-off), the slerp
+# across +-pi, the twist heading, the tuning layout, the tangent maps, the base twist and a knot's command, and the
+# allocation-free measurement helpers, on the G1, the Atlas and the Atlas's basis-vector decorator. Builds no CppAD
+# library. Linked statically: the allocation counter replaces malloc for the whole binary.
+cc_test(
+    name = "testCentroidalRobotModelBoundary",
+    size = "small",
+    srcs = ["test/testCentroidalRobotModelBoundary.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
+    ],
+    linkstatic = True,
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":typed_config_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "//lib/ocs2:ocs2_centroidal_model",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//lib/ocs2:ocs2_robotic_tools",
+        "//robot_runtime/robot_realtime:allocation_counter",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
 # The DRC Atlas references of the centroidal MPC wired as the sim wires them, around a scripted solver: for the tests of
 # what an MPC reset clears and of the MRT joint controller's reset contract. Builds no CppAD model.
 cc_library(
@@ -688,7 +738,8 @@ cc_test(
     ],
 )
 
-# ProceduralMpcMotionManager::Create() and its command-limit reloads, refused by Status, on the DRC Atlas references.
+# ProceduralMpcMotionManager::Create() and its command-limit reloads, refused by Status, on the DRC Atlas references;
+# and its gait switches on the measured turn about the world z axis (design defect D2).
 cc_test(
     name = "testProceduralMpcMotionManagerCreate",
     size = "small",
@@ -702,11 +753,14 @@ cc_test(
     deps = [
         ":humanoid_centroidal_mpc",
         ":reference_stack_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//lib/ocs2:ocs2_pinocchio_interface",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
+        "@pinocchio",
         ":typed_config_support",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
     ],
@@ -739,7 +793,8 @@ cc_test(
 )
 
 # The joint actions CentroidalMpcMrtJointController commands on every path of its control cycle, bit for bit as
-# recorded in test/golden/, on the lockstep link: shows that validating the joint indices once changed no action.
+# recorded in test/golden/, on the lockstep link: shows that validating the joint indices once changed no action;
+# re-recorded at the quaternion base orientation, the comparison with the Euler record in the test's header.
 cc_test(
     name = "testMrtJointControllerActionParity",
     size = "small",
@@ -792,9 +847,9 @@ cc_test(
     ],
 )
 
-# The reset target of the centroidal MPC (CentroidalMpcResetTarget.h): its properties, and that it is what the MRT joint
-# controller hands its MPC link and what the in-process link resets the MPC to, so that the MPC node, which calls it
-# itself, resets to the same target.
+# The reset target of the centroidal MPC (CentroidalMpcResetTarget.h): its properties, upright at the twist heading of
+# the observed attitude among them, and that it is what the MRT joint controller hands its MPC link and what the
+# in-process link resets the MPC to, so that the MPC node, which calls it itself, resets to the same target.
 cc_test(
     name = "testCentroidalMpcResetTarget",
     size = "small",
@@ -808,13 +863,39 @@ cc_test(
     deps = [
         ":humanoid_centroidal_mpc",
         ":reference_stack_support",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
         "//lib/ocs2:ocs2_centroidal_model",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_mpc_test_support",
-        "//lib/ocs2:ocs2_robotic_tools",
         "//robot_runtime/robot_model",
         "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
+    ],
+)
+
+# The intermediate knot of the centroidal velocity command (design defect D1b): it moves at the mean of the measured and
+# the commanded planar motion, the measurement being the base twist of the measured momentum with the joints still, not
+# A_b^-1 of the normalized momentum. On the DRC Atlas references; builds no CppAD model.
+cc_test(
+    name = "testIntermediateKnotMeasuredRate",
+    size = "small",
+    srcs = ["test/testIntermediateKnotMeasuredRate.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":reference_stack_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//lib/ocs2:ocs2_robotic_tools",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
     ],
 )
 
@@ -881,6 +962,266 @@ cc_test(
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# ==============================================================================
+# The quaternion base orientation (humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 5(c))
+# ==============================================================================
+
+# The shipped configurations of the centroidal MPC loaded into their robot models without a solver: for the tests
+# parameterized over the robots.
+cc_library(
+    name = "shipped_centroidal_robot",
+    testonly = True,
+    srcs = ["test/support/ShippedCentroidalRobot.cpp"],
+    hdrs = ["test/support/ShippedCentroidalRobot.h"],
+    copts = FIRST_PARTY_COPTS,
+    includes = ["test"],
+    # LINT.IfChange(shipped_centroidal_robot_data)
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/engineai_sa01/engineai_sa01_description",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+        "//robot_models/unitree_r1/unitree_r1_description",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/test/support/ShippedCentroidalRobot.h:shipped_centroidal_robots)
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":typed_config_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//lib/ocs2:ocs2_centroidal_model",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest",
+        "@pinocchio",
+    ],
+)
+
+# The shipped centroidal MPC in a lockstep loop whose plant is the projected rollout of its policy, without a
+# simulator: for the tests of what the solves and the policy do over many periods. Builds the CppAD libraries.
+cc_library(
+    name = "centroidal_mpc_loop",
+    testonly = True,
+    srcs = ["test/support/CentroidalMpcLoop.cpp"],
+    hdrs = ["test/support/CentroidalMpcLoop.h"],
+    copts = FIRST_PARTY_COPTS,
+    data = ["//humanoid_nmpc/humanoid_common_mpc:gait_config"],
+    includes = ["test"],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":shipped_centroidal_robot",
+        ":typed_config_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_sqp",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/memory",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@pinocchio",
+    ],
+)
+
+# The centroidal flow map on the quaternion state as taped: CppAD Jacobians against finite differences, homogeneity in
+# xi and the double cover, the quaternion rate the body angular velocity, a regular momentum map at a pitch of 90
+# degrees, and the unit norm under RK4 at |w| = 5 rad/s; on the G1 and the Atlas with wrench inputs and the Atlas with
+# basis-vector inputs. Generates one dynamics library each.
+cc_test(
+    name = "testCentroidalQuaternionDynamics",
+    size = "large",
+    srcs = ["test/testCentroidalQuaternionDynamics.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    tags = ["exclusive"],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":shipped_centroidal_robot",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The single rigid body dynamics on the quaternion root: its momentum map is the full model's at the nominal posture at
+# every attitude, a pitch of 90 degrees included, on every shipped configuration. Builds no CppAD model.
+# The command references turn with the robot across a heading of +-pi: the knots of a velocity and of a pose command,
+# and the model's slerped interpolation of them, on every shipped centroidal configuration. Builds no CppAD model.
+cc_test(
+    name = "testCentroidalCommandYawEquivariance",
+    size = "small",
+    srcs = ["test/testCentroidalCommandYawEquivariance.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":shipped_centroidal_robot",
+        ":typed_config_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+cc_test(
+    name = "testSrbdQuaternion",
+    size = "small",
+    srcs = ["test/testSrbdQuaternion.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":shipped_centroidal_robot",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "//lib/ocs2:ocs2_centroidal_model",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# Every registered term and the dynamics of each shipped configuration's problem: tangent finite differences along the
+# retraction, radial invariance and the double cover of the quaternion, finite values and one SQP iteration at a pitch
+# of 90 degrees, and yaw equivariance across +-pi. Generates the CppAD libraries of all four configurations.
+cc_test(
+    name = "testQuaternionInvariances",
+    size = "large",
+    timeout = "eternal",
+    srcs = ["test/testQuaternionInvariances.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    tags = ["exclusive"],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":shipped_centroidal_robot",
+        ":typed_config_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_sqp",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The unit norm of the base quaternion after a retraction, in the slerped targets, through the projected rollout and
+# over a 60 s lockstep loop of the EngineAI SA01. Generates the SA01's CppAD libraries.
+cc_test(
+    name = "testUnitNorm",
+    size = "large",
+    srcs = ["test/testUnitNorm.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    tags = ["exclusive"],
+    deps = [
+        ":centroidal_mpc_loop",
+        ":humanoid_centroidal_mpc",
+        ":reference_stack_support",
+        ":shipped_centroidal_robot",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# A turn in place through 720 degrees of the EngineAI SA01's MPC in a lockstep loop on the projected rollout of its
+# policy: every solve succeeds, the initial state gap's rotation stays small, no solve jumps, the heading grows
+# monotonically across +-pi and the feedback stays bounded. Generates the SA01's CppAD libraries.
+cc_test(
+    name = "testTurnInPlace720",
+    size = "large",
+    srcs = ["test/testTurnInPlace720.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    tags = ["exclusive"],
+    deps = [
+        ":centroidal_mpc_loop",
+        ":humanoid_centroidal_mpc",
+        ":shipped_centroidal_robot",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The double cover of the measured base orientation through the MRT joint controller: xi and -xi command the same
+# joints and hand the solver the same state up to the quaternion's sign, and a stream canonicalized to w >= 0 across pi
+# commands what the continuous one does. On the DRC Atlas references' scripted solver; builds no CppAD model.
+cc_test(
+    name = "testMrtObservationDoubleCover",
+    size = "small",
+    srcs = ["test/testMrtObservationDoubleCover.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":reference_stack_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "//lib/ocs2:ocs2_mpc_test_support",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/strings:str_format",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# A base pose command's turn of any size on the quaternion layout: 270 degrees turn +270 degrees on knots at most a
+# quarter turn apart, and the slerped reference is the linear Euler interpolation of the end poses. On the DRC Atlas
+# references; builds no CppAD model.
+cc_test(
+    name = "testPoseCommandSubdivision",
+    size = "small",
+    srcs = ["test/testPoseCommandSubdivision.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":reference_stack_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//lib/ocs2:ocs2_core",
         "@googletest//:gtest_main",
         "@pinocchio",
     ],

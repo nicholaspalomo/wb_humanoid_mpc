@@ -68,6 +68,20 @@ enum class ControllerEventCode : uint8_t {
   kContactEstimateRefused,
   /** A contact wrench gate configuration was refused and the one in use kept. values: debounceTime and rampTime [s]. */
   kContactWrenchGateRefused,
+  /**
+   * The realtime policy evaluator refused the policy in use, which is never left to MRT_BASE's own evaluation (it
+   * allocates, and aborts on a malformed policy): the robot is held with the JOINT_PD action until a policy the evaluator
+   * takes is in use. Posted once per run of refused cycles. values[0]: why, a PolicyRefusal.
+   */
+  kPolicyRefused,
+};
+
+/** Why the realtime policy evaluator refused a policy: values[0] of a kPolicyRefused event. */
+enum class PolicyRefusal : uint8_t {
+  /** A controller of a type it does not evaluate on the state (a LinearController on a state manifold), or none. */
+  kUnsupportedController = 1,
+  /** A policy, or a state, not of the model's dimensions, or an inconsistent one. */
+  kMismatchedPolicy = 2,
 };
 
 /** One report of a controller: plain data, so that posting it copies a few words and allocates nothing. */

@@ -48,8 +48,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *   - A rotation is perturbed on the right, in the body frame: xi (x) Exp(dphi). The "body tangent" Jacobian of a
  *     function g is dg/d(dphi) at dphi = 0.
  *   - Every function of the orientation reads the quaternion through safelyNormalizedQuaternion (design decision D5), so
- *     it is invariant to the scale of xi and maps the zero quaternion to the identity rotation instead of NaN. The one
- *     exception is the kinematic row d(xi)/dt = 1/2 G(xi) w_B of the flow maps, which uses the raw xi.
+ *     it is invariant to the scale of xi as long as |xi| > epsilon (kQuaternionNormGuard), and reads every xi with
+ *     |xi| <= epsilon, the zero quaternion included, as the identity rotation instead of NaN: the rotation matrix of the
+ *     unchanged xi is I to within 2 |xi|^2 <= 2e-12 per entry, and the heading-tilt functions below return the zero
+ *     quaternion's values exactly (see "Heading and tilt"). The one exception is the kinematic row
+ *     d(xi)/dt = 1/2 G(xi) w_B of the flow maps, which uses the raw xi. A quaternion with a NaN coefficient is not
+ *     inside the guard: its NaN reaches every function that reads that coefficient (the heading reads z and w only).
  *
  * The quaternion algebra itself - the rate matrix G(xi) (ocs2::quaternionRateMatrix), the Hamilton product, Exp, Log,
  * the right Jacobians and slerp - is lib/ocs2's ocs2_core/manifold/UnitQuaternionMath.h, which this header includes, so
@@ -64,8 +68,9 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 
 /**
- * epsilon of design section 2.6: a quaternion with |xi| <= epsilon is read as the zero quaternion, which is the identity.
- * The manifold solver's ocs2::kQuaternionNormalizationEpsilon, so that the solver and the humanoid terms normalize alike.
+ * epsilon of design section 2.6: a quaternion with |xi| <= epsilon is read as the zero quaternion, which is the identity
+ * (exactly by the heading-tilt functions, to within 2 |xi|^2 by the polynomial rotation matrix). The manifold solver's
+ * ocs2::kQuaternionNormalizationEpsilon, so that the solver and the humanoid terms normalize alike.
  */
 inline constexpr scalar_t kQuaternionNormGuard = kQuaternionNormalizationEpsilon;
 
@@ -76,7 +81,7 @@ inline constexpr scalar_t kQuaternionNormGuard = kQuaternionNormalizationEpsilon
  * comparison is a conditional expression (CppAD::CondExpGt), which tapes no comparison between variables, so CppADCodeGen
  * can generate code for it, and both branches have bounded derivatives: guarding the norm instead,
  * CondExpGt(|xi|, epsilon, |xi|, 1), has a NaN reverse-mode Jacobian at the zero quaternion in generated code (the square
- * root's reverse sweep multiplies the zero partial of the unselected branch by 1 / (2 |xi|); Step 0,
+ * root's reverse sweep multiplies the zero partial of the unselected branch by 1 / (2 |xi|);
  * test/testQuaternionRootJointCppAd.cpp). Never call Eigen's normalized() / normalize() on an AD scalar: they record a
  * comparison between variables.
  *
@@ -87,9 +92,10 @@ scalar_t safeQuaternionNorm(const vector4_t& xi);
 ad_scalar_t safeQuaternionNorm(const ad_vector4_t& xi);
 
 /**
- * xi_hat = xi / n_safe(xi). A unit quaternion for every |xi| > epsilon; the zero quaternion stays zero, which the
- * polynomial rotation matrix of a quaternion (Eigen's toRotationMatrix()) and every function in this file read as the
- * identity. At the CppAD tape point x = ones it is the unit quaternion (1, 1, 1, 1) / 2. -xi gives exactly -xi_hat.
+ * xi_hat = xi / n_safe(xi). A unit quaternion for every |xi| > epsilon. At or below epsilon xi is returned unchanged (the
+ * zero quaternion stays zero), which the polynomial rotation matrix of a quaternion (Eigen's toRotationMatrix()) reads
+ * as I to within 2 |xi|^2 <= 2e-12 per entry, and every heading-tilt function in this file exactly as the zero quaternion. At
+ * the CppAD tape point x = ones it is the unit quaternion (1, 1, 1, 1) / 2. -xi gives exactly -xi_hat.
  */
 vector4_t safelyNormalizedQuaternion(const vector4_t& xi);
 ad_vector4_t safelyNormalizedQuaternion(const ad_vector4_t& xi);
@@ -113,6 +119,27 @@ Eigen::Matrix<scalar_t, 3, 4> configurationTangentLift(const vector4_t& xi);
 /* Heading and tilt (design section 2.8.1)                                                            */
 /******************************************************************************************************/
 
+/*
+ * Two sets of attitudes are singular for the twist-swing split, and the functions below return there:
+ *   - Inside the normalization guard, |xi| <= epsilon, where xi_hat = xi is not a unit quaternion: the zero quaternion's
+ *     values, exactly. Heading 0, q_t the identity, s = 0, tau = 0 (so e_HT(xi, xi_r) = e_HT(identity, xi_r)), and
+ *     J_HT = 0, the exact derivative of the residual, which is constant there (|xi (x) Exp(dphi)| = |xi|). The
+ *     invariance to the scale of xi holds for |xi| > epsilon.
+ *   - Upside down, rho = |(xi_z, xi_w)| = 0 exactly, where the heading is undefined: the heading is read as 0 and q_t as
+ *     the identity for xi and -xi alike, so s(-xi) = -s(xi) and tau(-xi) = -tau(xi) there, tau(xi) = pi n and -pi n
+ *     being the two logarithms of the same half turn about the horizontal axis n = (xi_x, xi_y) / |(xi_x, xi_y)|. No
+ *     rule on the coefficients' values (one that ignores the signs of zeros) can keep both identities there: -xi and
+ *     xi^-1 then have the same coefficients up to signed zeros, so tau(-xi) = tau(xi) and tau(xi^-1) = -tau(xi) would
+ *     together force tau = 0, which is no logarithm of a half turn. A rule such as "the first nonzero of (xi_x, xi_y)
+ *     positive" keeps the sign invariance and gives up the inversion, which holds at every attitude of heading zero
+ *     (xi = s); the split keeps the inversion, as ocs2::quaternionLog() does at a half turn. Nor can a heading-zero
+ *     rule be invariant to a rotation about world z there: q_z(alpha) (x) xi is the half turn about n turned by
+ *     alpha / 2, so tau(q_z(alpha) (x) xi) = pi R_z(alpha / 2) n.
+ * Every invariance stated below holds outside these two sets, the band 0 < rho <= kMinimumTwistNorm included, where the
+ * sign invariance is bit for bit too. Neither set is reached in operation: stored and reference states are unit
+ * quaternions, and an exactly upside-down one needs xi_z = xi_w = 0 in floating point.
+ */
+
 /** Below this norm n = |s_xy| of the swing's vector part, the tilt is evaluated with its series (design section 2.8.1). */
 inline constexpr scalar_t kTiltSeriesThreshold = 1.0e-6;
 /**
@@ -130,21 +157,24 @@ inline constexpr scalar_t kMinimumTwistNorm = 1.0e-9;
  * the raw 2 atan2, which differs from this by a multiple of 2 pi. For a level attitude q_z(psi) it is psi wrapped to
  * (-pi, pi]; for ZYX Euler angles (psi, theta, phi) it is psi - 2 atan(tan(theta / 2) tan(phi / 2)), so it equals the
  * ZYX yaw at single-axis tilt and differs from it by about -theta phi / 2 otherwise. Unlike the ZYX yaw it is regular at
- * a pitch of 90 degrees; it is singular only upside down, where it is zero. Invariant to the scale of xi.
+ * a pitch of 90 degrees; it is singular only upside down, where it is zero. Zero inside the normalization guard, and
+ * invariant to the scale of xi above it.
  */
 scalar_t twistHeading(const vector4_t& xi);
 
 /**
  * The heading quaternion q_t(xi) = (0, 0, xi_z, xi_w) / rho of xi_hat: the rotation about the world z axis by
- * twistHeading(xi), in the same hemisphere as xi (so q_t(-xi) = -q_t(xi)). A unit quaternion for every xi; upside down
- * (rho below kMinimumTwistNorm) it is computed from the angle instead of by the division, and is the identity at rho = 0.
+ * twistHeading(xi), in the same hemisphere as xi (so q_t(-xi) = -q_t(xi), bit for bit). A unit quaternion for every xi;
+ * upside down (rho below kMinimumTwistNorm) it is computed from the angle instead of by the division, and it is the
+ * identity for xi and -xi alike at rho = 0 and inside the normalization guard.
  */
 vector4_t headingQuaternion(const vector4_t& xi);
 
 /**
  * The swing s(xi) = q_t(xi)^-1 (x) xi_hat = (s_x, s_y, 0, s_w), s_w = rho >= 0: the tilt of the base relative to its
- * heading frame, a rotation about a horizontal axis of that frame, with xi_hat = q_t (x) s. s(-xi) = s(xi) exactly, and
- * s(q_z(alpha) (x) xi) = s(xi) for every rotation q_z(alpha) about the world z axis.
+ * heading frame, a rotation about a horizontal axis of that frame, with xi_hat = q_t (x) s. For rho > 0, s(-xi) = s(xi)
+ * bit for bit, and s(q_z(alpha) (x) xi) = s(xi) for every rotation q_z(alpha) about the world z axis; at rho = 0,
+ * s(-xi) = -s(xi), and inside the normalization guard s = 0 (see above).
  */
 vector4_t swingQuaternion(const vector4_t& xi);
 
@@ -155,7 +185,9 @@ vector4_t swingQuaternion(const vector4_t& xi);
  * not 0 / 0 at a level attitude (the judges' fix of design section 2.8.1). |tau| <= pi, with pi only upside down.
  *
  * For a single-axis tilt it is exact: tau(q_z(psi) (x) q_y(theta)) = (0, theta) and tau(q_z(psi) (x) q_x(phi)) = (phi, 0).
- * It is exactly independent of the heading, and therefore of a yaw error. Invariant to the scale and the sign of xi.
+ * For rho > 0 it is exactly independent of the heading, and therefore of a yaw error, and invariant to the sign of xi bit
+ * for bit; it is invariant to the scale of xi above the normalization guard. At rho = 0, tau(-xi) = -tau(xi), and inside
+ * the guard tau = 0 (see above).
  */
 vector2_t tiltVector(const vector4_t& xi);
 
@@ -167,7 +199,8 @@ vector2_t tiltVector(const vector4_t& xi);
  *
  * The yaw row is wrapped to (-pi, pi] and is discontinuous only at a yaw error of exactly +-pi. The tilt rows are exactly
  * independent of the yaw error, unlike the components of Log(R_r^T R), which leak tilt between the axes under a yaw
- * error. Invariant to the scale and the sign of xi and of xi_r.
+ * error. Invariant to the scale (above the normalization guard) and the sign of xi and of xi_r, except for the sign of an
+ * exactly upside-down attitude (rho = 0), whose tilt rows flip with it (see above).
  */
 vector3_t headingTiltResidual(const vector4_t& xi, const vector4_t& xiReference);
 
@@ -186,8 +219,8 @@ vector3_t headingTiltResidual(const vector4_t& xi, const vector4_t& xiReference)
  * reference. At a tilted state the Euler-chart Jacobian J_HT(phi(Theta)) T_B(Theta) is not I: it deviates by about
  * |tilt| / 2 (the yaw row picks up -tan(theta / 2) and -tan(phi / 2)), even against a level reference. It is finite
  * and of full rank at a pitch of 90 degrees (singular values about 1.95, 1.00, 0.80). Upside down it stays finite,
- * bounded through kMinimumTwistNorm. The ambient Jacobian with respect to the stored coefficients is
- * J_HT(xi) * configurationTangentLift(xi).
+ * bounded through kMinimumTwistNorm. Inside the normalization guard it is zero, the derivative of the constant residual
+ * there. The ambient Jacobian with respect to the stored coefficients is J_HT(xi) * configurationTangentLift(xi).
  */
 matrix3_t headingTiltJacobian(const vector4_t& xi);
 

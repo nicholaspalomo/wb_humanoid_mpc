@@ -77,19 +77,19 @@ IntegratorType fromString(const std::string& name) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-std::unique_ptr<IntegratorBase> newIntegrator(IntegratorType integratorType, const std::shared_ptr<SystemEventHandler>& eventHandlerPtr) {
+std::unique_ptr<IntegratorBase> newIntegrator(IntegratorType integratorType) {
   // LINT.IfChange(integrator_factory)
   switch (integratorType) {
     case (IntegratorType::EULER):
-      return std::make_unique<IntegratorEuler>(eventHandlerPtr);
+      return std::make_unique<IntegratorEuler>();
     case (IntegratorType::ODE45):
-      return std::make_unique<ODE45>(eventHandlerPtr);
+      return std::make_unique<ODE45>();
     case (IntegratorType::ODE45_OCS2):
-      return std::make_unique<RungeKuttaDormandPrince5>(eventHandlerPtr);
+      return std::make_unique<RungeKuttaDormandPrince5>();
     case (IntegratorType::MODIFIED_MIDPOINT):
-      return std::make_unique<IntegratorModifiedMidpoint>(eventHandlerPtr);
+      return std::make_unique<IntegratorModifiedMidpoint>();
     case (IntegratorType::RK4):
-      return std::make_unique<IntegratorRK4>(eventHandlerPtr);
+      return std::make_unique<IntegratorRK4>();
     default:
       throw std::runtime_error("Integrator of type " + std::to_string(static_cast<int>(integratorType)) + " not supported.");
   }

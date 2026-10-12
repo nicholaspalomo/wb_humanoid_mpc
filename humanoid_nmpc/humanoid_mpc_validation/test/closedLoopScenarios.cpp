@@ -31,9 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstdlib>
 #include <filesystem>
-#include <optional>
+#include <fstream>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
@@ -41,8 +40,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/flags/parse.h"
 #include "absl/log/globals.h"
 #include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/str_join.h"
+#include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopMetricsSchema.h"
@@ -50,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_validation/closed_loop/LockstepOutputs.h"
 #include "humanoid_mpc_validation/closed_loop/MetricBands.h"
 #include "humanoid_mpc_validation/io/GoldenIo.h"
+#include "humanoid_mpc_validation/io/JsonValue.h"
 #include "humanoid_mpc_validation/io/RunProvenance.h"
 
 /*
@@ -57,10 +58,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * fresh MPC and simulator, in lockstep (LockstepClosedLoop). Every run writes its metrics document, its time series and
  * (walking) the recorded robot states into --output_dir, by default the test's undeclared outputs, where
  * `make closed-loop-metrics` collects them. With a baseline (--baseline, a label under data/closed_loop/), a run is
- * also compared with it within the bands of section 4.5.
+ * also compared with it within the bands of section 4.5 (compareClosedLoopMetrics()), and its violations and
+ * improvements are logged and written beside the outputs, where the Make target prints them. --label is required.
  *
- * Tagged manual and exclusive: a run builds the MPC (compiling its CppAD libraries on the first one) and simulates up to
- * a minute of walking. Run one robot at a time.
+ * The closed_loop_<robot> tests are tagged manual and exclusive: a run builds the MPC (compiling its CppAD libraries on
+ * the first one) and simulates up to a minute of walking. Run one robot at a time. closed_loop_scenarios, the same source
+ * as a binary of every configuration, is not manual, so that `bazel build //...` compiles it.
  */
 
 // The defaults of the flags that are not strings.
@@ -72,7 +75,7 @@ constexpr int kDefaultThreads = 0;  // not positive: the task file's multiple_sh
 // NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
 ABSL_FLAG(std::string, robot, "", "The configuration to run (RobotConfiguration::name).");
 // NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
-ABSL_FLAG(std::string, label, "M0", "The label written into the metrics documents.");
+ABSL_FLAG(std::string, label, "", "The label written into the metrics documents (required).");
 // NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
 ABSL_FLAG(std::string, baseline, "", "A label under data/closed_loop/ to compare with within the bands of section 4.5; empty: none.");
 // NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
@@ -108,6 +111,21 @@ std::string outputDirectory() {
   const char* absl_nullable undeclared = std::getenv("TEST_UNDECLARED_OUTPUTS_DIR");
   return undeclared != nullptr ? std::string(undeclared) : std::string("closed_loop_outputs");
 }
+
+// LINT.IfChange(comparison_file)
+/** Writes `description`, the run's comparison with `baselineLabel`, into <robot>_<scenario>_comparison.txt of `directory`. */
+absl::Status writeComparison(const std::string& directory,
+                             const std::string& robot,
+                             const std::string& scenario,
+                             const std::string& baselineLabel,
+                             const std::string& description) {
+  const std::filesystem::path file = std::filesystem::path(directory) / absl::StrCat(robot, "_", scenario, "_comparison.txt");
+  std::ofstream stream(file);
+  stream << absl::StrCat(robot, " ", scenario, " against ", baselineLabel, ":\n", description, "\n");
+  if (!stream) return absl::InternalError(absl::StrCat("cannot write ", file.string()));
+  return absl::OkStatus();
+}
+// LINT.ThenChange(//Makefile:closed_loop_targets)
 
 class ClosedLoopScenarioTest : public ::testing::TestWithParam<std::string> {};
 
@@ -148,22 +166,14 @@ TEST_P(ClosedLoopScenarioTest, RunsAndStaysWithinTheBaselineBands) {
   }
   const absl::StatusOr<JsonValue> baseline = readJsonFile(baselineFile.string());
   ASSERT_TRUE(baseline.ok()) << baseline.status();
-  BandOptions bands;
-  bands.compareSolveTime = absl::GetFlag(FLAGS_compare_solve_time);
-  // The baseline's time series, where archived (the turning scenarios), locates the crossings of the Euler yaw's cut.
-  const std::filesystem::path baselineSeriesFile =
-      std::filesystem::path(kBaselineDirectory) / baselineLabel / timeSeriesFileName(configuration->name, scenario->name);
-  std::optional<GoldenFile> baselineSeries;
-  if (std::filesystem::exists(baselineSeriesFile)) {
-    absl::StatusOr<GoldenFile> series = readGoldenFile(baselineSeriesFile.string());
-    ASSERT_TRUE(series.ok()) << series.status();
-    baselineSeries = *std::move(series);
-  }
-  HeadingCrossingOptions crossings;
-  crossings.commandedHeadingPeak = getCommandedHeadingPeak(*scenario);
-  const std::vector<std::string> violations = compareClosedLoopRuns(
-      result->metrics, result->timeSeries, *baseline, baselineSeries.has_value() ? &*baselineSeries : nullptr, bands, crossings);
-  EXPECT_TRUE(violations.empty()) << "outside the bands of " << baselineLabel << ":\n  " << absl::StrJoin(violations, "\n  ");
+  const ClosedLoopComparison comparison =
+      compareClosedLoopMetrics(result->metrics, *baseline, BandOptions{.compareSolveTime = absl::GetFlag(FLAGS_compare_solve_time)});
+  const std::string description = describeClosedLoopComparison(comparison);
+  LOG(WARNING) << configuration->name << " " << scenario->name << " against " << baselineLabel << ":\n" << description;
+  const absl::Status comparisonWritten =
+      writeComparison(outputDirectory(), configuration->name, scenario->name, baselineLabel, description);
+  EXPECT_TRUE(comparisonWritten.ok()) << comparisonWritten;
+  EXPECT_TRUE(comparison.violations.empty()) << "outside the bands of " << baselineLabel << ":\n" << description;
 }
 
 INSTANTIATE_TEST_SUITE_P(Scenarios,
@@ -177,6 +187,10 @@ INSTANTIATE_TEST_SUITE_P(Scenarios,
 int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   ::testing::InitGoogleTest(&argc, argv);
   absl::ParseCommandLine(argc, argv);
+  if (absl::GetFlag(FLAGS_label).empty()) {
+    LOG(ERROR) << "--label is required: the label the metrics documents are recorded under.";
+    return 2;
+  }
   // The controllers log every transition at INFO; the runs report through the metrics documents instead.
   absl::SetMinLogLevel(absl::LogSeverityAtLeast::kWarning);
   return RUN_ALL_TESTS();

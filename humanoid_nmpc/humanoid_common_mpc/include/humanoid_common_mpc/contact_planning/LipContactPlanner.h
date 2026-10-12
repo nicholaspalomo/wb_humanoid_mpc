@@ -77,20 +77,13 @@ class LipContactPlanner final : public ContactPlannerInterface {
  public:
   // The indices of the first two blocks (model/LipBlockIndices.h), with which every layout starts.
   static constexpr int kCx = kLipCx;
-  static constexpr int kCy = kLipCy;
   static constexpr int kVx = kLipVx;
-  static constexpr int kVy = kLipVy;
   static constexpr int kPlx = kLipPlx;
   static constexpr int kPly = kLipPly;
   static constexpr int kPrx = kLipPrx;
   static constexpr int kPry = kLipPry;
   static constexpr int kStateDim = kLipStateDim;
   static constexpr int kZx = kLipZx;
-  static constexpr int kZy = kLipZy;
-  static constexpr int kDlx = kLipDlx;
-  static constexpr int kDly = kLipDly;
-  static constexpr int kDrx = kLipDrx;
-  static constexpr int kDry = kLipDry;
   static constexpr int kCl = kLipCl;
   static constexpr int kCr = kLipCr;
   static constexpr int kInputDim = kLipInputDim;

@@ -29,18 +29,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // The solution time window that the MPC node cuts every policy to before it sends it, whatever the solver does with the
 // final time it is given (SqpSolver ignores it): upstream OCS2 GaussNewtonDDP's rule, on the solutions of the multiple-shooting
-// solvers.
+// solvers, flat and on a state manifold.
 
 #include <cstddef>
 #include <random>
 
+#include "absl/base/nullability.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/control/ControllerType.h"
 #include "ocs2_core/control/FeedforwardController.h"
 #include "ocs2_core/control/LinearController.h"
+#include "ocs2_core/control/ManifoldLinearController.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 
+#include "humanoid_mpc_ipc/PolicyControllers.h"
 #include "humanoid_mpc_ipc/SolutionTimeWindow.h"
 #include "humanoid_nmpc/humanoid_mpc_ipc/test/PolicyTestData.h"
 
@@ -66,9 +69,14 @@ TEST(SolutionWindowLengthTest, AnEventAtTheEndKeepsBothOfItsNodes) {
 }
 
 TEST(TrimToSolutionWindowTest, CutsTheTrajectoriesTheEventsAndTheControllerAlike) {
-  for (const ControllerType controllerType : {ControllerType::FEEDFORWARD, ControllerType::LINEAR}) {
+  for (const ControllerType controllerType : {ControllerType::FEEDFORWARD, ControllerType::LINEAR, ControllerType::MANIFOLD_LINEAR}) {
     std::mt19937 generator(/*sd=*/7);
-    const PolicyShape shape{.nodes = 40, .stateDim = 4, .inputDim = 3, .events = 6, .controllerType = controllerType};
+    PolicyShape shape{.nodes = 40, .stateDim = 4, .inputDim = 3, .events = 6, .controllerType = controllerType};
+    if (controllerType == ControllerType::MANIFOLD_LINEAR) {
+      // The SQP's policy on the toy state manifold, cut through ManifoldLinearController::keepFirst().
+      shape.stateManifold = test_data::toyStateManifold();
+      shape.stateDim = shape.stateManifold->getAmbientDim();
+    }
     const PrimalSolution original = test_data::randomPrimalSolution(generator, shape);
     const scalar_t finalTime = original.timeTrajectory_[original.timeTrajectory_.size() / 2];
     PrimalSolution trimmed = original;
@@ -99,6 +107,15 @@ TEST(TrimToSolutionWindowTest, CutsTheTrajectoriesTheEventsAndTheControllerAlike
       const scalar_t time = 0.5 * (trimmed.timeTrajectory_[node] + trimmed.timeTrajectory_[node + 1]);
       const vector_t& state = trimmed.stateTrajectory_[node];
       EXPECT_EQ(trimmed.controllerPtr_->computeInput(time, state), original.controllerPtr_->computeInput(time, state)) << "node " << node;
+    }
+    if (const ManifoldLinearController* absl_nullable cut = asManifoldLinearController(*trimmed.controllerPtr_); cut != nullptr) {
+      // Its anchors are its own, not the state trajectory: they are cut alike.
+      const ManifoldLinearController* absl_nullable whole = asManifoldLinearController(*original.controllerPtr_);
+      ASSERT_NE(whole, nullptr);
+      ASSERT_EQ(cut->getAnchorStates().size(), length);
+      for (size_t node = 0; node < length; ++node) {
+        EXPECT_EQ(cut->getAnchorStates()[node], whole->getAnchorStates()[node]) << "node " << node;
+      }
     }
   }
 }

@@ -31,15 +31,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"
 
+#include <array>
 #include <exception>
 #include <string>
 #include <utility>
 
 #include "Eigen/Core"
+#include "absl/log/absl_check.h"
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
 #include "absl/log/log.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
@@ -69,12 +72,11 @@ namespace {
 constexpr absl::string_view kUrdfFile = "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf";
 constexpr absl::string_view kTaskFile = "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto";
 
-// SA01 is a legs-only biped. The floating base is a JointModelTranslation + JointModelSphericalZYX composite
-// (createPinocchioModel.cpp getBaseJointcomposite), so it contributes SIX configuration variables - x, y, z and the
-// ZYX Euler angles, not a quaternion - and the twelve leg joints one each. The MPC state is these 18 plus the six
-// normalized centroidal momenta, i.e. 24.
-constexpr int kConfigurationDim = 18;
-constexpr int kBaseDim = 6;
+// SA01 is a legs-only biped. The floating base is a JointModelTranslation + JointModelSpherical composite
+// (createPinocchioModel.cpp getBaseJointcomposite), so it contributes SEVEN configuration variables - x, y, z and the
+// unit quaternion (x, y, z, w) - and six velocities, and the twelve leg joints one each. The configurations below start
+// from pinocchio::neutral() (the identity quaternion, every joint at zero) and address the joints by name, so they do
+// not depend on the size of the base.
 
 // The nominal standing pose of config/command/reference.textproto. Keep the two in sync: this test prints the sole and
 // contact-frame heights that default_base_height and contacts.contact_frame_translation are derived from.
@@ -84,6 +86,26 @@ constexpr double kNominalHipPitch = -0.30;
 constexpr double kNominalKnee = 0.70;
 constexpr double kNominalAnklePitch = -0.40;
 // LINT.ThenChange(//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/command/reference.textproto:sa01_nominal_pose)
+
+/** The two legs in SA01's joint names: leg_l<i>_joint and leg_r<i>_joint. */
+constexpr std::array<absl::string_view, 2> kLegSides = {"l", "r"};
+
+/**
+ * The neutral configuration of `model` (pinocchio::neutral(): the base at the origin, upright, with the identity
+ * quaternion, and every joint at zero) with the base raised to `baseHeight`.
+ */
+Eigen::VectorXd neutralConfigurationAtHeight(const pinocchio::Model& model, double baseHeight) {
+  Eigen::VectorXd q = pinocchio::neutral(model);
+  // The root joint (joint 1, after the universe) starts its configuration with the base position (x, y, z).
+  q[model.joints[1].idx_q() + 2] = baseHeight;
+  return q;
+}
+
+/** Sets the configuration of the one-degree-of-freedom joint `jointName` of `model` in `q` to `angle`; dies without it. */
+void setJointAngle(const pinocchio::Model& model, const std::string& jointName, double angle, Eigen::VectorXd& q) {
+  ABSL_CHECK(model.existJointName(jointName)) << "the model has no joint " << jointName;
+  q[model.joints[model.getJointId(jointName)].idx_q()] = angle;
+}
 
 /** The entries of `values`, each with `precision` decimals. */
 std::string formatFixed(const Eigen::Ref<const Eigen::VectorXd>& values, int precision) {
@@ -152,7 +174,7 @@ void printContactFrameHeights(PinocchioInterface& pinocchioInterface, const Eige
     const pinocchio::FrameIndex frameId = model.getFrameId(frameName);
     LOG(INFO) << frameName << " position: " << formatFixed(data.oMf[frameId].translation(), /*precision=*/5);
   }
-  LOG(INFO) << absl::StrFormat("base height : %.5f m (reference.textproto default_base_height)", q[2]);
+  LOG(INFO) << absl::StrFormat("base height : %.5f m (reference.textproto default_base_height)", q[model.joints[1].idx_q() + 2]);
   LOG(INFO) << "CoM         : " << com.transpose();
   LOG(INFO) << "CoM height above the contact frames: " << com[2] - data.oMf[model.getFrameId("foot_l_contact")].translation()[2] << " m"
             << " (dcm_terminal_cost.com_height)";
@@ -178,8 +200,7 @@ int printModels() {
   printModelDimensionality(pin_interface);
   printJointNames(pin_interface);
 
-  Eigen::VectorXd q = Eigen::VectorXd::Zero(kConfigurationDim);
-  q[2] = kNominalBaseHeight;
+  Eigen::VectorXd q = neutralConfigurationAtHeight(pin_interface.getModel(), kNominalBaseHeight);
   printFramePlacements(pin_interface, q);
 
   /// The model the MPC actually uses: the fixed joints of the task file removed and the contact frames added. The task
@@ -204,14 +225,13 @@ int printModels() {
   printModelDimensionality(pin_interface);
   printJointNames(pin_interface);
 
-  // The nominal standing crouch of reference.textproto, in the MPC model's joint order
-  // (leg_l1 .. leg_l6, leg_r1 .. leg_r6).
-  q = Eigen::VectorXd::Zero(pin_interface.getModel().nq);
-  q[2] = kNominalBaseHeight;
-  for (const int legOffset : {kBaseDim, kBaseDim + 6}) {
-    q[legOffset + 2] = kNominalHipPitch;    // leg_?3_joint - hip pitch
-    q[legOffset + 3] = kNominalKnee;        // leg_?4_joint - knee
-    q[legOffset + 4] = kNominalAnklePitch;  // leg_?5_joint - ankle pitch
+  // The nominal standing crouch of reference.textproto, on the MPC model's joints.
+  const pinocchio::Model& mpcModel = pin_interface.getModel();
+  q = neutralConfigurationAtHeight(mpcModel, kNominalBaseHeight);
+  for (const absl::string_view side : kLegSides) {
+    setJointAngle(mpcModel, absl::StrCat("leg_", side, "3_joint"), kNominalHipPitch, q);    // hip pitch
+    setJointAngle(mpcModel, absl::StrCat("leg_", side, "4_joint"), kNominalKnee, q);        // knee
+    setJointAngle(mpcModel, absl::StrCat("leg_", side, "5_joint"), kNominalAnklePitch, q);  // ankle pitch
   }
   printContactFrameHeights(pin_interface, q);
 

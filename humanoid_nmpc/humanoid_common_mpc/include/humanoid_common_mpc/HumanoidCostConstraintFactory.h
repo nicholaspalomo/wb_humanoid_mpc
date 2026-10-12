@@ -52,6 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
+#include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
@@ -130,15 +131,16 @@ class HumanoidCostConstraintFactory {
   // that does not convert, or whose size is not the model's.
 
   /**
-   * The state-input quadratic cost: state_weights as Q, whose base-pose block is zeroed under
-   * setComAndAcomTrackingCostListed, and input_weights as R (inputWeights()).
+   * The state-input quadratic cost (StateInputQuadraticCost): state_weights as Q (stateWeights()), whose base-pose block
+   * is zeroed under setComAndAcomTrackingCostListed, and input_weights as R (inputWeights()), both handed to the cost's
+   * setters as the live parameter updater hands them.
    */
   absl::StatusOr<std::unique_ptr<StateInputCost>> makeStateInputQuadraticCost() const;
 
-  /** The state quadratic tracking cost: state_weights as Q, zeroed as in makeStateInputQuadraticCost(). */
+  /** The state quadratic tracking cost (StateQuadraticCost): state_weights as Q, zeroed as in makeStateInputQuadraticCost(). */
   absl::StatusOr<std::unique_ptr<StateInputCost>> makeStateQuadraticCost() const;
 
-  /** The input quadratic cost: input_weights as R (inputWeights()). */
+  /** The input quadratic cost (InputQuadraticCost): input_weights as R (inputWeights()). */
   absl::StatusOr<std::unique_ptr<StateInputCost>> makeInputQuadraticCost() const;
 
   /**
@@ -156,8 +158,9 @@ class HumanoidCostConstraintFactory {
   absl::StatusOr<std::unique_ptr<StateCost>> makeTerminalComAndAcomTrackingCost(const CentroidalModelInfo& info) const;
 
   /**
-   * The quadratic terminal cost, terminal_cost_scaling times final_state_weights, whose base-pose block is zeroed under
-   * setComAndAcomTrackingCostListed before it is scaled.
+   * The quadratic terminal cost (BasePoseShapedQuadraticStateCost), terminal_cost_scaling times final_state_weights
+   * (terminalStateWeightsFromConfig(), which the live parameter updater converts with too), whose base-pose block is
+   * zeroed under setComAndAcomTrackingCostListed before it is scaled.
    */
   absl::StatusOr<std::unique_ptr<StateCost>> makeTerminalCost() const;
 
@@ -183,7 +186,14 @@ class HumanoidCostConstraintFactory {
   absl::StatusOr<std::unique_ptr<StateInputCost>> makeExternalTorqueQuadraticCost(size_t contactPointIndex) const;
 
  private:
-  /** state_weights as Q, its base-pose block zeroed under setComAndAcomTrackingCostListed. */
+  /** What the quadratic state costs do with their base-pose block: zeroed under setComAndAcomTrackingCostListed. */
+  BasePoseWeights basePoseWeights() const;
+
+  /**
+   * state_weights as Q (trackingStateWeightsFromConfig(), which the live parameter updater converts with too), its
+   * base-pose block zeroed under setComAndAcomTrackingCostListed; InvalidArgument unless it is the model's
+   * getStateTangentDim() square.
+   */
   absl::StatusOr<matrix_t> stateWeights(const mpc_config::TaskFile& taskFile) const;
 
   /** input_weights as R, transformed into basis space under setBasisInputsCostTransform. */

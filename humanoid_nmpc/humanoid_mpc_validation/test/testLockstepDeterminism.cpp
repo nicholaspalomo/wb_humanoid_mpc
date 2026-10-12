@@ -50,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopMetricsSchema.h"
 #include "humanoid_mpc_validation/closed_loop/LockstepClosedLoop.h"
+#include "humanoid_mpc_validation/closed_loop/TimeSeriesLabels.h"
 #include "humanoid_mpc_validation/io/GoldenIo.h"
 #include "humanoid_mpc_validation/io/JsonValue.h"
 
@@ -57,8 +58,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * The lockstep closed loop is reproducible: runs of the short smoke scenario on the Unitree G1 centroidal MPC, with one
  * solver thread, agree to 1e-9 in every metric that does not time the machine, in their time series and in their last
  * observation - two runs in this process, and a third in a process of its own (this binary, re-executed). That is what
- * makes a closed-loop comparison across a code change (M0 against M1, Step 6's bitwise rerun) mean something, and those
- * comparisons always come from separate processes: a per-process source of nondeterminism, such as Abseil's hash seed,
+ * makes a closed-loop comparison of two labels across a code change mean something, and those comparisons always come
+ * from separate processes: a per-process source of nondeterminism, such as Abseil's hash seed,
  * which orders RobotDescription's joint list differently from one process to the next, shows only across processes.
  *
  * Only the first run compiles: the others load the CppAD libraries it generated, so this test cannot see a difference
@@ -209,6 +210,12 @@ TEST(LockstepDeterminism, TwoRunsWithOneSolverThreadAgree) {
   const double expectedSolves = getCommandDuration(*scenario) * first->metrics.findPath("settings.mpc_frequency_hz")->asNumber();
   EXPECT_NEAR(solves, expectedSolves, 2.0);
   EXPECT_GT(first->recordedStates.records.size(), 0u);
+  // The time series' per-solve rotation gaps locate where the gap peaked: their largest is the document's.
+  const golden_matrix_t* absl_nullable gaps = first->timeSeries.find(time_series::kSolveRotationGap);
+  ASSERT_NE(gaps, nullptr);
+  ASSERT_EQ(gaps->cols(), 2);
+  ASSERT_GT(gaps->rows(), 0);
+  EXPECT_EQ(gaps->col(1).maxCoeff(), first->metrics.findPath("initial_state_gap.max_rotation_rad")->asNumber());
 
   expectRunsAgree(first->metrics, first->finalObservationState, first->timeSeries, second->metrics, second->finalObservationState,
                   second->timeSeries);

@@ -27,8 +27,7 @@
 
 """The model sandbox: draws a robot's URDF in Rerun without an MPC, at its nominal joint positions or with sliders.
 
-It replaces RViz's display launch files with joint_state_publisher_gui: the joint positions are the nominal ones, or
-those of a slider per joint.
+The joint positions are the nominal ones, or those of a slider per joint.
 
     bazel run //humanoid_nmpc/humanoid_rerun_viewer:model_sandbox -- --urdf <robot.urdf> [--joint_source sliders]
     bazel run //humanoid_nmpc/humanoid_rerun_viewer -- --urdf <robot.urdf>              # the bridge that draws it

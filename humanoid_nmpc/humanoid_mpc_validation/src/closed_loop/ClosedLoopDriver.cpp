@@ -31,7 +31,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopDriver.h"
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -43,6 +46,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/time.h"
+#include "ocs2_core/manifold/StateManifold.h"
+#include "ocs2_oc/oc_data/PrimalSolution.h"
+#include "ocs2_oc/oc_solver/SolverBase.h"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
 
@@ -60,6 +66,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
 #include "humanoid_mpc_validation/closed_loop/DriverSettingsFromConfig.h"
 #include "mujoco_sim_interface/CheaterSimContactEstimator.h"
+#include "mujoco_sim_interface/viewer/ViewerNames.h"
 
 namespace ocs2::humanoid::validation {
 namespace {
@@ -68,6 +75,19 @@ namespace {
 constexpr double kTaskFileCheckPeriod = 1.0;
 
 }  // namespace
+
+InitialStateGap initialStateGapOf(const vector_t& delta, const StateManifold& stateManifold) {
+  // A tangent vector on the manifold, whose rotation blocks the manifold measures.
+  return {.rotation = stateManifold.getMaximumRotationAngle(delta), .norm = delta.norm()};
+}
+
+std::optional<double> maxQuaternionNormDeviationOf(const vector_array_t& states, size_t orientationStartIndex) {
+  if (states.empty()) return std::nullopt;
+  const Eigen::Index start = static_cast<Eigen::Index>(orientationStartIndex);
+  double deviation = 0.0;
+  for (const vector_t& state : states) deviation = std::max(deviation, std::abs(state.segment<4>(start).norm() - 1.0));
+  return deviation;
+}
 
 absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> ClosedLoopDriver::simulatorConfig() const {
   // LINT.IfChange(robot_backend_options)
@@ -79,7 +99,7 @@ absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> ClosedLoopDriver::s
   options.contactFrameNames = modelSettings_->contactNames;
   options.contactParentJointNames = modelSettings_->contactParentJointNames;
   options.simulator = settings_.simulator;
-  options.headless = true;
+  options.viewer.names = {robot::mujoco_sim_interface::kNoViewerName};
   // clang-format off
   // LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc_app/src/CentroidalMpcRobotMain.cpp:robot_backend_options, //humanoid_nmpc/humanoid_wb_mpc_app/src/WBMpcRobotMain.cpp:robot_backend_options)
   // clang-format on
@@ -133,13 +153,17 @@ std::optional<InitialStateGap> ClosedLoopDriver::lastSolveInitialStateGap() cons
   // discards the previous solution, so the gap is zero), after trajectorySpread, on the warm start the SQP built.
   const vector_t& delta = mpc_->getSolverPtr()->getInitialStateGap();
   if (delta.size() == 0) return std::nullopt;
-  // The Euler layout: the stored orientation is (yaw, pitch, roll), and delta_x0 holds their differences.
-  // LINT.IfChange(initial_state_gap_layout)
-  InitialStateGap gap;
-  gap.rotation = measurementModel_->getBaseOrientationEulerZYX(delta).norm();
-  gap.norm = delta.norm();
-  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/StateLayout.h)
-  return gap;
+  // The problem's own manifold, in whose tangent the SQP steps; initializeShared() checked that it has one.
+  return initialStateGapOf(delta, *mpc_->getSolverPtr()->getOptimalControlProblem().stateManifoldPtr);
+}
+
+std::optional<double> ClosedLoopDriver::maxQuaternionNormDeviation() const {
+  // The SQP's whole solution, every node's stored state; empty before the first solve. The final time asks for the
+  // whole horizon (SqpSolver hands its solution out whole anyway).
+  const SolverBase& solver = *mpc_->getSolverPtr();
+  PrimalSolution solution;
+  solver.getPrimalSolution(/*finalTime=*/std::numeric_limits<scalar_t>::max(), &solution);
+  return maxQuaternionNormDeviationOf(solution.stateTrajectory_, measurementModel_->getBaseOrientationStartIndex());
 }
 
 std::array<Eigen::Vector3d, 2> ClosedLoopDriver::contactPositions(const SystemObservation& observation) {
@@ -251,7 +275,12 @@ absl::Status ClosedLoopDriver::initializeShared(const RobotConfiguration& config
   initialRobotState_ = std::make_unique<const robot::model::RobotState>(
       createInitialSimState(*robotDescription_, modelSettings, robotModel, initialMpcState_));
 
-  // The MPC of the MPC node, with the solver threads of the options.
+  // The MPC of the MPC node, with the solver threads of the options, on the problem's state manifold, which every
+  // humanoid problem has (lastSolveInitialStateGap() measures the SQP's steps on it).
+  if (problem.stateManifoldPtr == nullptr) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[ClosedLoopDriver] the optimal control problem of ", configuration.taskFile, " has no state manifold"));
+  }
   sqp::Settings settings = sqpSettings;
   if (options.solverThreads.has_value()) settings.nThreads = *options.solverThreads;
   solverThreads_ = settings.nThreads;
@@ -304,8 +333,9 @@ absl::Status ClosedLoopDriver::initializeCommandPath(std::unique_ptr<TargetTraje
   // LINT.IfChange(command_path)
   TargetTrajectoriesCalculatorBase* absl_nonnull calculatorPtr = calculator_.get();
   ProceduralMpcMotionManager::VelocityTargetToTargetTrajectories targetTrajectories =
-      [calculatorPtr](const vector4_t& velocityTarget, scalar_t initTime, scalar_t /*finalTime*/, const vector_t& initState) {
-        return calculatorPtr->commandedVelocityToTargetTrajectories(velocityTarget, initTime, initState);
+      [calculatorPtr](const vector4_t& velocityTarget, scalar_t initTime, scalar_t /*finalTime*/, const vector_t& initState,
+                      const BasePlanarMotion& measuredMotion) {
+        return calculatorPtr->commandedVelocityToTargetTrajectories(velocityTarget, initTime, initState, measuredMotion);
       };
   ASSIGN_OR_RETURN(motionManager_, ProceduralMpcMotionManager::Create(configuration_.gaitFile, configuration_.referenceFile,
                                                                       std::move(referenceManager), commandModel, targetTrajectories));
@@ -322,6 +352,13 @@ MpcLinkFactory ClosedLoopDriver::lockstepMpcLinkFactory(absl::string_view solver
   InProcessMpcLink::Config config;
   config.solverThreadName = std::string(solverName);
   config.execution = InProcessMpcLink::Execution::kCaller;
+  // The observation of every solve, to the motion manager as the MPC node's server hands it over: its input carries the
+  // measured joint velocities (ProceduralMpcMotionManager::observe()). The driver owns both; the link dies first.
+  // LINT.IfChange(observation_hand_over)
+  config.solverObservationObserver = [this](const SystemObservation& observation) {
+    if (motionManager_ != nullptr) motionManager_->observe(observation);
+  };
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/node/src/MpcNodeRuntime.cpp:observation_hand_over)
   return InProcessMpcLink::factory(*mpc_, std::move(config), &mpcLink_);
 }
 

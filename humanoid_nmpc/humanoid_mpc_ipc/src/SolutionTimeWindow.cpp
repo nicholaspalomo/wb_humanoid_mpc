@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/control/ControllerBase.h"
 #include "ocs2_core/control/FeedforwardController.h"
 #include "ocs2_core/control/LinearController.h"
+#include "ocs2_core/control/ManifoldLinearController.h"
 
 #include "humanoid_mpc_ipc/PolicyControllers.h"
 
@@ -61,8 +62,11 @@ void trimController(scalar_t finalTime, ControllerBase* absl_nonnull controller)
     const size_t length = solutionWindowLength(linear->timeStamp_, finalTime);
     keepFirst(length, &linear->timeStamp_);
     keepFirst(length, &linear->biasArray_);
-    keepFirst(length, &linear->deltaBiasArray_);
     keepFirst(length, &linear->gainArray_);
+    return;
+  }
+  if (ManifoldLinearController* absl_nullable manifoldLinear = asManifoldLinearController(*controller); manifoldLinear != nullptr) {
+    manifoldLinear->keepFirst(solutionWindowLength(manifoldLinear->getTimeStamps(), finalTime));
   }
 }
 

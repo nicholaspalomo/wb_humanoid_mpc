@@ -33,8 +33,6 @@ sticks, the FSM commands of the mode selector and the gantry checkbox, the robot
 """
 
 from collections.abc import Callable
-import contextlib
-import io
 import math
 import os
 import shutil
@@ -270,14 +268,6 @@ class TestCommandLine(unittest.TestCase):
             ("t.textproto", "r.textproto", "p.textproto"),
         )
         self.assertAlmostEqual(args.default_pelvis_height, 0.7)
-
-    def test_the_ros_arguments_of_the_old_launch_files_are_refused(self):
-        errors = io.StringIO()
-        with contextlib.redirect_stderr(errors), self.assertRaises(SystemExit):
-            base_velocity_controller_gui.build_parser().parse_args(
-                ["--ros-args", "-p", "task_file:=t.textproto"]
-            )
-        self.assertIn("--ros-args", errors.getvalue())
 
 
 @operator_test_support.requires_display

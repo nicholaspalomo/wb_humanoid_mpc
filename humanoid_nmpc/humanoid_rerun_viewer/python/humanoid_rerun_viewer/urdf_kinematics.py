@@ -221,7 +221,7 @@ class KinematicTree:
         )
 
     def nominal_positions(self) -> dict[str, float]:
-        """Every settable joint at 0, clamped to its limits (as joint_state_publisher_gui starts)."""
+        """Every settable joint at 0, clamped to its limits."""
         return {joint.name: joint.clamp(0.0) for joint in self.movable_joints()}
 
     def link_poses(self, positions: Mapping[str, float]) -> dict[str, LinkPose]:

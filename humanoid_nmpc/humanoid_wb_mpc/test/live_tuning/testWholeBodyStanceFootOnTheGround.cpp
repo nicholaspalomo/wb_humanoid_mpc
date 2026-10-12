@@ -95,6 +95,9 @@ TEST(WholeBodyStanceFoot, AStanceFootIsHeldOnTheGroundFromAFreshStartAndAfterALi
   WholeBodySolverStack fresh(raisedFile, Updater::kRegistered);
   WholeBodySolverStack live(flatFile, Updater::kRegistered);
   ASSERT_TRUE(flat.ok() && fresh.ok() && live.ok());
+  flat.expectQuaternionLayout();
+  fresh.expectQuaternionLayout();
+  live.expectQuaternionLayout();
   // A solve plans the swing trajectories, whose stance height the constraint follows; the live update reaches the
   // reference manager at the solve after it (humanoid_mpc_config/README.md, "One solve late").
   flat.solve(/*count=*/1);

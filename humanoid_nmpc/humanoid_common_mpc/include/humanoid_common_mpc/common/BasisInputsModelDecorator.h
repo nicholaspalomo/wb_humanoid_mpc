@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Eigen/Core"
 #include "absl/base/nullability.h"
 #include "absl/log/absl_check.h"
+#include "absl/status/statusor.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/multibody/data.hpp"
 #include "pinocchio/multibody/model.hpp"
@@ -69,7 +70,8 @@ namespace ocs2::humanoid {
  * Every consumer that needs a world-frame wrench (dynamics, inverse dynamics, external
  * torque costs, visualization, telemetry) must use the state-aware accessors.
  *
- * The wrapped model's state accessors are forwarded unchanged.
+ * The wrapped model's state accessors, its tuning layout and its layout-agnostic API (orientation, Euler boundary,
+ * interpolation, tangent maps, measurement helpers) are forwarded unchanged.
  * The input dimension changes: the 6 wrench variables per contact are replaced
  * by numBasisPerFoot_ scaling variables.
  *
@@ -95,7 +97,12 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
   BasisInputsModelDecorator(std::unique_ptr<MpcRobotModelBase<SCALAR_T>> wrappedModel,
                             const std::array<ContactWrenchConeBasisMatrix, kNumContacts>& basisMatrices,
                             const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface)
-      : Base(wrappedModel->modelSettings, wrappedModel->getStateDim(), computeInputDim(basisMatrices, wrappedModel->modelSettings)),
+      : Base(wrappedModel->modelSettings,
+             MpcRobotModelDimensions{.stateDim = wrappedModel->getStateDim(),
+                                     .inputDim = computeInputDim(basisMatrices, wrappedModel->modelSettings),
+                                     .configurationDim = wrappedModel->getConfigurationDim(),
+                                     .velocityDim = wrappedModel->getVelocityDim()},
+             wrappedModel->getTuningLayout()),
         wrappedModel_(std::move(wrappedModel)),
         pinocchioInterface_(pinocchioInterface),
         numBasisPerFoot_(basisMatrices[0].numBasis()) {
@@ -152,6 +159,7 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
   /******* Start indices *******/
 
   size_t getBaseStartindex() const override { return wrappedModel_->getBaseStartindex(); }
+  size_t getBaseOrientationStartIndex() const override { return wrappedModel_->getBaseOrientationStartIndex(); }
   size_t getJointStartindex() const override { return wrappedModel_->getJointStartindex(); }
 
   /** Joint velocities/accelerations start after the basis-vector block. */
@@ -170,11 +178,7 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
   VECTOR_T<SCALAR_T> getGeneralizedCoordinates(const VECTOR_T<SCALAR_T>& state) const override {
     return wrappedModel_->getGeneralizedCoordinates(state);
   }
-  VECTOR6_T<SCALAR_T> getBasePose(const VECTOR_T<SCALAR_T>& state) const override { return wrappedModel_->getBasePose(state); }
   VECTOR3_T<SCALAR_T> getBasePosition(const VECTOR_T<SCALAR_T>& state) const override { return wrappedModel_->getBasePosition(state); }
-  VECTOR3_T<SCALAR_T> getBaseOrientationEulerZYX(const VECTOR_T<SCALAR_T>& state) const override {
-    return wrappedModel_->getBaseOrientationEulerZYX(state);
-  }
   VECTOR3_T<SCALAR_T> getBaseComLinearVelocity(const VECTOR_T<SCALAR_T>& state) const override {
     return wrappedModel_->getBaseComLinearVelocity(state);
   }
@@ -201,14 +205,8 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
   void setGeneralizedCoordinates(VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& generalizedCoordinates) const override {
     wrappedModel_->setGeneralizedCoordinates(state, generalizedCoordinates);
   }
-  void setBasePose(VECTOR_T<SCALAR_T>& state, const VECTOR6_T<SCALAR_T>& basePose) const override {
-    wrappedModel_->setBasePose(state, basePose);
-  }
   void setBasePosition(VECTOR_T<SCALAR_T>& state, const VECTOR3_T<SCALAR_T>& position) const override {
     wrappedModel_->setBasePosition(state, position);
-  }
-  void setBaseOrientationEulerZYX(VECTOR_T<SCALAR_T>& state, const VECTOR3_T<SCALAR_T>& eulerAnglesZYX) const override {
-    wrappedModel_->setBaseOrientationEulerZYX(state, eulerAnglesZYX);
   }
   void setJointAngles(VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& jointAngles) const override {
     wrappedModel_->setJointAngles(state, jointAngles);
@@ -220,6 +218,67 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
   }
   void adaptBasePoseHeight(VECTOR_T<SCALAR_T>& state, scalar_t heightChange) const override {
     wrappedModel_->adaptBasePoseHeight(state, heightChange);
+  }
+
+  /******* Layout-agnostic accessors (delegated to wrapped model) *******/
+
+  VECTOR4_T<SCALAR_T> getBaseOrientation(const VECTOR_T<SCALAR_T>& state) const override {
+    return wrappedModel_->getBaseOrientation(state);
+  }
+  void setBaseOrientation(vector_t& state, const vector4_t& orientation) const override {
+    wrappedModel_->setBaseOrientation(state, orientation);
+  }
+  scalar_t getBaseHeading(const vector_t& state) const override { return wrappedModel_->getBaseHeading(state); }
+  // NOLINTBEGIN(euler-boundary): Euler boundary accessor (design section 4.2)
+  vector6_t getBasePoseEulerZyx(const vector_t& state) const override { return wrappedModel_->getBasePoseEulerZyx(state); }
+  void setBasePoseEulerZyx(vector_t& state, const vector6_t& basePose) const override {
+    wrappedModel_->setBasePoseEulerZyx(state, basePose);
+  }
+  vector3_t getBaseOrientationEulerZyx(const vector_t& state) const override { return wrappedModel_->getBaseOrientationEulerZyx(state); }
+  void setBaseOrientationEulerZyx(vector_t& state, const vector3_t& eulerZyx) const override {
+    wrappedModel_->setBaseOrientationEulerZyx(state, eulerZyx);
+  }
+  // NOLINTEND(euler-boundary)
+  vector3_t getBaseAngularVelocityLocal(const vector_t& state) const override { return wrappedModel_->getBaseAngularVelocityLocal(state); }
+  void setBaseAngularVelocityLocal(vector_t& state, const vector3_t& angularVelocityLocal) const override {
+    wrappedModel_->setBaseAngularVelocityLocal(state, angularVelocityLocal);
+  }
+  void setBaseAngularVelocityFromWorldYawRate(vector_t& state, scalar_t yawRate) const override {
+    wrappedModel_->setBaseAngularVelocityFromWorldYawRate(state, yawRate);
+  }
+  BaseAngularVelocityJacobian getBaseAngularVelocityLocalJacobian(const vector_t& state) const override {
+    return wrappedModel_->getBaseAngularVelocityLocalJacobian(state);
+  }
+  vector6_t getBaseTwistInWorldFrame(const vector_t& state, const vector_t& jointVelocities) const override {
+    return wrappedModel_->getBaseTwistInWorldFrame(state, jointVelocities);
+  }
+  vector3_t getTargetPlanarCommand(const vector_t& targetState, scalar_t compositeYawInertia) const override {
+    return wrappedModel_->getTargetPlanarCommand(targetState, compositeYawInertia);
+  }
+  absl::StatusOr<vector_t> stateFromTuning(const vector_t& tuningVector) const override {
+    return wrappedModel_->stateFromTuning(tuningVector);
+  }
+  absl::StatusOr<vector_t> tuningFromState(const vector_t& state) const override { return wrappedModel_->tuningFromState(state); }
+  vector_t interpolateStateTrajectory(scalar_t time, const scalar_array_t& times, const vector_array_t& states) const override {
+    return wrappedModel_->interpolateStateTrajectory(time, times, states);
+  }
+  vector_t getNeutralState() const override { return wrappedModel_->getNeutralState(); }
+  matrix_t getBaseRotationTangentJacobian(const vector_t& state) const override {
+    return wrappedModel_->getBaseRotationTangentJacobian(state);
+  }
+  matrix_t getPinocchioTangentJacobian(const vector_t& state) const override { return wrappedModel_->getPinocchioTangentJacobian(state); }
+  void fillGeneralizedCoordinatesFromMeasurement(const vector3_t& positionWorld,
+                                                 const vector4_t& orientation,
+                                                 const vector_t& jointPositions,
+                                                 Eigen::Ref<vector_t> q) const override {
+    wrappedModel_->fillGeneralizedCoordinatesFromMeasurement(positionWorld, orientation, jointPositions, q);
+  }
+  void fillGeneralizedVelocitiesFromMeasurement(const vector4_t& orientation,
+                                                const vector3_t& linearVelocityLocal,
+                                                const vector3_t& angularVelocityLocal,
+                                                const vector_t& jointVelocities,
+                                                Eigen::Ref<vector_t> v) const override {
+    wrappedModel_->fillGeneralizedVelocitiesFromMeasurement(orientation, linearVelocityLocal, angularVelocityLocal, jointVelocities, v);
   }
 
   /******* Contact wrench accessors in the LOCAL contact frame — the core of the decoration *******/

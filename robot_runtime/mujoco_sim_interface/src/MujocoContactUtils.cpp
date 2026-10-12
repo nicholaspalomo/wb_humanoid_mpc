@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <functional>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
@@ -64,13 +65,14 @@ absl::StatusOr<MjDataPtr> makeMjData(const mjModel* absl_nonnull model) {
   return data;
 }
 
-MjState::MjState(const mjModel* absl_nonnull model) : model(model), data(ABSL_DIE_IF_NULL(mj_makeData(model))) {}
+MjState::MjState(const mjModel* absl_nonnull model) : model(model), data(ABSL_DIE_IF_NULL(mj_makeData(model))), modelFields(model) {}
 
 MjState::MjState(const MjState& other)
     : model(other.model),
       timestamp(other.timestamp),
       data(other.model != nullptr ? ABSL_DIE_IF_NULL(mj_makeData(other.model)) : nullptr),
-      metrics(other.metrics) {
+      metrics(other.metrics),
+      modelFields(other.modelFields) {
   if (data != nullptr && other.data != nullptr) mj_copyData(data, model, other.data);
 }
 
@@ -81,14 +83,17 @@ MjState& MjState::operator=(const MjState& other) {
     timestamp = other.timestamp;
     data = other.model != nullptr ? ABSL_DIE_IF_NULL(mj_makeData(other.model)) : nullptr;
     metrics = other.metrics;
+    modelFields = other.modelFields;
     if (data != nullptr && other.data != nullptr) mj_copyData(data, model, other.data);
   }
   return *this;
 }
 
-MjState::MjState(MjState&& other) noexcept : model(other.model), timestamp(other.timestamp), data(other.data), metrics(other.metrics) {
+MjState::MjState(MjState&& other) noexcept
+    : model(other.model), timestamp(other.timestamp), data(other.data), metrics(other.metrics), modelFields(std::move(other.modelFields)) {
   other.data = nullptr;
   other.model = nullptr;
+  other.modelFields = MjRuntimeModelFields();
 }
 
 MjState& MjState::operator=(MjState&& other) noexcept {
@@ -98,8 +103,10 @@ MjState& MjState::operator=(MjState&& other) noexcept {
     timestamp = other.timestamp;
     data = other.data;
     metrics = other.metrics;
+    modelFields = std::move(other.modelFields);
     other.data = nullptr;
     other.model = nullptr;
+    other.modelFields = MjRuntimeModelFields();
   }
   return *this;
 }

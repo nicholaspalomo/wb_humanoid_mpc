@@ -123,7 +123,9 @@ constexpr std::array<Robot, 5> kRobots = {{
      .mpc = StateInputLayout::Mpc::kCentroidal,
      .hasContactPlanningFile = false},
 }};
-// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/BUILD.bazel:config_test_data)
+// clang-format off
+// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/BUILD.bazel:config_test_data, //humanoid_nmpc/humanoid_common_mpc/test/equivalence/RootJointModelPair.cpp:equivalence_robots)
+// clang-format on
 
 constexpr absl::string_view kGaitFile = "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto";
 
@@ -164,7 +166,8 @@ class CommandLimitsProbe final : public TargetTrajectoriesCalculatorBase {
   }
   TargetTrajectories commandedVelocityToTargetTrajectories(const vector4_t& /*commandedVelocities*/,
                                                            scalar_t /*initTime*/,
-                                                           const vector_t& /*initState*/) override {
+                                                           const vector_t& /*initState*/,
+                                                           const BasePlanarMotion& /*measuredMotion*/) override {
     return TargetTrajectories();
   }
 
@@ -250,10 +253,10 @@ TEST_P(ShippedRobotRootsTest, EveryFileLoadsAndBuildsEveryRoot) {
   calculator.applyCommandLimits(*referenceSettings);
   EXPECT_EQ(calculator.targetRotationVelocity(), referenceSettings->targetRotationVelocity);
 
-  const absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> manager =
-      ProceduralMpcMotionManager::Create((*stack)->gait, *referenceSettings, (*stack)->referenceManager, *(*stack)->model,
-                                         [](const vector4_t& /*velocityTarget*/, scalar_t /*initTime*/, scalar_t /*finalTime*/,
-                                            const vector_t& /*initState*/) { return TargetTrajectories(); });
+  const absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> manager = ProceduralMpcMotionManager::Create(
+      (*stack)->gait, *referenceSettings, (*stack)->referenceManager, *(*stack)->model,
+      [](const vector4_t& /*velocityTarget*/, scalar_t /*initTime*/, scalar_t /*finalTime*/, const vector_t& /*initState*/,
+         const BasePlanarMotion& /*measuredMotion*/) { return TargetTrajectories(); });
   ASSERT_TRUE(manager.ok()) << manager.status();
   EXPECT_FALSE((*manager)->gaitMap().empty());
   (*manager)->setAndScaleVelocityCommand(WalkingVelocityCommand(/*v_x=*/1.0, /*v_y=*/1.0, /*desired_pelvis_h=*/0.0, /*v_yaw=*/1.0));

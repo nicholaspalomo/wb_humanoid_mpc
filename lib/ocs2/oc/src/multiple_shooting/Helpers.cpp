@@ -125,7 +125,8 @@ PrimalSolution toPrimalSolution(const std::vector<AnnotatedTime>& time, ModeSche
   if (stateManifold == nullptr) {
     throw std::runtime_error("[toPrimalSolution] The manifold policy needs a state manifold.");
   }
-  // The law of node i is u*_i + K_i (x (-) xbar_i) with xbar_i = x[i]. A pre-event node has no input: it keeps the law of
+  // The law of node i is u*_i + K_i (x (-) xbar_i) with xbar_i = x[i]. K_i is the pre-step QP gain, kept in body-frame
+  // components at the post-step anchor (ManifoldLinearController.h). A pre-event node has no input: it keeps the law of
   // the node before it, which is what copying uff and K does in the flat version.
   vector_array_t anchorStates(x.begin(), x.begin() + KMatrices.size());
   vector_array_t nominalInputs = u;

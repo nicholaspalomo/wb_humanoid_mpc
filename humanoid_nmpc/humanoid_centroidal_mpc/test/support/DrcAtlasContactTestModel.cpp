@@ -40,7 +40,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
-#include "ocs2_centroidal_model/AccessHelperFunctions.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 
@@ -96,7 +95,7 @@ DrcAtlasContactTestModel::DrcAtlasContactTestModel(const std::string& modelNameP
       std::make_unique<SwitchedModelReferenceManager>(GaitSchedule::Create(config_.reference, *modelSettings_, /*verbose=*/false).value(),
                                                       std::move(swingTrajectoryPlanner), *pinocchioInterface_, *wrenchModel_);
   // Loaded before the first setContactFlags(): that call drives preSolverRun(), which needs a valid state.
-  nominalState_ = initialStateOf(config_.task, *modelSettings_).value();
+  nominalState_ = initialStateOnModel(config_.task, *wrenchModel_).value();
   setStance();
 }
 
@@ -127,10 +126,11 @@ void DrcAtlasContactTestModel::setSwing(size_t swingFoot) {
 std::unique_ptr<PinocchioEndEffectorKinematicsCppAd> DrcAtlasContactTestModel::makeEndEffectorKinematics(size_t contactIndex,
                                                                                                          size_t inputDim) const {
   const CentroidalModelInfoCppAd infoCppAd = info_.toCppAd();
+  // As CentroidalMpcInterface builds it: the momentum map of the mapping's configuration, whose quaternion is normalized.
+  const CentroidalModelPinocchioMappingCppAd& mappingCppAd = *mappingCppAd_;
   const PinocchioEndEffectorKinematicsCppAd::update_pinocchio_interface_callback velocityUpdateCallback =
-      [infoCppAd](const ad_vector_t& state, PinocchioInterfaceCppAd& pinocchioInterfaceAd) {
-        const ad_vector_t q = centroidal_model::getGeneralizedCoordinates(state, infoCppAd);
-        updateCentroidalDynamics(pinocchioInterfaceAd, infoCppAd, q);
+      [infoCppAd, &mappingCppAd](const ad_vector_t& state, PinocchioInterfaceCppAd& pinocchioInterfaceAd) {
+        updateCentroidalDynamics(pinocchioInterfaceAd, infoCppAd, mappingCppAd.getPinocchioJointPosition(state));
       };
   const std::string& footName = modelSettings_->contactNames[contactIndex];
   // The generated library is keyed to the input dimension: the wrench-space and the basis-vector parameterizations

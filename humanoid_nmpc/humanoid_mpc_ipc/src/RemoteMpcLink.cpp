@@ -88,6 +88,11 @@ absl::Status validateConfig(const RemoteMpcLink::Config& config) {
   if (config.pollPeriod <= absl::ZeroDuration()) {
     return absl::InvalidArgumentError(absl::StrCat("RemoteMpcLink: Config::pollPeriod must be positive, got ", config.pollPeriod));
   }
+  if (config.stateManifold != nullptr && config.stateManifold->getAmbientDim() != config.dimensions.stateDim) {
+    return absl::InvalidArgumentError(absl::StrCat("RemoteMpcLink: Config::stateManifold has ", config.stateManifold->getAmbientDim(),
+                                                   " ambient dimensions but Config::dimensions.stateDim is ", config.dimensions.stateDim,
+                                                   "; give the manifold of the controller's state"));
+  }
   return absl::OkStatus();
 }
 
@@ -98,7 +103,7 @@ absl::StatusOr<std::unique_ptr<RemoteMpcLink>> RemoteMpcLink::Create(robot::ipc:
   if (bus.isRunning()) {
     return absl::FailedPreconditionError("RemoteMpcLink: the bus is running; create the link before Bus::start()");
   }
-  std::unique_ptr<RemoteMpcLink> link = absl::WrapUnique(new RemoteMpcLink(bus, supervisor, config));
+  std::unique_ptr<RemoteMpcLink> link = absl::WrapUnique(new RemoteMpcLink(bus, supervisor, std::move(config)));
   RETURN_IF_ERROR(link->registerOnBus());
   return link;
 }
@@ -108,7 +113,7 @@ absl::StatusOr<std::unique_ptr<RemoteMpcLink>> RemoteMpcLink::Create(robot::ipc:
                                                                      Config config) {
   RETURN_IF_ERROR(validateConfig(config));
   ASSIGN_OR_RETURN(std::unique_ptr<robot::ipc::Bus> bus, robot::ipc::Bus::Create(std::move(busOptions)));
-  std::unique_ptr<RemoteMpcLink> link = absl::WrapUnique(new RemoteMpcLink(*bus, supervisor, config));
+  std::unique_ptr<RemoteMpcLink> link = absl::WrapUnique(new RemoteMpcLink(*bus, supervisor, std::move(config)));
   link->ownedBus_ = std::move(bus);
   RETURN_IF_ERROR(link->registerOnBus());
   RETURN_IF_ERROR(link->ownedBus_->start());
@@ -118,7 +123,7 @@ absl::StatusOr<std::unique_ptr<RemoteMpcLink>> RemoteMpcLink::Create(robot::ipc:
 RemoteMpcLink::RemoteMpcLink(robot::ipc::Bus& bus, MpcResetSupervisor& supervisor, Config config)
     : bus_(bus),
       supervisor_(supervisor),
-      config_(config),
+      config_(std::move(config)),
       guard_(std::make_shared<CallbackGuard>()),
       observations_(
           ObservationSlot{.observation = SystemObservation{.mode = 0,
@@ -129,6 +134,7 @@ RemoteMpcLink::RemoteMpcLink(robot::ipc::Bus& bus, MpcResetSupervisor& superviso
       policyDeadline_(kNoEnd),
       latestObservationTimeStatistic_(kNoTime),
       newestPolicyInitTimeStatistic_(kNoTime) {
+  setStateManifold(config_.stateManifold);
   // A reset served before the link existed counts as the last ticket: a policy that serves less was solved before it.
   ticket_.request = supervisor_.numResetsServed();
   ticket_.fullRequest = supervisor_.numFullResetsServed();
@@ -330,7 +336,7 @@ void RemoteMpcLink::onPolicy(const humanoid_mpc_msgs::MpcPolicy& message) {
   std::unique_ptr<PerformanceIndex> performance = std::make_unique<PerformanceIndex>();
   absl::Status decoded = checkDimensions(message, config_.dimensions);
   if (decoded.ok()) {
-    decoded = policyFromProto(message, command.get(), solution.get(), performance.get());
+    decoded = policyFromProto(message, config_.stateManifold, command.get(), solution.get(), performance.get());
   }
   if (!decoded.ok()) {
     invalidPoliciesRejected_.fetch_add(1);

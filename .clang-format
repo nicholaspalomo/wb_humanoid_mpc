@@ -31,8 +31,9 @@
     # The C++ standard library.
     - Regex: '^<[a-z0-9_]+>$'
       Priority: 2
-    # Other libraries, the vendored OCS2 included; the headers cppzmq, libzmq, HPIPM and BLASFEO install flat.
-    - Regex: '^"(absl|Eigen|unsupported|pinocchio|gtest|gmock|google|yaml-cpp|rerun|urdf_[a-z]+|urdfdom|GL|GLFW|mujoco|cppad|tinyxml2|ocs2_[a-z0-9_]+|rules_cc)/|^"(zmq|zmq_addon)\.hpp"$|^"zmq\.h"$|^"(hpipm|blasfeo)_[a-z0-9_]+\.h"$'
+    # Other libraries, the vendored OCS2 and the Khronos EGL headers included; the headers cppzmq, libzmq, cpp-httplib,
+    # libjpeg-turbo's TurboJPEG, HPIPM and BLASFEO install flat.
+    - Regex: '^"(absl|Eigen|unsupported|pinocchio|gtest|gmock|google|urdf_[a-z]+|urdfdom|GL|GLFW|EGL|KHR|mujoco|cppad|tinyxml2|ocs2_[a-z0-9_]+|rules_cc)/|^"(zmq|zmq_addon)\.hpp"$|^"(zmq|httplib|turbojpeg)\.h"$|^"(hpipm|blasfeo)_[a-z0-9_]+\.h"$'
       Priority: 3
     # This project.
     - Regex: '.*'

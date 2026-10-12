@@ -31,12 +31,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstdlib>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <thread>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/status/status.h"
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
@@ -67,7 +69,25 @@ std::string firstValue(const std::string& file, const std::string& key) {
   return "";
 }
 
+// LINT.IfChange(toolchain_fields)
+/** The members of a provenance's `toolchain` object, with the RunToolchain field each holds. */
+struct ToolchainField {
+  const char* absl_nonnull key;
+  std::string RunToolchain::*absl_nonnull field;
+};
+
+constexpr ToolchainField kToolchainFields[] = {
+    {.key = "compiler", .field = &RunToolchain::compiler},
+    {.key = "hpipm_target", .field = &RunToolchain::hpipmTarget},
+    {.key = "container_image", .field = &RunToolchain::containerImage},
+};
+// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/README.md:provenance_toolchain)
+
 }  // namespace
+
+std::string compilerVersion() {
+  return __VERSION__;
+}
 
 std::string describeMachine() {
   const std::string cpu = firstValue("/proc/cpuinfo", "model name");
@@ -87,6 +107,9 @@ RunEnvironment runEnvironmentFromEnvironment() {
   environment.gitCommit = environmentOr("WB_VALIDATION_GIT_COMMIT", environment.gitCommit);
   environment.worktreeState = environmentOr("WB_VALIDATION_WORKTREE_STATE", environment.worktreeState);
   environment.machine = environmentOr("WB_VALIDATION_MACHINE", describeMachine());
+  environment.toolchain.compiler = compilerVersion();
+  environment.toolchain.hpipmTarget = environmentOr("WB_VALIDATION_HPIPM_TARGET", environment.toolchain.hpipmTarget);
+  environment.toolchain.containerImage = environmentOr("WB_VALIDATION_CONTAINER_IMAGE", environment.toolchain.containerImage);
   return environment;
 }
 
@@ -95,6 +118,8 @@ absl::StatusOr<JsonValue> makeRunProvenanceJson(const RunEnvironment& environmen
   provenance.set("git_commit", JsonValue::string(environment.gitCommit));
   provenance.set("worktree_state", JsonValue::string(environment.worktreeState));
   provenance.set("machine", JsonValue::string(environment.machine));
+  JsonValue& toolchain = provenance.set("toolchain", JsonValue::object());
+  for (const ToolchainField& field : kToolchainFields) toolchain.set(field.key, JsonValue::string(environment.toolchain.*field.field));
   JsonValue& hashes = provenance.set("configuration_sha256", JsonValue::object());
   for (const std::string& file : configurationFiles) {
     absl::StatusOr<std::string> hash = sha256HexOfFile(file);
@@ -104,11 +129,34 @@ absl::StatusOr<JsonValue> makeRunProvenanceJson(const RunEnvironment& environmen
   return provenance;
 }
 
+absl::StatusOr<RunToolchain> toolchainFromProvenance(const JsonValue& provenance) {
+  const JsonValue* absl_nullable toolchain = provenance.find("toolchain");
+  if (toolchain == nullptr) return absl::NotFoundError("[toolchainFromProvenance] the provenance has no toolchain");
+  RunToolchain result;
+  for (const ToolchainField& field : kToolchainFields) {
+    const JsonValue* absl_nullable value = toolchain->find(field.key);
+    if (value == nullptr || !value->isString()) {
+      return absl::InvalidArgumentError(absl::StrCat("[toolchainFromProvenance] toolchain.", field.key, " is missing or not a string"));
+    }
+    result.*field.field = value->asString();
+  }
+  return result;
+}
+
+std::vector<std::pair<std::string, std::string>> toolchainNotes(const RunToolchain& toolchain) {
+  std::vector<std::pair<std::string, std::string>> notes;
+  notes.reserve(std::size(kToolchainFields));
+  for (const ToolchainField& field : kToolchainFields) notes.emplace_back(field.key, toolchain.*field.field);
+  return notes;
+}
+
 absl::StatusOr<GoldenProvenance> makeRunGoldenProvenance(const RunEnvironment& environment,
                                                          const std::vector<std::string>& configurationFiles) {
   absl::StatusOr<GoldenProvenance> provenance = makeGoldenProvenance(environment.gitCommit, environment.worktreeState, configurationFiles);
   if (!provenance.ok()) return provenance;
   provenance->notes.emplace_back("machine", environment.machine);
+  const std::vector<std::pair<std::string, std::string>> toolchain = toolchainNotes(environment.toolchain);
+  provenance->notes.insert(provenance->notes.end(), toolchain.begin(), toolchain.end());
   return provenance;
 }
 

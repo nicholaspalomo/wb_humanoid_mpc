@@ -39,13 +39,21 @@ message StateWeights {
   // robot's mass (h_com / m, L / m).
   Xyz normalized_linear_momentum = 2 [(nproto.optional_message) = true];
   Xyz normalized_angular_momentum = 3 [(nproto.optional_message) = true];
-  // Both MPCs: the position of the floating base in the world frame and its orientation, Euler ZYX.
+  // Both MPCs: the position of the floating base in the world frame, and the orientation rows (yaw, pitch, roll) of the
+  // heading-tilt residual: the wrapped twist-heading error and the tilt errors about the heading frame's y and x axes
+  // (humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 2.8.1). They are the ZYX Euler angle errors
+  // exactly when the state and the reference are each tilted about at most one axis (and the yaw error is in
+  // (-pi, pi], which the residual wraps), and differ from them at second order (the yaw row) and third order (the tilt
+  // rows) in a mixed tilt.
   Xyz base_position = 4 [(nproto.optional_message) = true];
   YawPitchRoll base_orientation = 5 [(nproto.optional_message) = true];
   // Both MPCs: the joint positions, by joint name.
   repeated JointValue joint_positions = 6;
-  // Whole-body MPC: the linear velocity of the floating base, the rates of its Euler ZYX angles and the joint
-  // velocities, by joint name.
+  // Whole-body MPC: the linear velocity of the floating base; the rows (yaw, pitch, roll) of the body angular velocity
+  // error P_3 (w_B - R' R_r w_B,r) about the body z, y and x axes (design decision D8); and the joint velocities, by
+  // joint name. For a reference whose rate is a world yaw rate (every shipped reference) the angular rows are
+  // P_3 T_B(Theta) times the ZYX Euler-rate error: equal to it at a level state, within |tilt| times it otherwise,
+  // |tilt| the norm of the (pitch, roll) angles.
   Xyz base_linear_velocity = 7 [(nproto.optional_message) = true];
   YawPitchRoll base_angular_velocity = 8 [(nproto.optional_message) = true];
   repeated JointValue joint_velocities = 9;

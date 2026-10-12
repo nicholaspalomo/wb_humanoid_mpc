@@ -2,8 +2,8 @@
 # proto-message: launch_proto.LaunchFile
 #
 # The EngineAI SA01 model on its own, in Rerun: the model sandbox publishes the URDF's link poses at the nominal joint
-# positions, or at those of its joint sliders, as viz/scene, and the Rerun bridge draws them (RViz's display launch
-# file and joint_state_publisher_gui before). No MPC and no simulator run.
+# positions, or at those of its joint sliders, as viz/scene, and the Rerun bridge draws them. No MPC and no simulator
+# run.
 #
 #   make launch-sa01-sandbox
 #   bazel run //tools/launch -- robot_models/engineai_sa01/engineai_sa01_description/launch/sandbox.textproto --set joint_source=nominal

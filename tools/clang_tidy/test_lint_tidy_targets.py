@@ -64,8 +64,13 @@ done
 exit "${FAKE_BAZEL_STATUS:-0}"
 """
 
-# Records `-m <module> <file>` and the content of the file it was given; exits with $FAKE_REPORT_STATUS.
+# Records `-m <module> <file>` and the content of the file it was given; exits with $FAKE_REPORT_STATUS. The recipes run
+# Bazel through tools/ide/compile_commands.py --after (tools/ide/README.md), which the stand-in runs as the bare command.
 _FAKE_PYTHON = """#!/bin/sh
+if [ "$2" = "tools.ide.compile_commands" ] && [ "$3" = "--after" ]; then
+  shift 3
+  exec "$@"
+fi
 module="$2"
 file="$3"
 content="$(cat "$file" 2>/dev/null || echo missing)"

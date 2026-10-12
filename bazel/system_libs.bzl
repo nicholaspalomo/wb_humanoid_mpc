@@ -264,7 +264,7 @@ def _cmake_build_and_install(repo_ctx, name, extra_arguments):
         "-DBUILD_SHARED_LIBS=OFF",
         # LINT.IfChange(hpipm_target)
         "-DTARGET=GENERIC",
-        # LINT.ThenChange(//lib/ocs2/sqp/sqp/test/testSqpFlatParity.cpp:hpipm_build_sensitive)
+        # LINT.ThenChange(//lib/ocs2/sqp/sqp/test/testSqpFlatParity.cpp:golden_hash)
     ] + extra_arguments, "Configuring " + name)
     _run(repo_ctx, ["cmake", "--build", "build", "-j4"], "Building " + name)
     _run(repo_ctx, ["cmake", "--install", "build"], "Installing " + name)

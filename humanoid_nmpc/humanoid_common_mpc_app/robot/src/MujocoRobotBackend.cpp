@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -41,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/ThreadAffinity.h"
 #include "mujoco_sim_interface/CheaterSimContactEstimator.h"
 #include "mujoco_sim_interface/Projectile.h"
+#include "mujoco_sim_interface/viewer/ViewerSettings.h"
 
 namespace ocs2::humanoid {
 
@@ -59,7 +61,10 @@ absl::StatusOr<robot::mujoco_sim_interface::MujocoSimConfig> MujocoRobotBackend:
   robot::mujoco_sim_interface::MujocoSimConfig config;
   config.scenePath = options.mjcfFile;
   config.verbose = true;
-  config.headless = options.headless;
+  config.viewer = options.viewer;
+  if (const absl::Status viewer = robot::mujoco_sim_interface::validateViewerSettings(config.viewer); !viewer.ok()) {
+    return absl::Status(viewer.code(), absl::StrCat("the mujoco backend's viewer: ", viewer.message()));
+  }
   config.initStatePtr_ = std::make_shared<robot::model::RobotState>(*options.initialState);
   config.contactFrameNames = options.contactFrameNames;
   config.contactParentJointNames = options.contactParentJointNames;
@@ -105,7 +110,7 @@ absl::string_view MujocoRobotBackend::name() const {
 
 absl::Status MujocoRobotBackend::initialize() {
   simulator_->initSim();
-  return absl::OkStatus();
+  return simulator_->viewerStatus();
 }
 
 absl::Status MujocoRobotBackend::start(const std::vector<int>& cores) {

@@ -43,11 +43,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "ocs2_core/manifold/StateManifold.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcConfig.h"
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
+#include "humanoid_common_mpc/common/StateManifoldFactory.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/ThreadAffinity.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
@@ -80,8 +82,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * humanoid_centroidal_mpc_robot: the robot process of the centroidal MPC (humanoid_nmpc/docs/distributed_runtime/
  * README.md, "Processes"). The realtime loop over the backend --backend names (mujoco: the MuJoCo simulator) and the
  * centroidal MRT joint controller, which reaches the MPC node over the bus (RemoteMpcLink), in simulation as on the robot.
- * What the ROS sim CentroidalMpcRobotSim did, without ROS and without the MPC in the process. See
- * humanoid_nmpc/humanoid_common_mpc_app/robot/README.md.
+ * The MPC never runs in this process. See humanoid_nmpc/humanoid_common_mpc_app/robot/README.md.
  */
 
 namespace ocs2::humanoid {
@@ -124,7 +125,7 @@ std::vector<robot::mujoco_sim_interface::ContactPatchCorners> targetContactPatch
 }
 
 /**
- * The warning of the ROS sim: phase resetting needs a measured contact state that is not the plan's own. `config` is the
+ * Warns that phase resetting needs a measured contact state that is not the plan's own. `config` is the
  * configuration of the task file at `taskFile`, which the warning names.
  */
 void warnAboutPhaseResettingWithoutContactSensing(const CentroidalMpcConfig& config,
@@ -244,7 +245,7 @@ absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options, const Robo
   backendOptions.contactParentJointNames = modelSettings.contactParentJointNames;
   backendOptions.contactPatchCorners = targetContactPatchCorners(models.config(), modelSettings);
   backendOptions.simulator = settings.simulator;
-  backendOptions.headless = options.headless;
+  backendOptions.viewer = options.viewer;
   // clang-format off
   // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/ClosedLoopDriver.cpp:robot_backend_options, //humanoid_nmpc/humanoid_wb_mpc_app/src/WBMpcRobotMain.cpp:robot_backend_options)
   // clang-format on
@@ -263,13 +264,16 @@ absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options, const Robo
   // The bus first: it outlives everything registered on it.
   ASSIGN_OR_RETURN(stack.bus, node::createNodeBus(options.networkConfig, options.ipcNode));
 
-  // The MPC link, on the effective model (the basis-vector inputs' when the contact inputs are basis vectors).
+  // The MPC link, on the effective model (the basis-vector inputs' when the contact inputs are basis vectors), and on
+  // the state's manifold, on which the link decodes the node's manifold-linear policies and interpolates their states.
   // LINT.IfChange(robot_mpc_link)
   const MpcRobotModelBase<scalar_t>& effectiveModel = models.getEffectiveMpcRobotModel();
   const ipc::ModelDimensions dimensions{
       .stateDim = effectiveModel.getStateDim(), .inputDim = effectiveModel.getInputDim(), .numModes = kNumModes};
+  ASSIGN_OR_RETURN(std::shared_ptr<const StateManifold> stateManifold, stateManifoldOf(effectiveModel));
   ipc::RemoteMpcLink::Config linkConfig;
   linkConfig.dimensions = dimensions;
+  linkConfig.stateManifold = std::move(stateManifold);
   linkConfig.policyTimeout = settings.mpcLinkPolicyTimeout;
   ASSIGN_OR_RETURN(std::unique_ptr<RemoteMpcLinkAdapter> link, RemoteMpcLinkAdapter::Create(*stack.bus, linkConfig));
   RemoteMpcLinkAdapter* absl_nonnull const remoteLink = link.get();
@@ -293,8 +297,8 @@ absl::StatusOr<RobotStack> setUpRobot(const RobotAppOptions& options, const Robo
 }
 
 absl::Status run() {
-  const SystemCoreAllocation cores = getDefaultCoreAllocation();
-  ASSIGN_OR_RETURN(const RobotAppOptions options, robotAppOptionsFromFlags(cores.mrtCores, cores.simCores));
+  ASSIGN_OR_RETURN(const RobotAppOptions options, robotAppOptionsFromFlags(getDefaultCoreAllocation()));
+  exportSoftwareRasterizerThreads(options.viewer);  // before the process starts a thread
   return runRobot(
       options, [&options](const RobotConfigDirectory& directory) { return setUpRobot(options, directory); }, &node::shutdownRequested);
 }

@@ -28,8 +28,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 // The encoders reuse the capacity of the message they write into: a caller that keeps one message object, as the MPC
-// node keeps its outgoing policy, allocates only while the message grows. A test binary of its own, because the
-// allocation counter replaces malloc for the whole process.
+// node keeps its outgoing policy, allocates only while the message grows - for a feedforward, a linear and a
+// manifold-linear policy. A test binary of its own, because the allocation counter replaces malloc for the whole process.
 
 #include <array>
 #include <cstddef>
@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/control/ControllerType.h"
 
 #include "humanoid_mpc_ipc/MpcMessageConversions.h"
+#include "humanoid_mpc_msgs/controller_type.pb.h"
 #include "humanoid_mpc_msgs/mpc_policy.pb.h"
 #include "humanoid_mpc_msgs/system_observation.pb.h"
 #include "humanoid_mpc_msgs/target_trajectories.pb.h"
@@ -96,6 +97,26 @@ TEST(ConversionAllocationTest, EncodingAPolicyIntoAMessageThatHeldOneOfItsSizeDo
     EXPECT_EQ(allocationsOfEncoding(shorterPolicy, &message), size_t{0});
     EXPECT_EQ(allocationsOfEncoding(first, &message), size_t{0});
   }
+}
+
+TEST(ConversionAllocationTest, EncodingAManifoldPolicyIntoAMessageThatHeldOneOfItsSizeDoesNotAllocate) {
+  // The SQP's policy on a state manifold: its node arrays [u*, xbar, vec K] reuse the message's capacity alike.
+  PolicyShape shape{.nodes = 60, .stateDim = 0, .inputDim = 30, .events = 4, .controllerType = ControllerType::MANIFOLD_LINEAR};
+  shape.stateManifold = test_data::toyStateManifold();
+  shape.stateDim = shape.stateManifold->getAmbientDim();
+  std::mt19937 generator(/*sd=*/4);
+  const Policy first = randomPolicy(generator, shape);
+  const Policy second = randomPolicy(generator, shape);
+  PolicyShape shorter = shape;
+  shorter.nodes = 31;
+  const Policy shorterPolicy = randomPolicy(generator, shorter);
+
+  humanoid_mpc_msgs::MpcPolicy message;
+  EXPECT_GT(allocationsOfEncoding(first, &message), size_t{0}) << "the first encoding sizes the message";
+  EXPECT_EQ(message.controller_type(), humanoid_mpc_msgs::CONTROLLER_TYPE_MANIFOLD_LINEAR);
+  EXPECT_EQ(allocationsOfEncoding(second, &message), size_t{0});
+  EXPECT_EQ(allocationsOfEncoding(shorterPolicy, &message), size_t{0});
+  EXPECT_EQ(allocationsOfEncoding(first, &message), size_t{0});
 }
 
 TEST(ConversionAllocationTest, SerializingIntoAReusedBufferDoesNotAllocate) {

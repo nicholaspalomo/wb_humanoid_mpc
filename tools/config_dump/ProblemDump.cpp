@@ -49,7 +49,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_oc/approximate_model/LinearQuadraticApproximator.h"
-#include "ocs2_oc/oc_problem/OptimalControlProblemHelperFunction.h"
 
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
@@ -156,7 +155,7 @@ void dumpProblem(ValueDump& dump,
                  const OptimalControlProblem& problem,
                  SwitchedModelReferenceManager& referenceManager,
                  const vector_t& initialState,
-                 const ProblemLayout& layout) {
+                 const MpcRobotModelBase<scalar_t>& robotModel) {
   // A copy, whose terms can be evaluated one by one (Collection::get() is non-const).
   OptimalControlProblem copy(problem);
   dump.addStrings(joinPath(path, "costPtr"), termNames(*copy.costPtr));
@@ -174,8 +173,11 @@ void dumpProblem(ValueDump& dump,
                               {ModeNumber::kStance, ModeNumber::kLf, ModeNumber::kStance, ModeNumber::kRf, ModeNumber::kStance,
                                ModeNumber::kLf, ModeNumber::kStance});
   vector_t targetState = initialState;
-  targetState(layout.basePositionIndex) += 0.8;
-  const vector_t zeroInput = vector_t::Zero(static_cast<Eigen::Index>(layout.inputDim));
+  vector3_t targetBasePosition = robotModel.getBasePosition(targetState);
+  targetBasePosition.x() += 0.8;
+  robotModel.setBasePosition(targetState, targetBasePosition);
+  const size_t inputDim = robotModel.getInputDim();
+  const vector_t zeroInput = vector_t::Zero(static_cast<Eigen::Index>(inputDim));
   referenceManager.getGaitSchedule()->updateModeSchedule(schedule);
   referenceManager.setTargetTrajectories(TargetTrajectories({0.0, 2.0}, {initialState, targetState}, {zeroInput, zeroInput}));
   referenceManager.preSolverRun(/*initTime=*/0.0, /*finalTime=*/kFinalTime, initialState, ModeNumber::kStance);
@@ -184,13 +186,11 @@ void dumpProblem(ValueDump& dump,
   for (size_t point = 0; point < kTimes.size(); ++point) {
     const scalar_t time = kTimes[point];
     const vector_t state = perturbedState(initialState, point);
-    const vector_t input = perturbedInput(layout.inputDim, point);
+    const vector_t input = perturbedInput(inputDim, point);
     const std::string at = joinPath(path, absl::StrCat("t=", time));
     dump.addMatrix(joinPath(at, "desiredState"), referenceManager.getDesiredState(*copy.targetTrajectoriesPtr, state, time));
     // The whole problem first: it requests every precomputation the terms read at (t, x, u).
-    MultiplierCollection multipliers;
-    initializeIntermediateMultiplierCollection(copy, time, multipliers);
-    const ModelData model = approximateIntermediateLQ(copy, time, state, input, multipliers);
+    const ModelData model = approximateIntermediateLQ(copy, time, state, input);
     dumpQuadratic(dump, joinPath(at, "lq.cost"), model.cost);
     dumpLinear(dump, joinPath(at, "lq.dynamics"), model.dynamics);
     dumpLinear(dump, joinPath(at, "lq.stateInputEqConstraint"), model.stateInputEqConstraint);
@@ -205,9 +205,7 @@ void dumpProblem(ValueDump& dump,
     finalState(i) += 0.02 * std::cos(0.3 * static_cast<scalar_t>(i));
   }
   const std::string at = joinPath(path, "final");
-  MultiplierCollection multipliers;
-  initializeFinalMultiplierCollection(copy, kFinalTime, multipliers);
-  const ModelData model = approximateFinalLQ(copy, kFinalTime, finalState, multipliers);
+  const ModelData model = approximateFinalLQ(copy, kFinalTime, finalState);
   dumpQuadratic(dump, joinPath(at, "lq.cost"), model.cost);
   dumpStateTerms(dump, joinPath(at, "finalCost"), *copy.finalCostPtr, kFinalTime, finalState, copy);
   dumpStateTerms(dump, joinPath(at, "finalSoftConstraint"), *copy.finalSoftConstraintPtr, kFinalTime, finalState, copy);

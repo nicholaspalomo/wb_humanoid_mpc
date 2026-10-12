@@ -76,8 +76,8 @@ namespace ocs2::humanoid::ipc {
  *      sequence numbers or its counters went backwards). A reset is MPC_BASE::reset() or resetSolver(), then the
  *      reference manager's target trajectories from the caller's ResetTargetTrajectoriesFunction, as
  *      MPC_MRT_Interface::resetMpcNode() / resetMpcSolver() do;
- *   3. solves (MPC_BASE::run()) and reports the result to its supervisor, which backs off and declares the MPC unhealthy
- *      exactly as in process;
+ *   3. hands the observation to Hooks::preSolveObserver, solves from it (MPC_BASE::run()) and reports the result to its
+ *      supervisor, which backs off and declares the MPC unhealthy exactly as in process;
  *   4. on success, publishes mpc/policy: the solution as MPC_MRT_Interface::copyToBuffer() assembles it, cut to
  *      mpc.solution_time_window (trimToSolutionWindow()), stamped with the robot's reset counters it has served and its
  *      solver status, with the annotations of Hooks::annotationsProvider; then calls Hooks::postSolveObserver;
@@ -89,7 +89,7 @@ namespace ocs2::humanoid::ipc {
  *
  * THREADS. The MPC (its solver, reference manager and synchronized modules) is driven from the solver thread only, from
  * start() to stop(). The IO thread of the bus only decodes observations into a mailbox. Publishing goes through
- * Bus::publish(). No ROS.
+ * Bus::publish().
  */
 class MpcServer {
  public:
@@ -110,6 +110,12 @@ class MpcServer {
    */
   using PostSolveObserver =
       std::function<absl::Status(const CommandData& command, const PrimalSolution& solution, const PerformanceIndex& performance)>;
+  /**
+   * Called with the observation each solve starts from, on the solver thread right before MPC_BASE::run(): its input
+   * carries what the MPC's run does not take, such as the measured joint velocities of a centroidal MRT
+   * (ProceduralMpcMotionManager::observe()). Returns at once.
+   */
+  using PreSolveObserver = std::function<void(const SystemObservation& observation)>;
 
   struct Config {
     /** The MPC's model: an observation of other dimensions or with a mode outside it is rejected. */
@@ -132,6 +138,7 @@ class MpcServer {
   struct Hooks {
     AnnotationsProvider annotationsProvider;
     PostSolveObserver postSolveObserver;
+    PreSolveObserver preSolveObserver;
   };
 
   /** What the server has done so far; every counter only grows. */

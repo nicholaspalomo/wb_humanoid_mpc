@@ -28,7 +28,7 @@
 """The GUI's two-copy Save against the robot process: the laptop's file and the robot's stored copy are the same bytes.
 
 The robot side of the two-process simulation runs as its own process: humanoid_centroidal_mpc_robot on the DRC Atlas
-files (the MuJoCo backend, headless), with a configuration store in the test's scratch space whose seeds are the
+files (the MuJoCo backend without a viewer), with a configuration store in the test's scratch space whose seeds are the
 bundled files, as docker-compose.robot.sim.yaml runs it. The laptop side is the GUI's own code: the MPC Parameters,
 Joint PD Gains and Command Limits tabs on a copy of the Atlas files below a robot_models/ directory of the test's
 (so that the copy's configuration identity is the robot's), saving through one robot_config_save.RobotConfigSaver
@@ -169,7 +169,7 @@ class RobotProcess:
                 f"--urdf_file={ATLAS_URDF}",
                 f"--mjcf_file={ATLAS_SCENE}",
                 f"--network_config={network_file}",
-                "--headless",
+                "--viewer=none",
                 "--realtime_cores=none",
                 "--backend_cores=none",
                 f"--config_store_dir={store}",

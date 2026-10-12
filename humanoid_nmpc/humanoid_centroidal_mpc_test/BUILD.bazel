@@ -116,6 +116,23 @@ cc_test(
     ],
 )
 
+# A policy the realtime evaluator refuses is held without MRT_BASE: no allocation, one report.
+cc_test(
+    name = "test_centroidal_mpc_mrt_policy_execution",
+    size = "small",
+    srcs = ["src/testCentroidalMpcMrtPolicyExecution.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = _TEST_DATA,
+    linkstatic = True,
+    deps = _TEST_DEPS + [
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:scripted_policy_mpc_link",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_oc",
+        "//robot_runtime/robot_realtime:allocation_counter",
+    ],
+)
+
 cc_test(
     name = "test_centroidal_mpc_mrt_joint_controller",
     size = "small",

@@ -1,8 +1,7 @@
-# Distributed runtime: robot, MPC and operator without ROS
+# Distributed runtime: robot, MPC and operator
 
 This document describes how the humanoid NMPC runs as a set of processes that talk over **ZeroMQ** with
-**Protocol Buffers** messages, and how it is visualized with **Rerun**. It replaces the ROS 2 graph (rclcpp/rclpy,
-`ros2 launch`, RViz, PlotJuggler) that the repository used before.
+**Protocol Buffers** messages, and how it is visualized with **Rerun**.
 
 The design is driven by one deployment:
 
@@ -60,11 +59,9 @@ flowchart LR
 **Simulation runs the hardware topology.** The robot process and the MPC node are separate processes in every
 launch, talking over the remote link (`RemoteMpcLink` <-> `MpcServer`); the MuJoCo simulator is the robot process's
 backend (`--backend=mujoco`), where a hardware backend will plug in under its own name. The robot binaries do not host
-the MPC: the in-process mode of before the split (`--mpc_link=in_process`) was removed with its copy of the MPC node's
-assembly, and the retired flag is refused at start-up. `InProcessMpcLink` (the solver on a thread of the process,
-through `ocs2::MPC_MRT_Interface`) stays for the controller unit tests and for the deterministic lockstep closed loop of
-`humanoid_nmpc/humanoid_mpc_validation`, which runs its solver iterations itself (`InProcessMpcLink::Execution::kCaller`,
-`runSolverIteration()`) on the simulation's clock.
+the MPC. `InProcessMpcLink` (the solver on a thread of the process, through `ocs2::MPC_MRT_Interface`) serves the
+controller unit tests and the deterministic lockstep closed loop of `humanoid_nmpc/humanoid_mpc_validation`, which runs
+its solver iterations itself (`InProcessMpcLink::Execution::kCaller`, `runSolverIteration()`) on the simulation's clock.
 
 ## IPC: a ZeroMQ bus without a broker
 
@@ -222,13 +219,14 @@ structures, and runs the reset handshake below.
 (`MpcMessageConversions.h`), the robot side of the link (`RemoteMpcLink.h`, target `:remote_mpc_link`) and the MPC
 side (`MpcServer.h`, target `:mpc_server`); see [its README](../../humanoid_mpc_ipc/README.md).
 
-The controller talks to an `MpcLink` (`humanoid_common_mpc/mrt/MpcLink.h`, still to be written), an `ocs2::MRT_BASE`
-with a solver behind it. `RemoteMpcLink` derives `ocs2::MRT_BASE` directly until then:
+The controller talks to an `MpcLink` (`humanoid_common_mpc/mrt/MpcLink.h`), an `ocs2::MRT_BASE` with a solver behind
+it. `InProcessMpcLink` implements it; `RemoteMpcLink` derives `ocs2::MRT_BASE` directly, and the robot process hands it
+to the controller through `RemoteMpcLinkAdapter` (`humanoid_common_mpc_app/robot`):
 
 | | `InProcessMpcLink` | `RemoteMpcLink` |
 |---|---|---|
 | solver | `ocs2::MPC_MRT_Interface` on a thread of this process, or on the caller's (`Execution::kCaller`) | the MPC node (`MpcServer`), over the bus |
-| `setCurrentObservation()` | copy under the observation mutex (as before) | write into a triple buffer (no lock, no allocation) |
+| `setCurrentObservation()` | copy under the observation mutex | write into a triple buffer (no lock, no allocation) |
 | policy in | `advanceMpc()` -> `moveToBuffer()` on the solver thread | `mpc/policy` -> parse -> `moveToBuffer()` on the bus's IO thread |
 | resets | served by its solver thread | requested through the observation's counters, served by the MPC node |
 | `resetMpcNode()` | resets at once | requests a full reset and returns at once |
@@ -272,27 +270,33 @@ backwards restarts the timeout but does not end a loss. A policy solved from an 
 
 The realtime thread evaluates the policy in use with `RealtimePolicyEvaluator` (`humanoid_mpc_ipc`), which computes what
 `MRT_BASE::evaluatePolicy()` does without its heap allocations and its logging; both MRT joint controllers use it, with
-the in-process link too. The policy's `annotations` (the contact planner's target contact patches and the scaled walking
+the in-process link too. On a state manifold (`RemoteMpcLink::Config::stateManifold`, the evaluator given the same) the
+policy is the SQP's `ManifoldLinearController` (`CONTROLLER_TYPE_MANIFOLD_LINEAR`, its anchor states sent with it),
+which the evaluator executes through the manifold's allocation-free `differenceInto()` and `interpolateInto()`; a policy
+of the other kind is refused on either side. The policy's `annotations` (the contact planner's target contact patches and the scaled walking
 command) reach the robot process's communication thread through `RemoteMpcLink::takeAnnotations()`, which draws them in
 the MuJoCo viewer.
 
 ### Bandwidth
 
-A feedforward policy is about 46 KB, a linear one (feedback gains) about 480 KB for nx = nu = 30 over 60 nodes
-(`humanoid_mpc_ipc:test_mpc_message_conversions` prints both). At 50-80 Hz the latter is 24-38 MB/s, too much for
-Wi-Fi. `mpc.solution_time_window` (OCS2's MPC settings) bounds the horizon that is sent: the MPC node cuts every policy
+A policy's controller costs, per node, `nu` doubles for a feedforward policy, `nu (nx + 1)` for a linear one (feedback
+gains on the stored state) and `nu + nx + nu ndx` for a manifold-linear one (the `ManifoldLinearController` of a solver
+on a state manifold: the nominal input, the anchor state, and the gains on the `ndx` tangent directions), on top of the
+state and input trajectories. A feedforward policy is about 46 KB, a linear one about 480 KB for nx = nu = 30 over 60
+nodes, and a manifold-linear one about 490 KB with a quaternion in the state (nx = 31, ndx = nu = 30)
+(`humanoid_mpc_ipc:test_mpc_message_conversions` prints all three). At 50-80 Hz the latter two are 24-40 MB/s, too much
+for Wi-Fi. `mpc.solution_time_window` (OCS2's MPC settings) bounds the horizon that is sent: the MPC node cuts every policy
 to it (`trimToSolutionWindow()`, upstream OCS2 GaussNewtonDDP's rule), also for `SqpSolver`, which ignores it in
-process. Every shipped task file keeps the full horizon (-1) as before. Measured on the DRC Atlas
-(`make ipc-hz TOPIC=mpc/policy`): 742 KB per policy at 49 Hz, 36 MB/s, which loopback carries easily and a gigabit
-link with room; before a robot runs over a slower link, set `solution_time_window` to what the robot needs between
-two policies (a few MPC periods).
+process. Every shipped task file keeps the full horizon (-1). A DRC Atlas policy (nx = 37) is roughly 0.75 MB, under
+40 MB/s at about 50 Hz (`make ipc-hz TOPIC=mpc/policy` measures it), which loopback carries easily and a gigabit link
+with room. Before a robot runs over a slower link, set `solution_time_window` to what the robot needs between two
+policies (a few MPC periods).
 
 ## Visualization with Rerun
 
 The visualization publisher ([`humanoid_common_mpc_app/visualization`](../../humanoid_common_mpc_app/visualization/README.md))
 runs on a low-priority thread of the MPC node: `humanoid_centroidal_mpc_node` and `humanoid_wb_mpc_node` always attach
-it, as the ROS nodes always ran their visualizer. The solver thread's post-solve hook hands it the
-latest observation and policy, and its `robot/state` subscription every sample, through lock-free mailboxes that never
+it. The solver thread's post-solve hook hands it the latest observation and policy, and its `robot/state` subscription every sample, through lock-free mailboxes that never
 block the solver; samples that do not fit its bounded queue are dropped and counted. It computes everything with
 Pinocchio and the MPC's robot model, and publishes:
 
@@ -309,22 +313,23 @@ in the dev container), `connect` streams to a running viewer and `save` writes a
 entity paths and the telemetry groups the visualization publisher must send: the contract between the two.
 
 <!-- LINT.IfChange(rerun_mapping) -->
-| RViz / PlotJuggler before | Rerun now |
+| Rerun entity | What it draws |
 |---|---|
-| RobotModel + `robot_state_publisher` (measured) | `world/robots/measured` |
-| "Terminal State RobotModel" | `world/robots/terminal_state` |
-| "Terminal Target RobotModel" (off by default) | `world/robots/terminal_target` (hidden by default) |
-| `cartesian_markers`: EE forces at the CoP, CoP, equivalent corner forces (off) | `world/markers/contact_forces`, `world/markers/center_of_pressure`, `world/markers/corner_forces` (hidden) |
-| `optimized_state_markers`: EE, base and CoM trajectories, future footholds | `world/plan/end_effectors`, `world/plan/base`, `world/plan/com`, `world/plan/footholds` |
-| `collision_markers` (off) | `world/markers/collision_spheres` (hidden) |
-| PlotJuggler tabs (6) | the blueprint's plot tabs, same panels |
+| `world/robots/measured` | the measured robot, every joint of the URDF |
+| `world/robots/terminal_state` | the robot at the last node of the plan |
+| `world/robots/terminal_target` (hidden by default) | the robot at the target trajectory's state at the plan's final time |
+| `world/markers/contact_forces`, `world/markers/center_of_pressure`, `world/markers/corner_forces` (hidden) | the end-effector forces at the center of pressure, the center of pressure, the equivalent corner forces |
+| `world/plan/end_effectors`, `world/plan/base`, `world/plan/com`, `world/plan/footholds` | the plan's end-effector, base and CoM trajectories and its future footholds |
+| `world/markers/collision_spheres` (hidden) | the collision spheres |
+| `telemetry/<path>` | the blueprint's plot tabs: the panel tabs and the tabs of the complete groups (the telemetry contract) |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/scene_contract.py:robot_instances, //humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/scene_contract.py:markers) -->
 
 ## Configuration
 
 - **Command line** (Abseil flags): `--robot_name --task_file --reference_file --gait_file --urdf_file --mjcf_file
-  --network_config --ipc_node --mpc_link --realtime_priority`; the robot binaries add `--backend --realtime_cores
-  --backend_cores --headless --config_store_dir --config_seed` ([`humanoid_common_mpc_app/robot`](../../humanoid_common_mpc_app/robot/README.md#the-command-line)).
+  --network_config --ipc_node --realtime_priority`; the robot binaries add `--backend --realtime_cores
+  --backend_cores --viewer --plot_config --web_viewer_address --web_viewer_port --web_viewer_allowed_hosts
+  --viewer_cores --config_store_dir --config_seed` ([`humanoid_common_mpc_app/robot`](../../humanoid_common_mpc_app/robot/README.md#the-command-line)).
 - **Task file** (`config/mpc/task.textproto`): `mpc_link.policy_timeout`, `telemetry_sinks` (the robot process's
   telemetry, by name: `bus` publishes `robot/state`), `telemetry_frequency`, `telemetry_frames`, `rerun_scene_frequency`,
   `rerun_plan_frames`, and the existing controller and simulator fields
@@ -346,7 +351,7 @@ description a fourth:
 <!-- LINT.ThenChange(//robot_models/tests/test_launch_files.py:robot_configurations, //Makefile:launch_targets) -->
 
 Their variables name the robot's files relative to the repository root (`task_file`, `reference_file`, `urdf_file`,
-`mjcf_file`, `gait_file`, `network_file`) and the settings a deployment changes (`backend`, `headless`,
+`mjcf_file`, `gait_file`, `network_file`, `plot_config`) and the settings a deployment changes (`backend`, `viewer`,
 `realtime_priority`, `realtime_cores`, `backend_cores`, `config_store_dir`, `config_seed`, `rerun_sink`); `--set name=value` overrides one.
 `//robot_models/tests:test_launch_files` checks that every one parses, starts built binaries with flags they define and
 files that exist, and keeps the robot process and the MPC apart.
@@ -383,7 +388,7 @@ laptop runs the MPC node, the GUI and the Rerun bridge from the dev container.
 the laptop's terminal. The robot's computer needs Docker with the compose plugin, and nothing of the repository.
 
 **Simulation mirrors the hardware.** `make launch-<robot>-sim` runs the same split on one machine: the robot side in the
-`robot-sim` container - `robot-runtime` plus only the MuJoCo viewer's GL, with the same compose file, the same
+`robot-sim` container - `robot-runtime` plus only the MuJoCo viewers' GL and EGL, with the same compose file, the same
 `SCHED_FIFO` and locked memory - and the laptop side in the dev container, over the remote MPC link on the shipped
 localhost network. Nothing runs the MPC inside the robot process (the robot binaries have no in-process mode;
 `InProcessMpcLink` is for the controller unit tests and the lockstep closed loop). The robot container's bundled files
@@ -391,8 +396,12 @@ are the checkout's `robot_models`, mounted read-only, which seed its stored conf
 the GUI's Save reaches it over the bus, as on the robot ("Saving the configuration", tools/deploy/README.md,
 "Simulation"). `NETEM="delay 3ms 1ms loss 0.5%"` shapes
 the bus's packets on loopback with tc-netem while the robot container runs, to rehearse the robot's link
-(`tools/deploy/netem.sh`). Until a hardware backend exists, the robot deployment runs the MuJoCo backend headless on
-the robot's computer: a true two-machine simulation. A hardware backend registers under a name of its own
+(`tools/deploy/netem.sh`). The MuJoCo viewer is chosen by name: the `mujoco_viewer` of the plot configuration
+(`humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto`, `PLOT_CONFIG=`) unless `--viewer` (`VIEWER=`,
+`WB_ROBOT_VIEWER`) names one. `web`, the default, renders offscreen and serves the view to a browser tab at
+`http://localhost:6090` (loopback only; `ssh -L 6090:127.0.0.1:6090 <host>` from another machine); `glfw` is a window
+on the VNC desktop; `none` runs without one. Until a hardware backend exists, the robot deployment runs the MuJoCo backend without a viewer (`none`,
+robot-runtime's default) on the robot's computer: a true two-machine simulation. A hardware backend registers under a name of its own
 (`RobotBackendRegistry`) and is selected with `WB_ROBOT_BACKEND` (`make deploy-robot BACKEND=`), but that is not all it
 takes: the robot process's FSM bridge (`SimFsmBridge`) and fall recovery (`SimFallRecovery`) drive the simulator's
 gantry and torque switch, and `RobotProcess::Create()` refuses a backend without a simulator (Unimplemented). A
@@ -429,26 +438,3 @@ off the gantry, standing, walking at 0.3 m/s and stopping (25 s operated): the r
 `SCHED_FIFO` 80 on cores 4-5 with the process's memory locked, 0 overruns, the 10 ms period held to within 0.2 ms, at
 most 0.9 ms of compute per cycle; solves 9.0 ms median, 10.3 ms p99; the policy in use 20 ms old (40 ms at most) at the
 robot. Under NETEM: the same loop timing, the policy 30 ms old (40 ms at most), no fall.
-
-## From ROS 2
-
-The repository ran on ROS 2 (Jazzy) before this runtime; every ROS package, launch file and configuration was deleted
-with it, and the build no longer needs a ROS installation (Pinocchio comes from robotpkg, `docker/install_robotpkg.sh`).
-What took the place of each part:
-
-| ROS 2 | Now |
-|---|---|
-| The SQP nodes and dummy-sim nodes of the centroidal and whole-body MPC | `humanoid_*_mpc_node` and `humanoid_*_mpc_dummy_sim` ([`humanoid_centroidal_mpc_app`](../../humanoid_centroidal_mpc_app/README.md), [`humanoid_wb_mpc_app`](../../humanoid_wb_mpc_app/README.md)) |
-| The MuJoCo sim nodes, with the MPC solved in the same process | the robot process `humanoid_*_mpc_robot` with the MuJoCo backend, against the MPC node over the bus ([`humanoid_common_mpc_app/robot`](../../humanoid_common_mpc_app/robot/README.md)) |
-| The keyboard command node | `//humanoid_nmpc/humanoid_common_mpc_app/teleop:velocity_keyboard_command` |
-| OCS2's ROS interfaces (`MPC_ROS_Interface`, `MRT_ROS_Interface`) and messages | `MpcServer` and `RemoteMpcLink` (`humanoid_nmpc/humanoid_mpc_ipc`), the Protocol Buffers messages of `humanoid_mpc_msgs` |
-| The ROS messages of `humanoid_mpc_msgs` | its `.proto` files |
-| The visualizer and the telemetry publishers, on the realtime control thread | the visualization publisher of the MPC process ([`humanoid_common_mpc_app/visualization`](../../humanoid_common_mpc_app/visualization/README.md)) |
-| RViz and its configuration files | the Rerun bridge's 3D view (`humanoid_nmpc/humanoid_rerun_viewer`) |
-| The URDF display launch files with joint_state_publisher_gui | the model sandbox (`humanoid_rerun_viewer:model_sandbox`, `make launch-<robot>-sandbox`): the URDF at a slider per joint |
-| PlotJuggler and its layout | the Rerun bridge's plot tabs, panel for panel |
-| `ros2 launch` and the `*.launch.py` files | `tools/launch` and its textproto launch files (`robot.textproto`, `mpc.textproto`, `dummy_sim.textproto`, `sandbox.textproto`) |
-| `mujoco_sim.launch.py`: one process with the simulator and the MPC | the robot process in the robot-sim container and the MPC node in the dev container, over the bus (`make launch-<robot>-sim`) |
-| `ros2 topic list/echo/hz` | `tools/ipc` (`bazel run //tools/ipc:ipc_tool -- list`) |
-| The ament index that `setup_env.sh` filled with a copy of the source tree | the binaries' Bazel runfiles (`robot_runtime/robot_core/include/robot_core/ResourcePaths.h`) |
-| The ROS MPC observation logger of `humanoid_common_mpc_pyutils` | its bus subscriber `mpc_observation_logger` (generic `x<i>`, `u<i>` CSV columns) |

@@ -39,5 +39,11 @@ services:
       - "5901:5901"
       - "6080:6080"
       # LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/README.md:vnc_ports, //Makefile:vnc_ports)
+      # LINT.IfChange(web_viewer_port)
+      # The MuJoCo web viewer of a robot process run in this container (--viewer=web), on the computer's loopback
+      # only. Publishing reaches the container's own interface, not its loopback, so that process binds it with
+      # --web_viewer_address=0.0.0.0; its Host checks stay on (.devcontainer/README.md, "MuJoCo Web Viewer").
+      - "127.0.0.1:6090:6090/tcp"
+      # LINT.ThenChange(//.devcontainer/devcontainer.json:web_viewer_port, //.devcontainer/README.md:web_viewer_port, //humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotAppFlags.cpp:web_viewer_port)
       # Jupyter Notebook Dashboard port
       - "8888:8888"

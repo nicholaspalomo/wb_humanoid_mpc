@@ -67,8 +67,9 @@ absl::StatusOr<std::unique_ptr<WBMpcNode>> WBMpcNode::Create(const node::MpcFile
   calculator->setTerrainHeightSource(
       [referenceManager = interface.getSwitchedModelReferenceManagerPtr()]() { return referenceManager->getAppliedTerrainHeight(); });
   const ProceduralMpcMotionManager::VelocityTargetToTargetTrajectories targetTrajectoriesFunction =
-      [calculator](const vector4_t& velocityTarget, scalar_t initTime, scalar_t /*finalTime*/, const vector_t& initState) {
-        return calculator->commandedVelocityToTargetTrajectories(velocityTarget, initTime, initState);
+      [calculator](const vector4_t& velocityTarget, scalar_t initTime, scalar_t /*finalTime*/, const vector_t& initState,
+                   const BasePlanarMotion& measuredMotion) {
+        return calculator->commandedVelocityToTargetTrajectories(velocityTarget, initTime, initState, measuredMotion);
       };
   ASSIGN_OR_RETURN(node->motionManager_,
                    ProceduralMpcMotionManager::Create(files.gaitFile, files.referenceFile, interface.getSwitchedModelReferenceManagerPtr(),
@@ -103,12 +104,15 @@ absl::StatusOr<std::unique_ptr<WBMpcNode>> WBMpcNode::Create(const node::MpcFile
   components.parameterUpdateSink = [parameterUpdater](const mpc_config::MpcParameterUpdate& update) {
     parameterUpdater->enqueueParameterUpdate(update);
   };
-  // The visualization publisher, on the node's bus: the MPC's own models, copied before the solver thread runs.
+  // The visualization publisher, on the node's bus: the MPC's own models, copied before the solver thread runs, and the
+  // state manifold the problem, the rollout and the policies share, along which it interpolates the policies' states
+  // (retained: interface_ outlives visualization_).
   components.attachVisualization = visualization::VisualizationPublisher::MakeBusAttacher(
       visualization::VisualizationModel{.taskFile = files.taskFile,
                                         .urdfFile = files.urdfFile,
                                         .pinocchioInterface = &interface.getPinocchioInterface(),
-                                        .mpcRobotModel = &interface.getMpcRobotModel()},
+                                        .mpcRobotModel = &interface.getMpcRobotModel(),
+                                        .stateManifold = interface.getStateManifold().get()},
       std::move(options.visualization), &node->visualization_);
 
   node::MpcNodeRuntime::Config config;

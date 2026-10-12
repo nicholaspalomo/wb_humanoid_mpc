@@ -49,7 +49,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_oc/rollout/RolloutBase.h>
 
 #include "ocs2_mpc/CommandData.h"
-#include "ocs2_mpc/MrtObserver.h"
 #include "ocs2_mpc/SystemObservation.h"
 
 namespace ocs2 {
@@ -154,22 +153,10 @@ class MRT_BASE {
   /**
    * Checks the data buffer for an update of the MPC policy. If a new policy
    * is available on the buffer this method will load it to the in-use policy.
-   * This method also calls the modifyActiveSolution() method.
    *
    * @return True if the policy is updated.
    */
   bool updatePolicy();
-
-  /**
-   * @brief rolloutSet: Whether or not the internal rollout object has been set
-   * @return True if a rollout object is available.
-   */
-  bool isRolloutSet() const { return rolloutPtr_ != nullptr; }
-
-  /**
-   * Adds an MRT observer to the policy update process
-   */
-  void addMrtObserver(std::shared_ptr<MrtObserver> mrtObserver) { observerPtrArray_.push_back(std::move(mrtObserver)); };
 
   /**
    * Drops a policy that is waiting in the buffer and starts a new policy epoch, so that no policy solved before this
@@ -194,12 +181,6 @@ class MRT_BASE {
                     std::unique_ptr<PerformanceIndex> performanceIndicesPtr);
 
  private:
-  /** Calls modifyActiveSolution on all mrt observers. This function is called while holding a policyBufferMutex lock */
-  void modifyActiveSolution(const CommandData& command, PrimalSolution& primalSolution);
-
-  /** Calls modifyBufferedSolution on all mrt observers. This function is called while holding a policyBufferMutex lock */
-  void modifyBufferedSolution(const CommandData& commandBuffer, PrimalSolution& primalSolutionBuffer);
-
   // flags on state of the class
   std::atomic_bool policyReceivedEver_;
   bool newPolicyInBuffer_;  // whether a new policy is waiting to be swapped in
@@ -226,8 +207,6 @@ class MRT_BASE {
   // variables needed for policy evaluation
   std::unique_ptr<RolloutBase> rolloutPtr_;
   std::shared_ptr<const StateManifold> stateManifoldPtr_;
-
-  std::vector<std::shared_ptr<MrtObserver>> observerPtrArray_;
 };
 
 }  // namespace ocs2

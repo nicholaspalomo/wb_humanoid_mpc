@@ -52,10 +52,7 @@ WBAccelDynamicsAD::WBAccelDynamicsAD(const PinocchioInterface& pinocchioInterfac
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-ad_vector_t WBAccelDynamicsAD::systemFlowMap(ad_scalar_t /*time*/,
-                                             const ad_vector_t& state,
-                                             const ad_vector_t& input,
-                                             const ad_vector_t& /*parameters*/) const {
+ad_vector_t WBAccelDynamicsAD::systemFlowMap(ad_scalar_t /*time*/, const ad_vector_t& state, const ad_vector_t& input) const {
   return computeStateDerivative<ad_scalar_t>(state, input, pinInterfaceCppAd_, mpcRobotModel_);
 }
 

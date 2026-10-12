@@ -171,7 +171,6 @@ class TestTheSchemasSayHowEveryFieldIsTuned(unittest.TestCase):
         for path, registry in (
             ("multiple_shooting.integrator_type", "sensitivity_integrator"),
             ("rollout.integrator_type", "rollout_integrator"),
-            ("rollout.root_finder_type", "root_finder"),
         ):
             with self.subTest(path=path):
                 self.assertEqual(fields[path].kind, config_schema.Kind.CHOICE)

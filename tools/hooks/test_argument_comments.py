@@ -27,11 +27,6 @@
 
 """Tests for argument_comments.py, the lint check for literal arguments without a Google-style argument comment."""
 
-import contextlib
-import io
-import os
-import subprocess
-import tempfile
 import unittest
 
 from tools.hooks import argument_comments
@@ -39,10 +34,18 @@ from tools.hooks import check_test_support
 
 
 def flagged(source):
-    """The (callee, literal, position) of every violation in `source`."""
+    """The (callee, literal, position) of every violation in `source`, before any NOLINT marker."""
     return [
         (v.callee, v.literal, v.position)
-        for v in argument_comments.check_source(source)
+        for v in argument_comments.unsuppressed_violations(source)
+    ]
+
+
+def registry_lines(source):
+    """The lines the registry engine reports for `source`, a first-party C++ file, after its NOLINT markers."""
+    return [
+        f.line
+        for f in check_test_support.findings("argument-comment", source, "src/a.cpp")
     ]
 
 
@@ -101,7 +104,7 @@ class FlagsBareLiteralsTest(unittest.TestCase):
         )
 
     def test_the_location_is_the_literal(self):
-        violations = argument_comments.check_source(
+        violations = argument_comments.unsuppressed_violations(
             "int x;\nfoo(a,\n    b,\n      7);\n"
         )
         self.assertEqual([(v.line, v.col) for v in violations], [(4, 7)])
@@ -254,78 +257,18 @@ class ExemptionsTest(unittest.TestCase):
         self.assertEqual(flagged(source), [])
 
     def test_nolint(self):
-        self.assertEqual(flagged("f(a, 0);  // NOLINT(argument-comment)"), [])
-        self.assertEqual(flagged("// NOLINTNEXTLINE(argument-comment)\nf(a, 0);"), [])
+        # The registry applies the markers: NOLINT and NOLINTNEXTLINE with a reason suppress the finding.
+        self.assertEqual(
+            registry_lines("f(a, 0);  // NOLINT(argument-comment): a reason\n"), []
+        )
+        self.assertEqual(
+            registry_lines("// NOLINTNEXTLINE(argument-comment): a reason\nf(a, 0);\n"),
+            [],
+        )
         # Only the named check is suppressed.
         self.assertEqual(
-            flagged("f(a, 0);  // NOLINT(some-other-check)"), [("f", "0", 2)]
+            registry_lines("f(a, 0);  // NOLINT(some-other-check): a reason\n"), [1]
         )
-
-
-class StagedModeTest(unittest.TestCase):
-    """The pre-commit hook's mode: the index of a real git repository, not its working tree."""
-
-    def setUp(self):
-        # pylint: disable-next=consider-using-with  # tearDown() deletes it.
-        self.directory = tempfile.TemporaryDirectory()
-        self.root = self.directory.name
-        self.run_git("init", "-q")
-        self.run_git("config", "user.email", "test@example.com")
-        self.run_git("config", "user.name", "test")
-
-    def tearDown(self):
-        self.directory.cleanup()
-
-    def run_git(self, *args):
-        return subprocess.run(
-            ["git", "-C", self.root, *args], check=True, capture_output=True, text=True
-        )
-
-    def write(self, path, text):
-        full = os.path.join(self.root, path)
-        os.makedirs(os.path.dirname(full), exist_ok=True)
-        with open(full, "w", encoding="utf-8") as f:
-            f.write(text)
-
-    def staged(self):
-        return [(v.path, v.literal) for v in argument_comments.check_staged(self.root)]
-
-    def test_a_staged_violation_is_reported(self):
-        self.write("src/a.cpp", "void g() { f(a, 0); }\n")
-        self.run_git("add", "src/a.cpp")
-        self.assertEqual(self.staged(), [("src/a.cpp", "0")])
-
-    def test_the_index_is_checked_not_the_working_tree(self):
-        # Staged fixed, then broken again in the working tree only: the commit is fine.
-        self.write("a.cpp", "void g() { f(a, /*index=*/0); }\n")
-        self.run_git("add", "a.cpp")
-        self.write("a.cpp", "void g() { f(a, 0); }\n")
-        self.assertEqual(self.staged(), [])
-        # And the reverse: a violation staged, fixed only in the working tree, still blocks.
-        self.run_git("add", "a.cpp")
-        self.write("a.cpp", "void g() { f(a, /*index=*/0); }\n")
-        self.assertEqual(self.staged(), [("a.cpp", "0")])
-
-    def test_only_files_the_commit_touches(self):
-        self.write("old.cpp", "void g() { f(a, 0); }\n")
-        self.run_git("add", "old.cpp")
-        self.run_git("commit", "-q", "-m", "legacy")
-        self.write("new.cpp", "void g() { f(a, /*index=*/0); }\n")
-        self.run_git("add", "new.cpp")
-        self.assertEqual(
-            self.staged(), [], "a committed file the commit does not touch blocked it"
-        )
-
-    def test_vendored_code_other_languages_and_deletions_are_ignored(self):
-        self.write("lib/ocs2/x.cpp", "void g() { f(a, 0); }\n")
-        self.write("tool.py", "f(a, 0)\n")
-        self.write("gone.h", "void g() { f(a, 0); }\n")
-        self.run_git("add", ".")
-        self.run_git("commit", "-q", "-m", "base")
-        self.run_git("rm", "-q", "gone.h")
-        self.write("lib/ocs2/x.cpp", "void g() { f(b, 0); }\n")
-        self.run_git("add", ".")
-        self.assertEqual(self.staged(), [])
 
 
 class PreCommitHookTest(unittest.TestCase):
@@ -339,25 +282,6 @@ class PreCommitHookTest(unittest.TestCase):
             "src/a.cpp",
             clean="void g() {\n  f(a, /*index=*/0);\n}\n",
         )
-
-
-class CommandLineTest(unittest.TestCase):
-    def test_exit_status_and_report(self):
-        with tempfile.TemporaryDirectory() as directory:
-            bad = os.path.join(directory, "bad.cpp")
-            good = os.path.join(directory, "good.cpp")
-            with open(bad, "w", encoding="utf-8") as f:
-                f.write("void g() { f(a, 0); }\n")
-            with open(good, "w", encoding="utf-8") as f:
-                f.write("void g() { f(a, /*index=*/0); }\n")
-            output = io.StringIO()
-            with contextlib.redirect_stdout(output):
-                self.assertEqual(argument_comments.main([good]), 0)
-                self.assertEqual(argument_comments.main([bad]), 1)
-            self.assertIn(
-                "bad.cpp:1:17: bare literal `0` as argument 2 of `f(...)`",
-                output.getvalue(),
-            )
 
 
 if __name__ == "__main__":

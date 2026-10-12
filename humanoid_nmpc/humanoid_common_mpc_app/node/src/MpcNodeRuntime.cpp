@@ -110,6 +110,13 @@ absl::StatusOr<std::unique_ptr<MpcNodeRuntime>> MpcNodeRuntime::Create(std::uniq
   if (components.attachVisualization) {
     ASSIGN_OR_RETURN(hooks.postSolveObserver, components.attachVisualization(*runtime->bus_));
   }
+  // On the solver thread, before the solve: the observation it starts from, whose input carries the measured joint
+  // velocities the motion manager's exact base twist needs (ProceduralMpcMotionManager::observe()).
+  // LINT.IfChange(observation_hand_over)
+  hooks.preSolveObserver = [motionManager = components.motionManager](const SystemObservation& observation) {
+    motionManager->observe(observation);
+  };
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/ClosedLoopDriver.cpp:observation_hand_over)
 
   ipc::MpcServer::Config serverConfig;
   serverConfig.dimensions = config.dimensions;

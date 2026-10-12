@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_validation/closed_loop/RobotConfiguration.h"
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/MujocoUtils.h"
+#include "mujoco_sim_interface/viewer/ViewerNames.h"
 #include "robot_model/RobotDescription.h"
 #include "robot_model/RobotState.h"
 
@@ -68,7 +69,7 @@ using ::testing::HasSubstr;
 
 constexpr int kErrorSize = 1000;
 
-/** The hold a configuration runs on. A change of one changes its closed-loop runs (data/closed_loop/M0_main). */
+/** The hold a configuration runs on. A change of one changes its closed-loop runs. */
 struct ExpectedHold {
   std::string configuration;
   GantryHold hold = GantryHold::kWeldConstraint;
@@ -139,7 +140,7 @@ TEST(RobotSceneGantryHold, TheRobotProcessesSimulatorRunsOnTheHoldTheTaskFileNam
     options.mjcfFile = configuration.sceneFile;
     options.initialState.emplace(*description);
     options.simulator = settings->simulator;
-    options.headless = true;
+    options.viewer.names = {robot::mujoco_sim_interface::kNoViewerName};
     const absl::StatusOr<std::unique_ptr<MujocoRobotBackend>> backend = MujocoRobotBackend::Create(options);
     ASSERT_TRUE(backend.ok()) << configuration.name << ": " << backend.status();
     const robot::mujoco_sim_interface::MujocoSimInterface* absl_nullable simulator = (*backend)->simulator();

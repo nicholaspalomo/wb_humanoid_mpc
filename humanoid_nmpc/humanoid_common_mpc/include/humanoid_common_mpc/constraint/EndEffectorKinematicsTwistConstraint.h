@@ -99,9 +99,6 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
   /** Sets the number of constraint rows (3 = translation-only, 6 = full pose). */
   void setNumConstraints(size_t numConstraints) { numConstraints_ = numConstraints; }
 
-  /** Gets the underlying end-effector kinematics interface. */
-  EndEffectorKinematics<scalar_t>& getEndEffectorKinematics() { return *endEffectorKinematicsPtr_; }
-
   /**
    * Adds the rotation rate about the end-effector normal to the plane-normal row of the orientation block. Off by
    * default: it makes a 6D constraint pin all six degrees of freedom, which is correct but removes one input degree of
@@ -116,6 +113,9 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
   /** Gets the current ground contact plane normal. */
   const vector3_t& getGroundPlaneNormal() const { return ground_plane_normal_; }
 
+  /** Returns the end-effector kinematics the constraint evaluates, owned by the constraint and valid for its lifetime. */
+  const EndEffectorKinematics<scalar_t>& getEndEffectorKinematics() const { return *endEffectorKinematicsPtr_; }
+
   size_t getNumConstraints(scalar_t /*time*/) const override { return numConstraints_; }
   vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
   VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
@@ -123,11 +123,9 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
                                                            const vector_t& input,
                                                            const PreComputation& preComp) const override;
 
- private:
-  EndEffectorKinematicsTwistConstraint(const EndEffectorKinematicsTwistConstraint& rhs);
-
   /**
-   * The 3x3 matrix M that maps the end-effector angular velocity to the rate of the orientation constraint residual.
+   * The 3x3 matrix M that maps the end-effector angular velocity omega - world frame, the angular part of getTwist() -
+   * to the rate of the orientation constraint residual at `state`.
    *
    * With v the end-effector normal (R * e_z) and n the plane normal, the orientation error of
    * rotationMatrixDistanceToPlane is e = -(v x n) / sqrt(2 (1 + v.n)), whose analytic derivative is
@@ -139,8 +137,16 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
    * contact normal. When setConstrainYawRateAboutNormal() is set, the term 0.5 * n * v^T is added, which puts the
    * rotation rate about the end-effector normal into the plane-normal row with the same half-angle scaling the tilt
    * rows have, making the result full rank.
+   *
+   * getLinearApproximation() holds M at its value at the linearization point, so the state Jacobian it reports lacks
+   * Av_ang (dM/dx) omega, which vanishes where the foot does not turn; its input Jacobian is exact. Public for
+   * testQuaternionRootTermDerivatives, which differences M to check that this term is the whole difference from the
+   * derivative, and that the tilt rows of M omega are the rate of the residual along the flow map.
    */
   matrix3_t getAngularVelocityToOrientationErrorRateMap(const vector_t& state) const;
+
+ private:
+  EndEffectorKinematicsTwistConstraint(const EndEffectorKinematicsTwistConstraint& rhs);
 
   vector3_t ground_plane_normal_;
   bool constrainYawRateAboutNormal_ = false;

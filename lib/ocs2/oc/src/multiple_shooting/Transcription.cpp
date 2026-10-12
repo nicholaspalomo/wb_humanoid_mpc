@@ -101,24 +101,16 @@ Transcription setupIntermediateNode(OptimalControlProblem& optimalControlProblem
   return transcription;
 }
 
-void projectTranscription(Transcription& transcription, bool extractProjectionMultiplier) {
+void projectTranscription(Transcription& transcription) {
   auto& cost = transcription.cost;
   auto& dynamics = transcription.dynamics;
   auto& stateInputEqConstraints = transcription.stateInputEqConstraints;
   auto& stateInputIneqConstraints = transcription.stateInputIneqConstraints;
   auto& projection = transcription.constraintsProjection;
-  auto& projectionMultiplierCoefficients = transcription.projectionMultiplierCoefficients;
 
   if (stateInputEqConstraints.f.size() > 0) {
-    // Projection stored instead of constraint, // TODO: benchmark between lu and qr method. LU seems slightly faster.
-    if (extractProjectionMultiplier) {
-      matrix_t constraintPseudoInverse;
-      std::tie(projection, constraintPseudoInverse) = LinearAlgebra::qrConstraintProjection(stateInputEqConstraints);
-      projectionMultiplierCoefficients.compute(cost, dynamics, projection, constraintPseudoInverse);
-    } else {
-      projection = LinearAlgebra::luConstraintProjection(stateInputEqConstraints).first;
-      projectionMultiplierCoefficients = ProjectionMultiplierCoefficients();
-    }
+    // Projection stored instead of constraint
+    projection = LinearAlgebra::luConstraintProjection(stateInputEqConstraints);
     stateInputEqConstraints = VectorFunctionLinearApproximation();
 
     // Adapt dynamics, cost, and state-input inequality constraints

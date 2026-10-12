@@ -182,10 +182,7 @@ template ad_vector_t CentroidalDynamicsBasisInputsAD::toWorldFrameWrenchInput<ad
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-ad_vector_t CentroidalDynamicsBasisInputsAD::systemFlowMap(ad_scalar_t /*time*/,
-                                                           const ad_vector_t& state,
-                                                           const ad_vector_t& input,
-                                                           const ad_vector_t& /*parameters*/) const {
+ad_vector_t CentroidalDynamicsBasisInputsAD::systemFlowMap(ad_scalar_t /*time*/, const ad_vector_t& state, const ad_vector_t& input) const {
   // Work on local copies: this method is const and the tape must not depend on shared mutable state.
   PinocchioInterfaceCppAd pinocchioInterfaceCppAd = pinocchioInterfaceCppAd_;
   CentroidalModelPinocchioMappingCppAd mappingCppAd(infoCppAd_);
@@ -205,8 +202,10 @@ ad_vector_t CentroidalDynamicsBasisInputsAD::systemFlowMap(ad_scalar_t /*time*/,
   centroidal_model::getNormalizedMomentum(stateDerivative, info) =
       getNormalizedCentroidalMomentumRate(pinocchioInterfaceCppAd, info, wrenchInput);
 
-  // derivatives of the floating base variables + joint velocities
-  centroidal_model::getGeneralizedCoordinates(stateDerivative, info) = mappingCppAd.getPinocchioJointVelocity(state, wrenchInput);
+  // derivatives of the generalized coordinates [p_W, xi, q_j] from the pinocchio velocity [dp_W, w_B, dq_j]: the
+  // quaternion row is 1/2 G(xi) w_B of the raw xi of the state (computeConfigurationDerivative())
+  const ad_vector_t vPinocchio = mappingCppAd.getPinocchioJointVelocity(state, wrenchInput);
+  centroidal_model::configurationDerivative(stateDerivative, info) = computeConfigurationDerivative(info, state, vPinocchio);
 
   return stateDerivative;
 }

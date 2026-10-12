@@ -86,15 +86,13 @@ class Fnv1a64 {
 /**
  * A fingerprint of everything the taped heights depend on: each frame's placement on its parent joint - which is where
  * `contact_rectangle` and `contact_frame_translation` end up - and every joint placement and joint type on the chain
- * from that joint to the root, plus the state and coordinate dimensions the tape is laid out in.
+ * from that joint to the root, plus the state and configuration dimensions the tape is laid out in (the heights are a
+ * function of the configuration q only, so its velocity dimension does not enter).
  */
-uint64_t geometryFingerprint(const pinocchio::Model& model,
-                             const std::vector<size_t>& frameIds,
-                             size_t stateDim,
-                             size_t generalizedCoordinatesDim) {
+uint64_t geometryFingerprint(const pinocchio::Model& model, const std::vector<size_t>& frameIds, size_t stateDim, size_t configurationDim) {
   Fnv1a64 hash;
   hash.add(static_cast<int64_t>(stateDim));
-  hash.add(static_cast<int64_t>(generalizedCoordinatesDim));
+  hash.add(static_cast<int64_t>(configurationDim));
   for (const size_t frameId : frameIds) {
     const pinocchio::Frame& frame = model.frames[frameId];
     hash.add(frame.name);
@@ -135,7 +133,7 @@ FootprintCornerHeights::FootprintCornerHeights(const PinocchioInterface& pinocch
   // after an edit to the footprint, and both contact-implicit terms would keep evaluating the old corners.
   modelName_ = absl::StrCat(modelName_, "_",
                             absl::Hex(geometryFingerprint(pinocchioInterface.getModel(), frameIds_, mpcRobotModelAdPtr_->getStateDim(),
-                                                          mpcRobotModelAdPtr_->getGenCoordinatesDim()),
+                                                          mpcRobotModelAdPtr_->getConfigurationDim()),
                                       absl::kZeroPad16));
   createAdInterface(modelSettings.recompileLibrariesCppAd);
 }

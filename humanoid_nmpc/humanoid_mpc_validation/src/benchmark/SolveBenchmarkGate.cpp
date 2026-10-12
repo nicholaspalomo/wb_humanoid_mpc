@@ -37,11 +37,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
-#include "absl/strings/str_split.h"
 
-#include "humanoid_common_mpc/common/StateLayout.h"
+#include "humanoid_mpc_validation/io/RunProvenance.h"
 
 namespace ocs2::humanoid::validation {
 namespace {
@@ -52,21 +53,21 @@ std::optional<double> numberAt(const JsonValue& document, const std::string& pat
   return value->asNumber();
 }
 
-/** The normalized library keys of a document's tape_operation_counts, with their counts. */
+/** The library keys of a document's tape_operation_counts, with their counts. */
 absl::flat_hash_map<std::string, double> tapeOperationCounts(const JsonValue& document) {
   absl::flat_hash_map<std::string, double> counts;
   const JsonValue* absl_nullable libraries = document.findPath("tape_operation_counts");
   if (libraries == nullptr || !libraries->isObject()) return counts;
   for (size_t index = 0; index < libraries->size(); ++index) {
     const JsonValue& count = libraries->valueAt(index);
-    if (count.isNumber()) counts[normalizedLibraryKey(libraries->keyAt(index))] = count.asNumber();
+    if (count.isNumber()) counts[libraries->keyAt(index)] = count.asNumber();
   }
   return counts;
 }
 
 /** A CppAD library whose tape operations both documents count. */
 struct SharedLibrary {
-  std::string key;  ///< normalizedLibraryKey()
+  std::string key;  ///< the library's key in tape_operation_counts
   double candidateCount = 0.0;
   double baselineCount = 0.0;
 };
@@ -86,24 +87,65 @@ void checkIncrease(const std::string& what,
   }
 }
 
-}  // namespace
-
-std::string normalizedLibraryKey(absl::string_view key) {
-  std::vector<absl::string_view> components;
-  for (absl::string_view component : absl::StrSplit(key, '/')) {
-    if (component != kStateLayoutTag) components.push_back(component);
-  }
-  return absl::StrJoin(components, "/");
+/** The string at `path`, or "" when there is none. */
+std::string stringAt(const JsonValue& document, const std::string& path) {
+  const JsonValue* absl_nullable value = document.findPath(path);
+  return value != nullptr && value->isString() ? value->asString() : std::string();
 }
+
+/** The toolchain of a document, or why it has none. */
+absl::StatusOr<RunToolchain> toolchainOf(const JsonValue& document) {
+  const JsonValue* absl_nullable provenance = document.find("provenance");
+  if (provenance == nullptr) return absl::NotFoundError("no provenance");
+  return toolchainFromProvenance(*provenance);
+}
+
+/**
+ * Why the solve times of `candidate` and `baseline` cannot be compared: they were measured on another machine or with
+ * another toolchain, or a document cannot show which. None when they can.
+ */
+std::optional<std::string> timingRefusal(const JsonValue& candidate, const JsonValue& baseline) {
+  const std::string machine = stringAt(candidate, "provenance.machine");
+  const std::string baselineMachine = stringAt(baseline, "provenance.machine");
+  if (machine.empty() || machine != baselineMachine) {
+    return absl::StrCat("the machines differ ('", machine, "' against '", baselineMachine, "')");
+  }
+  const absl::StatusOr<RunToolchain> toolchain = toolchainOf(candidate);
+  const absl::StatusOr<RunToolchain> baselineToolchain = toolchainOf(baseline);
+  if (!toolchain.ok() || !baselineToolchain.ok()) {
+    return absl::StrCat("the ", toolchain.ok() ? "baseline" : "candidate", " names no toolchain (",
+                        toolchain.ok() ? baselineToolchain.status().message() : toolchain.status().message(), ")");
+  }
+  std::vector<std::string> differences;
+  if (toolchain->compiler != baselineToolchain->compiler) {
+    differences.push_back(absl::StrCat("compiler '", toolchain->compiler, "' against '", baselineToolchain->compiler, "'"));
+  }
+  if (toolchain->hpipmTarget != baselineToolchain->hpipmTarget) {
+    differences.push_back(absl::StrCat("HPIPM target '", toolchain->hpipmTarget, "' against '", baselineToolchain->hpipmTarget, "'"));
+  }
+  if (toolchain->containerImage != baselineToolchain->containerImage) {
+    differences.push_back(
+        absl::StrCat("container image '", toolchain->containerImage, "' against '", baselineToolchain->containerImage, "'"));
+  }
+  if (differences.empty()) return std::nullopt;
+  return absl::StrCat("the toolchains differ (", absl::StrJoin(differences, ", "), ")");
+}
+
+}  // namespace
 
 std::vector<std::string> compareSolveBenchmarks(const JsonValue& candidate, const JsonValue& baseline, const SolveBenchmarkGate& gate) {
   std::vector<std::string> violations;
-  checkIncrease("solve_time_ms.total.mean", numberAt(candidate, "solve_time_ms.total.mean"), numberAt(baseline, "solve_time_ms.total.mean"),
-                gate.meanIncrease, violations);
-  checkIncrease("solve_time_ms.total.p99", numberAt(candidate, "solve_time_ms.total.p99"), numberAt(baseline, "solve_time_ms.total.p99"),
-                gate.p99Increase, violations);
-  checkIncrease("solve_time_ms.lq_approximation.mean", numberAt(candidate, "solve_time_ms.lq_approximation.mean"),
-                numberAt(baseline, "solve_time_ms.lq_approximation.mean"), gate.lqApproximationIncrease, violations);
+  if (const std::optional<std::string> refusal = timingRefusal(candidate, baseline); refusal.has_value()) {
+    violations.push_back(
+        absl::StrCat("solve_time_ms: not compared, ", *refusal, ": record the baseline again on this machine and toolchain"));
+  } else {
+    checkIncrease("solve_time_ms.total.mean", numberAt(candidate, "solve_time_ms.total.mean"),
+                  numberAt(baseline, "solve_time_ms.total.mean"), gate.meanIncrease, violations);
+    checkIncrease("solve_time_ms.total.p99", numberAt(candidate, "solve_time_ms.total.p99"), numberAt(baseline, "solve_time_ms.total.p99"),
+                  gate.p99Increase, violations);
+    checkIncrease("solve_time_ms.lq_approximation.mean", numberAt(candidate, "solve_time_ms.lq_approximation.mean"),
+                  numberAt(baseline, "solve_time_ms.lq_approximation.mean"), gate.lqApproximationIncrease, violations);
+  }
   const std::optional<double> fraction = numberAt(candidate, "real_time.p99_fraction_of_period");
   if (!fraction.has_value()) {
     violations.push_back("real_time.p99_fraction_of_period: missing in the candidate");

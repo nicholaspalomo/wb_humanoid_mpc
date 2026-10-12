@@ -41,7 +41,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
 #include "ocs2_core/Types.h"
+#include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/penalties/Penalties.h"
 #include "ocs2_mpc/MPC_Settings.h"
 #include "ocs2_oc/rollout/TimeTriggeredRollout.h"
@@ -68,6 +70,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
+
+/**
+ * Returns the key CentroidalMpcInterface appends to its CppAD model folder: `inputParameterizationKey`
+ * (kWrenchInputsLibraryKey or basisInputsLibraryKey()) under the full centroidal dynamics, and
+ * "<centroidal model name>/<inputParameterizationKey>" under any other centroidal model (centroidalModelName()). Every
+ * taped term depends on both: the single-rigid-body model tapes other dynamics and another momentum mapping under the
+ * same library names and sizes, so OCS2's domain check cannot tell its cached libraries from the full model's. The full
+ * centroidal dynamics, which every shipped robot runs, keeps the key without its name, so that its libraries keep their
+ * names: the solve benchmark compares tape operation counts library by library, by name (SolveBenchmarkGate.h).
+ */
+std::string cppAdModelFolderKey(CentroidalModelType centroidalModelType, absl::string_view inputParameterizationKey);
 
 /**
  * The centroidal MPC of a humanoid, built from its typed configuration (CentroidalMpcConfig: the task file, the reference
@@ -142,6 +155,11 @@ class CentroidalMpcInterface final : public RobotInterface {
     CHECK(rolloutPtr_ != nullptr) << "[CentroidalMpcInterface] built by CreateControllerModels(): there is no rollout";
     return *rolloutPtr_;
   }
+  /**
+   * The state manifold of the centroidal state (stateManifoldOf()): the product [E(9), unit quaternion, E(nj)], never
+   * null, also on an interface of CreateControllerModels(). The problem, the rollout and every MRT of this MPC share it.
+   */
+  const std::shared_ptr<const StateManifold>& getStateManifold() const { return stateManifold_; }
   PinocchioInterface& getPinocchioInterface() { return *pinocchioInterfacePtr_; }
   const CentroidalModelInfo& getCentroidalModelInfo() const { return centroidalModelInfo_; }
   std::shared_ptr<SwitchedModelReferenceManager> getSwitchedModelReferenceManagerPtr() const { return referenceManagerPtr_; }
@@ -244,12 +262,16 @@ class CentroidalMpcInterface final : public RobotInterface {
    * Reads contact_input_parameterization and, under basis vectors, builds the per-foot bases (contacts.basis_generator_set
    * on contacts.contact_wrench_cone_soft_constraint and each foot's contacts.contact_rectangle), the decorated robot
    * models and the regularization of the input cost (contacts.basis_regularization, contacts.basis_scaling_regularization).
-   * Keys the CppAD model folder by the parameterization and the basis. Every configuration error is an InvalidArgument
-   * naming the field to change.
+   * Keys the CppAD model folder by the centroidal model, the parameterization and the basis. Every configuration error is
+   * an InvalidArgument naming the field to change.
    */
   absl::Status setupContactInputParameterization();
 
-  /** Appends `libraryKey` to the CppAD model folder, so that no cached library is shared across parameterizations or bases. */
+  /**
+   * Appends cppAdModelFolderKey() of the centroidal model and `libraryKey` to the CppAD model folder, so that no cached
+   * library is shared across centroidal models, parameterizations or bases. The folder already ends in the state layout's
+   * tag (kStateLayoutTag, ModelSettings::Create()), so the key nests below it.
+   */
   void keyCppAdModelFolder(absl::string_view libraryKey);
 
   /** The transform of getBasisInputsCostTransformConfig() around `basisToWrenchMap`, under basis-vector inputs. */
@@ -311,6 +333,9 @@ class CentroidalMpcInterface final : public RobotInterface {
 
   std::unique_ptr<CentroidalMpcRobotModel<scalar_t>> mpcRobotModelPtr_;
   std::unique_ptr<CentroidalMpcRobotModel<ad_scalar_t>> mpcRobotModelADPtr_;
+  // The state manifold of mpcRobotModelPtr_'s layout, set by setupModels(), never null after it. A std::shared_ptr
+  // because OptimalControlProblem::stateManifoldPtr and RolloutBase::setStateManifold take one.
+  std::shared_ptr<const StateManifold> stateManifold_;
 
   /// Effective model used by the OCP. Points to either the concrete model or the decorator.
   /// Owned by either mpcRobotModelPtr_ (non-decorated) or basisDecoratorPtr_ (decorated).

@@ -125,13 +125,13 @@ contact_schedule_source: "gait_schedule"
 #
 # With the cost listed, the factory zeroes the base pose block of BOTH Q and
 # final_state_weights (indices 6..11), so the weights below are the only thing regulating base
-# position and orientation. They start out mirroring the Q entries they replace.
+# position and orientation. They start out mirroring the state_weights entries they replace.
 # Under terminal_cost the terminal node gets its own ComAndAcomTrackingCost, weighted by
 # terminal_cost_scaling times these; under the DCM terminal cost (dcm_terminal_cost, as
 # shipped) there is none, and the DCM cost is what the horizon ends on.
 #
 # Tuning note: the aCOM coordinate is essentially an integral of the centroidal
-# angular momentum that Q entries (3,3) and (4,4) already penalize, so the two
+# angular momentum that state_weights.normalized_angular_momentum x and y already penalize, so the two
 # terms compete. If torso rotation feels over-damped, lower L_x / L_y before
 # lowering acom_weights. Expect acom_weights to need reducing relative to the base pose
 # weights it replaces, because the learned coordinate carries roughly 17% model
@@ -148,8 +148,8 @@ com_weights {
   z: 15  # p_com_z - effective weight 1275, matches p_base_z
 }
 
-# ACoM rows follow the centroidal state's ZYX Euler convention, the same ordering
-# as Q entries (9,9) through (11,11). Row 0 is yaw, not roll.
+# ACoM rows follow the tuning layout's ZYX order, (yaw, pitch, roll), the order of
+# state_weights.base_orientation (rows 9 to 11 of the state weights). Row 0 is yaw, not roll.
 acom_weights {
   scaling: 100
   yaw: 25  # theta_acom_z / yaw (matches theta_base_z)
@@ -374,8 +374,9 @@ costs: "external_torque_cost"
 # cannot be dragged negative. Several of these are physically negative (height_compensation.height_per_speed, for one).
 # Type the value into the entry box, which widens the bounds.
 #
-# Orientation sign: the base pose is Euler ZYX about a z-up world, so a POSITIVE pitch puts the nose DOWN. Leaning
-# into a forward command is therefore a POSITIVE pitch_per_forward_velocity - the sign of Bledt's own fitted +0.0725.
+# Orientation sign: the heuristic offsets are ZYX Euler angles of the base at the Euler boundary, about a z-up world,
+# so a POSITIVE pitch puts the nose DOWN. Leaning into a forward command is therefore a POSITIVE
+# pitch_per_forward_velocity - the sign of Bledt's own fitted +0.0725.
 locomotion_heuristics {
   # Each list ships empty, its candidate names commented out below, one line per entry, so that uncommenting a line
   # adds that name to its list. The offsets within a list are SUMMED, so the order here is
@@ -406,7 +407,7 @@ locomotion_heuristics {
     roll_per_lateral_velocity: 0.0  # a1 [rad s/m] roll reference per commanded lateral speed
     roll_offset: 0.0  # a0 [rad] standing roll trim
     # 0.04 puts the nose down 0.048 rad (2.8 deg) at the 1.2 m/s of reference.textproto max_displacement_velocity_x, and
-    # POSITIVE is nose-down here (Euler ZYX about a z-up world). Sized from the stick rather than scaled from Bledt's
+    # POSITIVE is nose-down here (ZYX Euler angles about a z-up world). Sized from the stick rather than scaled from Bledt's
     # +0.0725, which was fitted to a 9 kg quadruped: a few degrees of lean into the command carries the CoM towards the
     # leading edge of the support and, per section 4.3, keeps the body closer to the small-roll-and-pitch
     # approximation the yaw-only rotation of this control model is built on.

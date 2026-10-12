@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco/mujoco.h"
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "mujoco_sim_interface/viewer/ViewerNames.h"
 #include "robot_model/RobotJointAction.h"
 
 /*
@@ -110,7 +111,7 @@ std::string writeTempFile(const std::string& name, const char* absl_nonnull cont
 std::unique_ptr<MujocoSimInterface> makeSim() {
   MujocoSimConfig config;
   config.scenePath = kAtlasScene;
-  config.headless = true;
+  config.viewer.names = {kNoViewerName};
   config.isGantryLocked = true;
   config.gantryHold = "weld_constraint";
   absl::StatusOr<std::unique_ptr<MujocoSimInterface>> sim = MujocoSimInterface::Create(config, kAtlasUrdf);
@@ -189,7 +190,7 @@ TEST(SimTorqueSwitch, TheDampingFollowsTheSwitchOnThePhysicsThreadOnly) {
 absl::StatusOr<std::unique_ptr<MujocoSimInterface>> makeHingeSim() {
   MujocoSimConfig config;
   config.scenePath = writeTempFile("unnamed_actuator_scene.xml", kUnnamedActuatorScene);
-  config.headless = true;
+  config.viewer.names = {kNoViewerName};
   config.verbose = true;  // logs the MuJoCo body of every resolved contact point, which here has no name
   config.enableGantry = false;
   config.gantryHold = "kinematic_teleport";  // the scene has no gantry weld

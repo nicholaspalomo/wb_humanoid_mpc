@@ -93,8 +93,6 @@ class StateInputSoftConstraint final : public StateInputCost {
 
   MultidimensionalPenalty& getPenalty() { return penalty_; }
 
-  std::unique_ptr<StateInputConstraint>& getConstraintPtr() { return constraintPtr_; }
-
  private:
   StateInputSoftConstraint(const StateInputSoftConstraint& other);
 

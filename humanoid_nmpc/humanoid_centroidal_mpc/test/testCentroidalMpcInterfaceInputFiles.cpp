@@ -122,8 +122,8 @@ TEST_F(CentroidalMpcInterfaceInputFilesTest, ATaskFileThatDoesNotParseIsRefusedW
 }
 
 TEST_F(CentroidalMpcInterfaceInputFilesTest, AYamlTaskFileIsRefusedNamingIt) {
-  // A task file in the YAML format the configuration was written in before the textproto migration: the MPC reads
-  // textprotos only, and refuses it as a whole, naming the file, rather than reading a part of it.
+  // A task file in YAML: the MPC reads textprotos only, and refuses it as a whole, naming the file, rather than reading
+  // a part of it.
   const std::string yaml = (std::filesystem::path(testing::TempDir()) / "input_files_task.yaml").string();
   ASSERT_TRUE(writeTextFile(yaml, "interface:\n  verbose: true\nmodel_settings:\n  robotName: drc_atlas\n").ok());
   const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created =

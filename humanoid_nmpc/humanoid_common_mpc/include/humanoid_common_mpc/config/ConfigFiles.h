@@ -121,8 +121,8 @@ std::string jointPdGainsFileBeside(absl::string_view taskFile);
 
 /**
  * jointPdGainsFileBeside(), for a robot process, which must not start without its gains: NotFound naming the file
- * (and the task file it belongs to) when it is not a regular file, such as a robot directory that still holds
- * joint_pd_gains.yaml, which would leave the controller on its built-in gains, chosen for no robot.
+ * (and the task file it belongs to) when it is not a regular file, such as a robot directory without
+ * joint_pd_gains.textproto, which would otherwise leave the controller on its built-in gains, chosen for no robot.
  */
 absl::StatusOr<std::string> existingJointPdGainsFileBeside(absl::string_view taskFile);
 

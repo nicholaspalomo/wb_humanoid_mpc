@@ -31,7 +31,7 @@ cc_library(
 )
 
 # The reset and failure policy of the MRT joint controllers (include/humanoid_common_mpc/mrt/MpcResetSupervisor.h). A
-# target of its own, without the robot model, Pinocchio or ROS, because the network MPC link
+# target of its own, without the robot model or Pinocchio, because the network MPC link
 # (//humanoid_nmpc/humanoid_mpc_ipc) serves its resets and mirrors its health on both sides of the bus.
 cc_library(
     name = "mpc_reset_supervisor",
@@ -137,8 +137,7 @@ cc_library(
 
 # The base orientation as a unit quaternion (humanoid_nmpc/docs/quaternion_base_orientation/README.md, sections 2.1,
 # 2.6, 2.8.1 and 4.2): the safe normalization, the quaternion rate matrix and the tangent lift, the heading-tilt residual
-# with its closed-form Jacobian, and the Euler boundary, the only humanoid home of the Euler conversions. No Pinocchio, no
-# ROS.
+# with its closed-form Jacobian, and the Euler boundary, the only humanoid home of the Euler conversions. No Pinocchio.
 _ORIENTATION_HDRS = [
     "include/humanoid_common_mpc/orientation/BaseOrientation.h",
     "include/humanoid_common_mpc/orientation/EulerBoundary.h",
@@ -266,6 +265,7 @@ cc_library(
         "src/common/ContactInputParameterization.cpp",
         "src/common/ModelSettings.cpp",
         "src/common/MpcFormulationConfig.cpp",
+        "src/common/StateManifoldFactory.cpp",
         "src/constraint/JointLimitsSoftConstraint.cpp",
         "src/constraint/FootCollisionConstraint.cpp",
         "src/constraint/ZeroWrenchConstraint.cpp",
@@ -278,6 +278,9 @@ cc_library(
         "src/constraint/ContactMomentXYConstraintCppAd.cpp",
         "src/constraint/ContactWrenchConeConstraint.cpp",
         "src/constraint/EndEffectorKinematicsLinearVelConstraint.cpp",
+        "src/cost/TuningGaussNewton.cpp",
+        "src/cost/TuningQuadraticStateInputCost.cpp",
+        "src/cost/TuningQuadraticStateCost.cpp",
         "src/cost/StateInputQuadraticCost.cpp",
         "src/cost/StateQuadraticCost.cpp",
         "src/cost/BasePoseShapedQuadraticStateCost.cpp",
@@ -310,10 +313,14 @@ cc_library(
         "src/locomotion_heuristics/wrench/ImpulseScalingHeuristic.cpp",
         "src/reference_manager/SwitchedModelReferenceManager.cpp",
         "src/reference_manager/ProceduralMpcMotionManager.cpp",
+        "src/reference_manager/StrideMotionHistory.cpp",
         "src/mrt/InProcessMpcLink.cpp",
         "src/mrt/JointPdGains.cpp",
         "src/mrt/JointPdGainsMailbox.cpp",
         "src/mrt/MpcLink.cpp",
+        # The one evaluation of the tuning layout's rows (orientation/TuningLayoutDeviation.h): here, not in :orientation,
+        # because it reads the robot model, and the quadratic state costs of this library hold one.
+        "src/orientation/TuningLayoutDeviation.cpp",
         "src/HumanoidCostConstraintFactory.cpp",
         "src/HumanoidPreComputation.cpp",
         "src/acom/AngularCenterOfMass.cpp",
@@ -348,6 +355,11 @@ cc_library(
         ":controller_event",
         ":humanoid_common_mpc_types",
         ":mpc_reset_supervisor",
+        # The Euler boundary and the tuning layout of the robot models (common/MpcRobotModelBase.h) and of
+        # config/weights/StateInputLayout.h.
+        ":orientation",
+        # The state layout tag of the CppAD library folder (config/model/ModelSettingsFromConfig.cpp).
+        ":state_layout",
         ":walking_velocity_command",
         "//lib/ocs2:ocs2_centroidal_model",
         "//lib/ocs2:ocs2_core",
@@ -375,6 +387,7 @@ cc_library(
         "@abseil-cpp//absl/functional:function_ref",
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/log:absl_check",
+        "@abseil-cpp//absl/log:die_if_null",
         "@abseil-cpp//absl/log:log",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
@@ -437,6 +450,7 @@ cc_test(
     ],
     deps = [
         ":humanoid_common_mpc",
+        ":state_layout",
         "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//tools/nproto:nproto_runtime",
@@ -615,12 +629,14 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_mpc_test_support",
         "//lib/ocs2:ocs2_oc",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:scoped_mock_log",
         "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
     ],
 )
@@ -682,6 +698,21 @@ cc_library(
     deps = [
         ":humanoid_common_mpc",
         "//lib/ocs2:ocs2_mpc",
+        "@abseil-cpp//absl/base:nullability",
+    ],
+)
+
+# An MpcLink the test hands its policies to, for tests of what the MRT joint controllers do with a policy
+# (test/ScriptedPolicyMpcLink.h).
+cc_library(
+    name = "scripted_policy_mpc_link",
+    testonly = True,
+    hdrs = ["test/ScriptedPolicyMpcLink.h"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
         "@abseil-cpp//absl/base:nullability",
     ],
 )
@@ -832,7 +863,9 @@ cc_test(
     # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testAcomAngularVelocityConsistency.cpp:acom_acceptance_robots)
     deps = [
         ":humanoid_common_mpc",
+        ":orientation",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_centroidal_model",
         "//robot_runtime/robot_core:resource_paths",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:log",
@@ -853,12 +886,197 @@ cc_test(
     ],
     deps = [
         ":humanoid_common_mpc",
+        ":orientation",
+        ":quaternion_layout_robot_model",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_centroidal_model",
         "//robot_runtime/robot_core:resource_paths",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# TuningLayoutDeviation (orientation/TuningLayoutDeviation.h) on the quaternion layouts of both MPCs: identity runs for
+# the differences, the heading-tilt rows of the orientation and the whole body's angular-velocity rows with dense blocks
+# against finite differences in the stored slots and along the retraction, the Euler differences of the tuning layout
+# (tuningFromState()) at a level state, the tilted-state bounds through the Euler chart and the -xi invariance. Builds no
+# CppAD model.
+cc_test(
+    name = "testTuningLayoutDeviation",
+    size = "small",
+    srcs = ["test/testTuningLayoutDeviation.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    deps = [
+        ":humanoid_common_mpc",
+        ":orientation",
+        ":quaternion_layout_robot_model",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The Tuning* quadratic costs (cost/TuningQuadraticState{Input,}Cost.h): OCS2's quadratic costs of the Euler-written
+# states at a level state on the quaternion layouts and bit for bit on a layout of differences only, finite differences
+# in the stored slots and along the retraction, the block-wise Gauss-Newton assembly against the dense products
+# (cost/TuningGaussNewton.h), the -xi invariance and the weight setters' refusals. Builds no CppAD model.
+cc_test(
+    name = "testTuningQuadraticCost",
+    size = "small",
+    srcs = ["test/testTuningQuadraticCost.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    deps = [
+        ":humanoid_common_mpc",
+        ":quaternion_layout_robot_model",
+        "//lib/ocs2:ocs2_core",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The input-only InputQuadraticCost (cost/InputQuadraticCost.h): OCS2's QuadraticStateInputCost of a zero Q bit for bit,
+# state derivatives of the evaluated state's size, and a hot reload of R. Builds no CppAD model.
+cc_test(
+    name = "testInputQuadraticCost",
+    size = "small",
+    srcs = ["test/testInputQuadraticCost.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_common_mpc",
+        ":layout_robot_model",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The common consumers of the state (the reference managers, the target calculator's base, the locomotion heuristics'
+# model parameters, the contact wrench cone) read and interpolate it through the robot model's layout-agnostic
+# accessors: a probe model whose heading, interpolation and tangent map no slot read reproduces; and the contact
+# planner's dense resample of a fast turn keeps its knots a quarter turn apart. Builds no CppAD model.
+cc_test(
+    name = "testReferenceConsumersFollowTheModelLayout",
+    size = "small",
+    srcs = ["test/testReferenceConsumersFollowTheModelLayout.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":contact_planning_core",
+        ":humanoid_common_mpc",
+        ":orientation",
+        ":quaternion_layout_robot_model",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The stride mean of the base's planar motion the gait switches and the velocity command's knots start from (design
+# README section 2.9): exact for a steady twist, the gait's sway removed over one cycle, the boxcar's leak for another window,
+# the seed, the restarts, the unwrapping; and the exact instantaneous heading rate. Builds no model.
+cc_test(
+    name = "testStrideMotionHistory",
+    size = "small",
+    srcs = ["test/testStrideMotionHistory.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        ":orientation",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The arc of a velocity command's knots against its closed form and an RK4 integration of the unicycle, and the yaw
+# subdivision that keeps them at most pi / 2 apart (design README section 2.9). Builds no model.
+cc_test(
+    name = "testVelocityCommandArc",
+    size = "small",
+    srcs = ["test/testVelocityCommandArc.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The subdivision of a pose command's knots into quarter turns, so that the slerp of the quaternion orientation between
+# them turns the commanded way (TargetTrajectoriesCalculatorBase::subdivideYawKnots()). Builds no model.
+cc_test(
+    name = "testSubdivideYawKnots",
+    size = "small",
+    srcs = ["test/testSubdivideYawKnots.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The base the reference manager predicts for a touch-down (SwitchedModelReferenceManager::commandedPoseChange()): the arc
+# of a turning command against its closed form, the trapezoid without a turn, and the leading error of a ramping
+# command against a quadrature. Builds no model.
+cc_test(
+    name = "testCommandedPoseChange",
+    size = "small",
+    srcs = ["test/testCommandedPoseChange.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The gait switches of ProceduralMpcMotionManager on the robot's stride-mean motion, its velocity and its turn, in both
+# directions (design defect D2), and before its window is measured. Builds no model.
+cc_test(
+    name = "testProceduralGaitTransitionsUseMeasuredYawRate",
+    size = "small",
+    srcs = ["test/testProceduralGaitTransitionsUseMeasuredYawRate.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
         "@googletest//:gtest_main",
     ],
 )
@@ -915,32 +1133,47 @@ cc_test(
     ],
 )
 
-# quaternionToEulerZYX at a pitch of +-90 degrees, where the sine of the pitch rounds past 1 and asin was NaN, and
-# bit-for-bit the unclamped conversion everywhere that one was defined.
-cc_test(
-    name = "testQuaternionToEulerClamp",
-    size = "small",
-    srcs = ["test/testQuaternionToEulerClamp.cpp"],
-    copts = FIRST_PARTY_COPTS,
-    deps = [
-        ":humanoid_common_mpc",
-        "//lib/ocs2:ocs2_robotic_tools",
-        "@abseil-cpp//absl/base:nullability",
-        "@googletest//:gtest_main",
-        "@pinocchio",
-    ],
-)
-
 cc_test(
     name = "testAngularCenterOfMass",
     srcs = ["test/testAngularCenterOfMass.cpp"],
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":orientation",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
+    ],
+)
+
+# The ACoM heading of the contact planner's input (ContactPlanningReferenceManager::computeHeading) and of
+# planned_heading_override on the shipped DRC Atlas: the twist heading of the ACoM attitude, exact for level knots.
+# Builds no CppAD model.
+cc_test(
+    name = "testPlannedHeadingOverrideAcom",
+    size = "small",
+    srcs = ["test/testPlannedHeadingOverrideAcom.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":contact_planning_core",
+        ":humanoid_common_mpc",
+        ":orientation",
+        ":quaternion_layout_robot_model",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//lib/ocs2:ocs2_robotic_tools",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
+        "@pinocchio",
     ],
 )
 
@@ -1235,6 +1468,7 @@ cc_test(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":state_layout",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
@@ -1242,9 +1476,9 @@ cc_test(
     ],
 )
 
-# Step 0 of the quaternion base orientation (humanoid_nmpc/docs/quaternion_base_orientation/README.md): the G1 model on
-# a Translation+Spherical root, built in the test, taped and code-generated with CppAD and compared with Pinocchio in
-# double precision. It compiles a CppAD library per computation, so it runs alone.
+# The root joint of the quaternion base orientation (humanoid_nmpc/docs/quaternion_base_orientation/README.md, decision
+# D1): the G1 model on a Translation+Spherical root, built in the test, taped and code-generated with CppAD and compared
+# with Pinocchio in double precision. It compiles a CppAD library per computation, so it runs alone.
 cc_test(
     name = "testQuaternionRootJointCppAd",
     size = "large",
@@ -1274,7 +1508,7 @@ cc_test(
     ],
 )
 
-# Step 5 of the quaternion base orientation: the heading-tilt residual and its closed-form Jacobian against finite
+# The heading-tilt residual of the quaternion base orientation and its closed-form Jacobian against finite
 # differences, at level, at a pitch of 90 degrees and upside down, and the identities of design section 2.8.1.
 cc_test(
     name = "testBaseOrientation",
@@ -1288,7 +1522,9 @@ cc_test(
     ],
 )
 
-# The Euler boundary: round trips, the clamped asin at +-90 degrees, T_B, and the tuning layout's size errors.
+# The Euler boundary: round trips, the clamped asin at +-90 degrees (a sine of the pitch past one by round-off, a
+# measured quaternion slightly longer than one), T_B and its inverse, and the tuning layout's placement, lookups and
+# errors.
 cc_test(
     name = "testEulerBoundary",
     size = "small",
@@ -1298,6 +1534,24 @@ cc_test(
         ":orientation",
         "//lib/ocs2:ocs2_robotic_tools",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# stateManifoldOf() (common/StateManifoldFactory.h) on placed tuning layouts: the product of the blocks for a quaternion
+# one, and the refusals, an orientation on 3 or 5 state rows among them. Builds no robot model.
+cc_test(
+    name = "testStateManifoldFactory",
+    size = "small",
+    srcs = ["test/testStateManifoldFactory.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        ":orientation",
+        "//lib/ocs2:ocs2_core",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
@@ -1336,6 +1590,63 @@ cc_test(
     ],
 )
 
+# Every MPC's CppAD library folder ends in the state layout's tag, one folder below the untagged folder, and the tag keeps
+# its spelling. Builds no CppAD model.
+cc_test(
+    name = "testCppAdLayoutTag",
+    size = "small",
+    srcs = ["test/testCppAdLayoutTag.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    deps = [
+        ":humanoid_common_mpc",
+        ":state_layout",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The configuration tangent of the quaternion state (design section 2.2): the state manifold's retraction and difference
+# of the configuration slots are pinocchio::integrate and pinocchio::difference on the production root, finite
+# differences of the frames and the CoM along the retraction are Pinocchio's v-Jacobians, and the centroidal flow map's
+# configuration rate is the rate of pinocchio::integrate. Builds no CppAD model.
+cc_test(
+    name = "testConfigurationTangent",
+    size = "small",
+    srcs = ["test/testConfigurationTangent.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    # LINT.IfChange(configuration_tangent_data)
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testConfigurationTangent.cpp:configuration_tangent_robots)
+    deps = [
+        ":humanoid_common_mpc",
+        ":orientation",
+        ":quaternion_layout_robot_model",
+        "//lib/ocs2:ocs2_centroidal_model",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
 # The gait patterns the procedural motion manager selects from, for tests in other packages.
 filegroup(
     name = "gait_config",
@@ -1346,7 +1657,8 @@ filegroup(
 # The typed configuration files (humanoid_nmpc/humanoid_mpc_config)
 # ==============================================================================
 
-# The shipped robots' configurations and models, and the shared gait file: what test/config/testConfigRoots.cpp loads.
+# The shipped robots' configurations and models, and the shared gait file: what test/config/testConfigRoots.cpp and
+# test/config/weights/testStateInputWeightsFromConfig.cpp load.
 # LINT.IfChange(config_test_data)
 _SHIPPED_ROBOT_DATA = [
     ":gait_config",
@@ -1360,10 +1672,30 @@ _SHIPPED_ROBOT_DATA = [
     "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
     "//robot_models/unitree_r1/unitree_r1_description",
 ]
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/config/testConfigRoots.cpp:shipped_robots)
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/config/testConfigRoots.cpp:shipped_robots, //humanoid_nmpc/humanoid_common_mpc/test/config/weights/testStateInputWeightsFromConfig.cpp:shipped_task_files)
 
-# A robot model of a StateInputLayout's dimensions only (test/support/LayoutRobotModel.h), for the tests of what is built
-# from the configuration without a robot model package.
+# The quaternion layouts of both MPCs, read and written slot for slot as their robot models do
+# (test/support/QuaternionLayoutRobotModel.h), for the tests that evaluate a term on a real state - TuningLayoutDeviation,
+# the Tuning* costs, the CoM + ACoM tracking cost, the planner's heading - without the centroidal or whole-body package
+# and its CppAD libraries.
+cc_library(
+    name = "quaternion_layout_robot_model",
+    testonly = True,
+    hdrs = ["test/support/QuaternionLayoutRobotModel.h"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        ":orientation",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
+        "@googletest//:gtest",
+    ],
+)
+
+# A robot model of a StateInputLayout's dimensions only, on the quaternion layout (test/support/LayoutRobotModel.h), for
+# the tests of what is built from the configuration without a robot model package.
 cc_library(
     name = "layout_robot_model",
     testonly = True,
@@ -1371,7 +1703,11 @@ cc_library(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        ":orientation",
+        "//lib/ocs2:ocs2_core",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
     ],
 )
 
@@ -1409,6 +1745,8 @@ cc_test(
 # are in :humanoid_common_mpc (src/config/<area>/).
 _CONFIG_TEST_DEPS = [
     ":humanoid_common_mpc",
+    ":orientation",
+    ":state_layout",
     "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
     "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
     "//lib/ocs2:ocs2_sqp",
@@ -1442,6 +1780,8 @@ _CONFIG_AREAS = [
         size = "small",
         srcs = glob(["test/config/%s/*.cpp" % area]),
         copts = FIRST_PARTY_COPTS,
+        # The weights' test converts every shipped task file (testStateInputWeightsFromConfig.cpp).
+        data = _SHIPPED_ROBOT_DATA if area == "weights" else [],
         deps = _CONFIG_TEST_DEPS,
     )
     for area in _CONFIG_AREAS
@@ -1451,20 +1791,30 @@ _CONFIG_AREAS = [
 # The live tuning of both formulations (include/humanoid_common_mpc/parameter_update/)
 # ==============================================================================
 
-# The mechanics of the shared parameter updater with fake appliers on a solver without terms, and the pinned collection
-# names its appliers find the terms by (test/parameter_update/). Builds no CppAD model.
+# The mechanics of the shared parameter updater with fake appliers on a solver without terms, the pinned collection names
+# its appliers find the terms by, and QuadraticCostWeightsApplier on the factory's quadratic costs of the shipped DRC
+# Atlas's layout (test/parameter_update/). Builds no CppAD model.
 cc_test(
     name = "parameter_update_test",
     size = "small",
     srcs = glob(["test/parameter_update/*.cpp"]),
     copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
     deps = [
         ":humanoid_common_mpc",
+        ":layout_robot_model",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_centroidal_model",
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_pinocchio_interface",
         "//lib/ocs2:ocs2_sqp",
+        "//robot_runtime/robot_core:resource_paths",
+        "@pinocchio",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:scoped_mock_log",
         "@abseil-cpp//absl/status",

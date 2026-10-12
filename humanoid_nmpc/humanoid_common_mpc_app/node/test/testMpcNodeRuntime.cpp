@@ -29,7 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
+#include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <functional>
 #include <limits>
@@ -49,12 +51,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_oc/synchronized_module/SolverSynchronizedModule.h"
+#include "ocs2_pinocchio_interface/PinocchioInterface.h"
+#include "pinocchio/algorithm/centroidal.hpp"
 
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/OperatorPayloadChecks.h"
 #include "humanoid_common_mpc/config/reference/ReferenceFromConfig.h"
 #include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc_app/node/MpcNodeRuntime.h"
 #include "humanoid_mpc_config/mpc_parameter_update.nproto.h"
 #include "humanoid_mpc_config/mpc_parameter_update.pb.h"
@@ -502,6 +507,157 @@ TEST(MpcNodeRuntime, TheVisualizationSeamGetsTheBusBeforeItStartsAndObservesEver
   EXPECT_FALSE(busWasRunning.load());
   ASSERT_TRUE(harness.solve(harness.observation(/*time=*/1.0, /*sequence=*/1)).has_value());
   EXPECT_TRUE(test_support::waitFor([&]() { return observed->load() >= 1; }, /*timeoutSeconds=*/10.0));
+}
+
+/**
+ * Records, on the solver thread right after the motion manager's own pre-solve (it is added after it), the gait and the
+ * measured motion of every solve.
+ */
+class MotionManagerRecorder final : public SolverSynchronizedModule {
+ public:
+  struct Solve {
+    scalar_t time = 0.0;
+    std::string gait;
+    scalar_t measuredHeadingRate = 0.0;
+    bool measuredOverTheWholeWindow = false;
+  };
+
+  /** Records `recorded`, which must outlive the recorder's last solve. */
+  explicit MotionManagerRecorder(const ProceduralMpcMotionManager* absl_nonnull recorded) : motionManager_(recorded) {}
+
+  void preSolverRun(scalar_t initTime,
+                    scalar_t /*finalTime*/,
+                    const vector_t& /*initState*/,
+                    const ReferenceManagerInterface& /*referenceManager*/) override {
+    absl::MutexLock lock(mutex_);
+    solves_.push_back(Solve{.time = initTime,
+                            .gait = motionManager_->getCurrentGaitCommand(),
+                            .measuredHeadingRate = motionManager_->getMeasuredPlanarMotion().headingRate,
+                            .measuredOverTheWholeWindow = motionManager_->measuredOverTheWholeWindow()});
+  }
+  void postSolverRun(const PrimalSolution& /*primalSolution*/) override {}
+
+  std::vector<Solve> solves() const {
+    absl::MutexLock lock(mutex_);
+    return solves_;
+  }
+
+ private:
+  const ProceduralMpcMotionManager* absl_nonnull motionManager_;
+  mutable absl::Mutex mutex_;
+  std::vector<Solve> solves_ ABSL_GUARDED_BY(mutex_);
+};
+
+/**
+ * A robot that stands at the origin until `start` and then walks straight along the world x axis at `forwardSpeed`, its
+ * heading swaying by `headingSway` sin(w (t - start)). Passive data.
+ */
+struct SwayingWalk {
+  /** [s] */
+  scalar_t start = 0.0;
+  /** [m/s] */
+  scalar_t forwardSpeed = 0.0;
+  /** [rad] */
+  scalar_t headingSway = 0.0;
+  /** [rad/s] w */
+  scalar_t frequency = 0.0;
+};
+
+/** The observation of `walk` at `time` on the stack's robot, its momentum that of the walk's base twist, joints still. */
+humanoid_mpc_msgs::MpcObservation swayingWalkObservation(const AtlasReferenceStack& stack,
+                                                         const SwayingWalk& walk,
+                                                         scalar_t time,
+                                                         uint64_t sequence) {
+  const PinocchioInterface::Model& pinocchioModel = stack.pinocchioInterface().getModel();
+  PinocchioInterface::Data data(pinocchioModel);
+  const scalar_t walked = std::max(time - walk.start, 0.0);
+  SystemObservation observation;
+  observation.time = time;
+  observation.state =
+      stack.standingAt(stack.initialState(), walk.forwardSpeed * walked, /*y=*/0.0, walk.headingSway * std::sin(walk.frequency * walked));
+  // The Pinocchio velocity [dp_W, dTheta/dt, dq_j] of the walk, and h = A(q) v / m, as the MRT measures it.
+  vector_t velocity = vector_t::Zero(pinocchioModel.nv);
+  if (time > walk.start) {
+    velocity(0) = walk.forwardSpeed;
+    velocity(3) = walk.headingSway * walk.frequency * std::cos(walk.frequency * walked);
+  }
+  pinocchio::computeCentroidalMap(pinocchioModel, data, stack.model().getGeneralizedCoordinates(observation.state));
+  observation.state.head<6>() = data.Ag * velocity / stack.centroidalModelInfo().robotMass;
+  observation.input = vector_t::Zero(static_cast<Eigen::Index>(stack.model().getInputDim()));
+  observation.mode = ModeNumber::kStance;
+  return test_support::ScriptedRobot::observationMessage(observation, sequence);
+}
+
+/** The robot of `harness` on `walk`, an observation every 10 ms over [from, to], each until its policy arrives. */
+void walkOverTheBus(Harness& harness, const SwayingWalk& walk, scalar_t from, scalar_t to, uint64_t& sequence) {
+  for (scalar_t time = from; time <= to + 1.0e-9; time += 0.01) {
+    if (!harness.solve(swayingWalkObservation(harness.stack(), walk, time, ++sequence)).has_value()) {
+      ADD_FAILURE() << "no policy at t = " << time;
+      return;
+    }
+  }
+}
+
+TEST(MpcNodeRuntime, ANetworkStallOfUpToASecondKeepsTheStrideHistoryAndDoesNotReadTheSwayAsATurn) {
+  // The two processes: the robot sends its observations over the bus, the node solves each. The robot walks straight in
+  // slow_walk, its pelvis yawing by 0.08 rad with the cycle (a heading rate of up to 0.30 rad/s) while the operator asks
+  // for a turn of 0.3 rad/s, beyond slow_walk's 0.2: the gait must wait for the robot to turn faster than 0.15 rad/s on
+  // the mean, which it never does. Then the network stalls for 0.15, 0.5 and 0.95 s, each ending where the sway turns
+  // fastest. A stall used to restart the stride history from the observation's instantaneous twist, which read the sway
+  // as a turn of 0.30 rad/s and raised the gait; now the history is bridged across it: the mean stays the walk's (exact
+  // while its window starts before the stall, off by the heading's sway from the line across the stall while it starts
+  // inside), and the gait switches wait until the window holds no stall.
+  constexpr scalar_t kCycle = 1.7;  // slow_walk's, the window of its stride means
+  // It sets off once slow_walk runs: the first solve selects it, and the schedule starts it within 1.2 s.
+  const SwayingWalk walk{.start = 2.5, .forwardSpeed = 0.2, .headingSway = 0.08, .frequency = 2.0 * M_PI / kCycle};
+  ASSERT_GT(walk.headingSway * walk.frequency, 0.15) << "the sway alone must turn fast enough to raise slow_walk";
+  Harness harness;
+  const std::shared_ptr<MotionManagerRecorder> recorder = std::make_shared<MotionManagerRecorder>(&harness.stack().motionManager());
+  harness.stack().mpc().getSolverPtr()->addSynchronizedModule(recorder);
+  ASSERT_TRUE(harness.create().ok());
+  ProceduralMpcMotionManager& motionManager = harness.stack().motionManager();
+  ASSERT_TRUE(harness.sendAsOperator(topics::kOperatorWalkingVelocityCommand,
+                                     velocityCommand(/*vx=*/0.0, /*vy=*/0.0, /*height=*/0.0, /*yawRate=*/0.3),
+                                     [&]() { return motionManager.getScaledWalkingVelocityCommand().angular_velocity_z != 0.0; }));
+  ASSERT_GT(motionManager.getScaledWalkingVelocityCommand().angular_velocity_z, 0.2) << "the turn must ask for more than slow_walk";
+
+  struct Stall {
+    scalar_t start = 0.0;
+    scalar_t end = 0.0;
+  };
+  // Each ends a whole number of cycles into the walk, where the sway's heading rate is at its largest.
+  const std::vector<Stall> stalls = {{.start = walk.start + 3.0 * kCycle - 0.15, .end = walk.start + 3.0 * kCycle},
+                                     {.start = walk.start + 5.0 * kCycle - 0.5, .end = walk.start + 5.0 * kCycle},
+                                     {.start = walk.start + 7.0 * kCycle - 0.95, .end = walk.start + 7.0 * kCycle}};
+  uint64_t sequence = 0;
+  walkOverTheBus(harness, walk, /*from=*/1.0, stalls[0].start, sequence);
+  for (size_t i = 0; i < stalls.size(); ++i) {
+    walkOverTheBus(harness, walk, stalls[i].end, i + 1 < stalls.size() ? stalls[i + 1].start : stalls[i].end + 3.0, sequence);
+  }
+  harness.runtime().stop();
+
+  const std::vector<MotionManagerRecorder::Solve> solves = recorder->solves();
+  ASSERT_GT(solves.size(), 1000U);
+  // The first solve leaves stance on the command; slow_walk holds through every stall.
+  for (size_t i = 1; i < solves.size(); ++i) EXPECT_EQ(solves[i].gait, "slow_walk") << "t = " << solves[i].time;
+  const scalar_t insideTheStallBound = 2.0 * walk.headingSway / kCycle;
+  for (const Stall& stall : stalls) {
+    SCOPED_TRACE(stall.end - stall.start);
+    for (const MotionManagerRecorder::Solve& solve : solves) {
+      if (solve.time < stall.end - 1.0e-9 || solve.time > stall.end + kCycle + (stall.end - stall.start)) continue;
+      // The window holds the stall: a mean for the targets, no measurement for the gait switches.
+      if (solve.time - kCycle < stall.end - 1.0e-6) {
+        EXPECT_FALSE(solve.measuredOverTheWholeWindow) << "t = " << solve.time;
+      }
+      if (solve.time - kCycle <= stall.start) {
+        EXPECT_LT(std::abs(solve.measuredHeadingRate), 1.0e-3) << "t = " << solve.time << ": the window starts before the stall";
+      } else {
+        EXPECT_LT(std::abs(solve.measuredHeadingRate), insideTheStallBound) << "t = " << solve.time;
+      }
+    }
+  }
+  EXPECT_TRUE(solves.back().measuredOverTheWholeWindow);
+  EXPECT_LT(std::abs(solves.back().measuredHeadingRate), 1.0e-3);
 }
 
 TEST(MpcNodeRuntime, CreateRefusesWhatIsMissingAndPassesOnTheVisualizationError) {

@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
@@ -56,6 +57,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_msgs/mpc_policy.pb.h"
 #include "humanoid_mpc_msgs/mpc_status.pb.h"
 #include "humanoid_nmpc/humanoid_mpc_ipc/test/MpcLinkTestSupport.h"
+#include "humanoid_nmpc/humanoid_mpc_ipc/test/PolicyTestData.h"
 #include "robot_ipc/Bus.h"
 #include "robot_ipc/BusOptions.h"
 #include "robot_ipc/Delivery.h"
@@ -127,7 +129,7 @@ class RemoteMpcLinkProtocolTest : public ::testing::Test {
   void build(RemoteMpcLink::Config config) {
     robotBus_ = test_support::createNodeBus("robot");
     test_support::connectBoth(*robotBus_, mpc_.bus());
-    absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(*robotBus_, supervisor_, config);
+    absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(*robotBus_, supervisor_, std::move(config));
     CHECK_OK(link.status());
     link_ = std::move(*link);
     // Every poll of the robot's IO thread passes the gate, so that closing it stalls the thread the link runs on.
@@ -564,9 +566,36 @@ TEST(RemoteMpcLinkCreateTest, RefusesARunningBusAndAnInvalidConfig) {
   RemoteMpcLink::Config noPoll = config;
   noPoll.pollPeriod = absl::ZeroDuration();
   EXPECT_EQ(RemoteMpcLink::Create(*bus, supervisor, noPoll).status().code(), absl::StatusCode::kInvalidArgument);
+  // A state manifold must be the manifold of the model's state: [E(3), Q, E(5)] has 12 ambient dimensions, not 3.
+  RemoteMpcLink::Config otherManifold = config;
+  otherManifold.stateManifold = test_data::toyStateManifold();
+  const absl::Status refused = RemoteMpcLink::Create(*bus, supervisor, otherManifold).status();
+  EXPECT_EQ(refused.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(refused.message(), "Config::stateManifold has 12 ambient dimensions but Config::dimensions.stateDim is 3"))
+      << refused;
 
   CHECK_OK(bus->start());
   EXPECT_EQ(RemoteMpcLink::Create(*bus, supervisor, config).status().code(), absl::StatusCode::kFailedPrecondition);
+}
+
+TEST(RemoteMpcLinkCreateTest, ALinkOnAStateManifoldGivesItToItsMrt) {
+  // MRT_BASE::evaluatePolicy() then interpolates the planned state along it, and the controller's realtime evaluator
+  // takes it from getStateManifold().
+  MpcResetSupervisor supervisor;
+  std::unique_ptr<robot::ipc::Bus> bus = test_support::createNodeBus("robot");
+  RemoteMpcLink::Config config;
+  config.dimensions = test_support::manifoldModelDimensions();
+  config.stateManifold = test_data::toyStateManifold();
+  absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(*bus, supervisor, config);
+  ASSERT_TRUE(link.ok()) << link.status();
+  EXPECT_EQ((*link)->getStateManifold(), config.stateManifold);
+
+  std::unique_ptr<robot::ipc::Bus> flatBus = test_support::createNodeBus("robot");
+  RemoteMpcLink::Config flat;
+  flat.dimensions = modelDimensions();
+  absl::StatusOr<std::unique_ptr<RemoteMpcLink>> flatLink = RemoteMpcLink::Create(*flatBus, supervisor, flat);
+  ASSERT_TRUE(flatLink.ok()) << flatLink.status();
+  EXPECT_EQ((*flatLink)->getStateManifold(), nullptr);
 }
 
 TEST_F(RemoteMpcLinkProtocolTest, ABusThatOutlivesTheLinkCallsNothingOfIt) {

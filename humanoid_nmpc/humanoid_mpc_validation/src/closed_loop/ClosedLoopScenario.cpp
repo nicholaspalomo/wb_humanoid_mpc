@@ -29,7 +29,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_mpc_validation/closed_loop/ClosedLoopScenario.h"
 
-#include <algorithm>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -105,16 +104,6 @@ double getCommandDuration(const ClosedLoopScenario& scenario) {
   double duration = 0.0;
   for (const CommandSegment& piece : scenario.segments) duration += piece.duration;
   return duration;
-}
-
-double getCommandedHeadingPeak(const ClosedLoopScenario& scenario) {
-  double heading = 0.0;
-  double peak = 0.0;
-  for (const CommandSegment& piece : scenario.segments) {
-    heading += piece.yawRate * piece.duration;
-    peak = std::max(peak, heading);
-  }
-  return peak;
 }
 
 Eigen::Vector3d commandAt(const ClosedLoopScenario& scenario, double timeSinceStart) {

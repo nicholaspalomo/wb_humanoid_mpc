@@ -48,9 +48,10 @@ size_t solutionWindowLength(const scalar_array_t& timeTrajectory, scalar_t final
  * Cuts `solution` to the solution time window that ends at `finalTime` (mpc::Settings::solutionTimeWindow_), as upstream
  * OCS2 GaussNewtonDDP::getPrimalSolution() does and as SqpSolver::getPrimalSolution(), which ignores its finalTime, does not:
  * the time, state and input trajectories keep solutionWindowLength() nodes, the post-event indices keep the events
- * among them, and a FeedforwardController or LinearController keeps the nodes of its own time stamps by the same rule.
- * The mode schedule is kept whole. A solution that ends before `finalTime` is left as it is, and so is a controller of
- * another type (policyToProto() refuses those anyway).
+ * among them, and a FeedforwardController, LinearController or ManifoldLinearController (ManifoldLinearController::
+ * keepFirst()) keeps the nodes of its own time stamps by the same rule. The mode schedule is kept whole. A solution that
+ * ends before `finalTime` is left as it is, and so is a controller of another type (policyToProto() refuses those
+ * anyway).
  *
  * The MPC node calls it before it sends a policy, so that mpc.solution_time_window bounds the bandwidth whatever the
  * solver (humanoid_nmpc/docs/distributed_runtime/README.md, "Bandwidth").

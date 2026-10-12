@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <string>
 
+#include "EGL/egl.h"
 #include "Eigen/Core"
 #include "Eigen/Geometry"
 #include "GL/glew.h"
@@ -47,11 +48,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "hpipm_d_ocp_qp_ipm.h"  // NOLINT(build/include_subdir): HPIPM installs its headers in no directory
+#include "httplib.h"             // NOLINT(build/include_subdir): cpp-httplib is a single header without a directory
 #include "mujoco/mujoco.h"
 #include "ocs2_core/Types.h"
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/multibody/data.hpp"
 #include "pinocchio/multibody/model.hpp"
+#include "turbojpeg.h"  // NOLINT(build/include_subdir): libjpeg-turbo installs turbojpeg.h without a directory
 #include "urdf_parser/urdf_parser.h"
 #include "zmq.hpp"  // NOLINT(build/include_subdir): cppzmq installs its header in no directory
 
@@ -82,10 +85,13 @@ int instantiateThirdPartyTemplates() {
   const CppAD::cg::CG<double> constant(1.0);
   const CppAD::AD<CppAD::cg::CG<double>> taped(constant);
   const ::testing::Matcher<int> matcher = ::testing::Eq(1);
+  const httplib::Headers headers = {{"Host", "localhost"}};
+  const int rgbPixelSize = tjPixelSize[TJPF_RGB];
+  const EGLint eglStatus = EGL_SUCCESS;
 
   const size_t total = counts.size() + serialized.size() + frame.size() + static_cast<size_t>(sample.joint_positions.size());
   return static_cast<int>(total) + static_cast<int>(rotated.x() + state.sum()) + (status.ok() ? 1 : 0) + (matcher.Matches(1) ? 1 : 0) +
-         (CppAD::Variable(taped) ? 1 : 0) + model.nq;
+         (CppAD::Variable(taped) ? 1 : 0) + model.nq + static_cast<int>(headers.size()) + rgbPixelSize + static_cast<int>(eglStatus);
 }
 
 }  // namespace wb_humanoid_mpc::copts_probe

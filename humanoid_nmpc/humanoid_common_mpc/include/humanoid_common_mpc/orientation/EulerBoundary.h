@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/Types.h"
 
@@ -74,9 +75,7 @@ inline constexpr scalar_t kGimbalLockCosPitch = 1.0e-3;
  *   phi = atan2(2 (w x + y z), 1 - 2 (x^2 + y^2)).
  *
  * The argument of asin is clamped, so a quaternion whose 2 (w y - z x) exceeds 1 by round-off gives theta = +-pi/2 and
- * not NaN. Away from a pitch of +-90 degrees this is, bit for bit, the conversion the MRTs and the telemetry used before
- * the switch (pinocchio_model/DynamicsHelperFunctions.h quaternionToEulerZYX, with the clamp), so a call site moved to it
- * reproduces its old output exactly. xi is read as given, not renormalized, for that reason: pass a unit quaternion.
+ * not NaN. xi is read as given, not renormalized: pass a unit quaternion.
  *
  * At gimbal lock (cos(theta) below kGimbalLockCosPitch) only psi - phi (theta = 90 degrees) or psi + phi (theta = -90
  * degrees) is defined, and the formulas above split it by round-off. There psi keeps its formula, and theta and phi are
@@ -96,20 +95,35 @@ matrix3_t eulerZyxRateToLocalAngularVelocityMatrix(const vector3_t& eulerZyx);
 /** w_B = T_B(Theta) dTheta/dt, ocs2::getLocalAngularVelocityFromEulerAnglesZyxDerivatives. */
 vector3_t localAngularVelocityFromEulerZyxRates(const vector3_t& eulerZyx, const vector3_t& eulerZyxRates);
 
+/**
+ * dTheta/dt = T_B(Theta)^-1 w_B, the inverse of localAngularVelocityFromEulerZyxRates, bit for bit
+ * ocs2::getEulerAnglesZyxDerivativesFromLocalAngularVelocity. It divides by cos(theta): the rates are not finite at a
+ * pitch of +-90 degrees.
+ */
+vector3_t eulerZyxRatesFromLocalAngularVelocity(const vector3_t& eulerZyx, const vector3_t& localAngularVelocity);
+
+/**
+ * d w_B / d Theta of w_B = T_B(Theta) dTheta/dt at fixed rates dTheta/dt: the 3 x 3 matrix whose columns are the
+ * derivatives along yaw (zero: T_B does not depend on the yaw), pitch and roll.
+ */
+matrix3_t localAngularVelocityEulerZyxJacobian(const vector3_t& eulerZyx, const vector3_t& eulerZyxRates);
+
 /******************************************************************************************************/
 /* The Euler tuning layout (design sections 2.3 and 2.10)                                             */
 /******************************************************************************************************/
 
 /**
  * What one block of the Euler tuning layout - a block of the task file's initial_state, state_weights and
- * final_state_weights - is in the state. The tuning layout has the size of the state tangent (design decision D6),
- * which is the Euler state of before the switch, index for index; the state stores the base orientation as a
- * quaternion, one row more.
+ * final_state_weights - is in the state. The tuning layout has the size of the state tangent (design decision D6): the
+ * ZYX Euler state, index for index; the state, which stores the base orientation as a quaternion, has one row more.
  */
 enum class TuningSegmentKind {
   /** The same quantity in both, row for row: momentum, positions, joint angles, linear and joint velocities. */
   kEuclidean,
-  /** The base orientation: (yaw, pitch, roll) ZYX Euler angles in the tuning layout, xi = (x, y, z, w) in the state. */
+  /**
+   * The base orientation: (yaw, pitch, roll) ZYX Euler angles in the tuning layout, the unit quaternion xi = (x, y, z, w)
+   * on kQuaternionOrientationStateDim rows in the state.
+   */
   kEulerZyxOrientation,
   /**
    * The whole-body base angular velocity: (w_z, w_y, w_x) in the tuning layout, the order of the Euler rates whose rows
@@ -118,19 +132,30 @@ enum class TuningSegmentKind {
   kZyxOrderedAngularVelocity,
 };
 
+/** The state rows of a kEulerZyxOrientation block, which the state stores as a quaternion (x, y, z, w). */
+inline constexpr size_t kQuaternionOrientationStateDim = 4;
+
 /** One block of a TuningLayout. */
 struct TuningSegment {
-  /** Names the block in error messages, e.g. "q_j". */
+  /** Names the block in error messages and in tuningSegmentStart(), e.g. "joint_positions". */
   std::string name;
   TuningSegmentKind kind = TuningSegmentKind::kEuclidean;
   /** Rows in the tuning layout: any size for kEuclidean, 3 for the two rotation kinds. */
   size_t tuningDim = 0;
+  /** The block's first row in the state; 0 until placeTuningLayout() places the layout. */
+  size_t stateStart = 0;
+  /**
+   * Rows in the state: tuningDim, except kEulerZyxOrientation's, which is kQuaternionOrientationStateDim. 0 until
+   * placeTuningLayout() places the layout.
+   */
+  size_t stateDim = 0;
 };
 
 /**
- * A tuning layout and the state layout it maps to, as consecutive blocks. The robot models build theirs (design
- * section 2.3), for example the centroidal [h(6), p_W(3), base orientation, q_j(nj)]; a layout of kEuclidean blocks only
- * maps a vector to itself, the Euler state of before the switch.
+ * A tuning layout and the state layout it maps to, as consecutive blocks. The robot models hold theirs, built by
+ * tuningLayoutOf() (config/weights/StateInputLayout.h) and placed by placeTuningLayout() (design section 2.3): for
+ * example the centroidal [normalized_linear_momentum (3), normalized_angular_momentum (3), base_position (3),
+ * base_orientation, joint_positions (nj)]; a layout of kEuclidean blocks only maps a vector to itself.
  */
 struct TuningLayout {
   /** Names the layout in error messages, e.g. "centroidal". */
@@ -138,11 +163,24 @@ struct TuningLayout {
   std::vector<TuningSegment> segments;
 };
 
+/**
+ * `layout` placed on a state: each segment's stateStart and stateDim set, the segments consecutive in the state in their
+ * tuning order, every one as many state rows as tuning rows but a kEulerZyxOrientation segment, which gets the
+ * kQuaternionOrientationStateDim rows of its quaternion.
+ */
+TuningLayout placeTuningLayout(TuningLayout layout);
+
 /** Rows of the tuning layout: the sum of the segments' tuningDim. */
 size_t getTuningLayoutDim(const TuningLayout& layout);
 
-/** Rows of the state the tuning layout maps to: one more than the tuning rows for each kEulerZyxOrientation segment. */
+/** Rows of the state the tuning layout is placed on: the sum of the segments' stateDim (placeTuningLayout()). */
 size_t getTuningLayoutStateDim(const TuningLayout& layout);
+
+/**
+ * The first tuning row of the segment named `name`: where the task file's block of that name sits in the tuning vector
+ * and in Q. NotFound, naming the layout and its blocks, when no segment has that name.
+ */
+absl::StatusOr<size_t> tuningSegmentStart(const TuningLayout& layout, absl::string_view name);
 
 /**
  * The layout as text for an error message, e.g.
@@ -151,10 +189,11 @@ size_t getTuningLayoutStateDim(const TuningLayout& layout);
 std::string describeTuningLayout(const TuningLayout& layout);
 
 /**
- * The state of a tuning-layout vector, e.g. the task file's initial_state: kEuclidean rows are copied bit for bit, (yaw,
- * pitch, roll) become quaternionFromEulerZyx, and (w_z, w_y, w_x) become (w_x, w_y, w_z). An InvalidArgumentError,
- * naming the layout with each block and its size, when the vector does not have getTuningLayoutDim(layout) entries or a
- * rotation block does not have 3 rows.
+ * The state of a tuning-layout vector, e.g. the task file's initial_state, on a layout that placeTuningLayout() placed:
+ * kEuclidean rows are copied bit for bit, (yaw, pitch, roll) become quaternionFromEulerZyx, and (w_z, w_y, w_x) become
+ * (w_x, w_y, w_z). An InvalidArgumentError, naming the layout with each block and its size, when the vector does not
+ * have getTuningLayoutDim(layout) entries, a rotation block does not have 3 rows, or the layout is not where
+ * placeTuningLayout() places it.
  */
 absl::StatusOr<vector_t> stateFromTuningLayout(const vector_t& tuningVector, const TuningLayout& layout);
 
@@ -162,7 +201,8 @@ absl::StatusOr<vector_t> stateFromTuningLayout(const vector_t& tuningVector, con
  * The inverse of stateFromTuningLayout, for display and for writing a state back in the tuning layout: the quaternion
  * becomes eulerZyxFromQuaternion of its safe normalization. An exact inverse for yaw and roll in (-pi, pi] and a pitch
  * of less than 90 degrees. An InvalidArgumentError, naming the layout, when the state does not have
- * getTuningLayoutStateDim(layout) entries or a rotation block does not have 3 rows.
+ * getTuningLayoutStateDim(layout) entries, a rotation block does not have 3 rows, or the layout is not where
+ * placeTuningLayout() places it (as stateFromTuningLayout).
  */
 absl::StatusOr<vector_t> tuningLayoutFromState(const vector_t& state, const TuningLayout& layout);
 

@@ -49,8 +49,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "gtest/gtest.h"
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_centroidal_model/FactoryFunctions.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/centroidal.hpp"
+#include "pinocchio/algorithm/jacobian.hpp"
+#include "pinocchio/algorithm/joint-configuration.hpp"
+#include "pinocchio/algorithm/kinematics.hpp"
 #include "pinocchio/multibody/data.hpp"
 #include "pinocchio/multibody/joint/joint-free-flyer.hpp"
 #include "pinocchio/multibody/model.hpp"
@@ -64,6 +69,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/model/MpcFormulationFromConfig.h"
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
+#include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_mpc_config/contact_planning_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
@@ -72,10 +78,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-/** Number of generalized coordinates the floating base occupies: 3 translations, then ZYX Euler angles. */
-constexpr Eigen::Index kGeneralizedBaseDim = 6;
-/** Index of the first base orientation coordinate within the Pinocchio q vector. */
-constexpr Eigen::Index kBaseOrientationOffset = 3;
+/** The floating base: the Pinocchio model's first joint after the universe, whatever joints it is composed of. */
+constexpr pinocchio::JointIndex kRootJoint = 1;
 /** How many random configurations the statistical assertions are averaged over. */
 constexpr int kNumSamples = 200;
 /**
@@ -142,7 +146,8 @@ std::ostream& operator<<(std::ostream& stream, const AcomRobotCase& robotCase) {
  *    one would take.
  *
  * "measured" is what this file's samples give on the shipped header (mean and worst relative Frobenius error, then
- * mean and worst relative rate error); the test logs the fresh numbers next to it.
+ * mean and worst relative rate error, the latter of the composed attitude xi (x) Exp(Delta_theta) at a tilted base);
+ * the test logs the fresh numbers next to it.
  */
 // LINT.IfChange(acom_acceptance_robots)
 const AcomRobotCase kAcomRobotCases[] = {
@@ -151,7 +156,7 @@ const AcomRobotCase kAcomRobotCases[] = {
      .urdfFile = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
      /*validatedForClosedLoop=*/.validatedForClosedLoop = true,
      /*measured=*/.measured =
-         {.meanRelativeError = 0.219, .worstRelativeError = 0.375, .meanRelativeRateError = 0.042, .worstRelativeRateError = 0.138},
+         {.meanRelativeError = 0.219, .worstRelativeError = 0.375, .meanRelativeRateError = 0.039, .worstRelativeRateError = 0.137},
      /*bounds=*/.bounds =
          {.meanRelativeError = 0.30, .worstRelativeError = 0.50, .meanRelativeRateError = 0.08, .worstRelativeRateError = 0.25}},
     {.robotName = "engineai_sa01",
@@ -159,7 +164,7 @@ const AcomRobotCase kAcomRobotCases[] = {
      .urdfFile = "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf",
      /*validatedForClosedLoop=*/.validatedForClosedLoop = false,
      /*measured=*/.measured =
-         {.meanRelativeError = 0.508, .worstRelativeError = 1.62, .meanRelativeRateError = 0.127, .worstRelativeRateError = 0.647},
+         {.meanRelativeError = 0.508, .worstRelativeError = 1.62, .meanRelativeRateError = 0.121, .worstRelativeRateError = 0.632},
      /*bounds=*/.bounds =
          {.meanRelativeError = 0.60, .worstRelativeError = 1.95, .meanRelativeRateError = 0.15, .worstRelativeRateError = 0.80}},
     {.robotName = "g1",
@@ -167,7 +172,7 @@ const AcomRobotCase kAcomRobotCases[] = {
      .urdfFile = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf",
      /*validatedForClosedLoop=*/.validatedForClosedLoop = false,
      /*measured=*/.measured =
-         {.meanRelativeError = 0.402, .worstRelativeError = 1.33, .meanRelativeRateError = 0.072, .worstRelativeRateError = 0.238},
+         {.meanRelativeError = 0.402, .worstRelativeError = 1.33, .meanRelativeRateError = 0.076, .worstRelativeRateError = 0.246},
      /*bounds=*/.bounds =
          {.meanRelativeError = 0.48, .worstRelativeError = 1.60, .meanRelativeRateError = 0.09, .worstRelativeRateError = 0.30}},
 };
@@ -189,26 +194,29 @@ std::string urdfFileOf(const AcomRobotCase& robotCase) {
  * Does the aCOM actually do the one thing it exists to do?
  *
  * Every other test of this subsystem checks its STRUCTURE - shapes, floating-base equivariance, the analytic Jacobian
- * against finite differences, the XYZ-to-ZYX row permutation, the joint ordering recorded in the generated header.
+ * against finite differences, the attitude's tangent Jacobian, the joint ordering recorded in the generated header.
  * All of those would pass just as happily with an untrained network, or with weights trained for a different robot's
  * mass distribution. None of them looks at the quantity the network was fit to.
  *
  * The defining property (Chen, Nelson, Griffin, Posa and Pratt, IROS 2023) is that the aCOM is an INTEGRABLE
- * approximation of the whole-body orientation whose rate is the centroidal angular velocity:
+ * approximation of the whole-body orientation whose angular velocity is the centroidal angular velocity:
  *
- *   d/dt theta_aCOM  ~=  omega_locked  =  I_G(q)^-1 L_G(q, qdot),
+ *   omega_aCOM  ~=  omega_locked  =  I_G(q)^-1 L_G(q, qdot),
  *
- * with I_G the locked rotational inertia at the center of mass and L_G the centroidal angular momentum. Substituting
- * the equivariant decomposition theta_aCOM = theta_base + Delta_theta(q_j), whose base block is exact by construction,
- * reduces the claim to the joint block alone:
+ * with I_G the locked rotational inertia at the center of mass and L_G the centroidal angular momentum, both in world
+ * axes. The ACoM attitude is xi_a = xi (x) Exp(Delta_theta(q_j)) (AngularCenterOfMass::acomAttitude()), so its world
+ * angular velocity is omega_W + R(xi) J_l(Delta_theta) J_Delta_theta qdot_j, with omega_W the base's; omega_locked is
+ * omega_W + R(xi) Abar_omega,j qdot_j with the connection in base axes. The base term is exact by construction, which
+ * reduces the claim to the joint block alone - to first order in |Delta_theta|, where J_l(Delta_theta) = I:
  *
  *   d(Delta_theta)/d(q_j)  ~=  Abar_omega,j(q)  =  I_G(q)^-1 A_omega,j(q),
  *
- * which is exactly the Frobenius objective train_acom.py minimizes. So this file is the C++-side acceptance test for
- * the TRAINING, evaluated through the exported weight header that the robot actually runs - not through the JAX
- * parameters the Python tests see - for every robot that has one. A retrained or re-exported network that regressed, a
- * transposed weight matrix, a row permutation applied in the wrong direction, or a header exported for the wrong robot
- * all show up here and nowhere else.
+ * which is exactly the Frobenius objective train_acom.py minimizes, on the connection dataset_generator.py samples in
+ * base axes at the identity base (a MuJoCo free joint, whose angular velocity is the body angular velocity omega_B). So this file is the
+ * C++-side acceptance test for the TRAINING, evaluated through the exported weight header that the robot actually runs - not through the
+ * JAX parameters the Python tests see - for every robot that has one. A retrained or re-exported network that regressed, a transposed
+ * weight matrix, a row permutation applied in the wrong direction, or a header exported for the wrong robot all show up here and nowhere
+ * else.
  *
  * There is a second thing this file gets for free, and it is worth stating because nothing else in the repository has
  * it. The target here is recomputed with Pinocchio's ccrba on the reduced MPC model, which is an INDEPENDENT
@@ -217,6 +225,10 @@ std::string urdfFileOf(const AcomRobotCase& robotCase) {
  * has to reconcile. A frame convention applied in the wrong direction, a permutation off by one, or a momentum read
  * about the wrong subtree would leave every Python test green (they check MuJoCo against itself) and every structural
  * C++ test green, and would show up here as an error far larger than any fit residual.
+ *
+ * The rate tests compare angular velocities, in world axes, at a tilted base: the base is driven through its
+ * root joint's own body velocity, whatever coordinates the root joint has, so nothing here depends on how the MPC's
+ * Pinocchio model parameterizes the base orientation.
  *
  * Configurations are drawn uniformly from the model's joint-limit box, which is the box dataset_generator.py samples.
  * (The shipped headers were trained on that box trimmed by 10 % of each range at both ends, a margin the generator no
@@ -242,7 +254,8 @@ class AcomAngularVelocityConsistencyTest : public ::testing::TestWithParam<AcomR
     ASSERT_EQ(modelSettingsPtr_->robotName, robotCase.robotName) << "the case's task file belongs to another robot";
     pinocchioInterfacePtr_ =
         std::make_unique<PinocchioInterface>(loadCustomPinocchioInterface(taskFile, urdfFile, *modelSettingsPtr_).value());
-    numJoints_ = pinocchioInterfacePtr_->getModel().nq - kGeneralizedBaseDim;
+    const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
+    numJoints_ = model.nv - model.joints[kRootJoint].nv();
 
     // The checked factory, as the MPC calls it: a joint list that differs from the one the header records fails here.
     absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> acom =
@@ -254,12 +267,12 @@ class AcomAngularVelocityConsistencyTest : public ::testing::TestWithParam<AcomR
   }
 
   /**
-   * The joint block of the connection, Abar_omega,j = I_G^-1 A_omega,j, and the locked inertia, from Pinocchio.
+   * The joint block of the connection, Abar_omega,j = I_G^-1 A_omega,j, in world axes, from Pinocchio.
    *
-   * This model's floating base is a Translation joint composed with a SphericalZYX joint, so the tangent vector v is
-   * literally dq/dt and ccrba's base columns are with respect to the EULER RATES rather than an angular velocity.
-   * That distinction does not touch the joint columns this method returns - a joint velocity is the same number in
-   * either convention - but it is why the rate tests below keep the base level or motionless.
+   * Only the joint columns of ccrba's centroidal map are read: a joint velocity is the same number whatever coordinates
+   * the root joint has, while the base columns are with respect to the root's own velocity coordinates (the Euler rates
+   * of an Euler-angle root, the body angular velocity of a quaternion one). The rate tests therefore drive the base
+   * through rootVelocityOf(), never through those columns.
    */
   matrix_t connectionJointBlock(const vector_t& q) const {
     const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
@@ -280,20 +293,71 @@ class AcomAngularVelocityConsistencyTest : public ::testing::TestWithParam<AcomR
     return lockedInertia.ldlt().solve(vector3_t(data.hg.angular()));
   }
 
-  /** A configuration drawn uniformly from the model's joint limits, with the base wherever the caller wants it. */
-  vector_t sampleConfiguration(std::mt19937& generator, const vector3_t& baseEulerZyx) const {
+  /**
+   * A configuration drawn uniformly from the model's joint limits, with the base at the identity orientation, which is
+   * where dataset_generator.py samples the connection. The joints are the last numJoints_ entries of q, after the root
+   * joint's coordinates.
+   */
+  vector_t sampleConfiguration(std::mt19937& generator) const {
     const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
-    vector_t q = vector_t::Zero(model.nq);
+    vector_t q = pinocchio::neutral(model);
     q(2) = 0.9;  // a plausible base height; the CoM and the inertia do not depend on it, but a sane pose is easier to read
-    q.segment<3>(kBaseOrientationOffset) = baseEulerZyx;
     for (Eigen::Index joint = 0; joint < numJoints_; ++joint) {
-      const Eigen::Index index = kGeneralizedBaseDim + joint;
+      const Eigen::Index index = model.nq - numJoints_ + joint;
       const scalar_t lower = std::isfinite(model.lowerPositionLimit(index)) ? model.lowerPositionLimit(index) : -kUnlimitedJointHalfRange;
       const scalar_t upper = std::isfinite(model.upperPositionLimit(index)) ? model.upperPositionLimit(index) : kUnlimitedJointHalfRange;
       std::uniform_real_distribution<scalar_t> distribution(lower, upper);
       q(index) = distribution(generator);
     }
     return q;
+  }
+
+  /** `q` with its base rotated: Pinocchio's integration of the root joint by the velocity coordinates `rootAngular`. */
+  vector_t withRotatedBase(const vector_t& q, const vector3_t& rootAngular) const {
+    const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
+    vector_t step = vector_t::Zero(model.nv);
+    step.segment<3>(3) = rootAngular;
+    return pinocchio::integrate(model, q, step);
+  }
+
+  /** The base orientation xi of `q`, quaternion coefficients (x, y, z, w), from the root joint's placement. */
+  vector4_t baseOrientationOf(const vector_t& q) const {
+    const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
+    pinocchio::Data data(model);
+    pinocchio::forwardKinematics(model, data, q);
+    return Eigen::Quaternion<scalar_t>(data.oMi[kRootJoint].rotation()).coeffs();
+  }
+
+  /**
+   * The velocity v at `q` that rotates the whole robot, its joints locked, with the body angular velocity
+   * `angularVelocityLocal` about the base origin: the root joint's velocity coordinates whose local spatial velocity is
+   * (0, angularVelocityLocal), whatever coordinates the root joint has.
+   */
+  vector_t rootVelocityOf(const vector_t& q, const vector3_t& angularVelocityLocal) const {
+    const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
+    pinocchio::Data data(model);
+    pinocchio::computeJointJacobians(model, data, q);
+    matrix_t jacobian = matrix_t::Zero(6, model.nv);
+    pinocchio::getJointJacobian(model, data, kRootJoint, pinocchio::LOCAL, jacobian);
+    const Eigen::Index rootVelocityDim = model.joints[kRootJoint].nv();
+    vector6_t twist = vector6_t::Zero();
+    twist.tail<3>() = angularVelocityLocal;
+    vector_t v = vector_t::Zero(model.nv);
+    v.head(rootVelocityDim) = jacobian.leftCols(rootVelocityDim).fullPivLu().solve(twist);
+    return v;
+  }
+
+  /**
+   * The world angular velocity of the ACoM attitude xi_a = xi (x) Exp(Delta_theta(q_j)) at `q` under the body angular
+   * velocity `angularVelocityLocal` of the base and the joint velocities `jointVelocities`: R(xi_a) (R(Delta_theta)^T
+   * omega_B + J_r(Delta_theta) J_Delta_theta qdot_j), through the tangent Jacobian the MPC cost assembles.
+   */
+  vector3_t acomAngularVelocity(const vector_t& q, const vector3_t& angularVelocityLocal, const vector_t& jointVelocities) const {
+    const vector_t qJoints = q.tail(numJoints_);
+    const vector4_t attitude = acomPtr_->acomAttitude(baseOrientationOf(q), qJoints);
+    const AcomAttitudeTangentJacobian tangent = acomPtr_->acomAttitudeTangentJacobian(qJoints);
+    const vector3_t bodyRate = tangent.baseOrientation * angularVelocityLocal + tangent.jointAngles * jointVelocities;
+    return quaternionRotationMatrix(attitude) * bodyRate;
   }
 
   /**
@@ -305,7 +369,7 @@ class AcomAngularVelocityConsistencyTest : public ::testing::TestWithParam<AcomR
     scalar_t worstRelativeError = 0.0;
     scalar_t summedRelativeError = 0.0;
     for (int sample = 0; sample < kNumSamples; ++sample) {
-      const vector_t q = sampleConfiguration(generator, vector3_t::Zero());
+      const vector_t q = sampleConfiguration(generator);
       const matrix_t target = connectionJointBlock(q);
       const matrix_t predicted = jacobian(q);
       EXPECT_EQ(predicted.rows(), target.rows());
@@ -362,10 +426,11 @@ TEST_P(AcomAngularVelocityConsistencyTest, theBoundsRejectANetworkFedTheWrongJoi
 }
 
 TEST_P(AcomAngularVelocityConsistencyTest, theAcomRateIsTheCentroidalAngularVelocity) {
-  // The property stated directly, end to end through the aCOM Jacobian the MPC cost actually assembles. The base is
-  // left level and motionless, so omega_locked reduces to the joint term Abar_omega,j qdot_j and the aCOM rate to
-  // P J_Delta_theta qdot_j: no Euler-rate to angular-velocity mapping enters, and what is compared is exactly what the
-  // network was fit to, contracted with a velocity.
+  // The property stated directly, end to end through the ACoM attitude and the tangent Jacobian the MPC cost assembles,
+  // in angular velocities: the world angular velocity of xi_a against omega_locked. The base is tilted but motionless,
+  // so omega_locked is R(xi) Abar_omega,j qdot_j and the ACoM's R(xi) J_l(Delta_theta) J_Delta_theta qdot_j:
+  // what is compared is what the network was fit to, contracted with a velocity, and carried through the
+  // multiplicative composition. Both sides rotate with the base, so the number is that of the identity base.
   //
   // The error is measured against ||Abar||_F ||qdot||, not against ||omega_locked||. Dividing by the latter looks more
   // natural and is a trap: omega_locked passes arbitrarily close to zero for velocity directions near the connection's
@@ -375,26 +440,31 @@ TEST_P(AcomAngularVelocityConsistencyTest, theAcomRateIsTheCentroidalAngularVelo
   // numbers are much smaller than the Frobenius ones and have bounds of their own.
   const AcomRobotCase& robotCase = GetParam();
   std::mt19937 generator(981);
+  std::mt19937 baseGenerator(1729);
   std::uniform_real_distribution<scalar_t> velocityDistribution(-1.0, 1.0);
+  std::uniform_real_distribution<scalar_t> baseRotationDistribution(-0.6, 0.6);
   const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
 
   scalar_t worstRelativeError = 0.0;
   scalar_t summedRelativeError = 0.0;
   for (int sample = 0; sample < kNumSamples; ++sample) {
-    const vector_t q = sampleConfiguration(generator, vector3_t::Zero());
-    vector_t v = vector_t::Zero(model.nv);
+    const vector_t atIdentity = sampleConfiguration(generator);
+    vector_t jointVelocities(numJoints_);
     for (Eigen::Index joint = 0; joint < numJoints_; ++joint) {
-      v(kGeneralizedBaseDim + joint) = velocityDistribution(generator);
+      jointVelocities(joint) = velocityDistribution(generator);
     }
+    const vector3_t baseRotation(baseRotationDistribution(baseGenerator), baseRotationDistribution(baseGenerator),
+                                 baseRotationDistribution(baseGenerator));
+    const vector_t q = withRotatedBase(atIdentity, baseRotation);
+    vector_t v = vector_t::Zero(model.nv);
+    v.tail(numJoints_) = jointVelocities;
 
-    // d/dt theta_aCOM in the centroidal state's ZYX order, from the full aCOM Jacobian the MPC cost uses...
-    const vector3_t acomRateZyx = acomPtr_->computeAcomJacobian(q) * v;
-    // ...against the centroidal angular velocity, permuted into the same order.
-    const vector3_t lockedZyx = acomXyzToZyx(lockedAngularVelocity(q, v));
+    const vector3_t acomRate = acomAngularVelocity(q, vector3_t::Zero(), jointVelocities);
+    const vector3_t locked = lockedAngularVelocity(q, v);
 
-    const scalar_t scale = connectionJointBlock(q).norm() * v.norm();
+    const scalar_t scale = connectionJointBlock(q).norm() * jointVelocities.norm();
     ASSERT_GT(scale, 1.0e-6) << "the sampled motion must actually swing the robot for this to mean anything";
-    const scalar_t relativeError = (acomRateZyx - lockedZyx).norm() / scale;
+    const scalar_t relativeError = (acomRate - locked).norm() / scale;
     worstRelativeError = std::max(worstRelativeError, relativeError);
     summedRelativeError += relativeError;
   }
@@ -405,28 +475,28 @@ TEST_P(AcomAngularVelocityConsistencyTest, theAcomRateIsTheCentroidalAngularVelo
             << robotCase.measured.meanRelativeRateError << "), worst " << worstRelativeError << " (shipped "
             << robotCase.measured.worstRelativeRateError << ")";
 
-  EXPECT_LT(meanRelativeError, robotCase.bounds.meanRelativeRateError) << "d/dt theta_aCOM has stopped tracking I_G^-1 L_G";
+  EXPECT_LT(meanRelativeError, robotCase.bounds.meanRelativeRateError) << "the ACoM's angular velocity has stopped tracking I_G^-1 L_G";
   EXPECT_LT(worstRelativeError, robotCase.bounds.worstRelativeRateError) << "some sampled motion is badly tracked";
 }
 
 TEST_P(AcomAngularVelocityConsistencyTest, theBaseContributionToTheRateIsExactNotApproximated) {
   // The equivariant half of the claim, and the half that must hold to machine precision rather than to a training
-  // tolerance: a rigid rotation of the whole robot rotates the aCOM one-for-one. Keeping the base level makes the
-  // Euler rates and the angular velocity the same vector, so omega_locked picks up the base rate exactly and any
-  // discrepancy is a structural error in the Jacobian rather than a fit error.
+  // tolerance: a rigid rotation of the whole robot rotates the ACoM one for one. The joints are locked and the base, at
+  // a tilted attitude, spins with a body angular velocity omega_B, so omega_locked is the base's world angular
+  // velocity R(xi) omega_B exactly, and so is the ACoM's R(xi_a) R(Delta_theta)^T omega_B: any discrepancy is a
+  // structural error in the attitude or its tangent Jacobian rather than a fit error.
   std::mt19937 generator(4242);
-  const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
+  const vector3_t angularVelocityLocal(0.3, -0.2, 0.5);
   for (int sample = 0; sample < 20; ++sample) {
-    const vector_t q = sampleConfiguration(generator, vector3_t::Zero());
+    const vector_t q = withRotatedBase(sampleConfiguration(generator), vector3_t(0.25, -0.35, 0.4));
+    const vector3_t baseRate = quaternionRotationMatrix(baseOrientationOf(q)) * angularVelocityLocal;
 
-    vector_t baseOnly = vector_t::Zero(model.nv);
-    baseOnly.segment<3>(kBaseOrientationOffset) = vector3_t(0.3, -0.2, 0.5);  // ZYX Euler rates == omega at theta = 0
-
-    const vector3_t acomRateZyx = acomPtr_->computeAcomJacobian(q) * baseOnly;
-    const vector3_t lockedZyx = acomXyzToZyx(lockedAngularVelocity(q, baseOnly));
-    EXPECT_LT((acomRateZyx - lockedZyx).norm(), 1.0e-9) << "sample " << sample;
-    // And it is the base rate itself, unchanged by the configuration of the joints.
-    EXPECT_LT((acomRateZyx - vector3_t(0.3, -0.2, 0.5)).norm(), 1.0e-12) << "sample " << sample;
+    const vector3_t locked = lockedAngularVelocity(q, rootVelocityOf(q, angularVelocityLocal));
+    EXPECT_LT((locked - baseRate).norm(), 1.0e-9) << "sample " << sample << ": the base was not driven at omega_B";
+    const vector3_t acomRate = acomAngularVelocity(q, angularVelocityLocal, vector_t::Zero(numJoints_));
+    EXPECT_LT((acomRate - locked).norm(), 1.0e-9) << "sample " << sample;
+    // And it is the base's rate itself, unchanged by the configuration of the joints.
+    EXPECT_LT((acomRate - baseRate).norm(), 1.0e-12) << "sample " << sample;
   }
 }
 
@@ -449,7 +519,7 @@ TEST_P(AcomAngularVelocityConsistencyTest, theNetworkBeatsTheTwoTrivialBaselines
   predictions.reserve(kNumSamples);
   matrix_t meanConnection = matrix_t::Zero(3, numJoints_);
   for (int sample = 0; sample < kNumSamples; ++sample) {
-    const vector_t q = sampleConfiguration(generator, vector3_t::Zero());
+    const vector_t q = sampleConfiguration(generator);
     targets.push_back(connectionJointBlock(q));
     predictions.push_back(acomPtr_->computeJointOffsetJacobian(q.tail(numJoints_)));
     meanConnection += targets.back();
@@ -489,8 +559,11 @@ TEST_P(AcomAngularVelocityConsistencyTest, theExportedJointNamesMatchTheMpcModel
         << "joint " << joint << ": regenerate the weight header against the reduced MPC model";
   }
 
-  CentroidalModelInfo info;
-  info.actuatedDofNum = static_cast<size_t>(numJoints_);
+  // The model info as the MPC builds it for the same reduced model.
+  const CentroidalModelInfo info = centroidal_model::createCentroidalModelInfo(
+      *pinocchioInterfacePtr_, CentroidalModelType::FullCentroidalDynamics, vector_t::Zero(numJoints_), modelSettingsPtr_->contactNames3DoF,
+      modelSettingsPtr_->contactNames6DoF);
+  ASSERT_EQ(info.actuatedDofNum, static_cast<size_t>(numJoints_));
   const absl::StatusOr<std::vector<std::string>> pinocchioJointNames =
       ComAndAcomTrackingCost::actuatedJointNames(*pinocchioInterfacePtr_, info);
   ASSERT_TRUE(pinocchioJointNames.ok()) << pinocchioJointNames.status();

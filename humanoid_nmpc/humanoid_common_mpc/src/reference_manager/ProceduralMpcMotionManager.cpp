@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 
+#include <algorithm>
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -37,7 +38,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/log/absl_check.h"
 #include "absl/log/log.h"
 #include "absl/memory/memory.h"
@@ -46,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/synchronization/mutex.h"
 
+#include "humanoid_common_mpc/command/BasePlanarMotion.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/reference/GaitFromConfig.h"
@@ -53,6 +57,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
 #include "humanoid_common_mpc/gait/GaitScheduleUpdater.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
+#include "humanoid_common_mpc/reference_manager/StrideMotionHistory.h"
 #include "humanoid_mpc_config/gait_file.nproto.h"
 #include "humanoid_mpc_config/reference_file.nproto.h"
 
@@ -73,6 +78,14 @@ absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> ProceduralMpcMotionM
   RETURN_IF_ERROR(manager->applyCommandLimits(referenceSettings));
   ASSIGN_OR_RETURN(manager->gaitMap_, gaitMapFromConfig(gaitFile));
   RETURN_IF_ERROR(checkEveryGaitIsLoaded(manager->gaitMap_, manager->gaitModeStates_, "(gait_list and gaits)"));
+  // The measured motion is averaged over the cycle of the gait the schedule runs, so the history keeps the longest
+  // cycle of the gaits the command selects. gaitMapFromConfig() refuses a template whose switching times do not increase.
+  scalar_t longestCycle = 0.0;
+  for (const GaitModeStateConfig& gaitModeState : manager->gaitModeStates_) {
+    longestCycle = std::max(longestCycle, manager->cycleDurationOf(gaitModeState.gaitCommand));
+  }
+  manager->strideMotion_ = StrideMotionHistory(longestCycle);
+  manager->reset();
   return manager;
 }
 
@@ -115,6 +128,22 @@ absl::Status ProceduralMpcMotionManager::checkEveryGaitIsLoaded(const std::map<s
     }
   }
   return absl::OkStatus();
+}
+
+scalar_t ProceduralMpcMotionManager::cycleDurationOf(const std::string& gaitCommand) const {
+  // Create() refused a gait file without every gait of gaitModeStates_, the only names this is asked for.
+  const std::map<std::string, ModeSequenceTemplate>::const_iterator gait = gaitMap_.find(gaitCommand);
+  ABSL_CHECK(gait != gaitMap_.end()) << "no gait " << gaitCommand;
+  const std::vector<scalar_t>& switchingTimes = gait->second.switchingTimes;
+  return switchingTimes.back() - switchingTimes.front();
+}
+
+scalar_t ProceduralMpcMotionManager::strideAt(scalar_t time) const {
+  // The last gait started at or before `time`; the first one runs from the lowest time on.
+  for (std::vector<ScheduledGait>::const_reverse_iterator gait = scheduledGaits_.rbegin(); gait != scheduledGaits_.rend(); ++gait) {
+    if (gait->startTime <= time) return gait->cycleDuration;
+  }
+  return scheduledGaits_.front().cycleDuration;
 }
 
 /******************************************************************************************************/
@@ -172,7 +201,22 @@ void ProceduralMpcMotionManager::reset() {
   rampInitialized_ = false;
   // The filter's output and clock are state of the previous run; its break frequency is configuration and stays.
   velocityCommandFilter_.reset();
+  // The measured motion starts again, and the schedule runs the reference file's initial STANCE again (GaitSchedule::reset()).
+  strideMotion_.reset();
+  scheduledGaits_.assign(1, ScheduledGait{.startTime = std::numeric_limits<scalar_t>::lowest(),
+                                          .cycleDuration = cycleDurationOf(gaitModeStates_[0].gaitCommand)});
+  hasObservation_ = false;
+  measuredMotion_ = BasePlanarMotion{};
+  measuredMotionWindow_ = 0.0;
+  measuredOverTheWholeWindow_ = false;
   if (resetHook_) resetHook_();
+}
+
+void ProceduralMpcMotionManager::observe(const SystemObservation& observation) {
+  hasObservation_ = true;
+  observedTime_ = observation.time;
+  observedState_ = observation.state;
+  observedInput_ = observation.input;
 }
 
 void ProceduralMpcMotionManager::setAndScaleVelocityCommand(const WalkingVelocityCommand& rawVelocityCommand) {
@@ -204,14 +248,18 @@ WalkingVelocityCommand ProceduralMpcMotionManager::scaleWalkingVelocityCommand(c
 /******************************************************************************************************/
 
 bool ProceduralMpcMotionManager::transitionToFasterGait(const vector4_t& velCommandVec,
-                                                        const vector6_t& baseVelocity,
+                                                        const BasePlanarMotion* absl_nullable strideMeanMotion,
                                                         const GaitModeStateConfig& cfg) {
-  bool fasterGaitRequested = (std::abs(velCommandVec(0)) > cfg.maxLinVelCmd || std::abs(velCommandVec(1)) > cfg.maxLinVelCmd ||
-                              std::abs(velCommandVec(3)) > cfg.maxAngVelCmd);
-
-  bool withinMaxSpeedErrorThreshold = (std::abs(baseVelocity(0)) > cfg.maxLinVelCmd - cfg.linVelErrorThresh ||
-                                       std::abs(baseVelocity(1)) > cfg.maxLinVelCmd - cfg.linVelErrorThresh ||
-                                       std::abs(baseVelocity(3)) > cfg.maxAngVelCmd - cfg.angVelErrorThresh);
+  const bool fasterGaitRequested = (std::abs(velCommandVec(0)) > cfg.maxLinVelCmd || std::abs(velCommandVec(1)) > cfg.maxLinVelCmd ||
+                                    std::abs(velCommandVec(3)) > cfg.maxAngVelCmd);
+  const scalar_t linearThreshold = cfg.maxLinVelCmd - cfg.linVelErrorThresh;
+  const scalar_t angularThreshold = cfg.maxAngVelCmd - cfg.angVelErrorThresh;
+  // Without a measured window the switch reads no motion: it goes only where every motion would pass, i.e. where a
+  // threshold is below zero (|m| > c holds for every m exactly when c < 0).
+  if (strideMeanMotion == nullptr) return fasterGaitRequested && (linearThreshold < 0.0 || angularThreshold < 0.0);
+  const vector2_t& velocity = strideMeanMotion->velocityInHeadingFrame;
+  const bool withinMaxSpeedErrorThreshold = (std::abs(velocity(0)) > linearThreshold || std::abs(velocity(1)) > linearThreshold ||
+                                             std::abs(strideMeanMotion->headingRate) > angularThreshold);
   return fasterGaitRequested && withinMaxSpeedErrorThreshold;
 }
 
@@ -220,16 +268,52 @@ bool ProceduralMpcMotionManager::transitionToFasterGait(const vector4_t& velComm
 /******************************************************************************************************/
 
 bool ProceduralMpcMotionManager::transitionToSlowerGait(const vector4_t& velCommandVec,
-                                                        const vector6_t& baseVelocity,
+                                                        const BasePlanarMotion* absl_nullable strideMeanMotion,
                                                         const GaitModeStateConfig& cfg) {
-  bool slowerGaitRequested = (std::abs(velCommandVec(0)) < cfg.minLinVelCmd && std::abs(velCommandVec(1)) < cfg.minLinVelCmd &&
-                              std::abs(velCommandVec(3)) < cfg.minAngVelCmd);
-
-  bool baseSpeedSlowEnough = (std::abs(baseVelocity(0)) < cfg.minLinVelCmd + cfg.linVelErrorThresh &&
-                              std::abs(baseVelocity(1)) < cfg.minLinVelCmd + cfg.linVelErrorThresh &&
-                              std::abs(velCommandVec(3)) < cfg.minAngVelCmd + cfg.angVelErrorThresh);
-
+  const bool slowerGaitRequested = (std::abs(velCommandVec(0)) < cfg.minLinVelCmd && std::abs(velCommandVec(1)) < cfg.minLinVelCmd &&
+                                    std::abs(velCommandVec(3)) < cfg.minAngVelCmd);
+  // Without a measured window no motion is known to be slow enough: no c has |m| < c for every m.
+  if (strideMeanMotion == nullptr) return false;
+  // The measured motion, its turn included: the command's own yaw rate stood here, which slowerGaitRequested has
+  // already bounded more tightly, so a robot still turning fast was let down into the slower gait (design defect D2);
+  // and the velocity is the stride mean, not the instantaneous one, whose sway let a robot still walking down whenever
+  // it dipped below the thresholds and held a stopped one up while it swayed past them (design README section 2.9).
+  const vector2_t& velocity = strideMeanMotion->velocityInHeadingFrame;
+  const scalar_t linearThreshold = cfg.minLinVelCmd + cfg.linVelErrorThresh;
+  const bool baseSpeedSlowEnough = (std::abs(velocity(0)) < linearThreshold && std::abs(velocity(1)) < linearThreshold &&
+                                    std::abs(strideMeanMotion->headingRate) < cfg.minAngVelCmd + cfg.angVelErrorThresh);
   return slowerGaitRequested && baseSpeedSlowEnough;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+BasePlanarMotion ProceduralMpcMotionManager::instantaneousMotionOf(scalar_t initTime, const vector_t& initState) const {
+  const MpcRobotModelBase<scalar_t>& model = *mpcRobotModelPtr_;
+  // The observation the solve starts from, exactly: the runner passes its time and state to the solver unchanged.
+  const bool observed = hasObservation_ && observedTime_ == initTime && observedState_.size() == initState.size() &&
+                        observedState_ == initState && static_cast<size_t>(observedInput_.size()) == model.getInputDim();
+  if (!observed) {
+    LOG_EVERY_N_SEC(WARNING, 5.0) << "[ProceduralMpcMotionManager] No observation of the solve at t = " << initTime
+                                  << " was handed over (observe()): its measured motion starts at rest.";
+    return BasePlanarMotion{};
+  }
+  const vector_t jointVelocities = model.getJointVelocities(initState, observedInput_);
+  return instantaneousPlanarMotion(model.getBaseOrientation(initState), model.getBaseTwistInWorldFrame(initState, jointVelocities));
+}
+
+BasePlanarMotion ProceduralMpcMotionManager::updateMeasuredMotion(scalar_t initTime, const vector_t& initState) {
+  const MpcRobotModelBase<scalar_t>& model = *mpcRobotModelPtr_;
+  strideMotion_.addSample(initTime, vector2_t(model.getBasePosition(initState).head<2>()), model.getBaseHeading(initState),
+                          [this, initTime, &initState]() { return instantaneousMotionOf(initTime, initState); });
+  // The gaits that no longer run: every one before the one running now.
+  while (scheduledGaits_.size() >= 2 && scheduledGaits_[1].startTime <= initTime) scheduledGaits_.erase(scheduledGaits_.begin());
+  measuredMotionWindow_ = strideAt(initTime);
+  measuredMotion_ = strideMotion_.mean(measuredMotionWindow_);
+  // No seed and no stall in the window (the class comment).
+  measuredOverTheWholeWindow_ = strideMotion_.isMeasuredOver(measuredMotionWindow_);
+  return measuredMotion_;
 }
 
 /******************************************************************************************************/
@@ -255,28 +339,33 @@ void ProceduralMpcMotionManager::preSolverRun(scalar_t initTime,
   lastRampTime_ = initTime;
   filteredVelCommand = rampedVelocityCommand_;
 
+  // The measured motion over the last stride, which both the targets and the gait switches start from.
+  const BasePlanarMotion measuredMotion = updateMeasuredMotion(initTime, initState);
+
   // Update TargetTrajectories
-  TargetTrajectories targetTrajectories = velocityTargetToTargetTrajectoriesFun_(filteredVelCommand, initTime, finalTime, initState);
+  TargetTrajectories targetTrajectories =
+      velocityTargetToTargetTrajectoriesFun_(filteredVelCommand, initTime, finalTime, initState, measuredMotion);
   switchedModelReferenceManagerPtr_->setTargetTrajectories(targetTrajectories);
 
   // The thresholds of the gait the manager is in. This was a function-static copy, initialized once for the whole
   // process and shared by every instance: a second manager, or this one after a reset of currentGaitMode_, went on
   // switching with the thresholds of whatever gait the first one had last reached.
   const GaitModeStateConfig& currentCfg = gaitModeStates_[currentGaitMode_];
-  vector6_t baseVelocity = mpcRobotModelPtr_->getBaseComVelocity(initState);
 
   // Do not change the gait pattern for kGaitChangeHoldOff after the last change. A last change later than now was made on
   // a clock that has since run backwards; it must not hold the gait until the clock is back there.
   if (initTime < lastGaitChangeTime_) lastGaitChangeTime_ = initTime - kGaitChangeHoldOff;
   if (initTime > lastGaitChangeTime_ + kGaitChangeHoldOff) {
-    if (currentGaitMode_ + 1 < gaitModeStates_.size() && transitionToFasterGait(filteredVelCommand, baseVelocity, currentCfg)) {
+    // The switches read the measured motion once its window is measured throughout (the class comment).
+    const BasePlanarMotion* absl_nullable strideMeanMotion = measuredOverTheWholeWindow_ ? &measuredMotion : nullptr;
+    if (currentGaitMode_ + 1 < gaitModeStates_.size() && transitionToFasterGait(filteredVelCommand, strideMeanMotion, currentCfg)) {
       LOG(INFO) << "filteredVelCommand: " << filteredVelCommand.transpose();
       LOG(INFO) << "Linear limits: " << currentCfg.minLinVelCmd << ", " << currentCfg.maxLinVelCmd;
       ++currentGaitMode_;
       currentGaitCommand_ = gaitModeStates_[currentGaitMode_].gaitCommand;
       LOG(INFO) << "ProceduralMpcMotionManager: Increasing to gait:" << currentGaitCommand_;
       lastGaitChangeTime_ = initTime;
-    } else if (currentGaitMode_ > 0 && transitionToSlowerGait(filteredVelCommand, baseVelocity, currentCfg)) {
+    } else if (currentGaitMode_ > 0 && transitionToSlowerGait(filteredVelCommand, strideMeanMotion, currentCfg)) {
       LOG(INFO) << "filteredVelCommand: " << filteredVelCommand.transpose();
       LOG(INFO) << "Linear limits: " << currentCfg.minLinVelCmd << ", " << currentCfg.maxLinVelCmd;
       --currentGaitMode_;
@@ -291,7 +380,10 @@ void ProceduralMpcMotionManager::preSolverRun(scalar_t initTime,
     const std::map<std::string, ModeSequenceTemplate>::const_iterator gait = gaitMap_.find(currentGaitCommand_);
     ABSL_CHECK(gait != gaitMap_.end()) << "no gait " << currentGaitCommand_;
 
-    updateGaitSchedule(*gaitSchedulePtr_, gait->second, initTime, finalTime);
+    const scalar_t gaitStart = updateGaitSchedule(*gaitSchedulePtr_, gait->second, initTime, finalTime);
+    // The schedule runs the new gait from gaitStart on, in place of whatever it had from there.
+    while (scheduledGaits_.size() >= 2 && scheduledGaits_.back().startTime >= gaitStart) scheduledGaits_.pop_back();
+    scheduledGaits_.push_back(ScheduledGait{.startTime = gaitStart, .cycleDuration = cycleDurationOf(currentGaitCommand_)});
     lastGaitCommand_ = currentGaitCommand_;
   }
 }

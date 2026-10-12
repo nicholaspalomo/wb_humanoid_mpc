@@ -94,7 +94,10 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
    * frictionCoefficient: The coefficient of friction.
    * regularization: A positive number to regulize the friction constraint. refer to the FrictionForceConeConstraint documentation.
    * gripperForce: Gripper force in normal direction.
-   * hessianDiagonalShift: The Hessian shift to assure a strictly-convex quadratic constraint approximation.
+   * hessianDiagonalShift: The Hessian shift to assure a strictly-convex quadratic constraint approximation. It is
+   *   subtracted from the diagonal of the input Hessian and of the state Hessian, which is in the ambient state; the
+   *   solver pulls the state Hessian back to the tangent, E^T H E, where the quaternion block's E (G(xi) / 2 at a unit
+   *   xi, E^T E = I / 4) leaves a quarter of the shift on the three rotation rows.
    */
   struct Config {
     explicit Config(scalar_t frictionCoefficientParam = 0.7,

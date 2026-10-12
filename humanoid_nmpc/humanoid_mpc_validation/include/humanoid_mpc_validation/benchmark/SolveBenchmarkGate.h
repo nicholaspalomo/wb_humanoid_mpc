@@ -32,20 +32,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include "absl/strings/string_view.h"
-
 #include "humanoid_mpc_validation/io/JsonValue.h"
 
 namespace ocs2::humanoid::validation {
 
 // LINT.IfChange(real_time_gate)
 /**
- * The real-time gate of the quaternion design's section 4.6, a candidate solve benchmark (B3) against its baseline (B0),
- * both documents of runSolveBenchmark() for the same robot on the same recorded states and machine:
+ * The real-time gate of the quaternion design's section 4.6, a candidate solve benchmark against its baseline label,
+ * both documents of runSolveBenchmark() for the same robot on the same recorded states:
  *  - the solver iteration's mean at most +5 % and its p99 at most +10 %;
  *  - the LQ-approximation phase's mean at most +8 %;
  *  - the candidate's p99 below 80 % of the robot's MPC period;
  *  - every CppAD library's tape operation count at most +5 %, and their total too.
+ * The three timing comparisons hold only between documents of one machine and toolchain (provenance.machine and
+ * provenance.toolchain, RunProvenance.h): compareSolveBenchmarks() refuses them otherwise.
  */
 struct SolveBenchmarkGate {
   double meanIncrease = 0.05;
@@ -54,16 +54,17 @@ struct SolveBenchmarkGate {
   double maxP99FractionOfPeriod = 0.8;
   double tapeOperationIncrease = 0.05;
 };
-// LINT.ThenChange(//humanoid_nmpc/docs/quaternion_base_orientation/README.md)
+// clang-format off
+// LINT.ThenChange(//humanoid_nmpc/docs/quaternion_base_orientation/README.md, //humanoid_nmpc/humanoid_mpc_validation/README.md:real_time_gate)
+// clang-format on
 
 /**
- * A library's key in tape_operation_counts with the state-layout tag of the CppAD folder removed: Step 8 of the design
- * moves every library from cppad_<mpc><robot>/<rest> to cppad_<mpc><robot>/<kStateLayoutTag>/<rest>, and the gate
- * compares a library with itself across that move.
+ * The candidate against the baseline, one sentence per breach of `gate`; empty when it passes. Where the two documents'
+ * provenance names another machine or toolchain, or lacks one, the timing comparisons are refused with one sentence
+ * saying what differs, since such solve times say nothing about the formulation; the candidate's own real-time budget
+ * and the tape operation counts of the libraries both documents count (tape_operation_counts, keyed by
+ * libraryNameOfFolder()), which do not depend on the machine, are checked either way.
  */
-std::string normalizedLibraryKey(absl::string_view key);
-
-/** The candidate against the baseline, one sentence per breach of `gate`; empty when it passes. */
 std::vector<std::string> compareSolveBenchmarks(const JsonValue& candidate, const JsonValue& baseline, const SolveBenchmarkGate& gate);
 
 }  // namespace ocs2::humanoid::validation

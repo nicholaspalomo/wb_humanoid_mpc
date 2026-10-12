@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "ocs2_core/Types.h"
+#include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/MRT_BASE.h"
 #include "ocs2_mpc/SystemObservation.h"
@@ -66,7 +67,8 @@ namespace ocs2::humanoid::ipc {
  *   - hasOutstandingReset() and isHealthy() are those of the controller's MpcResetSupervisor, which this link serves.
  *
  * THREADS. The realtime thread calls setCurrentObservation(), updatePolicy() and the predicates, and evaluates the policy
- * in use (getPolicy()) with a RealtimePolicyEvaluator; nothing it calls here touches the bus, allocates or logs:
+ * in use (getPolicy()) with a RealtimePolicyEvaluator(Config::dimensions, getStateManifold().get()); nothing it calls
+ * here touches the bus, allocates or logs:
  * setCurrentObservation() copies the observation into a triple buffer and checks the deadline of the newest policy, and
  * the policy swap is MRT_BASE's try-lock. MRT_BASE::evaluatePolicy() is not for the realtime thread: it allocates
  * (OCS2's interpolation and controllers return by value) and logs once the time is past the plan. Everything else runs
@@ -116,6 +118,15 @@ class RemoteMpcLink final : public MRT_BASE {
   struct Config {
     /** The model the controller evaluates the policies with; every observation sent and policy received must match. */
     ModelDimensions dimensions;
+    /**
+     * The manifold the controller's state lives on, or null for a flat state. With one, its ambient dimension is
+     * dimensions.stateDim (Create() checks it); the link interpolates the planned state along it
+     * (MRT_BASE::setStateManifold()), decodes a CONTROLLER_TYPE_MANIFOLD_LINEAR policy on it and rejects a
+     * CONTROLLER_TYPE_LINEAR one (policyFromProto()); without one it rejects the former. A std::shared_ptr because
+     * MRT_BASE::setStateManifold() and ManifoldLinearController take one; the controller's RealtimePolicyEvaluator
+     * takes getStateManifold().get().
+     */
+    std::shared_ptr<const StateManifold> stateManifold;
     /**
      * [s, robot clock] Link loss: once a policy has been received, the link reads unhealthy when the robot clock passes
      * the time of the observation the newest one was solved from by more than this. mpc_link.policy_timeout of the task
@@ -182,8 +193,8 @@ class RemoteMpcLink final : public MRT_BASE {
   RemoteMpcLink& operator=(const RemoteMpcLink&) = delete;
 
   /**
-   * Requests a full reset through the supervisor and returns at once (MPC_MRT_Interface resets synchronously, the ROS
-   * MRT blocked until the MPC node answered). The target trajectories are not sent: the MPC node resets to the
+   * Requests a full reset through the supervisor and returns at once, without waiting for the MPC node to answer
+   * (MPC_MRT_Interface resets synchronously). The target trajectories are not sent: the MPC node resets to the
    * trajectories its own MpcServer::ResetTargetTrajectoriesFunction makes of the observation it resets from.
    */
   void resetMpcNode(const TargetTrajectories& initTargetTrajectories) override;

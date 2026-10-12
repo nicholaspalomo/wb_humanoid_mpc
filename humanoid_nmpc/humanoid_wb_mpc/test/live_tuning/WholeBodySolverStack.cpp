@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/SystemObservation.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
@@ -103,6 +104,9 @@ WholeBodySolverStack::WholeBodySolverStack(const mpc_config::TaskFile& task, Upd
     mpc_->getSolverPtr()->addSynchronizedModule(updater_);
   }
   mrt_ = std::make_unique<MPC_MRT_Interface>(*mpc_);
+  // As the MPC's links set it (InProcessMpcLink, RemoteMpcLink): the robot moves along the plan on the state manifold, so
+  // that the state it is observed at keeps a unit quaternion between the plan's nodes.
+  mrt_->setStateManifold(interface.getStateManifold());
   observation_.time = 0.0;
   observation_.state = interface.getInitialState();
   observation_.input = vector_t::Zero(static_cast<Eigen::Index>(interface.getMpcRobotModel().getInputDim()));
@@ -126,6 +130,16 @@ void WholeBodySolverStack::applyNow(const mpc_config::TaskFile& task) {
 void WholeBodySolverStack::replanReferences() {
   interface_->getReferenceManagerPtr()->preSolverRun(observation_.time, observation_.time + interface_->mpcSettings().timeHorizon_,
                                                      observation_.state, observation_.mode);
+}
+
+void WholeBodySolverStack::expectQuaternionLayout() {
+  ASSERT_TRUE(ok());
+  live_tuning_test::expectQuaternionLayout(*interface_);
+  const std::vector<OptimalControlProblem>& workers = mpc_->getSolverPtr()->getOcpDefinitions();
+  ASSERT_FALSE(workers.empty());
+  for (size_t worker = 0; worker < workers.size(); ++worker) {
+    EXPECT_EQ(workers[worker].stateManifoldPtr, interface_->getStateManifold()) << "worker " << worker;
+  }
 }
 
 std::vector<PrimalSolution> WholeBodySolverStack::solve(size_t count) {

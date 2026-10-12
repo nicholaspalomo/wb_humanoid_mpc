@@ -31,10 +31,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <utility>
@@ -48,6 +50,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+
+#include "mujoco_sim_interface/viewer/MujocoViewerRegistry.h"
+#include "mujoco_sim_interface/viewer/ViewerNames.h"
+#include "mujoco_sim_interface/viewer/ViewerSettings.h"
 
 namespace robot::mujoco_sim_interface {
 
@@ -176,6 +182,9 @@ absl::StatusOr<MujocoSimInterface::LoadedScene> MujocoSimInterface::loadScene(co
 }
 
 absl::StatusOr<std::unique_ptr<MujocoSimInterface>> MujocoSimInterface::Create(const MujocoSimConfig& config, const std::string& urdfPath) {
+  if (absl::Status viewer = validateViewerSettings(config.viewer); !viewer.ok()) {
+    return viewer;
+  }
   absl::StatusOr<LoadedScene> scene = loadScene(config);
   if (!scene.ok()) return scene.status();
   absl::StatusOr<robot::model::RobotDescription> robotDescription = robot::model::RobotDescription::Create(urdfPath);
@@ -194,7 +203,6 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, robot::mod
       robotJointActionInternal_(model::RobotJointAction(this->getRobotDescription())),
       mujocoModel_(std::move(scene.model)),
       mujocoData_(std::move(scene.data)),
-      headless_(config.headless),
       verbose_(config.verbose),
       gantryHold_(scene.gantryHold),
       projectile_(std::move(scene.projectile)) {
@@ -363,11 +371,11 @@ void MujocoSimInterface::applyTorqueSwitch() {
 MujocoSimInterface::~MujocoSimInterface() {
   terminate_.store(true);
   if (simulate_thread_.joinable()) simulate_thread_.join();
-  // The viewer has to go before any member it reads. renderer_ is declared ahead of renderStateBuffer_, the contact
-  // timeline and the two mutexes, so destruction in reverse declaration order would tear those down while
-  // MujocoRenderer::renderLoop is still running - a use-after-free on every shutdown that the render thread loses.
-  // ~MujocoRenderer joins that thread, so resetting it here orders the teardown correctly.
-  renderer_.reset();
+  // The viewer has to go before any member it reads. viewer_ is declared ahead of renderStateBuffer_, the contact
+  // timeline and the two mutexes, so destruction in reverse declaration order would tear those down while the viewer's
+  // render thread is still running - a use-after-free on every shutdown that the render thread loses. Every viewer's
+  // destructor joins its threads, so resetting it here orders the teardown correctly.
+  viewer_.reset();
   // mujocoData_ and mujocoModel_ go with the members, after every thread that read them has stopped.
 }
 
@@ -441,6 +449,7 @@ void MujocoSimInterface::readLatestMjState(MjState& state) const {
   state.timestamp = latest.timestamp;
   mj_copyData(state.data, mujocoModel_.get(), latest.data);
   state.metrics = latest.metrics;
+  state.modelFields = latest.modelFields;  // same sizes: copied in place
 }
 
 /******************************************************************************************************/
@@ -740,6 +749,8 @@ void MujocoSimInterface::simulationStep() {
     writeSlot.timestamp = mujocoData_->time;
     mj_copyData(writeSlot.data, mujocoModel_.get(), mujocoData_.get());
     writeSlot.metrics = metrics_;
+    // The model arrays this thread writes (damping, gantry weld, projectile), for a viewer with a private model copy.
+    writeSlot.modelFields.captureFrom(mujocoModel_.get());
     renderStateBuffer_->publishWrite();
   }
 
@@ -765,6 +776,7 @@ void MujocoSimInterface::simulationStep() {
       writeSlot.timestamp = mujocoData_->time;
       mj_copyData(writeSlot.data, mujocoModel_.get(), mujocoData_.get());
       writeSlot.metrics = metrics_;
+      writeSlot.modelFields.captureFrom(mujocoModel_.get());
       renderStateBuffer_->publishWrite();
     }
 
@@ -792,6 +804,7 @@ void MujocoSimInterface::simulationLoop() {
     nextWakeup += std::chrono::microseconds(timeStepMicro_);
 
     const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+    stepLateness_.record(std::chrono::duration_cast<std::chrono::nanoseconds>(now - nextWakeup));
     // Allow up to 10ms of catchup budget for minor OS scheduling jitter.
     // If we fell behind by more than 10ms (e.g. auto-reset sleep), rebase nextWakeup.
     if (now - nextWakeup > std::chrono::milliseconds(10)) {
@@ -816,11 +829,43 @@ void MujocoSimInterface::simulationLoop() {
 void MujocoSimInterface::initSim() {
   simulationStep();
   simInit_ = true;
+  startViewer();
+}
 
-  if (!headless_) {
-    renderer_ = std::make_unique<MujocoRenderer>(this);
-    renderer_->launchRenderThread();
+void MujocoSimInterface::startViewer() {
+  const ViewerSettings& settings = config_.viewer;
+  std::vector<std::string> failures;
+  for (size_t index = 0; index < settings.names.size(); ++index) {
+    const std::string& name = settings.names[index];
+    absl::Status started = absl::OkStatus();
+    {
+      absl::StatusOr<std::unique_ptr<MujocoViewer>> viewer = createViewer(name, this);
+      started = viewer.ok() ? (*viewer)->start() : viewer.status();
+      if (started.ok()) {
+        viewer_ = *std::move(viewer);
+        viewerStatus_ = absl::OkStatus();
+        LOG(INFO) << "[MujocoSimInterface] viewer: " << name;
+        return;
+      }
+    }  // A viewer that did not start is destroyed here, before the next one is created: a port it bound is free again.
+    failures.push_back(absl::StrCat(name, ": ", started.message()));
+    if (index + 1 < settings.names.size()) {
+      LOG(WARNING) << "[MujocoSimInterface] the '" << name << "' viewer did not start (" << started.message() << "); trying '"
+                   << settings.names[index + 1] << "'.";
+    }
   }
+  viewerStatus_ = absl::FailedPreconditionError(absl::StrCat("no viewer of '", absl::StrJoin(settings.names, ","), "' started (",
+                                                             absl::StrJoin(failures, "; "), "); list ", kNoViewerName,
+                                                             " after it to run without a viewer"));
+  LOG(ERROR) << "[MujocoSimInterface] " << viewerStatus_.message();
+}
+
+absl::string_view MujocoSimInterface::activeViewerName() const {
+  return viewer_ != nullptr ? viewer_->name() : absl::string_view();
+}
+
+std::optional<int> MujocoSimInterface::webViewerPort() const {
+  return viewer_ != nullptr ? viewer_->port() : std::nullopt;
 }
 
 void MujocoSimInterface::startSim() {
@@ -857,6 +902,9 @@ void MujocoSimInterface::setupContactDetection() {
   const double timestep = mujocoModel_->opt.timestep > 0.0 ? mujocoModel_->opt.timestep : config_.dt;
   contactTimelineSampleInterval_ = std::max<size_t>(1, static_cast<size_t>(std::lround(1.0 / (kTimelineSampleRateHz * timestep))));
   contactTimeline_ = ContactTimeline(config_.contactTimelineWindow);
+  // Samples within one window, both ends included, and one for rounding.
+  contactTimelineCapacity_ =
+      static_cast<size_t>(std::ceil(contactTimeline_.window() / (static_cast<double>(contactTimelineSampleInterval_) * timestep))) + 2;
   if (verbose_) {
     LOG(INFO) << "[MujocoSimInterface] ground-truth contact detection: normal force > " << config_.contactForceThreshold << " N.";
   }
@@ -920,7 +968,18 @@ void MujocoSimInterface::updateGroundTruthContacts() {
   sample.actual = actual;
   sample.target = targetContactMask_.load();
   sample.targetKnown = targetContactKnown_.load();
-  std::lock_guard<std::mutex> lock(contactTimelineMutex_);
+  // The physics thread never waits for the viewer, which copies the timeline under this lock: a sample that finds the
+  // lock held waits for the next one, and of two that find it held the older is dropped (droppedContactTimelineSamples()).
+  std::unique_lock<std::mutex> lock(contactTimelineMutex_, std::try_to_lock);
+  if (!lock.owns_lock()) {
+    if (pendingTimelineSample_.has_value()) droppedTimelineSamples_.fetch_add(1, std::memory_order_relaxed);
+    pendingTimelineSample_ = sample;
+    return;
+  }
+  if (pendingTimelineSample_.has_value()) {
+    contactTimeline_.append(*pendingTimelineSample_);
+    pendingTimelineSample_.reset();
+  }
   contactTimeline_.append(sample);
 }
 
@@ -943,6 +1002,8 @@ std::vector<bool> MujocoSimInterface::getGroundTruthContactFlags() const {
 }
 
 void MujocoSimInterface::copyContactTimeline(std::vector<ContactTimelineSample>& out) const {
+  out.clear();
+  out.reserve(contactTimelineCapacity_);  // before the lock, and a no-op once `out` has been reserved
   std::lock_guard<std::mutex> lock(contactTimelineMutex_);
   out.assign(contactTimeline_.samples().begin(), contactTimeline_.samples().end());
 }

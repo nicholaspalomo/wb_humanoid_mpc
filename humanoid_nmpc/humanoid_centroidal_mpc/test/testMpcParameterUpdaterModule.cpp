@@ -52,7 +52,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/cost/QuadraticStateCost.h"
-#include "ocs2_core/cost/QuadraticStateInputCost.h"
 #include "ocs2_core/misc/Collection.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
@@ -95,6 +94,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h"
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
+#include "humanoid_common_mpc/cost/InputQuadraticCost.h"
+#include "humanoid_common_mpc/cost/TuningQuadraticStateCost.h"
+#include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/locomotion_heuristics/BasePoseHeuristic.h"
@@ -180,7 +182,7 @@ void selectContactImplicitFormulation(mpc_config::TaskFile& task) {
 template <typename SoftConstraint>
 vector_t penaltyParameters(SoftConstraint& softConstraint) {
   vector_t parameters;
-  std::vector<std::unique_ptr<augmented::AugmentedPenaltyBase>>& penalties = softConstraint.getPenalty().getPenaltyPtrArray();
+  std::vector<std::unique_ptr<PenaltyBase>>& penalties = softConstraint.getPenalty().getPenaltyPtrArray();
   EXPECT_FALSE(penalties.empty());
   if (!penalties.empty()) penalties.front()->getParameters(parameters);
   return parameters;
@@ -352,27 +354,18 @@ std::string inputCostTerm(const OptimalControlProblem& ocp) {
 
 /** Q of the term `term` of `ocp`. */
 matrix_t stateWeightsOf(const OptimalControlProblem& ocp, const std::string& term) {
-  matrix_t Q;
-  matrix_t R;
-  matrix_t P;
-  ocp.costPtr->get<QuadraticStateInputCost>(term).getGains(Q, R, P);
-  return Q;
+  return ocp.costPtr->get<TuningQuadraticStateInputCost>(term).getStateWeights();
 }
 
-/** R of the term `term` of `ocp`. */
+/** R of the term `term` of `ocp`: the input-only inputQuadraticCost's, or a TuningQuadraticStateInputCost's. */
 matrix_t inputWeightsOf(const OptimalControlProblem& ocp, const std::string& term) {
-  matrix_t Q;
-  matrix_t R;
-  matrix_t P;
-  ocp.costPtr->get<QuadraticStateInputCost>(term).getGains(Q, R, P);
-  return R;
+  if (term == "inputQuadraticCost") return ocp.costPtr->get<InputQuadraticCost>(term).getInputWeights();
+  return ocp.costPtr->get<TuningQuadraticStateInputCost>(term).getInputWeights();
 }
 
 /** The quadratic terminal cost's Q_final of `ocp`. */
 matrix_t finalStateWeightsOf(const OptimalControlProblem& ocp) {
-  matrix_t Q_final;
-  ocp.finalCostPtr->get<QuadraticStateCost>("terminalCost").getGains(Q_final);
-  return Q_final;
+  return ocp.finalCostPtr->get<TuningQuadraticStateCost>("terminalCost").getStateWeights();
 }
 
 /** The shipped DRC Atlas MPC and its typed configuration, built once per test. */
@@ -1568,9 +1561,9 @@ TEST_F(MpcParameterUpdaterModuleTest, ReloadingCommandLimitsChangesTheTargetItPr
     return reference;
   };
   const std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator> calculator =
-      CentroidalMpcTargetTrajectoriesCalculator::Create(
-          referenceWith(0.10, 0.90), atlas_.interface->getEffectiveMpcRobotModel(), atlas_.interface->getPinocchioInterface(),
-          atlas_.interface->getCentroidalModelInfo(), atlas_.interface->mpcSettings().timeHorizon_)
+      CentroidalMpcTargetTrajectoriesCalculator::Create(referenceWith(0.10, 0.90), atlas_.interface->getEffectiveMpcRobotModel(),
+                                                        atlas_.interface->getPinocchioInterface(),
+                                                        atlas_.interface->mpcSettings().timeHorizon_)
           .value();
   const vector_t& state = atlas_.interface->getInitialState();
   const vector4_t deepCrouch(0.0, 0.0, -10.0, 0.0);

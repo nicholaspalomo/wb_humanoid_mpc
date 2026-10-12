@@ -55,6 +55,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_ipc/Bus.h"
 #include "robot_ipc/BusOptions.h"
 #include "robot_ipc/NodeEndpoint.h"
+#include "web_viewer/ViewerThreadPriority.h"
 
 namespace {
 
@@ -78,7 +79,11 @@ int run() {
       robot::ipc::NodeEndpoint{.name = "visualization", .host = "127.0.0.1", .port = robot::ipc::kEphemeralPort, .bindHost = ""}};
   absl::StatusOr<std::unique_ptr<robot::ipc::Bus>> bus = robot::ipc::Bus::Create(std::move(options));
   CHECK_OK(bus.status());
-  absl::StatusOr<std::unique_ptr<VisualizationPublisher>> publisher = VisualizationPublisher::Create(robot->model(), **bus);
+  // The driver shares the machine with other tests: its publisher keeps the driver's scheduling (the node's is SCHED_IDLE).
+  VisualizationPublisher::Options publisherOptions;
+  publisherOptions.threadPriority = robot::web_viewer::ViewerThreadPriority::kInherited;
+  absl::StatusOr<std::unique_ptr<VisualizationPublisher>> publisher =
+      VisualizationPublisher::Create(robot->model(), **bus, publisherOptions);
   CHECK_OK(publisher.status());
   CHECK_OK((*bus)->start());
   CHECK_OK((*publisher)->start());

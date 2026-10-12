@@ -96,6 +96,81 @@ class PanelTabsTest(unittest.TestCase):
             self.assertEqual(plotted.get(group.path), 1, group.path)
 
 
+class BaseOrientationPanelsTest(unittest.TestCase):
+    """The "Base Pose & Euler" tab shows the Euler angles, their rates and the body angular velocity (user decision)."""
+
+    def test_the_tab_has_rows_of_angles_euler_rates_and_body_angular_velocity(
+        self,
+    ) -> None:
+        (tab,) = [
+            tab
+            for tab in telemetry_contract.PANEL_TABS
+            if tab.title == "Base Pose & Euler"
+        ]
+        self.assertEqual(
+            [[panel.paths for panel in row] for row in tab.rows],
+            [
+                [(f"base_pose/position_{axis}",) for axis in ("x", "y", "z")],
+                [(f"base_pose/{angle}",) for angle in ("roll", "pitch", "yaw")],
+                [(f"base_pose/{angle}_rate",) for angle in ("roll", "pitch", "yaw")],
+                [(f"base_pose/angular_velocity_{axis}",) for axis in ("x", "y", "z")],
+            ],
+        )
+        for row, unit in zip(tab.rows[1:], ("rad", "rad/s", "rad/s")):
+            for panel in row:
+                group = telemetry_contract.find_group(panel.paths[0])
+                assert group is not None
+                self.assertEqual(group.names, telemetry_contract.MEASURED_VS_REFERENCE)
+                self.assertEqual(group.unit, unit)
+
+    def test_the_euler_rates_say_they_are_display_values_with_a_gap(self) -> None:
+        for angle in ("roll", "pitch", "yaw"):
+            group = telemetry_contract.find_group(f"base_pose/{angle}_rate")
+            assert group is not None
+            self.assertIn("for display", group.description)
+            self.assertIn("NaN", group.description)
+        for axis in ("x", "y", "z"):
+            body = telemetry_contract.find_group(f"base_pose/angular_velocity_{axis}")
+            world = telemetry_contract.find_group(f"base_twist/angular_{axis}")
+            assert body is not None and world is not None
+            self.assertIn("base frame", body.description)
+            self.assertIn("world frame", world.description)
+
+    def test_the_world_frame_angular_velocity_panels_say_so(self) -> None:
+        (tab,) = [
+            tab
+            for tab in telemetry_contract.PANEL_TABS
+            if tab.title == "Base Twist (Linear & Angular)"
+        ]
+        for panel in tab.rows[1]:
+            self.assertIn("(world)", panel.title)
+            self.assertNotIn("Rate", panel.title)
+
+    def test_coordinates_name_euler_angles_and_velocities_the_body_rates(self) -> None:
+        for path in (
+            "dofs/position/measured",
+            "dofs/position/reference",
+            "dofs/position/plan",
+        ):
+            group = telemetry_contract.find_group(path)
+            assert group is not None
+            self.assertEqual(group.names_rule, telemetry_contract.DOF_NAMES_RULE)
+        for path in (
+            "dofs/velocity/measured",
+            "dofs/velocity/reference",
+            "dofs/velocity/plan",
+            "dofs/force/measured",
+            "dofs/force/reference",
+        ):
+            group = telemetry_contract.find_group(path)
+            assert group is not None
+            self.assertEqual(
+                group.names_rule, telemetry_contract.DOF_VELOCITY_NAMES_RULE
+            )
+        self.assertIn("base_yaw", telemetry_contract.DOF_NAMES_RULE)
+        self.assertIn("base_wz", telemetry_contract.DOF_VELOCITY_NAMES_RULE)
+
+
 def palette_colors() -> tuple[str, ...]:
     """Every curve color palette.py defines, as "#rrggbb"."""
     return tuple(
@@ -159,8 +234,8 @@ class TelemetryGroupsTest(unittest.TestCase):
             self.assertIsNone(telemetry_contract.find_group(path), path)
 
     def test_complete_groups_carry_every_series_of_the_panels(self) -> None:
-        # The panels duplicate values for plotting; the complete groups lose nothing the ROS-era topics had. Spot-check
-        # the kinds of data: per DOF, per joint, per contact, per frame.
+        # The panels duplicate values for plotting; the complete groups carry every series. Spot-check the kinds of
+        # data: per DOF, per joint, per contact, per frame.
         complete = {
             group.path
             for group in self.all_groups()

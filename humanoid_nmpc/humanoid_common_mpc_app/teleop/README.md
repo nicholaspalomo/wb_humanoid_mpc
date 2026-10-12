@@ -1,10 +1,9 @@
 # humanoid_common_mpc_app/teleop
 
-The keyboard velocity teleoperation of the C++ era, on the IPC bus
+The keyboard velocity teleoperation in C++, on the IPC bus
 ([`humanoid_nmpc/docs/distributed_runtime/README.md`](../../docs/distributed_runtime/README.md)): the walking command
-of the pelvis typed as a line and published on `operator/walking_velocity_command` as the bus node `teleop`. It is
-the ROS 2 `velocity_keyboard_command_node` (`MpcKeyboardVelocityCommandNode.cpp`, `VelocityCommandKeyboardPublisher`)
-without ROS. For a command held with the arrow keys, use `remote_control:keyboard_velocity_publisher` (Python).
+of the pelvis typed as a line and published on `operator/walking_velocity_command` as the bus node `teleop`. For a
+command held with the arrow keys, use `remote_control:keyboard_velocity_publisher` (Python).
 
 <!-- LINT.IfChange(teleop_binary) -->
 ```bash
@@ -17,8 +16,8 @@ Type `v_x v_y delta_height yaw_rate` (m/s, m/s, m, rad/s; words left out are 0, 
 Enter. The command is clamped to the command limits of the reference file, normalized by them (the MPC scales it back
 by its own copy), and the pelvis height is `default_base_height` plus the change. The limits are read again before every
 command, so that a limit changed in the reference file (by hand, or saved from the tuning GUI's Command Limits tab)
-applies to the next command; a file that no longer reads keeps the previous limits, with a warning. A word that is not a number sends nothing (the
-ROS node ended on one).
+applies to the next command; a file that no longer reads keeps the previous limits, with a warning. A word that is not
+a number sends nothing.
 
 The latest command is republished at the topic's 25 Hz (`VelocityCommandRepeater`), so that an MPC node that connects
 later still gets it; nothing is published before the first line. Do not run it next to the velocity controls of the

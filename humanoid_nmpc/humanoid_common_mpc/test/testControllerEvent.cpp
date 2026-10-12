@@ -58,6 +58,7 @@ constexpr ControllerEventCode kEveryCode[] = {
     ControllerEventCode::kNoPolicyWeightCompensation,
     ControllerEventCode::kContactEstimateRefused,
     ControllerEventCode::kContactWrenchGateRefused,
+    ControllerEventCode::kPolicyRefused,
 };
 
 /** A sink that keeps what it is handed, as the realtime event log does. */
@@ -98,6 +99,19 @@ TEST(ControllerEvent, EveryCodeFormatsToALineNamingItsController) {
             std::string::npos);
   EXPECT_TRUE(isWarningControllerEvent(makeControllerEvent(ControllerEventCode::kSafetyEntered, "C")));
   EXPECT_FALSE(isWarningControllerEvent(makeControllerEvent(ControllerEventCode::kContactWrenchGateChanged, "C")));
+}
+
+TEST(ControllerEvent, ARefusedPolicyIsAWarningSayingWhy) {
+  const ControllerEvent mismatched = makeControllerEvent(ControllerEventCode::kPolicyRefused, "C",
+                                                         /*value0=*/static_cast<double>(PolicyRefusal::kMismatchedPolicy));
+  const ControllerEvent unsupported = makeControllerEvent(ControllerEventCode::kPolicyRefused, "C",
+                                                          /*value0=*/static_cast<double>(PolicyRefusal::kUnsupportedController));
+  EXPECT_TRUE(isWarningControllerEvent(mismatched));
+  EXPECT_NE(formatControllerEvent(mismatched).find("not of the model's dimensions"), std::string::npos)
+      << formatControllerEvent(mismatched);
+  EXPECT_NE(formatControllerEvent(unsupported).find("a controller it does not evaluate"), std::string::npos)
+      << formatControllerEvent(unsupported);
+  EXPECT_NE(formatControllerEvent(unsupported).find("JOINT_PD"), std::string::npos);
 }
 
 TEST(ControllerEvent, ARefusedEstimateIsAWarningNamingTheEstimatorAndTheCounts) {

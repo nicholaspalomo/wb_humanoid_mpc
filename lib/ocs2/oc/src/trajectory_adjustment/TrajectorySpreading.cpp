@@ -31,26 +31,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cassert>
-#include <iostream>
-#include <limits>
 
 #include <ocs2_core/NumericTraits.h>
-#include <ocs2_core/misc/Numerics.h>
 
 namespace ocs2 {
 
-namespace {
-std::ostream& operator<<(std::ostream& os, const std::pair<int, int>& ind) {
-  os << "(" << ind.first << ", " << ind.second << ")";
-  return os;
-}
-}  // anonymous namespace
-
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-auto TrajectorySpreading::set(const ModeSchedule& oldModeSchedule, const ModeSchedule& newModeSchedule,
-                              const scalar_array_t& oldTimeTrajectory) -> Status {
+void TrajectorySpreading::set(const ModeSchedule& oldModeSchedule, const ModeSchedule& newModeSchedule,
+                              const scalar_array_t& oldTimeTrajectory) {
   // step 1: What modes do the original primal solution contain?
   const scalar_t oldInitTime = oldTimeTrajectory.front();
   const scalar_t oldFinalTime = oldTimeTrajectory.back();
@@ -93,7 +83,6 @@ auto TrajectorySpreading::set(const ModeSchedule& oldModeSchedule, const ModeSch
   // note: (beginEventItr + w - 1) <= endEventItr. There are w - 1 event times between w modes.
   scalar_array_t oldMatchedEventTimes;
   scalar_array_t newMatchedEventTimes;
-  keepEventDataInInterval_ = {0, 0};
   // Add corresponding matched event time
   // Phase 1: Add all event time that are between modes. Those event time show up in both original and modified trajectories.
   if (w > 0) {
@@ -102,10 +91,6 @@ auto TrajectorySpreading::set(const ModeSchedule& oldModeSchedule, const ModeSch
 
     const auto newBeginEventItr = newModeSchedule.eventTimes.begin() + newStartIndexOfMatchedSequence;
     newMatchedEventTimes.assign(newBeginEventItr, newBeginEventItr + w - 1);
-
-    // w - 1 events are kept in total
-    keepEventDataInInterval_.first = oldStartIndexOfMatchedSequence - oldFirstActiveModeIndex;
-    keepEventDataInInterval_.second = keepEventDataInInterval_.first + w - 1;
   }
 
   // Phase 2: Add triggering event time if the first matched mode is NOT the leading mode of the old mode schedule.
@@ -157,122 +142,6 @@ auto TrajectorySpreading::set(const ModeSchedule& oldModeSchedule, const ModeSch
 
   // computes the index of the spreading values and intervals
   computeSpreadingStrategy(oldTimeTrajectory, oldMatchedEventTimes, newMatchedEventTimes);
-
-  // status
-  status_.willTruncate = (eraseFromIndex_ < oldTimeTrajectory.size());
-  status_.willPerformTrajectorySpreading = !spreadingValueIndices_.empty();
-
-  // debug print
-  if (debugPrint_) {
-    const auto oldFirstMatchedModeItr = oldModeSchedule.modeSequence.begin() + oldStartIndexOfMatchedSequence;
-    const auto newFirstMatchedModeItr = newModeSchedule.modeSequence.begin() + newStartIndexOfMatchedSequence;
-
-    std::cerr << "[TrajectorySpreading]:\n";
-    std::cerr << "    ### Old Mode:         ";
-    for (int i = 0; i < oldModeSchedule.modeSequence.size(); i++) {
-      if (i == oldFirstActiveModeIndex) {
-        std::cerr << "\033[0;33m";
-      }
-
-      std::cerr << oldModeSchedule.modeSequence[i];
-
-      if (i != 0) {
-        std::cerr << "(" << oldModeSchedule.eventTimes[i - 1] << ")";
-      }
-
-      if (i == oldFirstActiveModeIndex) {
-        std::cerr << " \033[0;34m|" << oldInitTime << "|\033[0;33m";
-      }
-
-      if (i == oldLastActiveModeIndex) {
-        std::cerr << " \033[0;34m|" << oldFinalTime << "|\033[0;33m";
-      }
-      std::cerr << " ";
-
-      if (i == oldLastActiveModeIndex) {
-        std::cerr << "\033[0m";
-      }
-    }
-    std::cerr << "\n";
-
-    std::cerr << "    ### New Mode:         ";
-    for (int i = 0; i < newModeSchedule.modeSequence.size(); i++) {
-      if (i == newFirstActiveModeIndex) {
-        std::cerr << "\033[0;33m";
-      }
-
-      std::cerr << newModeSchedule.modeSequence[i];
-
-      if (i != 0) {
-        std::cerr << "(" << newModeSchedule.eventTimes[i - 1] << ")";
-      }
-
-      if (i == newFirstActiveModeIndex) {
-        std::cerr << " \033[0;34m|" << oldInitTime << "|\033[0;33m";
-      }
-      if (i == newLastActiveModeIndex) {
-        std::cerr << " \033[0;34m|" << oldFinalTime << "|\033[0;33m";
-      }
-      std::cerr << " ";
-
-      if (i == newLastActiveModeIndex) {
-        std::cerr << "\033[0m";
-      }
-    }
-    std::cerr << "\n";
-
-    std::cerr << "    ### Time Period:     [" << oldTimeTrajectory.front() << ", " << oldTimeTrajectory.back() << "]\n";
-    std::cerr << "    ### Time Trajectory: {";
-    for (int i = 0; i < oldTimeTrajectory.size(); i++) {
-      if (i % 5 == 0) {
-        std::cerr << "\033[0;33m|" << i << "|\033[0m";
-      }
-      std::cerr << oldTimeTrajectory[i] << "  ";
-    }
-    std::cerr << "}\n";
-    std::cerr << "    ### Updated Mode Active At " << *newFirstMatchedModeItr << "\n";
-    std::cerr << "    ### Matching Mode Window: " << w << "\n";
-
-    std::cerr << "    ### Matching Mode:         ";
-    std::for_each(oldFirstMatchedModeItr, oldFirstMatchedModeItr + w, [](size_t i) { std::cerr << i << "  "; });
-    std::cerr << "\n";
-    std::cerr << "    ### Matching Updated Mode: ";
-    std::for_each(newFirstMatchedModeItr, newFirstMatchedModeItr + w, [](size_t i) { std::cerr << i << "  "; });
-    std::cerr << "\n";
-
-    std::cerr << "    ### Matching Event Times:         ";
-    std::for_each(oldMatchedEventTimes.begin(), oldMatchedEventTimes.end(), [](scalar_t t) { std::cerr << t << "  "; });
-    std::cerr << "\n";
-    std::cerr << "    ### Matching Updated Event Times: ";
-    std::for_each(newMatchedEventTimes.begin(), newMatchedEventTimes.end(), [](scalar_t t) { std::cerr << t << "  "; });
-    std::cerr << "\n";
-    std::cerr << "    ### Updated PostEventIndices: ";
-    std::for_each(updatedPostEventIndices_.begin(), updatedPostEventIndices_.end(), [](size_t i) { std::cerr << i << "  "; });
-    std::cerr << "\n";
-    std::cerr << "    ### Updated Matched Times: ";
-    std::for_each(updatedMatchedEventTimes_.begin(), updatedMatchedEventTimes_.end(), [](scalar_t t) { std::cerr << t << "  "; });
-
-    if (eraseFromIndex_ == 0) {
-      std::cerr << "    ### Will erase the whole trajectory!\n";
-    } else if (eraseFromIndex_ < oldTimeTrajectory.size()) {
-      std::cerr << "Spreading strategy [format: index] \n";
-      std::cerr << "    ###  0  <-- keeping --> " << eraseFromIndex_ << " <-- erasing --> " << oldTimeTrajectory.size() - 1 << "\n";
-      std::cerr << "Spreading strategy [format: time] \n";
-      std::cerr << "    ### " << oldTimeTrajectory.front() << " <-- keeping --> " << oldTimeTrajectory[eraseFromIndex_]
-                << " <-- erasing --> " << oldTimeTrajectory.back() << "\n";
-    } else {
-      std::cerr << "    ### Will not erase any part of the trajectory!\n";
-    }
-
-    std::cerr << "    ### Keep event data within [" << keepEventDataInInterval_.first << ", " << keepEventDataInInterval_.second << ")\n";
-
-    std::cerr << "    ### trajectory spreading strategy for trajectories [format: [begin, end)] \n";
-    for (size_t i = 0; i < spreadingValueIndices_.size(); i++) {
-      std::cerr << "        " << beginIndices_[i] << " --> " << endIndices_[i] << " using value at " << spreadingValueIndices_[i] << "\n";
-    }
-  }
-
-  return status_;
 }
 
 /******************************************************************************************************/

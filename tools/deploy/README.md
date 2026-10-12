@@ -32,7 +32,7 @@ files sit at their repository paths, where the launch files name them.
 | `bin/humanoid_nmpc/humanoid_wb_mpc_app/humanoid_wb_mpc_robot` (+ `.runfiles/`) | the whole-body robot binary |
 | `bin/robot_entrypoint.sh`, `bin/netem.sh`, `bin/collect_runtime_libraries.sh` | the image's entry point, NETEM, the library check |
 | `launch/<robot>.sh` | the robot side of each robot configuration: its `launch/robot.textproto` exported with `//tools/launch:export_script` |
-| `robot_models/...` | every robot's configuration and description (the task, reference and PD gains textprotos, URDF, MJCF, meshes), without the git-ignored `.bak` and `.live` side files (`bazel/robot_files.bzl`) |
+| `robot_models/...` | every robot's configuration and description (the task, reference and PD gains textprotos, URDF, MJCF, meshes), without the git-ignored `.bak` side files (`bazel/robot_files.bzl`) |
 | `config/ipc/network.textproto`, `config/ipc/two_machine.example.textproto` | the network files |
 
 The image runs no Python, so it cannot run the launcher: `export_script` turns the launch file into a POSIX sh script
@@ -51,12 +51,14 @@ linked against:
 | `robot-pinocchio-amd64` | Pinocchio and coal from robotpkg (`docker/install_robotpkg.sh`), as in the dev image |
 | `robot-pinocchio-arm64` | the same releases built from source (`docker/build_pinocchio_from_source.sh`), without Python |
 | `robot-libraries` | the dev image's packages (`dependencies.txt`) and the bundle; `collect_runtime_libraries.sh collect` copies the libraries of `/opt/openrobots` the bundle links and lists the Ubuntu packages of the others |
-| `robot-runtime` | Ubuntu, those packages, those libraries, `iproute2` (tc) and the bundle in `/opt/wb-humanoid-robot`; no compiler, Bazel, Python, VNC or Mesa. The build fails when a library is not found (`collect_runtime_libraries.sh check`). `WB_ROBOT_DEFAULT_HEADLESS=true` |
-| `robot-sim` | `robot-runtime` plus Mesa's GL and the X libraries GLFW loads, for the MuJoCo viewer. `WB_ROBOT_DEFAULT_HEADLESS=false` |
+| `robot-runtime` | Ubuntu, those packages, those libraries, `iproute2` (tc) and the bundle in `/opt/wb-humanoid-robot`; no compiler, Bazel, Python, VNC, Mesa or EGL. The build fails when a library is not found (`collect_runtime_libraries.sh check`). `WB_ROBOT_DEFAULT_VIEWER=none` |
+| `robot-sim` | `robot-runtime` plus Mesa's GL and the X libraries GLFW loads, for the `glfw` viewer, and EGL with Mesa's vendor library (`libegl1`, `libegl-mesa0`), for the `web` viewer. `WB_ROBOT_DEFAULT_VIEWER=` (none of its own: the plot configuration's `mujoco_viewer` chooses, `web` by default) |
 <!-- LINT.ThenChange(//docker/Dockerfile:robot_images) -->
 
 The binaries link GLFW, GLEW and libGL's dispatch library (the viewer is compiled in), so `robot-runtime` carries
-those small client libraries; with no Mesa to create a context, the robot process runs with `--headless`.
+those small client libraries; with no Mesa to create a context, the robot process runs without a viewer
+(`--viewer=none`). The `web` viewer opens `libEGL.so.1` when it starts instead of linking it, so the binaries need no EGL
+in `robot-runtime`, and `--viewer=web` there refuses to start, naming the packages.
 
 `make robot-images` (`deploy_robot.sh image --target robot-sim`) builds both. The image carries the commit it was built
 from (`org.opencontainers.image.revision`).
@@ -118,7 +120,11 @@ for it yet:
 | `WB_ROBOT_MEMORY_LIMIT` | `4g` | the memory cap, without swap |
 | `WB_ROBOT_RESTART` | `unless-stopped` | the restart policy |
 | `WB_ROBOT_BACKEND` | `mujoco` | the robot backend, by name |
-| `WB_ROBOT_HEADLESS` | the image's: `true` in robot-runtime, `false` in robot-sim | the MuJoCo backend without its viewer |
+| `WB_ROBOT_VIEWER` | `none` in robot-runtime unless `WB_ROBOT_PLOT_CONFIG` is set; otherwise the plot configuration's `mujoco_viewer` (`web` by default) | the MuJoCo viewer by name, or a list tried in order: `glfw` (a window on `DISPLAY`), `web` (a page at `http://localhost:6090`), `none`; `web,none` falls back to none |
+| `WB_ROBOT_PLOT_CONFIG` | the shipped `humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto` (simulation: the checkout's `PLOT_CONFIG`, mounted at `/etc/wb-humanoid-robot/plot_config.textproto`) | the plot configuration whose `mujoco_viewer` names the viewer while `WB_ROBOT_VIEWER` is empty; read strictly at start-up, and a bad file or name is refused |
+| `WB_ROBOT_WEB_VIEWER_ADDRESS`, `WB_ROBOT_WEB_VIEWER_PORT` | `127.0.0.1`, `6090` | where the `web` viewer listens; `0.0.0.0` serves every interface, without authentication |
+| `WB_ROBOT_WEB_VIEWER_ALLOWED_HOSTS` | none | the host names besides localhost the `web` viewer answers under, a comma list |
+| `WB_ROBOT_VIEWER_CORES` | `default` | cores of the `web` viewer's threads: `default` (`ThreadAffinity.h`'s viewer cores: never the realtime thread's or the MPC's, and the physics' only when no core is left over), `none`, or a list |
 | `WB_ROBOT_REALTIME_PRIORITY` | `80` | `SCHED_FIFO` priority of the realtime thread; 0 = off |
 | `WB_ROBOT_REALTIME_CORES`, `WB_ROBOT_BACKEND_CORES` | `default` | cores of the realtime thread and of the backend's threads |
 | `WB_ROBOT_CONFIG_STORE_DIR` | `/var/lib/wb-humanoid-robot/config/<ROBOT>` (the compose file sets it) | the robot's stored configuration; empty: the bundle's files in place |
@@ -178,10 +184,9 @@ remote host needs `NETWORK=` (`config/ipc/two_machine.example.textproto`). Every
 | `DEPLOY_DIR` | `--deploy_dir` | `wb-humanoid-robot` in the host's home |
 | `DEV_CONTAINER` | `--dev_container` | `devcontainer-app-1` |
 
-`DEV_CONTAINER` must be a dev container of this checkout's image (`docker/Dockerfile`: Pinocchio in `/opt/openrobots`,
-no ROS) on the host's network. A dev container created before the switch from ROS has neither; recreate it from the new
-`docker-compose.yaml` (Dev Containers: Rebuild Container, or `docker compose up -d --build --force-recreate`) before
-using these targets from the host. `in_dev_container.sh` checks for both and says so.
+`DEV_CONTAINER` must be a dev container of this checkout's image (`docker/Dockerfile`: Pinocchio in `/opt/openrobots`)
+on the host's network, as `docker-compose.yaml` creates it. `in_dev_container.sh` checks for Pinocchio and `session.sh`
+for the network, and each says so.
 
 The robot computer needs Docker with the compose plugin (v2) and, for `SERVICE=`, systemd and sudo. Nothing else: no
 checkout, no Bazel.
@@ -301,10 +306,26 @@ the stored `joint_pd_gains.textproto` and the task file's controller-side fields
 `contact_wrench_gate`); the live updates (`operator/pd_gains`, `operator/mpc_parameters`) reach it too
 (`robot_models/README.md`, "Tuning"). An editor's save of a checkout file reaches the laptop's MPC node through its
 watcher, and the simulated robot at its next start or at once with `push_robot_config`. `WB_ROBOT_CONFIG_SEED=when_bundle_changes`
-runs the robot's own policy. The MuJoCo viewer draws on `DISPLAY` through the X server's abstract socket on
-the host's network: the VNC desktop's `:99` (`-vnc`), or the host's display (`xhost +SI:localuser:root` lets the
-container's root draw there). `HEADLESS=true` runs it without the viewer. When the laptop side ends, the robot
-container stops; `make kill-sims` (`session.sh stop`) ends what a session left.
+runs the robot's own policy. The MuJoCo viewer is chosen by name: the `mujoco_viewer` of the plot configuration
+(`PLOT_CONFIG=`, `session.sh --plot_config`; a file of the checkout, by default the shipped
+`humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto`, mounted read-only at
+`/etc/wb-humanoid-robot/plot_config.textproto`), unless `VIEWER=` (`session.sh --viewer`, `WB_ROBOT_VIEWER`) names one.
+The laptop side's Rerun bridge reads the same file, by its path relative to the checkout (an absolute path inside the
+checkout is made relative for both sides, since the dev container mounts the checkout elsewhere). Without `VIEWER=` the
+session refuses a file that does not declare `# proto-message: humanoid_rerun_viewer_proto.PlotConfig` in its leading
+comment block before it builds or stops anything, and it says which file the robot reads as
+`/etc/wb-humanoid-robot/plot_config.textproto`, the path the robot's errors give.
+`web`, the shipped file's, renders offscreen (EGL, Mesa's llvmpipe in robot-sim: about 16 frames per second for the
+DRC Atlas at 1280x720) and serves the view at `http://localhost:6090` - the container is on the host's network, so no
+port is mapped; the session prints the address, and another machine reaches it through
+`ssh -L 6090:127.0.0.1:6090 <host>` (`robot_runtime/mujoco_sim_interface/README.md`, "Viewers", has the trust model).
+`VIEWER=glfw` draws on `DISPLAY` instead, through the X server's abstract socket on the host's network: the VNC
+desktop's `:99` (`-vnc`), or the host's display (`xhost +SI:localuser:root` lets the container's root draw there).
+`none` runs without a viewer, and `web,none` falls back to none when the web viewer cannot start. At the launch files' realtime priority the process
+locks its memory (`mlockall`), the web viewer's threads and Mesa's included: measured in robot-sim on the DRC Atlas (priority 80) with
+one client pulling frames, the robot process holds 915 MB resident and 28 threads (315 MB and 7 threads with `none`),
+well inside the 4 GB cap. When the laptop side ends, the robot container stops;
+`make kill-sims` (`session.sh stop`) ends what a session left.
 
 The robot side needs the host's Docker: run the target on the host (Linux, host networking), or in a dev container
 that can reach Docker (`session.sh` then mounts the checkout by its host path, from the dev container's mounts, or
@@ -317,12 +338,12 @@ that can reach Docker (`session.sh` then mounts the checkout by its host path, f
 |---|---|
 | `robot_bundle.bzl`, `pack_bundle.py` | the bundle rule and its packer |
 | `BUILD.bazel` | the robot configurations, their exported scripts and the bundle |
-| `robot_entrypoint.sh` | the images' entry point: `ROBOT`'s script, the image's viewer default, NETEM around the run |
+| `robot_entrypoint.sh` | the images' entry point: `ROBOT`'s script, the image's viewer default (`WB_ROBOT_DEFAULT_VIEWER`, unless `WB_ROBOT_VIEWER` or `WB_ROBOT_PLOT_CONFIG` is set), NETEM around the run |
 | `netem.sh` | tc-netem on the bus's ports |
 | `collect_runtime_libraries.sh` | the bundle's libraries: collected in the builder stage, checked in the image |
 | `wb-humanoid-robot@.service` | the systemd unit template |
 | `deploy_robot.sh` | bundle, image, deploy, up, down, environment |
-| `session.sh` | the Makefile's launch sessions: `sim`, `laptop`, `stop` |
+| `session.sh` | the Makefile's launch sessions: `sim` (`--viewer <names>`, `--plot_config <file>`), `laptop`, `stop` |
 | `in_dev_container.sh` | a command in the dev container's checkout, from the host or inside it |
 
 ## Tests
@@ -333,14 +354,17 @@ that can reach Docker (`session.sh` then mounts the checkout by its host path, f
   malformed manifests.
 - `:test_robot_bundle`: the bundle's layout and entries, no GUI side files, every library of the robot binaries found
   from inside it (`libmujoco` from its own runfiles), every robot's script starting its binary with files of the bundle
-  and without a store, and the environment choosing the network file, the viewer, the priority and the store.
+  and without a store (the plot configuration included, with no viewer named), and the environment choosing the network
+  file, the viewer, the priority and the store, and the entry point the image's viewer or the plot configuration's.
 - `:test_deploy_files`: `netem.sh` and the entry point against a recording `tc` (only the bus's ports, cleared after the
-  run, SIGTERM forwarded, the exit status kept, unknown robots refused, the image's viewer default); the compose files
+  run, SIGTERM forwarded, the exit status kept, unknown robots refused, the image's viewer default unless the
+  environment names a viewer or a plot configuration); the compose files
   (realtime settings, no privileged mode, memory cap without swap, the environment equal to the launch files'
   variables, the stored configuration's host directory and the simulation's volume at the same target with its
-  `every_start` seed, NET_ADMIN only with NETEM); the unit; the Dockerfile's robot stages (nothing to build with in the runtime
-  image, only GL in the sim image); the deployment script's commands (`--dry_run`, the store's directory) and `.env` (the seed policy); the Makefile's robot
-  table against the dev container README.
+  `every_start` seed, the simulation's plot configuration mounted read-only, NET_ADMIN only with NETEM); the unit; the Dockerfile's robot stages (nothing to build with in the runtime
+  image, only GL and EGL in the sim image, each image's default viewer); the deployment script's commands (`--dry_run`, the store's directory) and `.env` (the seed policy); the Makefile's robot
+  table against the dev container README, the `-sim` targets passing `VIEWER=` and `PLOT_CONFIG=` on; `session.sh`'s
+  `--viewer` and `--plot_config`.
 
 `//robot_models/tests:test_launch_files` checks the launch files themselves, `//tools/launch:test_launch_script` the
 export.

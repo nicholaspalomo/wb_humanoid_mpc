@@ -91,8 +91,9 @@ EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(const End
 vector_t EndEffectorKinematicsQuadraticCost::getParameters(scalar_t time,
                                                            const TargetTrajectories& targetTrajectories,
                                                            const PreComputation& /*preComputation*/) const {
-  // Interpolate reference, with the base pose shaped the way the base-pose costs shape it when this link follows the base.
-  const vector_t xTarget = targetTrajectories.getDesiredState(time);
+  // Interpolate reference (in the robot model's state layout), with the base pose shaped the way the base-pose costs
+  // shape it when this link follows the base.
+  const vector_t xTarget = mpcRobotModelADPtr_->getDesiredState(targetTrajectories, time);
   const vector_t xRef = referenceManagerPtr_ != nullptr ? referenceManagerPtr_->shapeBasePose(time, xTarget) : xTarget;
   const vector_t uRef = targetTrajectories.getDesiredInput(time);
 

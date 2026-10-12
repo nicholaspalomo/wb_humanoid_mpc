@@ -57,7 +57,7 @@ SCENE_VIEW_NAME = "Scene"
 EVENTS_VIEW_NAME = "Events"
 STATUS_TAB_NAME = "Status"
 
-# The initial orbit camera, the one the ROS-era 3D view opened with: focal point, distance, pitch and yaw.
+# The initial orbit camera: focal point, distance, pitch and yaw.
 _CAMERA_FOCAL_POINT = (0.608772337436676, 0.09100822359323502, 0.0074924081563949585)
 _CAMERA_DISTANCE = 2.4502856731414795
 _CAMERA_PITCH = 0.36879807710647583

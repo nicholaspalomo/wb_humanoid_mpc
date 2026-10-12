@@ -59,6 +59,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
+#include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_mpc_config/reference_file.nproto.h"
@@ -73,8 +74,9 @@ namespace {
 /// are held to.
 constexpr int kFilterSettlingCalls = 120;
 
-/// Index of the first base orientation coordinate (ZYX Euler, yaw first) within the Pinocchio q vector.
-constexpr Eigen::Index kBaseYawIndex = 3;
+/// Index of the body z angular velocity within the Pinocchio v vector [dp_W, w_B, dq_j] of the quaternion root: for a
+/// level base the yaw rate.
+constexpr Eigen::Index kBaseYawRateIndex = 5;
 
 }  // namespace
 
@@ -104,11 +106,11 @@ class YawCommandDynamicsTest : public ::testing::Test {
     info_ = centroidalModelInfoOf(atlas_, *pinocchioInterface_, *modelSettings_).value();
     robotModel_ = std::make_unique<CentroidalMpcRobotModel<scalar_t>>(*modelSettings_, *pinocchioInterface_, info_);
 
-    initialState_ = initialStateOf(atlas_.task, *modelSettings_).value();
+    initialState_ = initialStateOnModel(atlas_.task, *robotModel_).value();
     mass_ = pinocchio::computeTotalMass(pinocchioInterface_->getModel());
 
-    // Constructed exactly as CentroidalMpcRobotSim does for the walking command path.
-    calculator_ = CentroidalMpcTargetTrajectoriesCalculator::Create(referenceFile_, *robotModel_, *pinocchioInterface_, info_,
+    // Constructed exactly as the MPC node (CentroidalMpcNode) does for the walking command path.
+    calculator_ = CentroidalMpcTargetTrajectoriesCalculator::Create(referenceFile_, *robotModel_, *pinocchioInterface_,
                                                                     /*mpcHorizon=*/1.0)
                       .value();
   }
@@ -117,7 +119,7 @@ class YawCommandDynamicsTest : public ::testing::Test {
   TargetTrajectories settledTarget(const vector4_t& command, const vector_t& state) {
     TargetTrajectories target;
     for (int i = 0; i < kFilterSettlingCalls; ++i) {
-      target = calculator_->commandedVelocityToTargetTrajectories(command, /*initTime=*/0.0, state);
+      target = calculator_->commandedVelocityToTargetTrajectories(command, /*initTime=*/0.0, state, /*measuredMotion=*/BasePlanarMotion{});
     }
     EXPECT_FALSE(target.stateTrajectory.empty());
     return target;
@@ -245,16 +247,16 @@ TEST_F(YawCommandDynamicsTest, MomentumTargetIsARigidSpinAboutTheCenterOfMass) {
   EXPECT_NEAR(h(1), 0.0, 1.0e-9);
   EXPECT_NEAR(h(2), 0.0, 1.0e-9);
 
-  // Pelvis twist through the centroidal momentum matrix. The pelvis is not at the CoM, so a spin about the CoM moves it
-  // sideways by omega x r; with the base level the ZYX yaw rate is the angular velocity about the vertical.
+  // Pelvis twist [dp_W, w_B] through the centroidal momentum matrix. The pelvis is not at the CoM, so a spin about the CoM
+  // moves it sideways by omega x r; with the base level the body z rate is the angular velocity about the vertical.
   const vector6_t twist = baseTwistFromMomentum(h, initialState_);
   const vector3_t r = -comFromBase(initialState_);  // p_base - p_com
   const vector3_t expectedBaseVelocity = vector3_t(forwardVelocity, 0.0, 0.0) + vector3_t(0.0, 0.0, yawRate).cross(r);
   EXPECT_NEAR((twist.head<3>() - expectedBaseVelocity).norm(), 0.0, 1.0e-6)
       << "recovered " << twist.head<3>().transpose() << " expected " << expectedBaseVelocity.transpose();
-  EXPECT_NEAR(twist(3), yawRate, 1.0e-6) << "recovered yaw rate";
-  EXPECT_NEAR(twist(4), 0.0, 1.0e-6) << "pitch rate";
-  EXPECT_NEAR(twist(5), 0.0, 1.0e-6) << "roll rate";
+  EXPECT_NEAR(twist(kBaseYawRateIndex), yawRate, 1.0e-6) << "recovered yaw rate";
+  EXPECT_NEAR(twist(3), 0.0, 1.0e-6) << "roll rate, body x";
+  EXPECT_NEAR(twist(4), 0.0, 1.0e-6) << "pitch rate, body y";
   // And the sideways component is not a rounding artifact: the pelvis really is offset from the CoM.
   EXPECT_GT(r.norm(), 1.0e-3);
 }
@@ -281,7 +283,7 @@ TEST_F(YawCommandDynamicsTest, YawMomentumTargetIsInvariantToBaseYaw) {
 
   for (const scalar_t baseYaw : {0.7, -1.9, 2.8}) {
     vector_t turned = initialState_;
-    robotModel_->setBaseOrientationEulerZYX(turned, vector3_t(baseYaw, 0.0, 0.0));
+    robotModel_->setBaseOrientationEulerZyx(turned, vector3_t(baseYaw, 0.0, 0.0));
     const vector6_t h = settledMomentumTarget(vector4_t(0.0, 0.0, 0.0, yawRate), turned);
     EXPECT_NEAR(h(5), reference(5), 1.0e-9) << "base yaw " << baseYaw;
     // The products of inertia I_xz, I_yz rotate with the body; only their magnitude is invariant.
@@ -299,16 +301,16 @@ TEST_F(YawCommandDynamicsTest, YawInertiaMatchesTheCentroidalMomentumMatrix) {
   PinocchioInterface pinocchio(*pinocchioInterface_);
   const vector_t q = robotModel_->getGeneralizedCoordinates(initialState_);
   updateCentroidalDynamics(pinocchio, info_, q);
-  // Column 3 of the CMM is the momentum of a unit ZYX yaw rate; with the base level that is a unit angular velocity
-  // about the vertical, so its z component is I_zz.
-  const scalar_t fromCmm = getCentroidalMomentumMatrix(pinocchio)(5, kBaseYawIndex);
+  // Column 5 of the CMM is the momentum of a unit body z angular velocity; with the base level that is a unit angular
+  // velocity about the vertical, so its z component is I_zz.
+  const scalar_t fromCmm = getCentroidalMomentumMatrix(pinocchio)(5, kBaseYawRateIndex);
   EXPECT_NEAR(fromCmm, yawInertia(initialState_), 1.0e-9);
   EXPECT_GT(fromCmm, 1.0);
 }
 
 /**
- * The ACoM-LIP heading model is fed from the whole-body state by the reference manager: the heading is the yaw of the
- * angular center of mass, its rate is the normalized angular momentum about the vertical scaled by mass over the locked
+ * The ACoM-LIP heading model is fed from the whole-body state by the reference manager: the heading is the twist heading
+ * of the angular center of mass's attitude, its rate is the normalized angular momentum about the vertical scaled by mass over the locked
  * yaw inertia, and the foot yaws are the contact frames' yaws unwrapped near the heading. Each is checked against an
  * independent evaluation of the same quantity from the robot model.
  */
@@ -323,15 +325,16 @@ TEST_F(YawCommandDynamicsTest, PlannerInputCarriesTheAcomHeadingAndItsRateFromAn
   // A turned base spinning about the vertical at a known rate, expressed as the normalized angular momentum the state carries.
   const scalar_t yawRate = 0.3;
   vector_t state = initialState_;
-  robotModel_->setBaseOrientationEulerZYX(state, vector3_t(0.7, 0.0, 0.0));
+  robotModel_->setBaseOrientationEulerZyx(state, vector3_t(0.7, 0.0, 0.0));
   const matrix3_t Ig = lockedInertia(state);
   state.segment<3>(3) = Ig.col(2) * (yawRate / mass_);  // L / m for a rigid spin about the vertical
 
   const ContactPlannerInput input = referenceManager->makePlannerInput(/*initTime=*/0.0, state, vector2_t::Zero());
 
-  // Heading: the ACoM yaw of the state (base yaw plus the learned joint offset), and the planning frame is the heading.
+  // Heading: the ACoM heading of the state - the twist heading of the base orientation composed with the learned joint
+  // rotation - and the planning frame is the heading.
   const vector_t q = robotModel_->getGeneralizedCoordinates(state);
-  const scalar_t acomYaw = acom->computeAcomOrientation(q)(0);
+  const scalar_t acomYaw = twistHeading(acom->acomAttitude(robotModel_->getBaseOrientation(state), robotModel_->getJointAngles(state)));
   EXPECT_NEAR(input.heading, acomYaw, 1.0e-12);
   EXPECT_NEAR(input.yaw, input.heading, 1.0e-12);
   EXPECT_GT(std::abs(acomYaw - 0.7), 1.0e-4)
@@ -368,8 +371,8 @@ TEST_F(YawCommandDynamicsTest, PlannerYawRateCommandIsTheOperatorsNotTheBlendedT
   const TargetTrajectories target = settledTarget(vector4_t(0.0, 0.0, 0.0, yawRate), initialState_);
 
   // What differentiating the target's base yaw over its first stretch gives for a robot at rest: half the command.
-  const scalar_t yaw0 = robotModel_->getBaseOrientationEulerZYX(target.getDesiredState(0.0))(0);
-  const scalar_t yaw1 = robotModel_->getBaseOrientationEulerZYX(target.getDesiredState(0.2))(0);
+  const scalar_t yaw0 = robotModel_->getBaseOrientationEulerZyx(robotModel_->getDesiredState(target, /*time=*/0.0))(0);
+  const scalar_t yaw1 = robotModel_->getBaseOrientationEulerZyx(robotModel_->getDesiredState(target, /*time=*/0.2))(0);
   EXPECT_NEAR((yaw1 - yaw0) / 0.2, 0.5 * yawRate, 1.0e-6) << "the blended ramp is why the base yaw is not the command source";
 
   referenceManager->setTargetTrajectories(target);
@@ -381,7 +384,7 @@ TEST_F(YawCommandDynamicsTest, PlannerYawRateCommandIsTheOperatorsNotTheBlendedT
   // The same command read with the robot already turning at the commanded rate, and with a turned base: the momentum
   // channel is a base-frame-invariant quantity and the inertia the manager derives matches the calculator's.
   vector_t turning = initialState_;
-  robotModel_->setBaseOrientationEulerZYX(turning, vector3_t(1.1, 0.0, 0.0));
+  robotModel_->setBaseOrientationEulerZyx(turning, vector3_t(1.1, 0.0, 0.0));
   turning.segment<3>(3) = lockedInertia(turning).col(2) * (yawRate / mass_);
   referenceManager->setTargetTrajectories(settledTarget(vector4_t(0.0, 0.0, 0.0, yawRate), turning));
   referenceManager->preSolverRun(/*initTime=*/0.02, 0.02 + horizon, turning, ModeNumber::kStance);
@@ -431,7 +434,7 @@ TEST_F(YawCommandDynamicsTest, CreateRefusesAJointStateTimeConstantThatDoesNotPa
   ASSERT_FALSE(brokenReference.empty());
 
   const absl::StatusOr<std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator>> created =
-      CentroidalMpcTargetTrajectoriesCalculator::Create(brokenReference, *robotModel_, *pinocchioInterface_, info_, /*mpcHorizon=*/1.0);
+      CentroidalMpcTargetTrajectoriesCalculator::Create(brokenReference, *robotModel_, *pinocchioInterface_, /*mpcHorizon=*/1.0);
   EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument) << created.status();
   EXPECT_TRUE(absl::StrContains(created.status().message(), absl::StrCat(brokenReference, ":"))) << created.status();
 }
@@ -444,7 +447,7 @@ TEST_F(YawCommandDynamicsTest, CreateRequiresAPositiveJointStateTimeConstant) {
   for (const std::optional<double> timeConstant : {std::optional<double>(), std::optional<double>(0.0), std::optional<double>(-0.5)}) {
     reference.target_joint_state_interpolation_time_constant = timeConstant;
     const absl::StatusOr<std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator>> created =
-        CentroidalMpcTargetTrajectoriesCalculator::Create(reference, *robotModel_, *pinocchioInterface_, info_, /*mpcHorizon=*/1.0);
+        CentroidalMpcTargetTrajectoriesCalculator::Create(reference, *robotModel_, *pinocchioInterface_, /*mpcHorizon=*/1.0);
     EXPECT_EQ(created.status().code(), absl::StatusCode::kInvalidArgument) << created.status();
     EXPECT_TRUE(absl::StrContains(created.status().message(), "target_joint_state_interpolation_time_constant")) << created.status();
   }
@@ -487,7 +490,7 @@ TEST_F(YawCommandDynamicsTest, TheCalculatorReleasesTheRobotModelItClonesAlsoWhe
     ASSERT_EQ(CountingRobotModel::liveInstances, 1);
     {
       absl::StatusOr<std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator>> created =
-          CentroidalMpcTargetTrajectoriesCalculator::Create(referenceFile_, model, *pinocchioInterface_, info_, /*mpcHorizon=*/1.0);
+          CentroidalMpcTargetTrajectoriesCalculator::Create(referenceFile_, model, *pinocchioInterface_, /*mpcHorizon=*/1.0);
       ASSERT_TRUE(created.ok()) << created.status();
       EXPECT_EQ(CountingRobotModel::liveInstances, 2) << "the calculator holds a copy of the model of its own";
     }
@@ -496,7 +499,7 @@ TEST_F(YawCommandDynamicsTest, TheCalculatorReleasesTheRobotModelItClonesAlsoWhe
     const std::string brokenReference = writeReferenceWithAnUnparsableTimeConstant(referenceFile_);
     ASSERT_FALSE(brokenReference.empty());
     const absl::StatusOr<std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator>> refused =
-        CentroidalMpcTargetTrajectoriesCalculator::Create(brokenReference, model, *pinocchioInterface_, info_, /*mpcHorizon=*/1.0);
+        CentroidalMpcTargetTrajectoriesCalculator::Create(brokenReference, model, *pinocchioInterface_, /*mpcHorizon=*/1.0);
     ASSERT_FALSE(refused.ok());
     EXPECT_EQ(CountingRobotModel::liveInstances, 1) << "a Create() its loader refused released the model it had cloned";
   }

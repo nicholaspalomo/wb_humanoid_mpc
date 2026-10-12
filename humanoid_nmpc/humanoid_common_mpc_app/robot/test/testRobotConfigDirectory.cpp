@@ -294,7 +294,7 @@ TEST(RobotStartup, AFailureTheBundleSharesKeepsTheStoredCopiesAndWithdrawsTheMar
   absl::StatusOr<RobotConfigDirectory> directory = RobotConfigDirectory::Open(fixture.options);
   ASSERT_TRUE(directory.ok()) << directory.status();
   ASSERT_TRUE(directory->usesStoredCopies());
-  FakeBringUp bringUp{.fails = [](const RobotConfigDirectory& /*files*/) { return true; }};
+  FakeBringUp bringUp{.fails = [](const RobotConfigDirectory& /*files*/) { return true; }, .attempts = {}};
   const absl::StatusOr<RobotStack> stack =
       bringUpRobot(*directory, [&bringUp](const RobotConfigDirectory& files) { return bringUp(files); });
   EXPECT_EQ(stack.status().code(), absl::StatusCode::kUnavailable);
@@ -313,7 +313,8 @@ TEST(RobotStartup, AFailureOnTheStoredCopiesRejectsThemAndStartsOnTheBundle) {
   writeFile(fixture.storedTask, kSaved);
   absl::StatusOr<RobotConfigDirectory> directory = RobotConfigDirectory::Open(fixture.options);
   ASSERT_TRUE(directory.ok()) << directory.status();
-  FakeBringUp bringUp{.fails = [](const RobotConfigDirectory& files) { return readFile(files.files().taskFile) == kSaved; }};
+  FakeBringUp bringUp{.fails = [](const RobotConfigDirectory& files) { return readFile(files.files().taskFile) == kSaved; },
+                      .attempts = {}};
   const absl::StatusOr<RobotStack> stack =
       bringUpRobot(*directory, [&bringUp](const RobotConfigDirectory& files) { return bringUp(files); });
   EXPECT_TRUE(stack.ok()) << stack.status();
@@ -328,7 +329,7 @@ TEST(RobotStartup, AFailureWithoutStoredCopiesIsReturnedAsItIs) {
   Fixture fixture = bundleAndStore("bundle_failure");
   absl::StatusOr<RobotConfigDirectory> directory = RobotConfigDirectory::Open(fixture.options);
   ASSERT_TRUE(directory.ok()) << directory.status();
-  FakeBringUp bringUp{.fails = [](const RobotConfigDirectory& /*files*/) { return true; }};
+  FakeBringUp bringUp{.fails = [](const RobotConfigDirectory& /*files*/) { return true; }, .attempts = {}};
   const absl::StatusOr<RobotStack> stack =
       bringUpRobot(*directory, [&bringUp](const RobotConfigDirectory& files) { return bringUp(files); });
   EXPECT_EQ(stack.status().code(), absl::StatusCode::kUnavailable);

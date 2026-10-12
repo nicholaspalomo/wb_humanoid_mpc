@@ -54,6 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/OperatorPayloadChecks.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
+#include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "humanoid_common_mpc/mrt/MpcLink.h"
@@ -66,6 +67,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/task_file.nproto.pb.h"
 #include "humanoid_mpc_config/task_file.pb.h"
 #include "humanoid_mpc_ipc/Topics.h"
+#include "humanoid_mpc_msgs/controller_type.pb.h"
 #include "humanoid_mpc_msgs/walking_velocity_command.pb.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/node/test/ScriptedRobot.h"
 #include "humanoid_wb_mpc/WBMpcPreComputation.h"
@@ -163,6 +165,10 @@ TEST(WBMpcNode, SolvesTheRobotsObservationsServesTheResetsTheyRequestAndDrawsThe
   EXPECT_EQ(policy->state_trajectory(0).data_size(), static_cast<int>(dimensions.stateDim));
   EXPECT_EQ(policy->input_trajectory(0).data_size(), static_cast<int>(dimensions.inputDim));
   EXPECT_EQ(policy->resets_served(), 0);
+  // The shipped whole-body G1 runs a feedforward policy, which travels as it is on the quaternion state too.
+  ASSERT_FALSE(harness.node().interface().sqpSettings().useFeedbackPolicy)
+      << "the shipped G1 runs no multiple_shooting.use_feedback_policy";
+  EXPECT_EQ(policy->controller_type(), humanoid_mpc_msgs::CONTROLLER_TYPE_FEEDFORWARD);
 
   // A solver reset, then a full one, requested through the observation's counters.
   policy = harness.solve(/*time=*/0.02, /*sequence=*/2, /*requested=*/1, /*fullRequested=*/0);
@@ -233,22 +239,17 @@ matrix_t stateWeightsOf(const humanoid_mpc_config::TaskFile& task, const WBMpcIn
 }
 
 /**
- * Expects every worker's running quadratic state cost to weigh the state by `expected` (its Hessian, at the task file's
- * initial state), and the swing foot's gains of every worker's pre-computation to be the model settings'.
+ * Expects every worker's running quadratic state cost to hold the state weights `expected` (Q of the tuning layout, which
+ * the cost's TuningLayoutDeviation maps onto the quaternion state's tangent), and the swing foot's gains of every
+ * worker's pre-computation to be the model settings'.
  */
 void expectRunningStateWeightsAndShippedFootGains(WBMpcNode& node, const matrix_t& expected) {
   const WBMpcInterface& interface = node.interface();
   const ModelSettings::FootConstraintConfig& shipped = interface.modelSettings().footConstraintConfig;
-  const vector_t state = interface.getInitialState();
-  const vector_t input = vector_t::Zero(static_cast<Eigen::Index>(interface.getMpcRobotModel().getInputDim()));
   // The solver thread waits for the next observation: the problems are not being solved.
   for (OptimalControlProblem& problem : node.mpc().getSolverPtr()->getOcpDefinitions()) {
-    const StateInputCost& cost = problem.costPtr->get(kStateQuadraticCostTerm);
-    const matrix_t hessian =
-        cost.getQuadraticApproximation(/*time=*/0.0, state, input, interface.getReferenceManagerPtr()->getTargetTrajectories(),
-                                       *problem.preComputationPtr)
-            .dfdxx;
-    EXPECT_TRUE(hessian == expected) << "the running state weights are not the expected ones";
+    const matrix_t& weights = problem.costPtr->get<TuningQuadraticStateInputCost>(kStateQuadraticCostTerm).getStateWeights();
+    EXPECT_TRUE(weights == expected) << "the running state weights are not the expected ones";
     const WBMpcPreComputation& preComputation = cast<WBMpcPreComputation>(*problem.preComputationPtr);
     EXPECT_EQ(preComputation.getSwingFootGains().linearVelocityErrorGainZ, shipped.linearVelocityErrorGain_z);
     EXPECT_EQ(preComputation.getSwingFootGains().linearAccelerationErrorGainZ, shipped.linearAccelerationErrorGain_z);
@@ -322,12 +323,17 @@ TEST(WBMpcNode, ResetsToTheTargetTheControllerHandsItsInProcessLink) {
       WBMpcMrtJointController::Create(description, interface.modelSettings(), capturing, interface.getPinocchioInterface());
   ASSERT_TRUE(controller.ok()) << controller.status();
   ASSERT_TRUE(controllerResetTarget);
-  const size_t numCoordinates = interface.getMpcRobotModel().getGenCoordinatesDim();
+  const MpcRobotModelBase<scalar_t>& model = interface.getMpcRobotModel();
   for (const scalar_t time : {0.0, 1.5, 12.25}) {
     SystemObservation observation = harness.standing(time);
-    observation.state(0) += 0.2 * time;                       // base x
-    observation.state(4) = 0.03;                              // pitch
-    observation.state.tail(numCoordinates).setConstant(0.1);  // velocities
+    vector3_t basePosition = model.getBasePosition(observation.state);
+    basePosition.x() += 0.2 * time;
+    model.setBasePosition(observation.state, basePosition);
+    vector3_t eulerZyx = model.getBaseOrientationEulerZyx(observation.state);
+    eulerZyx(1) = 0.03;  // pitch
+    model.setBaseOrientationEulerZyx(observation.state, eulerZyx);
+    // The velocities v of Pinocchio's tangent, the state's tail.
+    observation.state.tail(static_cast<Eigen::Index>(model.getVelocityDim())).setConstant(0.1);
     expectSameTarget(controllerResetTarget(observation), harness.node().resetTargetTrajectories(observation));
   }
 }
@@ -343,6 +349,8 @@ class DummySimRunner {
     config.simulationFrequency = 80.0;  // as humanoid_wb_mpc_dummy_sim
     config.mpcDesiredFrequency = node.interface().mpcSettings().mpcDesiredFrequency_;
     config.link.dimensions = node.dimensions();
+    // The robot's link interpolates the node's policies on the MPC's state manifold, as the dummy-sim binary's.
+    config.link.stateManifold = node.interface().getStateManifold();
     absl::StatusOr<std::unique_ptr<node::DummySimLoop>> loop =
         node::DummySimLoop::Create(std::move(robotBus), node.interface().getRollout(), config);
     EXPECT_TRUE(loop.ok()) << loop.status();
@@ -399,6 +407,7 @@ TEST(WBMpcNode, TheDummySimulatorStandsOnTheNodesPoliciesWithoutAReset) {
   EXPECT_EQ(statistics.link.linkLosses, 0);
   EXPECT_EQ(statistics.link.stalePoliciesDropped, 0);
   EXPECT_EQ(statistics.link.foreignPoliciesDropped, 0);
+  EXPECT_EQ(statistics.link.invalidPoliciesRejected, 0);
   EXPECT_TRUE(statistics.link.solverHealthy);
 
   // It stands: the base stays where it started, upright, within a few centimeters.
@@ -408,10 +417,12 @@ TEST(WBMpcNode, TheDummySimulatorStandsOnTheNodesPoliciesWithoutAReset) {
   const vector3_t position = model.getBasePosition(latest.state);
   EXPECT_NEAR(position.z(), startPosition.z(), 0.05);
   EXPECT_LT((position - startPosition).head<2>().norm(), 0.05);
-  const vector3_t orientation = model.getBaseOrientationEulerZYX(latest.state);
+  const vector3_t orientation = model.getBaseOrientationEulerZyx(latest.state);
   EXPECT_LT(std::abs(orientation(1)), 0.1);  // pitch
   EXPECT_LT(std::abs(orientation(2)), 0.1);  // roll
   EXPECT_TRUE(latest.state.allFinite());
+  // The plant's rollout keeps the stored quaternion on the unit sphere.
+  EXPECT_NEAR(latest.state.segment<4>(static_cast<Eigen::Index>(model.getBaseOrientationStartIndex())).norm(), 1.0, 1.0e-9);
 }
 
 }  // namespace

@@ -60,7 +60,7 @@ The task file's scalars and lists set the formulation (`costs`, `soft_constraint
 - `gait_file.proto`: the gaits by name (`ModeSequenceTemplateConfig`).
 - `joint_pd_gains_file.proto`: the gains every joint starts from and those of named joints.
 - `contact_planning_file.proto`: the planner, its shared and H-LIP blocks, the term lists and a block per term
-  (humanoid_nmpc/docs/contact_planner_ocp_refactor/README.md).
+  (humanoid_nmpc/docs/README.md, section 2.10; humanoid_nmpc/docs/contact_planner_terms/README.md).
 - `mpc_parameter_update.proto`: the GUI's live update, a whole `TaskFile` and, for a robot that has one, a whole
   `ContactPlanningFile`.
 - `xyz.proto`, `yaw_pitch_roll.proto`, `joint_value.proto`: the shared primitives of the weights and values.
@@ -82,9 +82,11 @@ The task file's scalars and lists set the formulation (`costs`, `soft_constraint
 - **An absent list is empty.** A repeated field has no presence: a file that leaves out `telemetry_sinks`,
   `sim_visualizations` or a term list has none, so the shipped files write every list out.
 - **Weights and states by name**, never by index: `{x y z}` blocks, the base orientation as Euler `{yaw pitch roll}`
-  (also where the MPC's orientation is a quaternion), and joints as `joint_positions { joint: "back_bkz" value: 5 }`.
-  The conversions place each name at the index the MPC's model gives it (`StateInputLayout`), require every joint of
-  the model exactly once and refuse an unknown or a fixed one, naming it.
+  (though the MPC's state holds it as a unit quaternion), and joints as `joint_positions { joint: "back_bkz" value: 5 }`.
+  The conversions place each name at the index of the MPC's tuning layout (`StateInputLayout`, `tuningLayoutOf()`),
+  require every joint of the model exactly once and refuse an unknown or a fixed one, naming it. One layer maps the
+  Euler rows onto the quaternion state and its residuals, at start-up and on a live update alike
+  (humanoid_nmpc/docs/quaternion_base_orientation/README.md, sections 2.10 and 3.5).
 - **Named components are strings** that a registry resolves (costs, constraints, estimators, sinks, visualizations,
   parameterizations, the centroidal model, the stance constraint's rows, the foot cost's phases, the planner's
   threading, its terms and its terminal DCM target, heuristics), never booleans or int codes. Each such field names its registry in its tuning

@@ -36,7 +36,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/misc/Benchmark.h>
 #include <ocs2_core/thread_support/ThreadPool.h>
 
-#include <ocs2_oc/multiple_shooting/ProjectionMultiplierCoefficients.h>
 #include <ocs2_oc/oc_data/TimeDiscretization.h>
 #include <ocs2_oc/oc_problem/OptimalControlProblem.h>
 #include <ocs2_oc/oc_solver/SolverBase.h>
@@ -80,20 +79,6 @@ class SqpSolver : public SolverBase {
   const PerformanceIndex& getPerformanceIndeces() const override { return getIterationsLog().back(); };
 
   const std::vector<PerformanceIndex>& getIterationsLog() const override;
-
-  ScalarFunctionQuadraticApproximation getValueFunction(scalar_t time, const vector_t& state) const override;
-
-  ScalarFunctionQuadraticApproximation getHamiltonian(scalar_t time, const vector_t& state, const vector_t& input) override {
-    throw std::runtime_error("[SqpSolver] getHamiltonian() not available yet.");
-  }
-
-  vector_t getStateInputEqualityConstraintLagrangian(scalar_t time, const vector_t& state) const override {
-    throw std::runtime_error("[SqpSolver] getStateInputEqualityConstraintLagrangian() not available yet.");
-  }
-
-  MultiplierCollection getIntermediateDualSolution(scalar_t time) const override {
-    throw std::runtime_error("[SqpSolver] getIntermediateDualSolution() not available yet.");
-  }
 
   std::vector<OptimalControlProblem>& getOcpDefinitions() { return ocpDefinitions_; }
 
@@ -184,9 +169,6 @@ class SqpSolver : public SolverBase {
   };
   OcpSubproblemSolution getOCPSolution(const vector_t& delta_x0);
 
-  /** Extract the value function based on the last solved QP */
-  void extractValueFunction(const std::vector<AnnotatedTime>& time, const vector_array_t& x);
-
   /** Constructs the primal solution based on the optimized state and input trajectories */
   PrimalSolution toPrimalSolution(const std::vector<AnnotatedTime>& time, vector_array_t&& x, vector_array_t&& u);
 
@@ -221,9 +203,6 @@ class SqpSolver : public SolverBase {
   // Solution
   PrimalSolution primalSolution_;
 
-  // Value function in absolute state coordinates (without the constant value)
-  std::vector<ScalarFunctionQuadraticApproximation> valueFunction_;
-
   // LQ approximation
   std::vector<ScalarFunctionQuadraticApproximation> cost_;
   std::vector<VectorFunctionLinearApproximation> dynamics_;
@@ -231,9 +210,6 @@ class SqpSolver : public SolverBase {
   std::vector<VectorFunctionLinearApproximation> stateIneqConstraints_;
   std::vector<VectorFunctionLinearApproximation> stateInputIneqConstraints_;
   std::vector<VectorFunctionLinearApproximation> constraintsProjection_;
-
-  // Lagrange multipliers
-  std::vector<multiple_shooting::ProjectionMultiplierCoefficients> projectionMultiplierCoefficients_;
 
   // Iteration performance log
   std::vector<PerformanceIndex> performanceIndeces_;

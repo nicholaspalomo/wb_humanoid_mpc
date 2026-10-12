@@ -102,7 +102,7 @@ TEST_F(JointMimicDynamicsConstraintTest, ResolvesTheJointsByName) {
   EXPECT_EQ(config.childJointIndex, model_->findJointIndex(jointName(1)).value());
 
   // The child joint at half the parent's angle, velocity and acceleration: the constraint is met.
-  vector_t state = vector_t::Zero(model_->getStateDim());
+  vector_t state = model_->getNeutralState();
   vector_t input = vector_t::Zero(model_->getInputDim());
   vector_t jointAngles = vector_t::Zero(model_->getJointDim());
   jointAngles[config.parentJointIndex] = 0.4;

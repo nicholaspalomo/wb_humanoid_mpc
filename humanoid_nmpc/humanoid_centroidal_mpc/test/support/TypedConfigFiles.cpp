@@ -111,8 +111,13 @@ absl::StatusOr<vector_t> defaultJointStateOf(const mpc_config::ReferenceFile& re
   return defaultJointStateFromConfig(reference, modelSettings.mpcModelJointNames, modelSettings.fixedJointNames);
 }
 
-absl::StatusOr<vector_t> initialStateOf(const mpc_config::TaskFile& task, const ModelSettings& modelSettings) {
+absl::StatusOr<vector_t> initialTuningVectorOf(const mpc_config::TaskFile& task, const ModelSettings& modelSettings) {
   return stateValuesFromConfig(task.initial_state, stateInputLayout(modelSettings, StateInputLayout::Mpc::kCentroidal), "initial_state");
+}
+
+absl::StatusOr<vector_t> initialStateOnModel(const mpc_config::TaskFile& task, const MpcRobotModelBase<scalar_t>& model) {
+  ASSIGN_OR_RETURN(const vector_t tuningVector, initialTuningVectorOf(task, model.modelSettings));
+  return model.stateFromTuning(tuningVector);
 }
 
 absl::StatusOr<CentroidalModelInfo> centroidalModelInfoOf(const CentroidalMpcConfig& config,

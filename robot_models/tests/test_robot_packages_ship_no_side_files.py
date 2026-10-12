@@ -28,11 +28,9 @@
 """The robot model filegroups ship their configuration and nothing that merely sits beside it.
 
 Every robot package globs its directories (`config/**`, `urdf/**`, ...), and git-ignored side files sit next to the
-configuration: the `<file>.bak` backup the tuning GUI's Save keeps, and the `<file>.live.yaml` copies that the GUI and the
-MPC parameter updater of the YAML configuration wrote while tuning, which a working tree may still hold. The globs used
-to take them along, so every test that lists a robot package as data ran against whatever stale backups the working tree
-held. The filegroups exclude them now (bazel/robot_files.bzl, ROBOT_FILE_EXCLUDES); this test walks what they actually
-put in the runfiles.
+configuration: the `<file>.bak` backup the tuning GUI's Save keeps. The globs used to take them along, so every test that
+lists a robot package as data ran against whatever stale backups the working tree held. The filegroups exclude them now
+(bazel/robot_files.bzl, ROBOT_FILE_EXCLUDES); this test walks what they actually put in the runfiles.
 """
 
 import fnmatch
@@ -41,7 +39,7 @@ import unittest
 
 # The side files, as .gitignore names them.
 # LINT.IfChange(robot_file_excludes)
-SIDE_FILE_PATTERNS = ("*.bak", "*.live*")
+SIDE_FILE_PATTERNS = ("*.bak",)
 # LINT.ThenChange(//bazel/robot_files.bzl:robot_file_excludes)
 
 # Every robot package the BUILD target lists as data, and one file each must ship: the walk below is not vacuous.
@@ -71,11 +69,9 @@ class TestRobotPackagesShipNoSideFiles(unittest.TestCase):
         cls.root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 
     def test_the_patterns_recognize_the_side_files(self):
-        # Positive control of the matcher on the names the GUI's Save writes and on the stale YAML-era copies.
+        # Positive control of the matcher on the names the GUI's Save writes.
         self.assertTrue(is_side_file("task.textproto.bak"))
         self.assertTrue(is_side_file("joint_pd_gains.textproto.bak"))
-        self.assertTrue(is_side_file("task.yaml.bak"))
-        self.assertTrue(is_side_file("task.yaml.live.yaml"))
         self.assertFalse(is_side_file("task.textproto"))
         self.assertFalse(is_side_file("contact_planning.textproto"))
 

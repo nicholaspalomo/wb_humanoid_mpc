@@ -1,7 +1,9 @@
 load("@operator_deps//:requirements.bzl", "requirement")
+load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
 load("@protobuf//bazel:proto_library.bzl", "proto_library")
 load("@protobuf//bazel:py_proto_library.bzl", "py_proto_library")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+load("//tools/nproto:nproto.bzl", "nproto_cc_library")
 
 # humanoid_rerun_viewer - the Rerun bridge: draws the IPC bus's viz/scene, viz/telemetry and status messages in Rerun
 # (README.md, humanoid_nmpc/docs/distributed_runtime/README.md "Visualization with Rerun").
@@ -20,6 +22,19 @@ proto_library(
 
 py_proto_library(
     name = "plot_config_py_proto",
+    deps = [":plot_config_proto"],
+)
+
+# The plot configuration in C++, for the robot process, which reads the MuJoCo viewer from it (mujoco_viewer;
+# humanoid_nmpc/humanoid_common_mpc_app/robot/README.md, --plot_config): the struct ocs2::humanoid::rerun::PlotConfig of
+# "humanoid_rerun_viewer_proto/plot_config.nproto.pb.h", read with nproto::LoadTextprotoFile() (tools/nproto/README.md).
+cc_proto_library(
+    name = "plot_config_cc_proto",
+    deps = [":plot_config_proto"],
+)
+
+nproto_cc_library(
+    name = "plot_config_nproto",
     deps = [":plot_config_proto"],
 )
 
@@ -46,10 +61,7 @@ py_library(
 
 filegroup(
     name = "plot_config",
-    srcs = [
-        "config/example_plot_config.textproto",
-        "config/plot_config.textproto",
-    ],
+    srcs = ["config/plot_config.textproto"],
 )
 
 # The remote_control GUI starts this binary from the checkout's build output (its "Open Rerun viewer" button).

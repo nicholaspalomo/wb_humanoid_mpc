@@ -300,7 +300,7 @@ class Integrator final : public IntegratorBase {
   using observer_func_t = typename IntegratorBase::observer_func_t;
   using system_func_t = typename IntegratorBase::system_func_t;
 
-  explicit Integrator(std::shared_ptr<SystemEventHandler> eventHandlerPtr = nullptr) : IntegratorBase(std::move(eventHandlerPtr)) {}
+  Integrator() = default;
 
   ~Integrator() override = default;
 
@@ -338,7 +338,7 @@ class Integrator final : public IntegratorBase {
                          scalar_t /*AbsTol*/,
                          scalar_t /*RelTol*/) override {
     vector_t state = initialState;
-    // maxNumSteps is already checked by the event handler.
+    // maxNumSteps is already checked by IntegratorBase::systemFunction().
     integration_internal::MaxStepChecker maxStepChecker(std::numeric_limits<int>::max());
     integration_internal::integrateTimes(Stepper(), system, state, beginTimeItr, endTimeItr, dtInitial, observer, maxStepChecker);
   }
@@ -350,7 +350,7 @@ class Integrator final : public IntegratorBase {
  */
 class ODE45 final : public IntegratorBase {
  public:
-  explicit ODE45(std::shared_ptr<SystemEventHandler> eventHandlerPtr = nullptr) : IntegratorBase(std::move(eventHandlerPtr)) {}
+  ODE45() = default;
 
   ~ODE45() override = default;
 
@@ -389,7 +389,7 @@ class ODE45 final : public IntegratorBase {
                          scalar_t AbsTol,
                          scalar_t RelTol) override {
     vector_t state = initialState;
-    // maxNumSteps is already checked by the event handler.
+    // maxNumSteps is already checked by IntegratorBase::systemFunction().
     integration_internal::MaxStepChecker maxStepChecker(std::numeric_limits<int>::max());
     integration_internal::integrateTimesControlled(steppers::ControlledDormandPrince5(AbsTol, RelTol), system, state, beginTimeItr,
                                                    endTimeItr, dtInitial, observer, maxStepChecker);

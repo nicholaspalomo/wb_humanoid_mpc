@@ -71,7 +71,7 @@ namespace {
 
 constexpr scalar_t kSolvePeriod = 0.02;  // [s] of solver time per solve
 
-/** The Atlas MPC and its references, wired as CentroidalMpcRobotSim wires them, around the SQP solver. */
+/** The Atlas MPC and its references, wired as the MPC node (CentroidalMpcNode) wires them, around the SQP solver. */
 class SolverStack {
  public:
   /** `numThreads` > 0 replaces the task file's solver thread count; 1 makes every solve bit-for-bit repeatable. */
@@ -88,18 +88,19 @@ class SolverStack {
     if (numThreads > 0) sqpSettings.nThreads = numThreads;
     mpc_ = std::make_unique<SqpMpc>(interface_->mpcSettings(), sqpSettings, interface_->getOptimalControlProblem(),
                                     interface_->getInitializer());
-    calculator_ = CentroidalMpcTargetTrajectoriesCalculator::Create(
-                      referenceFile, interface_->getEffectiveMpcRobotModel(), interface_->getPinocchioInterface(),
-                      interface_->getCentroidalModelInfo(), interface_->mpcSettings().timeHorizon_)
-                      .value();
+    calculator_ =
+        CentroidalMpcTargetTrajectoriesCalculator::Create(referenceFile, interface_->getEffectiveMpcRobotModel(),
+                                                          interface_->getPinocchioInterface(), interface_->mpcSettings().timeHorizon_)
+            .value();
     calculator_->setTerrainHeightSource(
         [referenceManager = interface_->getSwitchedModelReferenceManagerPtr()]() { return referenceManager->getAppliedTerrainHeight(); });
     CentroidalMpcTargetTrajectoriesCalculator* absl_nonnull calculator = calculator_.get();
     motionManager_ =
         ProceduralMpcMotionManager::Create(
             gaitFile, referenceFile, interface_->getSwitchedModelReferenceManagerPtr(), interface_->getEffectiveMpcRobotModel(),
-            [calculator](const vector4_t& velocity, scalar_t initTime, scalar_t /*finalTime*/, const vector_t& initState) {
-              return calculator->commandedVelocityToTargetTrajectories(velocity, initTime, initState);
+            [calculator](const vector4_t& velocity, scalar_t initTime, scalar_t /*finalTime*/, const vector_t& initState,
+                         const BasePlanarMotion& measuredMotion) {
+              return calculator->commandedVelocityToTargetTrajectories(velocity, initTime, initState, measuredMotion);
             })
             .value();
     motionManager_->setResetHook([calculator]() { calculator->reset(); });

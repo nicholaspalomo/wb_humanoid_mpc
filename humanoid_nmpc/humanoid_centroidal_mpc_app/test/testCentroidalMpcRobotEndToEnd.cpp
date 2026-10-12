@@ -32,11 +32,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
@@ -62,7 +64,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /*
  * The robot binary end to end, in the topology the hardware runs: humanoid_centroidal_mpc_robot is started as its own
- * process (the MuJoCo backend, headless, on the DRC Atlas files, the remote MPC link), and the test plays the laptop: an
+ * process (the MuJoCo backend without a viewer, on the DRC Atlas files, the remote MPC link), and the test plays the laptop: an
  * MpcServer around a scripted MPC, and an operator, on a loopback network file of its own. The robot comes up in
  * ZERO_TORQUE on the gantry and streams observations; the operator takes it through JOINT_PD into WB_MPC; the policy of
  * the MPC - the robot held where it is, with one joint offset so that its action can be told from JOINT_PD's - reaches
@@ -106,6 +108,27 @@ humanoid_mpc_msgs::LoopTiming timingOf(const ScriptedOperator& remoteControl) {
     return humanoid_mpc_msgs::LoopTiming();
   }
   return *std::move(timing);
+}
+
+/** The robot binary's command line on the DRC Atlas files and `networkFile`, its viewer chosen by `viewerArgument`. */
+std::vector<std::string> robotCommand(const std::string& networkFile, const std::string& viewerArgument) {
+  return {kRobotBinary,
+          "--robot_name=drc_atlas",
+          absl::StrCat("--task_file=", kAtlasTask),
+          absl::StrCat("--reference_file=", kAtlasReference),
+          absl::StrCat("--urdf_file=", kAtlasUrdf),
+          absl::StrCat("--mjcf_file=", kAtlasScene),
+          absl::StrCat("--network_config=", networkFile),
+          viewerArgument,
+          "--realtime_cores=none",
+          "--backend_cores=none"};
+}
+
+/** Writes a plot configuration to `path` whose mujoco_viewer is `viewer`, replacing the file. */
+void writePlotConfig(const std::string& path, absl::string_view viewer) {
+  std::ofstream(path, std::ios::trunc) << absl::StrCat("# proto-file: humanoid_nmpc/humanoid_rerun_viewer/proto/plot_config.proto\n",
+                                                       "# proto-message: humanoid_rerun_viewer_proto.PlotConfig\n", "mujoco_viewer: \"",
+                                                       viewer, "\"\n");
 }
 
 TEST(CentroidalMpcRobotEndToEnd, ReachesWbMpcAppliesThePolicyHoldsItsPeriodAndHoldsJointPdOnLinkLoss) {
@@ -160,7 +183,7 @@ TEST(CentroidalMpcRobotEndToEnd, ReachesWbMpcAppliesThePolicyHoldsItsPeriodAndHo
   // The robot.
   ChildProcess robot({kRobotBinary, "--robot_name=drc_atlas", absl::StrCat("--task_file=", kAtlasTask),
                       absl::StrCat("--reference_file=", kAtlasReference), absl::StrCat("--urdf_file=", kAtlasUrdf),
-                      absl::StrCat("--mjcf_file=", kAtlasScene), absl::StrCat("--network_config=", networkFile), "--headless",
+                      absl::StrCat("--mjcf_file=", kAtlasScene), absl::StrCat("--network_config=", networkFile), "--viewer=none",
                       "--realtime_cores=none", "--backend_cores=none"});
   ASSERT_TRUE(waitFor([&]() { return remoteControl.fsmState().has_value() || !robot.running(); }, absl::Seconds(60)));
   ASSERT_TRUE(robot.running()) << "the robot process exited on start-up";
@@ -221,6 +244,48 @@ TEST(CentroidalMpcRobotEndToEnd, ReachesWbMpcAppliesThePolicyHoldsItsPeriodAndHo
 
   EXPECT_EQ(robot.terminate(absl::Seconds(20)), 0) << "the robot process did not end cleanly on SIGTERM";
   remoteControl.stop();
+}
+
+TEST(CentroidalMpcRobotEndToEnd, AViewerListTheRegistryRefusesEndsTheStartWithAFailure) {
+  // The viewer is chosen by name: an unknown one (vnc) and a list whose later entry could never start (glfw cannot fail at
+  // start-up) end the process at start-up with a failure, before the bus or the simulator comes up.
+  const std::string networkFile = (std::filesystem::path(std::getenv("TEST_TMPDIR")) / "refused_network.textproto").string();
+  ASSERT_TRUE(test_support::writeLoopbackNetworkFile(networkFile, {"robot", "mpc", "operator"}).ok());
+  for (const std::string& viewer : std::vector<std::string>{"--viewer=vnc", "--viewer=glfw,none"}) {
+    ChildProcess robot(robotCommand(networkFile, viewer));
+    EXPECT_TRUE(waitFor([&]() { return !robot.running(); }, absl::Seconds(30))) << viewer << " was not refused";
+    EXPECT_EQ(robot.terminate(absl::Seconds(5)), 1) << viewer;
+  }
+}
+
+TEST(CentroidalMpcRobotEndToEnd, WithoutViewerTheMujocoViewerOfThePlotConfigurationStartsOrIsRefused) {
+  // Without --viewer the robot reads its viewer from --plot_config. Two starts that differ only in the file's
+  // mujoco_viewer show that it was read: "none" comes up (the operator hears the robot in ZERO_TORQUE), the unknown "vnc"
+  // ends the start with a failure. A robot that ignored the file would start the same default viewer (web) both times,
+  // and both starts would end alike.
+  const std::filesystem::path directory(std::getenv("TEST_TMPDIR"));
+  const std::string networkFile = (directory / "plot_config_network.textproto").string();
+  const absl::StatusOr<robot::ipc::NetworkConfig> network =
+      test_support::writeLoopbackNetworkFile(networkFile, {"robot", "mpc", "operator"});
+  ASSERT_TRUE(network.ok()) << network.status();
+  const std::string plotConfig = (directory / "viewer_plot_config.textproto").string();
+
+  writePlotConfig(plotConfig, /*viewer=*/"none");
+  {
+    ScriptedOperator remoteControl(*network);
+    remoteControl.start();
+    ChildProcess robot(robotCommand(networkFile, absl::StrCat("--plot_config=", plotConfig)));
+    ASSERT_TRUE(waitFor([&]() { return remoteControl.fsmState().has_value() || !robot.running(); }, absl::Seconds(60)));
+    ASSERT_TRUE(robot.running()) << "the robot did not start on the plot configuration's viewer none";
+    EXPECT_EQ(fsmStateOf(remoteControl).mode(), "ZERO_TORQUE");
+    EXPECT_EQ(robot.terminate(absl::Seconds(20)), 0) << "the robot process did not end cleanly on SIGTERM";
+    remoteControl.stop();
+  }
+
+  writePlotConfig(plotConfig, /*viewer=*/"vnc");
+  ChildProcess robot(robotCommand(networkFile, absl::StrCat("--plot_config=", plotConfig)));
+  EXPECT_TRUE(waitFor([&]() { return !robot.running(); }, absl::Seconds(30))) << "the plot configuration's viewer vnc was not refused";
+  EXPECT_EQ(robot.terminate(absl::Seconds(5)), 1);
 }
 
 }  // namespace

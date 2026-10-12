@@ -59,6 +59,95 @@ def siren_init(
     return w, b
 
 
+# At or below this squared angle Exp uses its series, as ocs2::quaternionExp does (UnitQuaternionMath.h).
+_EXP_SERIES_THRESHOLD_SQUARED = 1.0e-12
+# At or below this squared angle the right Jacobian's (a - sin a) / a^3 uses its series, as ocs2::so3RightJacobian does.
+_JACOBIAN_SERIES_THRESHOLD_SQUARED = 1.0e-2
+
+
+def quaternion_product(a: jnp.ndarray, b: jnp.ndarray) -> jnp.ndarray:
+    """Returns the Hamilton product a (x) b of quaternion coefficients (x, y, z, w)."""
+    a_vector, a_scalar = a[:3], a[3]
+    b_vector, b_scalar = b[:3], b[3]
+    vector = a_scalar * b_vector + b_scalar * a_vector + jnp.cross(a_vector, b_vector)
+    return jnp.concatenate(
+        [vector, jnp.reshape(a_scalar * b_scalar - jnp.dot(a_vector, b_vector), (1,))]
+    )
+
+
+def quaternion_exp(phi: jnp.ndarray) -> jnp.ndarray:
+    """Returns Exp(phi), the unit quaternion (x, y, z, w) rotating by |phi| about phi."""
+    angle_squared = jnp.dot(phi, phi)
+    small = angle_squared <= _EXP_SERIES_THRESHOLD_SQUARED
+    angle = jnp.sqrt(jnp.where(small, 1.0, angle_squared))
+    # sin(a / 2) / a = 1/2 - a^2/48 + a^4/3840, cos(a / 2) = 1 - a^2/8 + a^4/384.
+    vector_scale = jnp.where(
+        small,
+        0.5 - angle_squared / 48.0 + angle_squared**2 / 3840.0,
+        jnp.sin(0.5 * angle) / angle,
+    )
+    scalar = jnp.where(
+        small,
+        1.0 - angle_squared / 8.0 + angle_squared**2 / 384.0,
+        jnp.cos(0.5 * angle),
+    )
+    return jnp.concatenate([vector_scale * phi, jnp.reshape(scalar, (1,))])
+
+
+def quaternion_rotation_matrix(xi: jnp.ndarray) -> jnp.ndarray:
+    """Returns R(xi), the rotation (body to world) of unit quaternion coefficients (x, y, z, w)."""
+    x, y, z, w = xi[0], xi[1], xi[2], xi[3]
+    return jnp.array(
+        [
+            [1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - z * w), 2.0 * (x * z + y * w)],
+            [2.0 * (x * y + z * w), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - x * w)],
+            [2.0 * (x * z - y * w), 2.0 * (y * z + x * w), 1.0 - 2.0 * (x * x + y * y)],
+        ]
+    )
+
+
+def _cross_product_matrix(v: jnp.ndarray) -> jnp.ndarray:
+    """Returns [v]x, the matrix of the cross product with v."""
+    return jnp.array([[0.0, -v[2], v[1]], [v[2], 0.0, -v[0]], [-v[1], v[0], 0.0]])
+
+
+def so3_right_jacobian(phi: jnp.ndarray) -> jnp.ndarray:
+    """Returns the right Jacobian of SO(3), Exp(phi + d) = Exp(phi) (x) Exp(J_r(phi) d) to first order.
+
+    J_r(phi) = I - (1 - cos a) / a^2 [phi]x + (a - sin a) / a^3 [phi]x^2 with
+    a = |phi|, the coefficients by their series near zero, as
+    ocs2::so3RightJacobian computes them.
+
+    Args:
+        phi: A rotation vector.
+
+    Returns:
+        The (3, 3) right Jacobian.
+    """
+    angle_squared = jnp.dot(phi, phi)
+    exp_small = angle_squared <= _EXP_SERIES_THRESHOLD_SQUARED
+    jacobian_small = angle_squared <= _JACOBIAN_SERIES_THRESHOLD_SQUARED
+    angle = jnp.sqrt(jnp.where(exp_small, 1.0, angle_squared))
+    angle_for_second = jnp.sqrt(jnp.where(jacobian_small, 1.0, angle_squared))
+    sin_half = jnp.sin(0.5 * angle)
+    first = jnp.where(
+        exp_small,
+        0.5 - angle_squared / 24.0 + angle_squared**2 / 720.0,
+        2.0 * sin_half * sin_half / (angle * angle),
+    )
+    second = jnp.where(
+        jacobian_small,
+        1.0 / 6.0
+        - angle_squared / 120.0
+        + angle_squared**2 / 5040.0
+        - angle_squared**3 / 362880.0
+        + angle_squared**4 / 39916800.0,
+        (angle_for_second - jnp.sin(angle_for_second)) / angle_for_second**3,
+    )
+    cross = _cross_product_matrix(phi)
+    return jnp.eye(3) - first * cross + second * jnp.dot(cross, cross)
+
+
 class SirenACOM:
     """SIREN-based Angular Center of Mass network mapping joint positions to orientation offset.
 
@@ -140,26 +229,56 @@ class SirenACOM:
         """Computes J_Delta_theta = d(Delta_theta)/d(q_j) in R^(3 x n_j)."""
         return jax.jacobian(lambda q: self.forward(params, q))(q_j)
 
-    def full_acom_pose(self, params: SirenParams, q: jnp.ndarray) -> jnp.ndarray:
-        """Computes full aCOM orientation theta_aCOM(q) = theta_base + Delta_theta(q_j).
+    # The C++ evaluator the MPC runs computes the same composition and tangent Jacobian.
+    # LINT.IfChange(acom_attitude)
+    def acom_attitude(
+        self, params: SirenParams, xi: jnp.ndarray, q_j: jnp.ndarray
+    ) -> jnp.ndarray:
+        """Computes the ACoM attitude xi_a = xi_hat (x) Exp(Delta_theta(q_j)).
+
+        The base orientation composed with the network's rotation, as
+        AngularCenterOfMass::acomAttitude does in C++ (design section 2.8.3 of
+        humanoid_nmpc/docs/quaternion_base_orientation/README.md). Delta_theta
+        is the rotation vector, in the base frame, the network emits: its
+        components are about the base's x, y and z axes.
 
         Args:
             params: The network parameters.
-            q: generalized coordinates [pos_base (3), rpy_base (3), q_joints (n_j)]
+            xi: The base orientation, quaternion coefficients (x, y, z, w) of a
+                nonzero quaternion; it is normalized here.
+            q_j: The joint positions, in the network's joint order.
 
         Returns:
-            theta_acom: RPY aCOM orientation in R^3
+            The ACoM attitude, unit quaternion coefficients (x, y, z, w).
         """
-        rpy_base = q[3:6]
-        q_j = q[6:]
+        xi_hat = xi / jnp.linalg.norm(xi)
+        return quaternion_product(xi_hat, quaternion_exp(self.forward(params, q_j)))
+
+    def acom_attitude_tangent_jacobian(
+        self, params: SirenParams, q_j: jnp.ndarray
+    ) -> jnp.ndarray:
+        """Computes the body tangent Jacobian of acom_attitude.
+
+        When the base orientation moves to xi_hat (x) Exp(dphi) and the joints
+        to q_j + dq_j, the attitude moves to xi_a (x) Exp(dphi_a) with, to first
+        order, dphi_a = [R(Delta_theta)^T, J_r(Delta_theta) J_Delta_theta]
+        [dphi; dq_j]: the adjoint of the network's rotation on the base and the
+        right Jacobian of SO(3) times the network's Jacobian on the joints, the
+        two blocks of AngularCenterOfMass::acomAttitudeTangentJacobian in C++.
+        Neither depends on the base orientation.
+
+        Args:
+            params: The network parameters.
+            q_j: The joint positions, in the network's joint order.
+
+        Returns:
+            The (3, 3 + n_j) Jacobian, columns (dphi of the base, dq_j).
+        """
         delta_theta = self.forward(params, q_j)
-        return rpy_base + delta_theta
+        base_block = quaternion_rotation_matrix(quaternion_exp(delta_theta)).T
+        joint_block = jnp.dot(
+            so3_right_jacobian(delta_theta), self.jacobian_qj(params, q_j)
+        )
+        return jnp.concatenate([base_block, joint_block], axis=1)
 
-    def full_acom_jacobian(self, params: SirenParams, q: jnp.ndarray) -> jnp.ndarray:
-        """Computes full aCOM Jacobian J_aCOM = [0_(3x3), I_(3x3), J_Delta_theta_(3xn_j)]."""
-        q_j = q[6:]
-        j_delta = self.jacobian_qj(params, q_j)
-
-        zeros_pos = jnp.zeros((3, 3))
-        eye_rot = jnp.eye(3)
-        return jnp.concatenate([zeros_pos, eye_rot, j_delta], axis=1)
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/acom/AngularCenterOfMass.cpp:acom_attitude)

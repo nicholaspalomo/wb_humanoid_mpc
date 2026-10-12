@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_wb_mpc/mrt/WBMpcResetTarget.h"
 
+#include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 namespace ocs2::humanoid {
@@ -40,12 +41,13 @@ TargetTrajectories wbMpcResetTargetTrajectories(const SystemObservation& observa
                                                 const PinocchioInterface& pinocchioInterface) {
   vector_t targetState = observation.state;
 
-  // Zero out the generalized velocities, the tail of the state.
-  const size_t numGeneralizedCoordinates = mpcRobotModel.getGenCoordinatesDim();
-  targetState.tail(numGeneralizedCoordinates).setZero();
+  // Zero out the generalized velocities v, the tail of the whole-body state [q, v].
+  targetState.tail(mpcRobotModel.getVelocityDim()).setZero();
 
-  // Zero out the base pitch and roll angles (ZYX Euler angles, indices 4 and 5), so that the target base is upright.
-  targetState.segment<2>(4).setZero();
+  // Keep only the heading of the base orientation, so that the target base is upright: the heading quaternion of the
+  // observed attitude, its twist about the world z axis with the tilt dropped (design decision D9). A measured attitude,
+  // so it is written as one (setBaseOrientation).
+  mpcRobotModel.setBaseOrientation(targetState, headingQuaternion(mpcRobotModel.getBaseOrientation(targetState)));
 
   const vector_t targetInput = weightCompensatingInput(pinocchioInterface, {true, true}, mpcRobotModel);
   const scalar_t startTime = observation.time;

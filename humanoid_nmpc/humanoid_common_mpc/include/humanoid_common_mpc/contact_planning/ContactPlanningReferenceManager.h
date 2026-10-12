@@ -192,7 +192,7 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
    * @return OkStatus, or AngularCenterOfMass::Create()'s FailedPrecondition. Solver thread only, or before it runs.
    */
   absl::Status loadHeadingModelEvaluator();
-  /** Whole-body heading at `state`: the ACoM yaw with an evaluator, the base yaw otherwise. */
+  /** Whole-body heading at `state`: the ACoM yaw with an evaluator, the base heading (getBaseHeading()) otherwise. */
   scalar_t computeHeading(const vector_t& state) const;
   /**
    * The operator's commanded yaw rate as of the last modifyReferences(), read off the momentum channel of the target
@@ -270,8 +270,8 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
 
   /**
    * Hands the NMPC's latest predicted trajectory over (thread-safe). The rules that compare the measured center of mass
-   * with the prediction (cadence modulation, DCM step adjustment) read it, interpolated at the start of the next solve.
-   * Empty arrays clear the prediction.
+   * with the prediction (cadence modulation, DCM step adjustment) read it, interpolated in the robot model's layout
+   * (MpcRobotModelBase::interpolateStateTrajectory) at the start of the next solve. Empty arrays clear the prediction.
    */
   void setPredictedTrajectory(const scalar_array_t& times, const vector_array_t& states);
 

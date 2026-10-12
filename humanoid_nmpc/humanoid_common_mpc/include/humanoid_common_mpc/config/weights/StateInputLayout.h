@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/orientation/EulerBoundary.h"
 
 namespace ocs2::humanoid {
 
@@ -50,8 +51,9 @@ namespace ocs2::humanoid {
  *                       ZYX rates (yaw, pitch, roll), joint velocities                              2 (6 + n)
  *                input  per contact: force, moment; then the joint accelerations                    6 c + n
  *
- * The orientation is the Euler ZYX layout the tuning is written in, also where the MPC's orientation is a quaternion:
- * that MPC maps the vectors built on this layout (humanoid_nmpc/docs/quaternion_base_orientation/README.md).
+ * The state is the tuning layout of tuningLayoutOf(), the Euler ZYX layout the tuning is written in, also where the
+ * MPC's orientation is a quaternion: that MPC's robot model maps the vectors built on this layout
+ * (MpcRobotModelBase::stateFromTuning, humanoid_nmpc/docs/quaternion_base_orientation/README.md).
  */
 struct StateInputLayout {
   /** The MPC whose state and input the layout describes. */
@@ -72,8 +74,18 @@ struct StateInputLayout {
 /** The layout of the MPC `mpc` of the robot model `settings`: its MPC joints, fixed joints and contacts. */
 StateInputLayout stateInputLayout(const ModelSettings& settings, StateInputLayout::Mpc mpc);
 
-/** The size of `layout`'s state: 12 + n (centroidal) or 2 (6 + n) (whole body) for n joints. */
-size_t stateDimension(const StateInputLayout& layout);
+/**
+ * The tuning layout of `layout`'s state: its blocks in state order, each named by the field of the task file's
+ * StateValues and StateWeights it holds, with the kind of what it stores (design section 2.3) - the centroidal
+ * normalized_linear_momentum (3), normalized_angular_momentum (3), base_position (3), base_orientation (yaw, pitch,
+ * roll; kEulerZyxOrientation) and joint_positions (n); the whole-body base_position, base_orientation,
+ * joint_positions, base_linear_velocity (3), base_angular_velocity (z, y, x; kZyxOrderedAngularVelocity, design
+ * decision D18) and joint_velocities (n). Not placed on a state: the robot model places it (placeTuningLayout()).
+ */
+TuningLayout tuningLayoutOf(const StateInputLayout& layout);
+
+/** The size of `layout`'s tuning layout: 12 + n (centroidal) or 2 (6 + n) (whole body) for n joints. */
+size_t tuningDimension(const StateInputLayout& layout);
 
 /** The size of `layout`'s input: six wrench coordinates per contact, then one per joint. */
 size_t inputDimension(const StateInputLayout& layout);

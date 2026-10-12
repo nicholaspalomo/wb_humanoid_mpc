@@ -2,16 +2,15 @@
 
 The processes of the distributed runtime
 ([`humanoid_nmpc/docs/distributed_runtime/README.md`](../docs/distributed_runtime/README.md)) that run the centroidal
-MPC. They replace the ROS-era nodes of that MPC, which were deleted with ROS (see the distributed runtime's
-README, "From ROS 2").
+MPC.
 
 ## The MPC node and the dummy simulator (laptop side)
 
 <!-- LINT.IfChange(laptop_binaries) -->
-| Binary | Bus node | Replaces | What |
-|---|---|---|---|
-| `:humanoid_centroidal_mpc_node` | `mpc` | `humanoid_centroidal_mpc_sqp_node` | the centroidal MPC, solving the robot's observations |
-| `:humanoid_centroidal_mpc_dummy_sim` | `robot` | `humanoid_centroidal_mpc_dummy_sim_node` | the robot played by the MPC model, against the MPC node |
+| Binary | Bus node | What |
+|---|---|---|
+| `:humanoid_centroidal_mpc_node` | `mpc` | the centroidal MPC, solving the robot's observations |
+| `:humanoid_centroidal_mpc_dummy_sim` | `robot` | the robot played by the MPC model, against the MPC node |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc_app/BUILD.bazel:laptop_binaries) -->
 
 ```bash
@@ -25,8 +24,8 @@ bazel run //humanoid_nmpc/humanoid_centroidal_mpc_app:humanoid_centroidal_mpc_du
     --task_file=... --reference_file=... --urdf_file=...    # the same files
 ```
 
-**`humanoid_centroidal_mpc_node`** (`CentroidalMpcNode.h`) builds what the SQP node of the ROS era built, and serves it
-with `node::MpcNodeRuntime` ([`humanoid_common_mpc_app/node`](../humanoid_common_mpc_app/node/README.md)):
+**`humanoid_centroidal_mpc_node`** (`CentroidalMpcNode.h`) builds the centroidal SQP MPC and serves it with
+`node::MpcNodeRuntime` ([`humanoid_common_mpc_app/node`](../humanoid_common_mpc_app/node/README.md)):
 
 - `CentroidalMpcInterface::Create()` and an `SqpMpc`;
 - the procedural motion manager over `CentroidalMpcTargetTrajectoriesCalculator`, fed from
@@ -45,11 +44,11 @@ The solver thread runs on the MPC cores of `ThreadAffinity.h`, `SCHED_FIFO` at `
 positive. The node runs the visualization publisher
 ([`humanoid_common_mpc_app/visualization`](../humanoid_common_mpc_app/visualization/README.md)) on the effective model:
 `viz/scene` and `viz/telemetry` for the Rerun bridge, from every policy it publishes and every `robot/state` sample, on
-a thread of its own at a raised nice value.
+a thread of its own under `SCHED_IDLE`, so that a solver thread that wakes on its core takes the core at once.
 
 **`humanoid_centroidal_mpc_dummy_sim`** rolls the MPC model out at 100 Hz under the node's policies, synchronized with
-the MPC's `mpc.mpc_desired_frequency` as the ROS dummy was (`node::DummySimLoop`), and publishes `robot/mpc_observation` as the
-bus node `robot`. Start the node and the dummy in either order.
+the MPC's `mpc.mpc_desired_frequency` (`node::DummySimLoop`), and publishes `robot/mpc_observation` as the bus node
+`robot`. Start the node and the dummy in either order.
 
 <!-- LINT.IfChange(node_flags) -->
 The node's own flags: `--ipc_node` (default `mpc`), `--realtime_priority` (SCHED_FIFO priority of the solver thread,
@@ -69,30 +68,39 @@ full reset through the observation counters, the velocity command reaching the m
 task file sent on `operator/mpc_parameters` applied in the next solve and not before - checks that it resets to exactly
 the target the controller hands its in-process link, and runs the dummy simulator against it for four seconds: it
 stands, one policy per MPC update, and no reset after the start-up one. Its last case runs the hardware topology end to
-end: `:humanoid_centroidal_mpc_node` and `:humanoid_centroidal_mpc_robot` (MuJoCo, headless) as two processes on a
+end: `:humanoid_centroidal_mpc_node` and `:humanoid_centroidal_mpc_robot` (MuJoCo, no viewer) as two processes on a
 network file of the test, and a scripted operator that takes the robot through JOINT_PD into WB_MPC, releases the
 gantry, and commands it to stand, walk forward at 0.3 m/s and stop: the robot stays up and travels forward, the loop
 holds its period, the policy in use stays fresh, `viz/scene` reaches the bus, and both processes end cleanly on
-SIGTERM.
+SIGTERM. The node's policy is the SQP's `ManifoldLinearController` on the quaternion state (the DRC Atlas runs a
+feedback policy), `CONTROLLER_TYPE_MANIFOLD_LINEAR` on the wire, which the robot side decodes on its state manifold
+(`RemoteMpcLink::Config::stateManifold`, from `stateManifoldOf()` of its model in the robot binary and the dummy
+simulator).
+
+`:test_centroidal_mpc_manifold_policy_over_bus` (large, exclusive) serves the shipped DRC Atlas MPC's feedback policy
+through an `MpcServer` to a `RemoteMpcLink` on the robot's own manifold: the decoded policy is the in-process one node
+for node, and the robot's `RealtimePolicyEvaluator` computes on it what `MRT_BASE::evaluatePolicy()` computes in process,
+on both sides of a contact event, bit for bit.
 
 ## The robot process (robot side)
 
 <!-- LINT.IfChange(robot_binaries) -->
-| Binary | Bus node | Replaces | What |
-|---|---|---|---|
-| `:humanoid_centroidal_mpc_robot` | `robot` | the ROS-era MuJoCo sim node (`CentroidalMpcRobotSim`) | the realtime loop: the centroidal MRT joint controller on a robot backend (`--backend=mujoco`) |
+| Binary | Bus node | What |
+|---|---|---|
+| `:humanoid_centroidal_mpc_robot` | `robot` | the realtime loop: the centroidal MRT joint controller on a robot backend (`--backend=mujoco`) |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc_app/BUILD.bazel:robot_binaries) -->
 
 The binary that runs on the robot's realtime computer and, with the MuJoCo backend, in simulation: see
 [`humanoid_common_mpc_app/robot`](../humanoid_common_mpc_app/robot/README.md) for its flags, its realtime thread and the
 task-file fields it reads. It reaches its MPC, the MPC node, over the bus only, and builds no optimal control problem:
-`CentroidalMpcInterface::CreateControllerModels()`. The in-process MPC it once had (`--mpc_link=in_process`, a copy of
-`CentroidalMpcNode`'s wiring on a thread of the robot process) was removed; the retired flag is refused at start-up.
+`CentroidalMpcInterface::CreateControllerModels()`.
 
-`:test_centroidal_mpc_robot_end_to_end` starts the binary as a process (MuJoCo headless, the DRC Atlas files) against an
+`:test_centroidal_mpc_robot_end_to_end` starts the binary as a process (MuJoCo with `--viewer=none`, the DRC Atlas files) against an
 `MpcServer` around a scripted MPC and an operator, on a loopback network file of its own: the robot comes up in
 ZERO_TORQUE, reaches WB_MPC through JOINT_PD, applies the MPC's policy, keeps its 100 Hz period, holds the JOINT_PD
-action when the MPC side goes away (link loss, `mpc_healthy` false in `robot/fsm_state`), and ends cleanly on SIGTERM.
+action when the MPC side goes away (link loss, `mpc_healthy` false in `robot/fsm_state`), and ends cleanly on SIGTERM;
+a viewer list the registry refuses (`--viewer=vnc`, `--viewer=glfw,none`, or without `--viewer` a `--plot_config` whose
+`mujoco_viewer` is `vnc`) ends the binary at start-up with a failure.
 
 ## The configuration files
 

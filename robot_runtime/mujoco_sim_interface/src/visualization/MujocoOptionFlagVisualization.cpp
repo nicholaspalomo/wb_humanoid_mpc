@@ -71,9 +71,10 @@ std::unique_ptr<MujocoOptionFlagVisualization> MujocoOptionFlagVisualization::tr
 
 void MujocoOptionFlagVisualization::beforeSceneUpdate(const VisualizationFrame& frame) {
   if (flag_ == kTransparency) {
-    // The alpha lives in the model shared with the physics, so it is written only when the state changes.
-    if (frame.sim == nullptr || transparencyApplied_ == enabled()) return;
-    const mjModel* absl_nonnull model = frame.sim->getModel();
+    // The alpha lives in the model the frame is drawn with - the simulator's own for the GLFW window, so it is written
+    // only when the state changes.
+    if (frame.model == nullptr || transparencyApplied_ == enabled()) return;
+    const mjModel* absl_nonnull model = frame.model;
     const float alpha = enabled() ? kTransparentAlpha : 1.0f;
     for (int i = 0; i < model->ngeom; ++i) model->geom_rgba[4 * i + 3] = alpha;
     transparencyApplied_ = enabled();

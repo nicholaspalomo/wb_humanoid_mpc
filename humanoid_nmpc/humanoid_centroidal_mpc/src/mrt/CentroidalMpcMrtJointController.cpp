@@ -53,10 +53,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/synchronization/mutex.h"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
-#include "ocs2_robotic_tools/common/RotationDerivativesTransforms.h"
-#include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcResetTarget.h"
+#include "humanoid_common_mpc/common/StateManifoldFactory.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/robot/JointPdGainsFromConfig.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
@@ -88,6 +87,7 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> CentroidalMpcMr
     const ModelSettings& modelSettings,
     const CentroidalMpcRobotModel<scalar_t>& mpcRobotModel,
     MPC_BASE& mpc,
+    MPC_MRT_Interface::SolverObservationObserver solverObservationObserver,
     PinocchioInterface pinocchioInterface,
     scalar_t mpcDesiredFrequency,
     const std::string& pdGainsFile,
@@ -95,6 +95,7 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> CentroidalMpcMr
   InProcessMpcLink::Config linkConfig;
   linkConfig.mpcDesiredFrequency = mpcDesiredFrequency;
   linkConfig.solverThreadName = "Centroidal MPC Solver Thread";
+  linkConfig.solverObservationObserver = std::move(solverObservationObserver);
   return Create(robotDescription, modelSettings, mpcRobotModel, InProcessMpcLink::factory(mpc, std::move(linkConfig)),
                 std::move(pinocchioInterface), pdGainsFile, effectiveMpcRobotModel);
 }
@@ -111,9 +112,12 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcMrtJointController>> CentroidalMpcMr
   RETURN_IF_ERROR(robotDescription.findJointIndices(modelSettings.mpcModelJointNames).status());
   RETURN_IF_ERROR(robotDescription.findJointIndices(modelSettings.fixedJointNames).status());
   ASSIGN_OR_RETURN(InitialPdGains initialPdGains, loadInitialPdGains(pdGainsFile, modelSettings));
+  // The manifold of the state the controller writes and the policy acts on, which the evaluator retains. The basis-input
+  // decorator keeps the wrapped model's state, so the manifold is the same for both.
+  ASSIGN_OR_RETURN(std::shared_ptr<const StateManifold> stateManifold, stateManifoldOf(mpcRobotModel));
   std::unique_ptr<CentroidalMpcMrtJointController> controller = absl::WrapUnique(
       new CentroidalMpcMrtJointController(robotDescription, modelSettings, mpcRobotModel, mpcLinkFactory, std::move(pinocchioInterface),
-                                          pdGainsFile, effectiveMpcRobotModel, std::move(initialPdGains)));
+                                          pdGainsFile, effectiveMpcRobotModel, std::move(initialPdGains), std::move(stateManifold)));
   RETURN_IF_ERROR(controller->checkConstruction());
   return controller;
 }
@@ -125,7 +129,8 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(const ::robot::
                                                                  PinocchioInterface pinocchioInterface,
                                                                  const std::string& pdGainsFile,
                                                                  const MpcRobotModelBase<scalar_t>* absl_nullable effectiveMpcRobotModel,
-                                                                 InitialPdGains initialPdGains)
+                                                                 InitialPdGains initialPdGains,
+                                                                 std::shared_ptr<const StateManifold> stateManifold)
     : mpcLink_(mpcLinkFactory([this](const SystemObservation& observation) { return currentObservationToResetTrajectory(observation); })),
       contactEstimator_(std::make_shared<::robot::model::RobotStateContactEstimator>()),
       contactEstimateIntake_(kControllerName),
@@ -135,8 +140,11 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(const ::robot::
                                                 : std::unique_ptr<MpcRobotModelBase<scalar_t>>(mpcRobotModel.clone())),
       eventSink_(&LoggingControllerEventSink::instance()),
       holdAction_(robotDescription),
-      policyEvaluator_(ipc::ModelDimensions{
-          .stateDim = effectiveModelPtr_->getStateDim(), .inputDim = effectiveModelPtr_->getInputDim(), .numModes = kNumPolicyModes}),
+      stateManifold_(std::move(stateManifold)),
+      policyEvaluator_(
+          ipc::ModelDimensions{
+              .stateDim = effectiveModelPtr_->getStateDim(), .inputDim = effectiveModelPtr_->getInputDim(), .numModes = kNumPolicyModes},
+          stateManifold_.get()),
       mpcPolicyState_(vector_t::Zero(effectiveModelPtr_->getStateDim())),
       mpcPolicyInput_(vector_t::Zero(effectiveModelPtr_->getInputDim())),
       pdGainsFile_(pdGainsFile),
@@ -156,16 +164,16 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(const ::robot::
   currentMpcObservation_.input = vector_t::Zero(effectiveModelPtr_->getInputDim());
   latestPolicyInput_ = vector_t::Zero(effectiveModelPtr_->getInputDim());
 
-  // The control thread's workspaces, at the sizes it writes them with.
-  const size_t generalizedCoordinatesNum = mpcRobotModelPtr_->getCentroidalModelInfo().generalizedCoordinatesNum;
-  qPinocchio_ = vector_t::Zero(generalizedCoordinatesNum);
-  vPinocchio_ = vector_t::Zero(generalizedCoordinatesNum);
+  // The control thread's workspaces, at the sizes it writes them with: Pinocchio's configuration q (nq) and velocity v
+  // (nv), which the robot model's measurement helpers fill.
+  qPinocchio_ = vector_t::Zero(mpcRobotModelPtr_->getConfigurationDim());
+  vPinocchio_ = vector_t::Zero(mpcRobotModelPtr_->getVelocityDim());
   mpcJointPositions_ = vector_t::Zero(mpcJointIndices_.size());
   mpcJointVelocities_ = vector_t::Zero(mpcJointIndices_.size());
   estimatedContactFlags_.assign(kNumContacts, true);
-  gravityCoordinates_ = vector_t::Zero(generalizedCoordinatesNum);
+  gravityCoordinates_ = vector_t::Zero(mpcRobotModelPtr_->getConfigurationDim());
   gravityJointPositions_ = vector_t::Zero(mpcJointIndices_.size());
-  zeroGeneralizedVelocity_ = vector_t::Zero(generalizedCoordinatesNum);
+  zeroGeneralizedVelocity_ = vector_t::Zero(mpcRobotModelPtr_->getVelocityDim());
   gravityTorques_ = vector_t::Zero(effectiveModelPtr_->getJointDim());
   safetyHoldMpcJointPositions_ = vector_t::Zero(mpcJointIndices_.size());
   safetyHoldOtherJointPositions_ = vector_t::Zero(otherJointIndices_.size());
@@ -295,28 +303,23 @@ void CentroidalMpcMrtJointController::startMpcThread(const ::robot::model::Robot
 
 void CentroidalMpcMrtJointController::updateMpcState(vector_t& mpcState, const ::robot::model::RobotState& robotState) {
   const CentroidalModelInfo& info = mpcRobotModelPtr_->getCentroidalModelInfo();
+  // The measured base orientation, whose coefficients (x, y, z, w) the robot model's measurement helpers read.
+  const quaternion_t orientation = robotState.getRootRotationLocalToWorldFrame();
 
-  const vector3_t euler_zyx = quaternionToEulerZYX(robotState.getRootRotationLocalToWorldFrame());
-
-  // Into the workspaces, at their sizes: no allocation.
-  vector_t& qPinocchio = qPinocchio_;
-  qPinocchio.head<3>() = robotState.getRootPositionInWorldFrame();
-  qPinocchio.segment<3>(3) = euler_zyx;
+  // Pinocchio's q and v of the measurement, into the workspaces at their sizes: no allocation.
   robotState.getJointPositions(mpcJointIndices_, mpcJointPositions_);
-  qPinocchio.tail(mpcRobotModelPtr_->getJointDim()) = mpcJointPositions_;
-
-  vector_t& vPinocchio = vPinocchio_;
-  vPinocchio.head<3>() = robotState.getRootRotationLocalToWorldFrame() * robotState.getRootLinearVelocityInLocalFrame();
-  vPinocchio.segment<3>(3) =
-      getEulerAnglesZyxDerivativesFromLocalAngularVelocity<scalar_t>(euler_zyx, robotState.getRootAngularVelocityInLocalFrame());
+  mpcRobotModelPtr_->fillGeneralizedCoordinatesFromMeasurement(robotState.getRootPositionInWorldFrame(), orientation.coeffs(),
+                                                               mpcJointPositions_, qPinocchio_);
   robotState.getJointVelocities(mpcJointIndices_, mpcJointVelocities_);
-  vPinocchio.tail(mpcRobotModelPtr_->getJointDim()) = mpcJointVelocities_;
+  mpcRobotModelPtr_->fillGeneralizedVelocitiesFromMeasurement(orientation.coeffs(), robotState.getRootLinearVelocityInLocalFrame(),
+                                                              robotState.getRootAngularVelocityInLocalFrame(), mpcJointVelocities_,
+                                                              vPinocchio_);
 
-  updateCentroidalDynamics(pinocchioInterface_, info, qPinocchio);
+  updateCentroidalDynamics(pinocchioInterface_, info, qPinocchio_);
   const Eigen::Matrix<scalar_t, 6, Eigen::Dynamic>& A = getCentroidalMomentumMatrix(pinocchioInterface_);
 
-  centroidal_model::getNormalizedMomentum(mpcState, info).noalias() = A * vPinocchio / info.robotMass;
-  centroidal_model::getGeneralizedCoordinates(mpcState, info) = qPinocchio;
+  centroidal_model::getNormalizedMomentum(mpcState, info).noalias() = A * vPinocchio_ / info.robotMass;
+  centroidal_model::getGeneralizedCoordinates(mpcState, info) = qPinocchio_;
 }
 
 /******************************************************************************************************/
@@ -444,6 +447,7 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t /*time*
 
   // Hand-over after a hold (setControlMode(), requestMpcResetAndHold()): the previous mode's action is sent until a
   // policy solved after the reset is in use, and the ramp starts on the first cycle that runs on it.
+  bool handedOverThisCycle = false;
   if (awaitingPostResetPolicy_.load()) {
     if (!postResetPolicyActive || !mpcLink_->isHealthy()) {
       fillEntryHoldAction(robotState, robotJointAction);
@@ -452,6 +456,7 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t /*time*
     }
     awaitingPostResetPolicy_.store(false);
     entryBlendStartTime_.store(mpcEntryBlendTime_ > 0.0 ? currentMpcObservation_.time : -1.0);
+    handedOverThisCycle = true;
   }
 
   // Sized once for the effective model, so that evaluating the policy into them allocates nothing.
@@ -466,12 +471,28 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t /*time*
     simDt = std::clamp(simDt, 0.001, 0.02);
 
     // Evaluate policy with feedback if activated in config: what MRT_BASE::evaluatePolicy() computes, without its heap
-    // allocations. A policy the evaluator does not take (another controller type) goes through OCS2's own evaluation.
+    // allocations. A policy the evaluator refuses is not left to MRT_BASE::evaluatePolicy(), which allocates, logs and
+    // aborts on a malformed policy: the robot is held as for a solver that keeps failing - the entry's hold on the cycle
+    // that handed over to the policy, the JOINT_PD action otherwise - until a policy the evaluator takes is in use.
     const scalar_t evaluationTime = currentMpcObservation_.time + simDt;
-    if (policyEvaluator_.evaluate(mpcLink_->getPolicy(), evaluationTime, currentMpcObservation_.state, mpcPolicyState, mpcPolicyInput,
-                                  mpcPolicyMode) != ipc::RealtimePolicyEvaluator::Outcome::kEvaluated) {
-      mpcLink_->evaluatePolicy(evaluationTime, currentMpcObservation_.state, mpcPolicyState, mpcPolicyInput, mpcPolicyMode);
+    const ipc::RealtimePolicyEvaluator::Outcome outcome = policyEvaluator_.evaluate(
+        mpcLink_->getPolicy(), evaluationTime, currentMpcObservation_.state, mpcPolicyState, mpcPolicyInput, mpcPolicyMode);
+    if (outcome != ipc::RealtimePolicyEvaluator::Outcome::kEvaluated) {
+      if (!refusedPolicyReported_) {
+        const PolicyRefusal refusal = outcome == ipc::RealtimePolicyEvaluator::Outcome::kUnsupportedController
+                                          ? PolicyRefusal::kUnsupportedController
+                                          : PolicyRefusal::kMismatchedPolicy;
+        postEvent(ControllerEventCode::kPolicyRefused, static_cast<scalar_t>(refusal));
+        refusedPolicyReported_ = true;
+      }
+      if (!handedOverThisCycle) entryHoldGravityComp_.store(false);
+      entryBlendStartTime_.store(-1.0);
+      awaitingPostResetPolicy_.store(true);
+      fillEntryHoldAction(robotState, robotJointAction);
+      previousObservationTime_ = currentMpcObservation_.time;
+      return;
     }
+    refusedPolicyReported_ = false;
     latestPolicyInput_ = mpcPolicyInput;
 
     // TODO(npalomo): check the inverse dynamics below; something seems wrong with it.
@@ -821,8 +842,9 @@ TargetTrajectories CentroidalMpcMrtJointController::currentObservationToResetTra
   if (mpcLink_->isHealthy()) {
     const vector_t& targetState = resetTargetTrajectories.stateTrajectory.front();
     const vector_t& targetInput = resetTargetTrajectories.inputTrajectory.front();
-    LOG(INFO) << "[CentroidalMPC] Resetting MPC target trajectory. Base pos: " << targetState.segment<3>(6).transpose()
-              << " Base z: " << targetState(8) << " Input forces (world): "
+    const vector3_t basePosition = effectiveModelPtr_->getBasePosition(targetState);
+    LOG(INFO) << "[CentroidalMPC] Resetting MPC target trajectory. Base pos: " << basePosition.transpose() << " Base z: " << basePosition(2)
+              << " Input forces (world): "
               << effectiveModelPtr_->getContactForceInWorldFrame(targetState, targetInput, /*contactIndex=*/0).transpose() << " / "
               << effectiveModelPtr_->getContactForceInWorldFrame(targetState, targetInput, /*contactIndex=*/1).transpose();
   }
@@ -836,16 +858,14 @@ const vector_t& CentroidalMpcMrtJointController::computeGravityCompensation(cons
   const PinocchioInterface::Model& model = pinocchioInterface_.getModel();
   PinocchioInterface::Data& data = pinocchioInterface_.getData();
 
-  // Build Pinocchio generalized coordinates from robot state, in the workspaces (sized by the constructor).
-  const vector3_t euler_zyx = quaternionToEulerZYX(robotState.getRootRotationLocalToWorldFrame());
-  vector_t& q = gravityCoordinates_;
-  q.head<3>() = robotState.getRootPositionInWorldFrame();
-  q.segment<3>(3) = euler_zyx;
+  // Pinocchio's configuration q of the measurement, in the workspaces (sized by the constructor).
+  const quaternion_t orientation = robotState.getRootRotationLocalToWorldFrame();
   robotState.getJointPositions(mpcJointIndices_, gravityJointPositions_);
-  q.tail(effectiveModelPtr_->getJointDim()) = gravityJointPositions_;
+  mpcRobotModelPtr_->fillGeneralizedCoordinatesFromMeasurement(robotState.getRootPositionInWorldFrame(), orientation.coeffs(),
+                                                               gravityJointPositions_, gravityCoordinates_);
 
   // Compute gravity torques: nonLinearEffects with zero velocity gives pure gravity terms
-  pinocchio::nonLinearEffects(model, data, q, zeroGeneralizedVelocity_);
+  pinocchio::nonLinearEffects(model, data, gravityCoordinates_, zeroGeneralizedVelocity_);
 
   // data.nle now contains gravity torques for all generalized coordinates.
   // Return only the joint portion (skip the 6 floating-base DOFs).

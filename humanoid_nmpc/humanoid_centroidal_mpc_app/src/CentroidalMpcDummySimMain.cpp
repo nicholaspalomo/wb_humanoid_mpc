@@ -103,12 +103,14 @@ int main(int argc, char* absl_nonnull* absl_nonnull argv) {
     return 2;
   }
   ocs2::humanoid::node::DummySimLoop::Config config;
-  // The step rate of the ROS-era dummy (OCS2's MRT_ROS_Dummy_Loop at mrtDesiredFrequency 100).
+  // The centroidal plant steps at 100 Hz (the whole-body one at 80 Hz).
   config.simulationFrequency = 100.0;
   config.mpcDesiredFrequency = (*interface)->mpcSettings().mpcDesiredFrequency_;
   config.link.dimensions = {.stateDim = effectiveModel.getStateDim(),
                             .inputDim = effectiveModel.getInputDim(),
                             .numModes = ocs2::humanoid::node::kNumHumanoidModes};
+  // The MPC's state manifold, on which the link decodes the node's manifold-linear policies and interpolates their states.
+  config.link.stateManifold = (*interface)->getStateManifold();
   absl::StatusOr<std::unique_ptr<ocs2::humanoid::node::DummySimLoop>> loop =
       ocs2::humanoid::node::DummySimLoop::Create(*std::move(bus), (*interface)->getRollout(), config);
   if (!loop.ok()) {

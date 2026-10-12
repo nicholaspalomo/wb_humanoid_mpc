@@ -151,7 +151,7 @@ class LocalCiEmulatorTest(unittest.TestCase):
         self.assertIn('  "${CI_IMAGE}" \\', self.emulator)
         for step in (
             "sh docker/install_robotpkg.sh",
-            "grep -v '^\\s*#' dependencies.txt | envsubst | xargs apt-get install",
+            "grep -v '^\\s*#' dependencies.txt | xargs apt-get install",
             "make build-all",
             "make test-all",
             "sh docker/install_llvm_tools.sh tidy",
@@ -265,11 +265,11 @@ class SetContainerMemoryLimitScriptTest(unittest.TestCase):
 
     def test_other_variables_are_kept_and_the_line_is_replaced_not_repeated(self):
         with open(self.env_file, "w", encoding="utf-8") as f:
-            f.write("GIT_USER_NAME=someone\nWB_CONTAINER_MEMORY_LIMIT=1m\n")
+            f.write("VNC_RESOLUTION=2560x1440\nWB_CONTAINER_MEMORY_LIMIT=1m\n")
         self._run(total_kb=16 * 1024 * 1024)
         self._run(total_kb=16 * 1024 * 1024)
         lines = self._env_lines()
-        self.assertIn("GIT_USER_NAME=someone", lines)
+        self.assertIn("VNC_RESOLUTION=2560x1440", lines)
         self.assertEqual(
             [line for line in lines if line.startswith("WB_CONTAINER_MEMORY_LIMIT=")],
             ["WB_CONTAINER_MEMORY_LIMIT=13926m"],

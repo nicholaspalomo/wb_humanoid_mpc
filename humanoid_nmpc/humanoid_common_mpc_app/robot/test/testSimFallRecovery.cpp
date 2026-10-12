@@ -46,15 +46,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/algorithm/rnea.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
-#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc_app/robot/RealtimeEventLog.h"
 #include "humanoid_common_mpc_app/robot/SimFallRecovery.h"
 #include "humanoid_mpc_config/joint_pd_gains_file.nproto.h"
+#include "mujoco_sim_interface/viewer/ViewerNames.h"
 
 /*
- * The fall recovery of the robot process with the MuJoCo backend, against the real simulator, headless, on the shipped
+ * The fall recovery of the robot process with the MuJoCo backend, against the real simulator without a viewer, on the shipped
  * DRC Atlas scene.
  *
  * The loops used to notice a catch only as a change of the gantry lock between two reads inside one control cycle. The
@@ -78,7 +79,7 @@ constexpr scalar_t kControlPeriod = 0.01;  // [s]
 std::unique_ptr<MujocoSimInterface> makeSim(bool gantryLocked) {
   MujocoSimConfig config;
   config.scenePath = kAtlasScene;
-  config.headless = true;
+  config.viewer.names = {robot::mujoco_sim_interface::kNoViewerName};
   config.isGantryLocked = gantryLocked;
   config.gantryHold = "weld_constraint";
   absl::StatusOr<std::unique_ptr<MujocoSimInterface>> sim = MujocoSimInterface::Create(config, kAtlasUrdf);
@@ -152,10 +153,12 @@ class AtlasJointPd {
 
   void command(MujocoSimInterface& sim, const std::vector<scalar_t>& nominal) {
     const robot::model::RobotState& state = sim.getRobotState();
-    vector_t q(6 + mpcJoints_.size());
+    // The MPC model's configuration: the base position, the coefficients (x, y, z, w) of the base's unit quaternion
+    // (the Composite(Translation, Spherical) root), then the joints.
+    vector_t q(kBaseConfigurationDim + mpcJoints_.size());
     q.head<3>() = state.getRootPositionInWorldFrame();
-    q.segment<3>(3) = quaternionToEulerZYX(state.getRootRotationLocalToWorldFrame());
-    for (size_t i = 0; i < mpcJoints_.size(); ++i) q(6 + i) = state.getJointPosition(mpcJoints_[i]);
+    q.segment<4>(3) = state.getRootRotationLocalToWorldFrame().coeffs();
+    for (size_t i = 0; i < mpcJoints_.size(); ++i) q(kJointConfigurationOffset + i) = state.getJointPosition(mpcJoints_[i]);
     const PinocchioInterface::Model& model = pinocchioInterface_.getModel();
     PinocchioInterface::Data& data = pinocchioInterface_.getData();
     pinocchio::nonLinearEffects(model, data, q, vector_t::Zero(model.nv));

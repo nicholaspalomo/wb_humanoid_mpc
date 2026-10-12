@@ -37,7 +37,7 @@ makes the @abseil-cpp headers visible through `-iquote` paths, which only a quot
 `#include <absl/log/log.h>`, skips them and falls through to the system include directories, which hold a different
 Abseil release or none. The dev image once built Abseil 20240722 into /usr/local (removed from docker/Dockerfile
 since), so such a file compiled there against headers of another version than the one it links against, and failed in
-CI's clean ros:jazzy container with `absl/log/log.h: No such file or directory`.
+CI's clean container, which has no Abseil outside Bazel's, with `absl/log/log.h: No such file or directory`.
 """
 
 import re
@@ -81,10 +81,13 @@ C_SYSTEM_HEADERS = frozenset(
 C_SYSTEM_DIRECTORIES = frozenset(
     "sys arpa asm asm-generic bits gnu net netinet protocols rpc rpcsvc scsi drm linux misc mtd rdma sound video xen".split()
 )
-# Third-party headers that have no directory of their own: cppzmq and libzmq, and HPIPM and BLASFEO, which install their
-# headers flat (bazel/system_libs.bzl). .clang-format's include categories sort them with the other libraries.
+# Third-party headers that have no directory of their own: cppzmq and libzmq, cpp-httplib's single header and
+# libjpeg-turbo's TurboJPEG API (MODULE.bazel), and HPIPM and BLASFEO, which install their headers flat
+# (bazel/system_libs.bzl). .clang-format's include categories sort them with the other libraries.
 # LINT.IfChange(directoryless_third_party)
-DIRECTORYLESS_THIRD_PARTY = frozenset({"zmq.hpp", "zmq_addon.hpp", "zmq.h"})
+DIRECTORYLESS_THIRD_PARTY = frozenset(
+    {"zmq.hpp", "zmq_addon.hpp", "zmq.h", "httplib.h", "turbojpeg.h"}
+)
 _DIRECTORYLESS_THIRD_PARTY_PATTERN = re.compile(r"^(hpipm|blasfeo)_[a-z0-9_]+\.h$")
 # LINT.ThenChange(//.clang-format:include_categories)
 

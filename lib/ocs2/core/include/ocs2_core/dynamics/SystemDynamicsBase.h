@@ -82,39 +82,6 @@ class SystemDynamicsBase : public ControlledSystemBase {
    */
   virtual VectorFunctionLinearApproximation jumpMapLinearApproximation(scalar_t t, const vector_t& x, const PreComputation& preComp);
 
-  /** Computes the guard surfaces linear approximation */
-  virtual VectorFunctionLinearApproximation guardSurfacesLinearApproximation(scalar_t t, const vector_t& x, const vector_t& u);
-
-  /**
-   * Get partial time derivative of the system flow map.
-   * \f$ \frac{\partial f}{\partial t}  \f$.
-   *
-   * @return \f$ \frac{\partial f}{\partial t} \f$ matrix, size \f$ n_x \f$.
-   */
-  virtual vector_t flowMapDerivativeTime(scalar_t t, const vector_t& x, const vector_t& u);
-
-  /**
-   * Get partial time derivative of the system jump map.
-   * \f$ \frac{\partial g}{\partial t}  \f$.
-   *
-   * @return \f$ \frac{\partial g}{\partial t} \f$ matrix.
-   */
-  virtual vector_t jumpMapDerivativeTime(scalar_t t, const vector_t& x, const vector_t& u);
-
-  /**
-   * Get at a given operating point the derivative of the guard surfaces w.r.t. input vector.
-   *
-   * @return Derivative of the guard surfaces w.r.t. time.
-   */
-  virtual vector_t guardSurfacesDerivativeTime(scalar_t t, const vector_t& x, const vector_t& u);
-
-  /**
-   * Get at a given operating point the covariance of the dynamics.
-   *
-   * @return The covariance of the dynamics.
-   */
-  virtual matrix_t dynamicsCovariance(scalar_t t, const vector_t& x, const vector_t& u);
-
   /**
    * Computes the flow map linear approximation.
    *

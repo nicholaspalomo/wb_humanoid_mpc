@@ -163,14 +163,6 @@ registries {
 }
 
 registries {
-  name: "root_finder"
-  names: "ANDERSON_BJORCK"
-  names: "PEGASUS"
-  names: "ILLINOIS"
-  names: "REGULA_FALSI"
-}
-
-registries {
   name: "sensitivity_integrator"
   names: "EULER"
   names: "RK2"

@@ -40,4 +40,4 @@ FIRST_PARTY_COPTS = [
     "-Werror=vla",  # G: Nonstandard extensions
     "-Werror=unused-parameter",  # G: Function declarations and definitions (an unused parameter's name is commented out)
 ]
-# LINT.ThenChange(//AGENTS.md:cpp_style, //AGENTS.md:totw_rules)
+# LINT.ThenChange(//AGENTS.md:cpp_style, //AGENTS.md:totw_rules, //.clangd:compile_flags)

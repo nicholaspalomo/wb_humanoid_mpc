@@ -69,8 +69,8 @@ ABSL_FLAG(std::string, ipc_node, "teleop", "The bus node this process publishes 
 
 /*
  * velocity_keyboard_command: the walking command of the pelvis typed as a line, "v_x v_y delta_height yaw_rate", and
- * published on operator/walking_velocity_command until the next line (the ROS-era velocity_keyboard_command_node on the
- * bus). See humanoid_nmpc/humanoid_common_mpc_app/teleop/README.md.
+ * published on operator/walking_velocity_command until the next line. See
+ * humanoid_nmpc/humanoid_common_mpc_app/teleop/README.md.
  */
 int main(int argc, char* absl_nonnull* absl_nonnull argv) {
   absl::SetProgramUsageMessage(

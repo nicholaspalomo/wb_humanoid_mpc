@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/visualization/RobotStateDecoder.h"
 
 #include <cmath>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -38,9 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
-#include "ocs2_robotic_tools/common/RotationDerivativesTransforms.h"
 
-#include "humanoid_common_mpc_app/visualization/EulerAngles.h"
+#include "humanoid_common_mpc/orientation/EulerBoundary.h"
 
 namespace ocs2::humanoid::visualization {
 
@@ -98,8 +98,20 @@ void lookUpJoints(const absl::flat_hash_map<std::string, int>& sampleIndices,
 
 }  // namespace
 
-RobotStateDecoder::RobotStateDecoder(const ModelSettings& modelSettings)
-    : fullJointNames_(modelSettings.fullJointNames), mpcJointNames_(modelSettings.mpcModelJointNames) {}
+vector3_t eulerZyxRatesForDisplay(const vector3_t& eulerZyx, const vector3_t& angularVelocityLocal) {
+  // The not-form is also true for a NaN pitch.
+  if (!(std::abs(std::cos(eulerZyx(kBaseRotPitchIndex))) >= kDisplayEulerRateMinCosPitch)) {
+    return vector3_t::Constant(std::numeric_limits<scalar_t>::quiet_NaN());
+  }
+  return eulerZyxRatesFromLocalAngularVelocity(eulerZyx, angularVelocityLocal);
+}
+
+RobotStateDecoder::RobotStateDecoder(const MpcRobotModelBase<scalar_t>& mpcRobotModel)
+    : robotModel_(mpcRobotModel.clone()),
+      fullJointNames_(mpcRobotModel.modelSettings.fullJointNames),
+      mpcJointNames_(mpcRobotModel.modelSettings.mpcModelJointNames),
+      mpcJointPositions_(vector_t::Zero(static_cast<Eigen::Index>(mpcJointNames_.size()))),
+      mpcJointVelocities_(vector_t::Zero(static_cast<Eigen::Index>(mpcJointNames_.size()))) {}
 
 void RobotStateDecoder::updateJointIndices(const std::vector<std::string>& sampleJointNames) {
   if (hasJointIndices_ && sampleJointNames == sampleJointNames_) {
@@ -136,7 +148,8 @@ absl::Status RobotStateDecoder::decode(const msgs::RobotStateSample& sample, Dec
     }
   }
   const msgs::Quaternion& orientation = sample.base_orientation_world;
-  quaternion_t quaternion(orientation.w, orientation.x, orientation.y, orientation.z);
+  // From the coefficients in Eigen's storage order (x, y, z, w), not its scalar-first constructor.
+  quaternion_t quaternion(vector4_t(orientation.x, orientation.y, orientation.z, orientation.w));
   const scalar_t norm = quaternion.norm();
   if (!std::isfinite(norm) || std::abs(norm - 1.0) > kQuaternionNormTolerance) {
     return absl::InvalidArgumentError(
@@ -150,27 +163,33 @@ absl::Status RobotStateDecoder::decode(const msgs::RobotStateSample& sample, Dec
   state->baseOrientation = quaternion;
   state->baseRotation = quaternion.toRotationMatrix();
   state->baseLinearVelocity = state->baseRotation * toVector3(sample.base_linear_velocity_local);
-  state->baseAngularVelocity = state->baseRotation * toVector3(sample.base_angular_velocity_local);
-  state->baseEulerAnglesZyx = eulerAnglesZyxFromRotation(state->baseRotation);
+  state->baseAngularVelocityLocal = toVector3(sample.base_angular_velocity_local);
+  state->baseAngularVelocity = state->baseRotation * state->baseAngularVelocityLocal;
+  // The display values: the MPC's q below keeps the quaternion.
+  state->baseEulerAnglesZyx = eulerZyxFromQuaternion(quaternion.coeffs());
+  state->baseEulerZyxRates = eulerZyxRatesForDisplay(state->baseEulerAnglesZyx, state->baseAngularVelocityLocal);
 
   const size_t mpcJointCount = mpcJointNames_.size();
-  state->generalizedCoordinates.setZero(kFloatingBaseDim + mpcJointCount);
-  state->generalizedVelocities.setZero(kFloatingBaseDim + mpcJointCount);
-  state->generalizedForces.setZero(kFloatingBaseDim + mpcJointCount);
-  state->generalizedCoordinates.head<kBaseTranslationDim>() = state->basePosition;
-  state->generalizedCoordinates.segment<kBaseRotationDim>(kBaseTranslationDim) = state->baseEulerAnglesZyx;
-  state->generalizedVelocities.head<kBaseTranslationDim>() = state->baseLinearVelocity;
-  state->generalizedVelocities.segment<kBaseRotationDim>(kBaseTranslationDim) =
-      getEulerAnglesZyxDerivativesFromGlobalAngularVelocity<scalar_t>(state->baseEulerAnglesZyx, state->baseAngularVelocity);
+  state->generalizedForces.setZero(robotModel_->getVelocityDim());
   for (size_t joint = 0; joint < mpcJointCount; ++joint) {
     const int index = mpcJointToSample_[joint];
     if (index < 0) {
+      mpcJointPositions_[joint] = 0.0;
+      mpcJointVelocities_[joint] = 0.0;
       continue;
     }
-    state->generalizedCoordinates[kJointCoordinateOffset + joint] = sample.joint_positions[index];
-    state->generalizedVelocities[kJointCoordinateOffset + joint] = sample.joint_velocities[index];
-    state->generalizedForces[kJointCoordinateOffset + joint] = appliedEffort(sample, index);
+    mpcJointPositions_[joint] = sample.joint_positions[index];
+    mpcJointVelocities_[joint] = sample.joint_velocities[index];
+    state->generalizedForces[kJointVelocityOffset + joint] = appliedEffort(sample, index);
   }
+  // The measured base and joints in the MPC's generalized coordinates, as the MRT controllers convert them.
+  const vector4_t orientationCoefficients = quaternion.coeffs();
+  state->generalizedCoordinates.resize(robotModel_->getConfigurationDim());
+  state->generalizedVelocities.resize(robotModel_->getVelocityDim());
+  robotModel_->fillGeneralizedCoordinatesFromMeasurement(state->basePosition, orientationCoefficients, mpcJointPositions_,
+                                                         state->generalizedCoordinates);
+  robotModel_->fillGeneralizedVelocitiesFromMeasurement(orientationCoefficients, toVector3(sample.base_linear_velocity_local),
+                                                        state->baseAngularVelocityLocal, mpcJointVelocities_, state->generalizedVelocities);
 
   const size_t fullJointCount = fullJointNames_.size();
   state->jointPositions.setZero(fullJointCount);

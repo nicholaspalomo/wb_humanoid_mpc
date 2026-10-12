@@ -233,9 +233,11 @@ class ModelSettings {
 
   bool verboseCppAd = true;
   bool recompileLibrariesCppAd = true;
-  // cppad_code_gen/cppad_<mpcName><robotName>, relative to the working directory. Derived by Create(), never read from
-  // the task file: the centroidal MPC appends the key of its contact input parameterization, so that a library compiled
-  // for one input dimension or basis is never loaded for another (CentroidalMpcInterface::keyCppAdModelFolder).
+  // cppad_code_gen/cppad_<mpcName><robotName>/<kStateLayoutTag>, relative to the working directory. Derived by Create(),
+  // never read from the task file: the state layout tag (common/StateLayout.h) keeps a library compiled for another
+  // state layout from being loaded, and the centroidal MPC appends the key of its contact input parameterization, so
+  // that a library compiled for one input dimension or basis is never loaded for another
+  // (CentroidalMpcInterface::keyCppAdModelFolder).
   std::string modelFolderCppAd;
 
   scalar_t phaseTransitionStanceTime = 0.0;

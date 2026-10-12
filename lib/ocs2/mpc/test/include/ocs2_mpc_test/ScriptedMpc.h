@@ -43,7 +43,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/Types.h>
 #include <ocs2_core/control/FeedforwardController.h>
-#include <ocs2_core/model_data/Multiplier.h>
 #include <ocs2_mpc/MPC_BASE.h>
 #include <ocs2_oc/oc_data/PerformanceIndex.h>
 #include <ocs2_oc/oc_data/PrimalSolution.h>
@@ -142,14 +141,6 @@ class ScriptedSolver final : public SolverBase {
   }
 
   const ProblemMetrics& getSolutionMetrics() const override { return problemMetrics_; }
-  ScalarFunctionQuadraticApproximation getValueFunction(scalar_t /*time*/, const vector_t& state) const override {
-    return ScalarFunctionQuadraticApproximation::Zero(static_cast<int>(state.size()));
-  }
-  ScalarFunctionQuadraticApproximation getHamiltonian(scalar_t /*time*/, const vector_t& state, const vector_t& input) override {
-    return ScalarFunctionQuadraticApproximation::Zero(static_cast<int>(state.size()), static_cast<int>(input.size()));
-  }
-  vector_t getStateInputEqualityConstraintLagrangian(scalar_t /*time*/, const vector_t& /*state*/) const override { return vector_t(); }
-  MultiplierCollection getIntermediateDualSolution(scalar_t /*time*/) const override { return MultiplierCollection(); }
 
  private:
   void runImpl(scalar_t initTime, const vector_t& initState, scalar_t finalTime) override {

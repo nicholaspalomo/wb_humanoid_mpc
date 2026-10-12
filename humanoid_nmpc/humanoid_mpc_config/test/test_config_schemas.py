@@ -227,6 +227,24 @@ class FileMessagesTest(unittest.TestCase):
                 "task.textproto:2:3: 'inequality_constraint_delta' is retired: ",
                 "nothing in the SQP solver reads it",
             ),
+            (
+                "multiple_shooting {\n  create_value_function: true\n}\n",
+                task_file_pb2.TaskFile(),
+                "task.textproto:2:3: 'create_value_function' is retired: ",
+                "the SQP solver no longer stores one; delete the line",
+            ),
+            (
+                "multiple_shooting {\n  extract_projection_multiplier: false\n}\n",
+                task_file_pb2.TaskFile(),
+                "task.textproto:2:3: 'extract_projection_multiplier' is retired: ",
+                "the SQP solver no longer extracts one; delete the line",
+            ),
+            (
+                'rollout {\n  rootFinderType: "ILLINOIS"\n}\n',
+                task_file_pb2.TaskFile(),
+                "task.textproto:2:3: 'rootFinderType' is retired: ",
+                "state-triggered rollout, which the fork no longer has",
+            ),
         )
         for text, message, position, replacement in cases:
             with self.subTest(text=text):

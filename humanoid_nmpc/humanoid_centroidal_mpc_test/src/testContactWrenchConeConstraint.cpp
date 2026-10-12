@@ -177,8 +177,9 @@ TEST_F(TestContactWrenchConeConstraint, FrictionConeAndNormalForceValues) {
                                          config);
 
   const CentroidalMpcRobotModel<scalar_t>& robotModel = testingModelInterface_->getMpcRobotModel();
-  vector_t state = vector_t::Zero(robotModel.getStateDim());
-  state[2] = kTestBaseHeight;
+  // Level at the test height: the identity quaternion, the joints straight.
+  vector_t state = robotModel.getNeutralState();
+  robotModel.setBasePosition(state, vector3_t(0.0, 0.0, kTestBaseHeight));
 
   vector_t input = vector_t::Zero(robotModel.getInputDim());
   robotModel.setContactForce(input, vector3_t(kTestFx, 0.0, kTestFz), kContactPointIndex);
@@ -211,8 +212,9 @@ TEST_F(TestContactWrenchConeConstraint, ContactPatchOffsetMoments) {
                                          config);
 
   const CentroidalMpcRobotModel<scalar_t>& robotModel = testingModelInterface_->getMpcRobotModel();
-  vector_t state = vector_t::Zero(robotModel.getStateDim());
-  state[2] = kTestBaseHeight;
+  // Level at the test height: the identity quaternion, the joints straight.
+  vector_t state = robotModel.getNeutralState();
+  robotModel.setBasePosition(state, vector3_t(0.0, 0.0, kTestBaseHeight));
 
   vector_t input = vector_t::Zero(robotModel.getInputDim());
   robotModel.setContactForce(input, vector3_t(0.0, kTestFy, kTestFz), kContactPointIndex);
@@ -243,8 +245,9 @@ TEST_F(TestContactWrenchConeConstraint, LinearAndQuadraticApproximation) {
                                          config);
 
   const CentroidalMpcRobotModel<scalar_t>& robotModel = testingModelInterface_->getMpcRobotModel();
-  vector_t state = vector_t::Zero(robotModel.getStateDim());
-  state[2] = kTestBaseHeight;
+  // Level at the test height: the identity quaternion, the joints straight.
+  vector_t state = robotModel.getNeutralState();
+  robotModel.setBasePosition(state, vector3_t(0.0, 0.0, kTestBaseHeight));
 
   vector_t input = vector_t::Zero(robotModel.getInputDim());
   robotModel.setContactForce(input, vector3_t(10.0, 5.0, 50.0), kContactPointIndex);
@@ -296,9 +299,9 @@ TEST_F(TestContactWrenchConeConstraint, StateDerivativeGoesThroughTheFootOrienta
   const CentroidalMpcRobotModel<scalar_t>& robotModel = testingModelInterface_->getMpcRobotModel();
   const std::vector<std::string>& jointNames = testingModelInterface_->getModelSettings().mpcModelJointNames;
 
-  vector_t state = vector_t::Zero(robotModel.getStateDim());
-  state[robotModel.getBaseStartindex() + 2] = kTestBaseHeight;
-  robotModel.setBaseOrientationEulerZYX(state, vector3_t(0.2, 0.1, -0.05));
+  vector_t state = robotModel.getNeutralState();
+  robotModel.setBasePosition(state, vector3_t(0.0, 0.0, kTestBaseHeight));
+  robotModel.setBaseOrientationEulerZyx(state, vector3_t(0.2, 0.1, -0.05));
   for (const std::string& jointName : {std::string("left_ankle_pitch_joint"), std::string("left_ankle_roll_joint")}) {
     const std::vector<std::string>::const_iterator joint = std::find(jointNames.begin(), jointNames.end(), jointName);
     ASSERT_NE(joint, jointNames.end()) << jointName;

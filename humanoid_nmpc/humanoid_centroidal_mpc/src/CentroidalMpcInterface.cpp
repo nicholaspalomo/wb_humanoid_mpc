@@ -51,7 +51,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Pinocchio forward declarations must be included first
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
-#include "ocs2_centroidal_model/AccessHelperFunctions.h"
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
 #include "ocs2_centroidal_model/FactoryFunctions.h"
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
@@ -81,6 +80,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/ContactTermNames.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
+#include "humanoid_common_mpc/common/StateManifoldFactory.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/contact_planning/ContactPlanningFromConfig.h"
 #include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
@@ -220,11 +220,15 @@ absl::Status CentroidalMpcInterface::setupModels() {
   // The wrench-space models until setupContactInputParameterization() has read the task file's choice.
   effectiveMpcRobotModelPtr_ = mpcRobotModelPtr_.get();
   effectiveMpcRobotModelADPtr_ = mpcRobotModelADPtr_.get();
+  // The state's manifold: the basis-input decorator keeps the wrapped model's state, so it is the same for both.
+  ASSIGN_OR_RETURN(stateManifold_, stateManifoldOf(*mpcRobotModelPtr_));
 
-  // initial state, by name on the coordinates of the centroidal state (StateInputLayout)
-  ASSIGN_OR_RETURN(initialState_,
+  // The initial state: the task file's blocks by name in the tuning layout (StateInputLayout), mapped onto the state by the
+  // robot model, the one mapping of tuning values onto the state.
+  ASSIGN_OR_RETURN(const vector_t initialTuningState,
                    stateValuesFromConfig(config_.task.initial_state, stateInputLayout(modelSettings_, StateInputLayout::Mpc::kCentroidal),
                                          "initial_state"));
+  ASSIGN_OR_RETURN(initialState_, mpcRobotModelPtr_->stateFromTuning(initialTuningState));
   if (static_cast<size_t>(initialState_.size()) != centroidalModelInfo_.stateDim) {
     return absl::InternalError(absl::StrCat("[CentroidalMpcInterface] initial_state has ", initialState_.size(),
                                             " coordinates, but the centroidal state has ", centroidalModelInfo_.stateDim, "."));
@@ -387,14 +391,21 @@ absl::Status CentroidalMpcInterface::setupContactInputParameterization() {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
+std::string cppAdModelFolderKey(CentroidalModelType centroidalModelType, absl::string_view inputParameterizationKey) {
+  if (centroidalModelType == CentroidalModelType::FullCentroidalDynamics) return std::string(inputParameterizationKey);
+  return absl::StrCat(centroidalModelName(centroidalModelType), "/", inputParameterizationKey);
+}
+
 void CentroidalMpcInterface::keyCppAdModelFolder(absl::string_view libraryKey) {
   // Every CppAD tape of this interface is built on the effective model or on the input mapping, so its domain - and,
   // for the external-torque cost and the contact-moment constraint, its body - depends on the contact input
   // parameterization and, under basis vectors, on the basis itself. OCS2 loads a cached library by name without
   // checking its domain, and every robot ships recompileLibrariesCppAd: false, so without this key a library built for
   // the other parameterization (or another basis) would be loaded and the process would exit on its first evaluation.
-  // One folder per key keeps them apart, for every term at once.
-  modelSettings_.modelFolderCppAd = absl::StrCat(modelSettings_.modelFolderCppAd, "/", libraryKey);
+  // The centroidal model changes every tape's body without changing its domain, so a library built for the other model
+  // would even be evaluated, silently. One folder per key keeps them apart, for every term at once.
+  modelSettings_.modelFolderCppAd =
+      absl::StrCat(modelSettings_.modelFolderCppAd, "/", cppAdModelFolderKey(centroidalModelInfo_.centroidalModelType, libraryKey));
   LOG(INFO) << "[CentroidalMpcInterface] CppAD model folder: " << modelSettings_.modelFolderCppAd;
 }
 
@@ -603,8 +614,9 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
                                         scheduleGatedContactConstraints);
   factory.setComAndAcomTrackingCostListed(comAndAcomTracking);
 
-  // Optimal control problem
+  // Optimal control problem, on the state manifold of the quaternion base orientation
   problemPtr_ = std::make_unique<OptimalControlProblem>();
+  problemPtr_->stateManifoldPtr = stateManifold_;
 
   // Dynamics
   std::unique_ptr<SystemDynamicsBase> dynamicsPtr;
@@ -708,10 +720,12 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   }
   const PinocchioStateInputMapping<ad_scalar_t>& pinocchioMappingCppAd = *effectiveMappingPtr;
 
+  // The momentum map of the configuration the kinematics read, the mapping's, whose quaternion is normalized
+  // (CentroidalModelPinocchioMapping::getPinocchioJointPosition()): the foot velocity constraints then read only the attitude
+  // of the stored quaternion, as every other term does, on the unit sphere and off it.
   const PinocchioEndEffectorKinematicsCppAd::update_pinocchio_interface_callback velocityUpdateCallback =
-      [&infoCppAd](const ad_vector_t& state, PinocchioInterfaceCppAd& pinocchioInterfaceAd) {
-        const ad_vector_t q = centroidal_model::getGeneralizedCoordinates(state, infoCppAd);
-        updateCentroidalDynamics(pinocchioInterfaceAd, infoCppAd, q);
+      [&infoCppAd, &pinocchioMappingCppAdBase](const ad_vector_t& state, PinocchioInterfaceCppAd& pinocchioInterfaceAd) {
+        updateCentroidalDynamics(pinocchioInterfaceAd, infoCppAd, pinocchioMappingCppAdBase.getPinocchioJointPosition(state));
       };
 
   if (formulationTasks.hasCost(MpcCostType::kTaskSpaceTorsoCost)) {
@@ -941,8 +955,9 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   problemPtr_->preComputationPtr = std::make_unique<HumanoidPreComputation>(
       *pinocchioInterfacePtr_, *referenceManagerPtr_->getSwingTrajectoryPlanner(), *effectiveMpcRobotModelPtr_);
 
-  // Rollout
+  // Rollout, projecting every state it outputs onto the manifold
   rolloutPtr_ = std::make_unique<TimeTriggeredRollout>(*problemPtr_->dynamicsPtr, solverSettings_.rolloutSettings);
+  rolloutPtr_->setStateManifold(stateManifold_);
 
   // Initialization
   constexpr bool extendNormalizedMomentum = true;

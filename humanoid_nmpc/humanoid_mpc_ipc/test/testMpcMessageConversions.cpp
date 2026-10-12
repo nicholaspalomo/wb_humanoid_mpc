@@ -41,7 +41,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/log/check.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
@@ -49,8 +51,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/control/ControllerType.h"
 #include "ocs2_core/control/FeedforwardController.h"
 #include "ocs2_core/control/LinearController.h"
+#include "ocs2_core/control/ManifoldLinearController.h"
+#include "ocs2_core/manifold/EuclideanStateManifold.h"
+#include "ocs2_core/manifold/ProductStateManifold.h"
+#include "ocs2_core/manifold/StateManifold.h"
+#include "ocs2_core/manifold/StateManifoldSegment.h"
 
 #include "humanoid_mpc_ipc/MpcMessageConversions.h"
+#include "humanoid_mpc_ipc/PolicyControllers.h"
 #include "humanoid_mpc_msgs/controller_type.pb.h"
 #include "humanoid_mpc_msgs/mode_schedule.pb.h"
 #include "humanoid_mpc_msgs/mpc_policy.pb.h"
@@ -147,7 +155,15 @@ void expectSameController(const ControllerBase* absl_nullable expected, const Co
   ASSERT_NE(expected, nullptr);
   ASSERT_NE(actual, nullptr);
   ASSERT_EQ(expected->getType(), actual->getType());
-  if (expected->getType() == ControllerType::LINEAR) {
+  if (expected->getType() == ControllerType::MANIFOLD_LINEAR) {
+    const ManifoldLinearController& expectedManifold = dynamic_cast<const ManifoldLinearController&>(*expected);
+    const ManifoldLinearController& actualManifold = dynamic_cast<const ManifoldLinearController&>(*actual);
+    EXPECT_TRUE(bitwiseEqual(expectedManifold.getTimeStamps(), actualManifold.getTimeStamps()));
+    EXPECT_TRUE(bitwiseEqual(expectedManifold.getAnchorStates(), actualManifold.getAnchorStates()));
+    EXPECT_TRUE(bitwiseEqual(expectedManifold.getNominalInputs(), actualManifold.getNominalInputs()));
+    EXPECT_TRUE(bitwiseEqual(expectedManifold.getFeedbackGains(), actualManifold.getFeedbackGains()));
+    EXPECT_EQ(expectedManifold.getStateManifold(), actualManifold.getStateManifold());
+  } else if (expected->getType() == ControllerType::LINEAR) {
     const LinearController& expectedLinear = dynamic_cast<const LinearController&>(*expected);
     const LinearController& actualLinear = dynamic_cast<const LinearController&>(*actual);
     EXPECT_TRUE(bitwiseEqual(expectedLinear.timeStamp_, actualLinear.timeStamp_));
@@ -213,21 +229,29 @@ humanoid_mpc_msgs::MpcPolicy encode(const Policy& policy) {
   return message;
 }
 
+/** Decodes as a receiver whose state is flat. */
 absl::Status decode(const humanoid_mpc_msgs::MpcPolicy& message, Policy* absl_nonnull policy) {
-  return policyFromProto(message, &policy->commandData, &policy->primalSolution, &policy->performanceIndex);
+  return policyFromProto(message, /*stateManifold=*/nullptr, &policy->commandData, &policy->primalSolution, &policy->performanceIndex);
 }
 
-// Encodes `policy`, sends it through the wire format and decodes it.
-Policy roundTrip(const Policy& policy) {
+/** Decodes as a receiver whose state lives on `stateManifold`. */
+absl::Status decode(const humanoid_mpc_msgs::MpcPolicy& message,
+                    std::shared_ptr<const StateManifold> stateManifold,
+                    Policy* absl_nonnull policy) {
+  return policyFromProto(message, std::move(stateManifold), &policy->commandData, &policy->primalSolution, &policy->performanceIndex);
+}
+
+// Encodes `policy`, sends it through the wire format and decodes it, on `stateManifold` when it is not null.
+Policy roundTrip(const Policy& policy, std::shared_ptr<const StateManifold> stateManifold = nullptr) {
   humanoid_mpc_msgs::MpcPolicy parsed;
   EXPECT_TRUE(parsed.ParseFromString(encode(policy).SerializeAsString()));
   Policy decoded;
-  const absl::Status status = decode(parsed, &decoded);
+  const absl::Status status = decode(parsed, std::move(stateManifold), &decoded);
   EXPECT_TRUE(status.ok()) << status;
   return decoded;
 }
 
-// ControllerBase::flatten() at `time`, the sampling the ROS interface sent.
+// ControllerBase::flatten() at `time`, the sampling of a controller on other time stamps.
 std::vector<std::vector<double>> flatten(const ControllerBase& controller, const scalar_array_t& time) {
   std::vector<std::vector<double>> samples(time.size());
   std::vector<std::vector<double>* absl_nonnull> sampleRefs;
@@ -264,9 +288,8 @@ scalar_array_t queryTimes(std::mt19937& generator, const scalar_array_t& timeTra
 class UnsupportedController final : public ControllerBase {
  public:
   vector_t computeInput(scalar_t /*t*/, const vector_t& /*x*/) override { return vector_t(); }
-  void concatenate(const ControllerBase* absl_nonnull /*otherController*/, int /*index*/, int /*length*/) override {}
   int size() const override { return 1; }
-  ControllerType getType() const override { return ControllerType::BEHAVIORAL; }
+  ControllerType getType() const override { return ControllerType::UNKNOWN; }
   void clear() override {}
   bool empty() const override { return false; }
   UnsupportedController* absl_nonnull clone() const override { return new UnsupportedController(*this); }
@@ -336,7 +359,7 @@ TEST(ModeScheduleConversionTest, RoundTripKeepsModesBeyondOneByte) {
   for (int trial = 0; trial < 20; ++trial) {
     ModeSchedule modeSchedule =
         test_data::randomModeSchedule(generator, randomSize(generator, /*low=*/0, /*high=*/10), /*startTime=*/static_cast<scalar_t>(trial));
-    // The ROS messages carried modes as octets; these would have wrapped.
+    // Modes that do not fit in an octet, which a one-byte encoding would wrap.
     modeSchedule.modeSequence.front() = (trial % 2 == 0) ? 256 : std::numeric_limits<size_t>::max();
     humanoid_mpc_msgs::ModeSchedule message;
     toProto(modeSchedule, &message);
@@ -458,7 +481,7 @@ TEST(PolicyConversionTest, RoundTripReproducesASingleNodePolicy) {
 }
 
 TEST(PolicyConversionTest, RebuildsTheController) {
-  // The ROS version of this conversion left the received policy without a controller.
+  // The decoded policy carries a controller of the encoded type and size.
   std::mt19937 generator(/*sd=*/10);
   for (const ControllerType controllerType : kControllerTypes) {
     const Policy policy = randomPolicy(generator, {.nodes = 7, .stateDim = 4, .inputDim = 2, .events = 2, .controllerType = controllerType},
@@ -615,7 +638,7 @@ TEST(PolicyConversionTest, RejectsPrimalSolutionsItCannotSendAndLeavesTheMessage
   const std::vector<std::pair<std::function<void(PrimalSolution* absl_nonnull)>, std::string>> cases = {
       {[](PrimalSolution* absl_nonnull primalSolution) { primalSolution->controllerPtr_.reset(); }, "is null"},
       {[](PrimalSolution* absl_nonnull primalSolution) { primalSolution->controllerPtr_ = std::make_unique<UnsupportedController>(); },
-       "only a FeedforwardController or a LinearController"},
+       "only a FeedforwardController, a LinearController or a ManifoldLinearController"},
       {[](PrimalSolution* absl_nonnull primalSolution) { primalSolution->controllerPtr_->clear(); },
        "is empty but the time trajectory has 5 nodes"},
       {[](PrimalSolution* absl_nonnull primalSolution) {
@@ -752,6 +775,197 @@ TEST(PolicyConversionTest, RejectsMalformedMessagesAndLeavesTheOutputsUnchanged)
 }
 
 // =====================================================================================================================
+// The policy of a solver on a state manifold: CONTROLLER_TYPE_MANIFOLD_LINEAR
+// =====================================================================================================================
+
+constexpr size_t kManifoldInputDim = 3;
+
+/** A policy as the SQP solves it on the toy manifold [E(3), Q, E(5)], with a ManifoldLinearController. */
+Policy randomManifoldPolicy(std::mt19937& generator,
+                            std::shared_ptr<const StateManifold> manifold,
+                            size_t nodes,
+                            size_t events,
+                            ControllerType controllerType = ControllerType::MANIFOLD_LINEAR) {
+  const PolicyShape shape{.nodes = nodes,
+                          .stateDim = manifold->getAmbientDim(),
+                          .inputDim = kManifoldInputDim,
+                          .events = events,
+                          .controllerType = controllerType,
+                          .stateManifold = std::move(manifold)};
+  return randomPolicy(generator, shape, /*targetNodes=*/2);
+}
+
+const ManifoldLinearController& manifoldControllerOf(const Policy& policy) {
+  const ManifoldLinearController* absl_nullable controller = asManifoldLinearController(*policy.primalSolution.controllerPtr_);
+  CHECK(controller != nullptr);
+  return *controller;
+}
+
+// The times a manifold policy is evaluated at: queryTimes() and, at each event, its time and the times just around it.
+scalar_array_t manifoldQueryTimes(std::mt19937& generator, const PrimalSolution& primalSolution) {
+  scalar_array_t times = queryTimes(generator, primalSolution.timeTrajectory_);
+  for (const size_t postEvent : primalSolution.postEventIndices_) {
+    const scalar_t eventTime = primalSolution.timeTrajectory_[postEvent];
+    for (const scalar_t offset : {-1.0e-6, -1.0e-12, 0.0, 1.0e-12, 1.0e-6}) {
+      times.push_back(eventTime + offset);
+    }
+  }
+  return times;
+}
+
+TEST(ManifoldPolicyConversionTest, ASqpPolicyWithAnEventRoundTripsItsAnchorsInputsAndGainsToTheBit) {
+  const std::shared_ptr<const StateManifold> manifold = test_data::toyStateManifold();
+  std::mt19937 generator(/*sd=*/40);
+  const Policy policy = randomManifoldPolicy(generator, manifold, /*nodes=*/12, /*events=*/1);
+  const PrimalSolution& primalSolution = policy.primalSolution;
+  const ManifoldLinearController& sent = manifoldControllerOf(policy);
+
+  // Positive controls: toPrimalSolution() gave the pre-event node and the last node the anchor of the node before them,
+  // so the anchors are not the state trajectory, which the receiver would otherwise have been free to use.
+  ASSERT_EQ(primalSolution.postEventIndices_.size(), size_t{1});
+  const size_t preEvent = primalSolution.postEventIndices_.front() - 1;
+  ASSERT_EQ(primalSolution.timeTrajectory_[preEvent], primalSolution.timeTrajectory_[preEvent + 1]);
+  EXPECT_EQ(sent.getAnchorStates()[preEvent], sent.getAnchorStates()[preEvent - 1]);
+  EXPECT_NE(sent.getAnchorStates()[preEvent], primalSolution.stateTrajectory_[preEvent]);
+  EXPECT_EQ(sent.getAnchorStates().back(), sent.getAnchorStates()[sent.getAnchorStates().size() - 2]);
+  EXPECT_NE(sent.getAnchorStates().back(), primalSolution.stateTrajectory_.back());
+
+  const humanoid_mpc_msgs::MpcPolicy message = encode(policy);
+  EXPECT_EQ(message.controller_type(), humanoid_mpc_msgs::CONTROLLER_TYPE_MANIFOLD_LINEAR);
+  const size_t nodeSize = kManifoldInputDim + manifold->getAmbientDim() + kManifoldInputDim * manifold->getTangentDim();
+  for (const humanoid_mpc_msgs::Vector& node : message.controller_data()) {
+    EXPECT_EQ(static_cast<size_t>(node.data_size()), nodeSize);
+  }
+
+  const Policy decoded = roundTrip(policy, manifold);
+  expectSamePolicy(policy, decoded);
+  // The same law at every node, on both sides of the event and between the nodes, at states of the manifold.
+  ManifoldLinearController sentCopy = sent;
+  ManifoldLinearController& received = dynamic_cast<ManifoldLinearController&>(*decoded.primalSolution.controllerPtr_);
+  for (const scalar_t time : manifoldQueryTimes(generator, primalSolution)) {
+    const vector_t state = test_data::randomManifoldState(generator, *manifold);
+    EXPECT_TRUE(bitwiseEqual(sentCopy.computeInput(time, state), received.computeInput(time, state))) << "t = " << time;
+  }
+  // Positive control: the law changes across the event, which a policy that lost its post-event node would not show.
+  const scalar_t eventTime = primalSolution.timeTrajectory_[preEvent];
+  const vector_t state = test_data::randomManifoldState(generator, *manifold);
+  EXPECT_FALSE(bitwiseEqual(received.computeInput(eventTime, state), received.computeInput(eventTime + 1.0e-6, state)));
+}
+
+TEST(ManifoldPolicyConversionTest, NodeArraysAreWhatFlattenWritesAtTheNodeTimes) {
+  // Without events every time is distinct: the nodes sent are what ManifoldLinearController::flatten() writes there, and
+  // the controller rebuilt from them is the one its unFlatten() builds.
+  const std::shared_ptr<const StateManifold> manifold = test_data::toyStateManifold();
+  std::mt19937 generator(/*sd=*/41);
+  const Policy policy = randomManifoldPolicy(generator, manifold, /*nodes=*/9, /*events=*/0);
+  const scalar_array_t& time = policy.primalSolution.timeTrajectory_;
+  const std::vector<std::vector<double>> flat = flatten(*policy.primalSolution.controllerPtr_, time);
+  const humanoid_mpc_msgs::MpcPolicy message = encode(policy);
+  ASSERT_EQ(message.controller_data_size(), static_cast<int>(time.size()));
+  std::vector<const std::vector<double>* absl_nullable> flatRefs;
+  for (size_t k = 0; k < time.size(); ++k) {
+    EXPECT_EQ(asStdVector(message.controller_data(static_cast<int>(k))), flat[k]) << "node " << k;
+    flatRefs.push_back(&flat[k]);
+  }
+  Policy decoded;
+  ASSERT_TRUE(decode(message, manifold, &decoded).ok());
+  absl::StatusOr<ManifoldLinearController> unflattened = ManifoldLinearController::unFlatten(
+      size_array_t(time.size(), manifold->getAmbientDim()), size_array_t(time.size(), kManifoldInputDim),
+      size_array_t(time.size(), manifold->getTangentDim()), time, flatRefs, manifold);
+  ASSERT_TRUE(unflattened.ok()) << unflattened.status();
+  expectSameController(&*unflattened, decoded.primalSolution.controllerPtr_.get());
+}
+
+TEST(ManifoldPolicyConversionTest, AFeedforwardPolicyOnAManifoldRoundTrips) {
+  const std::shared_ptr<const StateManifold> manifold = test_data::toyStateManifold();
+  std::mt19937 generator(/*sd=*/42);
+  const Policy policy = randomManifoldPolicy(generator, manifold, /*nodes=*/10, /*events=*/2, ControllerType::FEEDFORWARD);
+  expectSamePolicy(policy, roundTrip(policy, manifold));
+}
+
+TEST(ManifoldPolicyConversionTest, RefusesToSendAManifoldPolicyItCannotSendAsItsNodes) {
+  const std::shared_ptr<const StateManifold> manifold = test_data::toyStateManifold();
+  std::mt19937 generator(/*sd=*/43);
+  const Policy policy = randomManifoldPolicy(generator, manifold, /*nodes=*/8, /*events=*/1);
+  const ManifoldLinearController& controller = manifoldControllerOf(policy);
+  const humanoid_mpc_msgs::MpcPolicy previous = encode(randomPolicy(generator, {.nodes = 3}, /*targetNodes=*/1));
+
+  scalar_array_t shifted = controller.getTimeStamps();
+  for (scalar_t& time : shifted) time += 1.0e-3;
+  matrix_array_t wideGains = controller.getFeedbackGains();
+  wideGains[2] = matrix_t::Zero(kManifoldInputDim, manifold->getTangentDim() + 1);
+  vector_array_t flatAnchors = controller.getAnchorStates();
+  flatAnchors[1] = vector_t::Zero(manifold->getTangentDim());
+  const std::vector<std::pair<ManifoldLinearController, std::string>> cases = {
+      {ManifoldLinearController(shifted, controller.getAnchorStates(), controller.getNominalInputs(), controller.getFeedbackGains(),
+                                manifold),
+       "time stamps are not the time trajectory"},
+      {ManifoldLinearController(controller.getTimeStamps(), controller.getAnchorStates(), controller.getNominalInputs(), wideGains,
+                                manifold),
+       "node 2 of the ManifoldLinearController has an anchor state of 12 entries, a nominal input of 3 and a gain of 3x12"},
+      {ManifoldLinearController(controller.getTimeStamps(), flatAnchors, controller.getNominalInputs(), controller.getFeedbackGains(),
+                                manifold),
+       "node 1 of the ManifoldLinearController has an anchor state of 11 entries"},
+  };
+  for (const std::pair<ManifoldLinearController, std::string>& testCase : cases) {
+    PrimalSolution primalSolution = policy.primalSolution;
+    primalSolution.controllerPtr_.reset(testCase.first.clone());
+    humanoid_mpc_msgs::MpcPolicy message = previous;
+    const absl::Status status = policyToProto(policy.commandData, primalSolution, policy.performanceIndex, &message);
+    EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << status;
+    EXPECT_TRUE(absl::StrContains(status.message(), testCase.second)) << status;
+    EXPECT_EQ(message.SerializeAsString(), previous.SerializeAsString());
+  }
+}
+
+TEST(ManifoldPolicyConversionTest, DecodingRefusesWrongStridesAMissingManifoldAndALinearPolicyOnAManifold) {
+  const std::shared_ptr<const StateManifold> manifold = test_data::toyStateManifold();
+  std::mt19937 generator(/*sd=*/44);
+  const humanoid_mpc_msgs::MpcPolicy manifoldMessage = encode(randomManifoldPolicy(generator, manifold, /*nodes=*/8, /*events=*/1));
+  const humanoid_mpc_msgs::MpcPolicy linearMessage = encode(randomPolicy(
+      generator, {.nodes = 8, .stateDim = 12, .inputDim = 3, .events = 1, .controllerType = ControllerType::LINEAR}, /*targetNodes=*/2));
+  humanoid_mpc_msgs::MpcPolicy shortNode = manifoldMessage;
+  shortNode.mutable_controller_data(3)->mutable_data()->RemoveLast();
+  humanoid_mpc_msgs::MpcPolicy longNode = manifoldMessage;
+  longNode.mutable_controller_data(0)->add_data(1.0);
+  // The same ambient dimension, but no rotation: its tangent has one dimension more, so every node is one gain column short.
+  const std::shared_ptr<const StateManifold> flatOfTheSameSize = std::make_shared<EuclideanStateManifold>(manifold->getAmbientDim());
+  const std::shared_ptr<const StateManifold> wider = std::make_shared<EuclideanStateManifold>(manifold->getAmbientDim() + 1);
+
+  struct Case {
+    std::string description;
+    const humanoid_mpc_msgs::MpcPolicy* absl_nonnull message;
+    std::shared_ptr<const StateManifold> stateManifold;
+    std::string expectedError;
+  };
+  const std::vector<Case> cases = {
+      {"a node one value short", &shortNode, manifold,
+       "MpcPolicy.controller_data[3] has 47 entries but a ManifoldLinearController node with 3 inputs, 12 states and 11 tangent "
+       "dimensions has 48 = inputs + states + inputs * tangent"},
+      {"a node one value long", &longNode, manifold, "MpcPolicy.controller_data[0] has 49 entries"},
+      {"no manifold", &manifoldMessage, nullptr, "CONTROLLER_TYPE_MANIFOLD_LINEAR, but the receiver's state has no state manifold"},
+      {"a linear policy on a manifold", &linearMessage, manifold, "CONTROLLER_TYPE_LINEAR, whose gains act on the stored state"},
+      {"another tangent dimension", &manifoldMessage, flatOfTheSameSize,
+       "a ManifoldLinearController node with 3 inputs, 12 states and 12 tangent dimensions has 51"},
+      {"another ambient dimension", &manifoldMessage, wider,
+       "MpcPolicy.state_trajectory[0] has 12 entries; the receiver's state manifold has 13 ambient dimensions"},
+  };
+  for (const Case& testCase : cases) {
+    const Policy sentinel = randomPolicy(generator, {.nodes = 2, .stateDim = 1, .inputDim = 1}, /*targetNodes=*/1);
+    Policy output = {
+        .commandData = sentinel.commandData, .primalSolution = sentinel.primalSolution, .performanceIndex = sentinel.performanceIndex};
+    const absl::Status status = decode(*testCase.message, testCase.stateManifold, &output);
+    EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument) << testCase.description << ": " << status;
+    EXPECT_TRUE(absl::StrContains(status.message(), testCase.expectedError)) << testCase.description << ": " << status;
+    expectSamePolicy(sentinel, output);
+  }
+  // The overload without a manifold is the flat receiver.
+  Policy output;
+  EXPECT_FALSE(decode(manifoldMessage, &output).ok());
+  EXPECT_TRUE(decode(linearMessage, &output).ok());
+}
+
+// =====================================================================================================================
 // Model dimensions
 // =====================================================================================================================
 
@@ -872,6 +1086,39 @@ TEST(PolicyWireFormatTest, BytesOfAFixedPolicyAreStableAndWithinTheirSizeBound) 
     std::cout << (controllerType == ControllerType::LINEAR ? "linear" : "feedforward")
               << " policy, nx = nu = 30, 60 nodes: " << bytes.size() << " bytes\n";
   }
+}
+
+TEST(PolicyWireFormatTest, AManifoldPolicyCarriesItsAnchorsBesideItsTangentGains) {
+  // The bandwidth example on a state manifold: a quaternion in a state of nx = 31, ndx = nu = 30, over 60 nodes.
+  absl::StatusOr<std::shared_ptr<const ProductStateManifold>> created = ProductStateManifold::create(
+      {StateManifoldSegment::euclidean(12), StateManifoldSegment::unitQuaternion(), StateManifoldSegment::euclidean(15)});
+  ASSERT_TRUE(created.ok()) << created.status();
+  const std::shared_ptr<const StateManifold> manifold = *std::move(created);
+  std::mt19937 generator(/*sd=*/2026);
+  const PolicyShape shape{.nodes = 60,
+                          .stateDim = 31,
+                          .inputDim = 30,
+                          .events = 4,
+                          .controllerType = ControllerType::MANIFOLD_LINEAR,
+                          .stateManifold = manifold};
+  const Policy policy = randomPolicy(generator, shape, /*targetNodes=*/2);
+  const humanoid_mpc_msgs::MpcPolicy message = encode(policy);
+  const std::string bytes = message.SerializeAsString();
+  // u*, xbar and vec K: nu + nx + nu ndx doubles per node.
+  for (const humanoid_mpc_msgs::Vector& node : message.controller_data()) {
+    EXPECT_EQ(node.data_size(), 30 + 31 + 30 * 30);
+  }
+
+  humanoid_mpc_msgs::MpcPolicy parsed;
+  ASSERT_TRUE(parsed.ParseFromString(bytes));
+  Policy decoded;
+  ASSERT_TRUE(decode(parsed, manifold, &decoded).ok());
+  EXPECT_EQ(encode(decoded).SerializeAsString(), bytes);
+
+  const PayloadCount payload = countPayload(policy);
+  EXPECT_GE(bytes.size(), 8 * payload.doubles);
+  EXPECT_LE(bytes.size(), 8 * payload.doubles + 8 * payload.vectors + 512);
+  std::cout << "manifold linear policy, nx = 31, ndx = nu = 30, 60 nodes: " << bytes.size() << " bytes\n";
 }
 
 }  // namespace

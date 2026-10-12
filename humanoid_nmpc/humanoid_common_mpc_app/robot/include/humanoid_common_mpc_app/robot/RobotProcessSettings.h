@@ -65,9 +65,8 @@ inline std::vector<std::string> wbMpcFeedforwardNames() {
 
 /**
  * What the robot process reads from the robot's task file (config/mpc/task.textproto) besides the MPC's own settings: the
- * fields the ROS sims (CentroidalMpcRobotSim, WBMpcRobotSim) read for their control loops. An absent field keeps the
- * default below, as in the sims, except the lists (robotProcessSettingsFromConfig()); a value the robot process cannot
- * run with is an InvalidArgument naming its field, where the sims logged a warning and dropped the whole block.
+ * fields of its control loop. An absent field keeps the default below, except the lists
+ * (robotProcessSettingsFromConfig()); a value the robot process cannot run with is an InvalidArgument naming its field.
  */
 struct RobotProcessSettings {
   /** `contact_estimator`: the controller's measured contact state, by ContactEstimatorRegistry name. */

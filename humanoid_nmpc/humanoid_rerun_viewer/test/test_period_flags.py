@@ -99,18 +99,6 @@ class MaxSceneFrequencyFlagTest(unittest.TestCase):
                 )
 
 
-class MeasuredOnlyFlagTest(unittest.TestCase):
-    def test_default_is_false(self) -> None:
-        parser = cli.build_parser()
-        args = parser.parse_args([])
-        self.assertFalse(args.measured_only)
-
-    def test_flag_can_be_enabled_and_disabled(self) -> None:
-        parser = cli.build_parser()
-        self.assertTrue(parser.parse_args(["--measured_only"]).measured_only)
-        self.assertFalse(parser.parse_args(["--no-measured_only"]).measured_only)
-
-
 class TerminalStateFlagTest(unittest.TestCase):
     def test_default_is_none(self) -> None:
         parser = cli.build_parser()

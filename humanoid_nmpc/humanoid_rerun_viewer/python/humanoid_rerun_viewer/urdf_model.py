@@ -188,7 +188,7 @@ def _ancestors(directory: str) -> list[str]:
 
 
 class PackageResolver:
-    """Finds the directory of a ROS-style package and resolves mesh URIs; remembers what it found.
+    """Finds the directory of a `package://` package and resolves mesh URIs; remembers what it found.
 
     Args:
         urdf_path: the URDF the URIs come from; relative paths and the upward search start at its directory.

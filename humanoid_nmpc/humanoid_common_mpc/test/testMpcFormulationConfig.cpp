@@ -370,8 +370,8 @@ TEST(MpcFormulationLoader, theRetiredDcmSwitchIsRefusedNamingTheCostThatReplaced
 }
 
 TEST(MpcFormulationLoader, theTwoTerminalCostsAreAlternativesAndAListNamingBothIsRefusedNamingBoth) {
-  // When the DCM cost was a boolean, a `terminal_cost` entry beside it was silently ignored. With the list as the switch
-  // a list naming both is ambiguous, whatever spelling it uses, and refused rather than resolved by a precedence.
+  // The list is the switch: a list naming both terminal costs is ambiguous, whatever spelling it uses, and refused
+  // rather than resolved by a precedence.
   for (const char* absl_nonnull entry : {"terminal_cost", "dcm_terminal_cost"}) {
     mpc_config::TaskFile alone = taskWith(*kGatedHard, {"joint_limits"});
     alone.costs.emplace_back(entry);

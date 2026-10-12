@@ -7,7 +7,14 @@
 #   ROBOT                      the robot configuration, the name of a script in launch/: drc_atlas, unitree_g1_wb, ...
 #   WB_ROBOT_<NAME>            the variables of the launch file (the network file, the backend, the realtime priority,
 #                              the cores; see the header of launch/<robot>.sh). Unset or empty: the launch file's value.
-#   WB_ROBOT_HEADLESS          unset or empty: WB_ROBOT_DEFAULT_HEADLESS, which the image sets (robot-runtime has no GL).
+#   WB_ROBOT_VIEWER            the MuJoCo viewer by name, or names in order of preference: glfw (a window on DISPLAY),
+#                              web (a page at http://localhost:6090), none; web,none falls back to none. Unset or
+#                              empty: the mujoco_viewer of the plot configuration when WB_ROBOT_PLOT_CONFIG names one;
+#                              else WB_ROBOT_DEFAULT_VIEWER, which robot-runtime sets to none (it has no GL); else the
+#                              mujoco_viewer of the launch file's plot configuration (robot-sim sets no default: web,
+#                              unless the file names another).
+#   WB_ROBOT_PLOT_CONFIG       the plot configuration whose mujoco_viewer names the viewer when WB_ROBOT_VIEWER does
+#                              not (the simulation's is the checkout's, mounted); unset or empty: the launch file's.
 #   NETEM, NETEM_INTERFACE     tc-netem parameters ("delay 3ms 1ms loss 0.5%") for the bus's packets on NETEM_INTERFACE
 #                              (default lo) while the robot runs (netem.sh); empty: none. Needs CAP_NET_ADMIN.
 #
@@ -38,9 +45,10 @@ if [ ! -f "${script}" ]; then
     exit 2
 fi
 
-if [ -z "${WB_ROBOT_HEADLESS:-}" ] && [ -n "${WB_ROBOT_DEFAULT_HEADLESS:-}" ]; then
-    WB_ROBOT_HEADLESS="${WB_ROBOT_DEFAULT_HEADLESS}"
-    export WB_ROBOT_HEADLESS
+# The image's viewer, unless the environment names one or a plot configuration to take it from.
+if [ -z "${WB_ROBOT_VIEWER:-}" ] && [ -z "${WB_ROBOT_PLOT_CONFIG:-}" ] && [ -n "${WB_ROBOT_DEFAULT_VIEWER:-}" ]; then
+    WB_ROBOT_VIEWER="${WB_ROBOT_DEFAULT_VIEWER}"
+    export WB_ROBOT_VIEWER
 fi
 
 # What the realtime loop may take here: the robot process reports any setting it is refused, this says why.

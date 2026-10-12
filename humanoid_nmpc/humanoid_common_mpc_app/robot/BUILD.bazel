@@ -127,15 +127,20 @@ cc_library(
         "//humanoid_nmpc/humanoid_mpc_ipc:remote_mpc_link",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto",
+        # The plot configuration, whose mujoco_viewer names the MuJoCo viewer without --viewer (RobotAppOptions.h).
+        "//humanoid_nmpc/humanoid_rerun_viewer:plot_config_cc_proto",
+        "//humanoid_nmpc/humanoid_rerun_viewer:plot_config_nproto",
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_robotic_tools",
         "//robot_runtime/mujoco_sim_interface",
+        "//robot_runtime/mujoco_sim_interface:viewer_settings",
         "//robot_runtime/robot_core",
         "//robot_runtime/robot_ipc",
         "//robot_runtime/robot_model",
         "//robot_runtime/robot_realtime",
         "//tools/nproto:nproto_runtime",
+        "@abseil-cpp//absl/algorithm:container",
         "@abseil-cpp//absl/base:core_headers",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/container:flat_hash_map",
@@ -161,11 +166,14 @@ cc_library(
     includes = ["include"],
     deps = [
         ":robot_process",
+        "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
         "//humanoid_nmpc/humanoid_common_mpc_app/node:mpc_app_flags",
         "//humanoid_nmpc/humanoid_common_mpc_app/node:node_process",
+        "//robot_runtime/mujoco_sim_interface:viewer_settings",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/flags:flag",
+        "@abseil-cpp//absl/log",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
@@ -204,6 +212,7 @@ cc_library(
         ":robot_process",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//robot_runtime/mujoco_sim_interface",
+        "//robot_runtime/mujoco_sim_interface:viewer_settings",
         "//robot_runtime/robot_ipc",
         "//robot_runtime/robot_model",
         "@abseil-cpp//absl/base:core_headers",
@@ -298,6 +307,7 @@ cc_test(
         "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//robot_runtime/mujoco_sim_interface:viewer_settings",
         "//robot_runtime/robot_model",
         "//robot_runtime/robot_realtime:allocation_counter",
         "//tools/nproto:nproto_runtime",
@@ -370,6 +380,8 @@ cc_test(
         ":robot_process",
         "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//robot_runtime/mujoco_sim_interface",
+        "//robot_runtime/mujoco_sim_interface:viewer_settings",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/log:absl_check",
         "@abseil-cpp//absl/status:statusor",
@@ -388,6 +400,27 @@ cc_test(
         ":robot_process",
         "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
+    ],
+)
+
+# The simulator's initial state from the MPC's, in every formulation of every shipped configuration: the base through
+# the robot model's layout-agnostic accessors, the MPC joints by name, every other joint at zero.
+cc_test(
+    name = "test_initial_sim_state",
+    size = "small",
+    srcs = ["test/testInitialSimState.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":robot_process",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc_app/visualization:test_robot",
+        "//lib/ocs2:ocs2_robotic_tools",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/algorithm:container",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
     ],
 )
 
@@ -410,8 +443,8 @@ cc_test(
     ],
 )
 
-# The backend registry: the mujoco backend by name (headless, on the Atlas scene), an unknown name refused with the
-# available ones, and the configuration it builds from the task file's simulator keys.
+# The backend registry: the mujoco backend by name (without a viewer, on the Atlas scene), an unknown name refused with
+# the available ones, and the configuration it builds from the task file's simulator keys and the viewer settings.
 cc_test(
     name = "test_robot_backend_registry",
     size = "small",
@@ -423,6 +456,7 @@ cc_test(
         ":robot_process",
         "//humanoid_nmpc/humanoid_common_mpc",
         "//robot_runtime/mujoco_sim_interface",
+        "//robot_runtime/mujoco_sim_interface:viewer_settings",
         "//robot_runtime/robot_model",
         "@abseil-cpp//absl/base:nullability",
         "@googletest//:gtest_main",
@@ -471,6 +505,7 @@ cc_test(
         "//humanoid_nmpc/humanoid_mpc_ipc",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto",
+        "//robot_runtime/mujoco_sim_interface:viewer_settings",
         "//robot_runtime/robot_ipc",
         "//robot_runtime/robot_model",
         "//tools/nproto:nproto_runtime",
@@ -578,20 +613,29 @@ cc_test(
     ],
 )
 
-# The robot binaries' command line (the MPC link by name, the core lists) and the MpcLink over the remote link.
+# The robot binaries' command line (the MPC link by name, the core lists, the viewer by name - from --viewer, the
+# plot configuration or the default - and the web viewer's flags) and the MpcLink over the remote link.
 cc_test(
     name = "test_robot_app_options",
     size = "small",
     srcs = ["test/testRobotAppOptions.cpp"],
     copts = FIRST_PARTY_COPTS,
+    # The shipped plot configurations, which name the viewer of make launch-<robot>-sim.
+    data = ["//humanoid_nmpc/humanoid_rerun_viewer:plot_config"],
     deps = [
         ":robot_process",
         ":robot_test_support",
+        "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_mpc_ipc",
         "//humanoid_nmpc/humanoid_mpc_ipc:remote_mpc_link",
         "//lib/ocs2:ocs2_mpc",
+        "//robot_runtime/mujoco_sim_interface:viewer_settings",
         "//robot_runtime/robot_ipc",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
     ],
 )

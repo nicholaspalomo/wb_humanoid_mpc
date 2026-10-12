@@ -87,8 +87,10 @@ ad_vector_t PinocchioCentroidalDynamicsAD::getValueCppAd(PinocchioInterfaceCppAd
   centroidal_model::getNormalizedMomentum(stateDerivative, info) =
       getNormalizedCentroidalMomentumRate(pinocchioInterfaceCppAd, info, input);
 
-  // derivatives of the floating base variables + joint velocities
-  centroidal_model::getGeneralizedCoordinates(stateDerivative, info) = mappingCppAd.getPinocchioJointVelocity(state, input);
+  // derivatives of the generalized coordinates [p_W, xi, q_j] from the pinocchio velocity [dp_W, w_B, dq_j]: the
+  // quaternion row is 1/2 G(xi) w_B of the raw xi of the state (computeConfigurationDerivative())
+  const ad_vector_t vPinocchio = mappingCppAd.getPinocchioJointVelocity(state, input);
+  centroidal_model::configurationDerivative(stateDerivative, info) = computeConfigurationDerivative(info, state, vPinocchio);
 
   return stateDerivative;
 }

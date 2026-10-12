@@ -189,7 +189,8 @@ cc_test(
 # The MPC node's runtime against a scripted robot and operator over loopback buses, around the DRC Atlas references and
 # motion manager with OCS2's scripted MPC (no CppAD): observation in, policy out, the reset handshake through the
 # observation's counters, the velocity command reaching the motion manager, the parameter updates reaching the solver
-# before the next solve, the annotations and the visualization seam.
+# before the next solve, the annotations and the visualization seam; and network stalls of up to a second, across which
+# the motion manager's stride history is bridged and reads no sway as a turn.
 cc_test(
     name = "test_mpc_node_runtime",
     size = "small",
@@ -213,6 +214,7 @@ cc_test(
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_pinocchio_interface",
         "//robot_runtime/robot_ipc",
         "@abseil-cpp//absl/base:core_headers",
         "@abseil-cpp//absl/base:nullability",
@@ -220,7 +222,9 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/synchronization",
         "@abseil-cpp//absl/time",
+        "@eigen",
         "@googletest//:gtest_main",
+        "@pinocchio",
     ],
 )
 

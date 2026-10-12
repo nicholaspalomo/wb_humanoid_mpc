@@ -160,7 +160,9 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   std::optional<vector2_t> nominalFoothold(size_t contactIndex, scalar_t time) const;
 
   /**
-   * `xNominal` with only the locomotion heuristics' base-pose offsets applied: roll, pitch and height, at `time`.
+   * `xNominal` with only the locomotion heuristics' base-pose offsets applied: roll, pitch and height, at `time`. On a
+   * state that stores the body angular velocity (the whole body's), the reference's angular velocity is carried into
+   * the tilted attitude's body frame, so that its world angular velocity - the command's turn - stays as it was.
    *
    * The single definition of the shaped base pose, used by every cost that regularizes the base pose - the running
    * state costs through getDesiredState(), the terminal cost and the torso task-space cost - so that none of them pulls
@@ -179,10 +181,15 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * World-frame normal of the plane the foot orientation cost is tracked against. Flat ground (0, 0, 1) for a foot in
    * contact and whenever swing_trajectory_config.swingPitchAngle is zero, which is the default; otherwise the ground
    * normal tilted back along the heading by the swing pitch, so that tracking it pitches the swing foot toe-up. The
-   * heading is the planned foot yaw where a contact planner provides one, and the commanded base yaw otherwise.
+   * heading is the planned foot yaw where a contact planner provides one, and the commanded base heading otherwise.
    */
   vector3_t getSwingFootPlaneNormal(size_t contactIndex, scalar_t time) const;
 
+  /**
+   * The state reference of the running costs at `time`: the knots of `targetTrajectories` interpolated in the robot
+   * model's layout (MpcRobotModelBase::getDesiredState), with the procedural arm swing about the heading of `state` and
+   * the base-pose heuristics (shapeBasePose()) applied. `targetTrajectories` is not empty.
+   */
   vector_t getDesiredState(const TargetTrajectories& targetTrajectories, const vector_t& state, scalar_t time) const;
 
   /**
@@ -218,14 +225,15 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   const std::shared_ptr<LocomotionHeuristicLayer>& getLocomotionHeuristicLayer() const { return heuristicLayerPtr_; }
 
   /**
-   * The operator's commanded CoM velocity at `time`, for the terms that want the command itself rather than whatever
-   * the reference currently asks for.
+   * The operator's commanded velocity at `time` in the world's ground plane, for the terms that want the command itself
+   * rather than whatever the reference currently asks for: the target's command as the model reads it
+   * (MpcRobotModelBase::getTargetPlanarCommand()), the CoM velocity of a centroidal knot's momentum channel and the base
+   * velocity of a whole-body knot. Zero without a target.
    *
-   * Both are the linear part of the target's momentum channel here, which is why this is a single line. They part
-   * company under online contact planning: the planned_com_override execution rule replaces that channel with the
-   * reduced model's own CoM velocity, which swings from side to side with the gait, and a term that read the channel
-   * directly would take that oscillation for an operator command. ContactPlanningReferenceManager therefore answers
-   * this from the untouched copy of what the operator published.
+   * The command and the reference part company under online contact planning: the planned_com_override execution rule
+   * replaces the centroidal momentum channel with the reduced model's own CoM velocity, which swings from side to side
+   * with the gait, and a term that read the channel directly would take that oscillation for an operator command.
+   * ContactPlanningReferenceManager therefore answers this from the untouched copy of what the operator published.
    */
   virtual vector2_t getCommandedVelocity(scalar_t time) const;
 
@@ -235,16 +243,52 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * The counterpart of getCommandedVelocity(), and needed for the same reason: two of Bledt's foothold heuristics are
    * functions of the turn rate and one of his force heuristics is a function of the turn rate and the speed together.
    *
-   * The recovery is an inversion rather than a read, because the channel does not carry the rate. The target
-   * calculator writes the momentum of the whole body turning about the vertical through its center of mass,
-   * h_z = I_zz * psidot / m, so the rate comes back out as m * h_z / I_zz with the same composite inertia - which is
-   * why the yaw inertia is latched once per solve alongside the other measurements rather than being a constant.
+   * Read from the target as the model reads a knot's command (MpcRobotModelBase::getTargetPlanarCommand()): a
+   * whole-body knot stores the rate. A centroidal one does not, so there the recovery is an inversion rather than a
+   * read: the target calculator writes the momentum of the whole body turning about the vertical through its center of
+   * mass, h_z = I_zz * psidot / m, so the rate comes back out as m * h_z / I_zz with the same composite inertia - which
+   * is why the yaw inertia is latched once per solve alongside the other measurements rather than being a constant. Zero
+   * without a target, and on the centroidal state before the first latch.
    *
    * The target's base YAW is not usable for this. It carries the commanded heading, which the reference blends from
    * the measured one over the first stretch of the horizon and which the planned-heading override rewrites outright,
    * so differentiating it would recover the reference's own smoothing rather than the operator's command.
    */
   virtual scalar_t getCommandedYawRate(scalar_t time) const;
+
+  /** A planar velocity command at one instant: the world velocity of the base and its yaw rate. Passive data. */
+  struct PlanarCommandAt {
+    /** [m/s] (x, y) in the world frame. */
+    vector2_t velocityWorld = vector2_t::Zero();
+    /** [rad/s] */
+    scalar_t yawRate = 0.0;
+  };
+
+  /** The change of the base's planar pose over a time. Passive data. */
+  struct PlanarPoseChange {
+    /** [m] (x, y) in the world frame. */
+    vector2_t displacement = vector2_t::Zero();
+    /** [rad] */
+    scalar_t yawChange = 0.0;
+  };
+
+  /**
+   * The change of the base over `duration` [s] (not negative) under a command that is `start` at its beginning and `end`
+   * at its end, as predictedBaseAt() carries the measured base forward with the target's command.
+   *
+   * The yaw changes by the trapezoid of the rates, theta = (w_0 + w_1) dt / 2: exact for a yaw rate linear in time. The
+   * displacement is the arc of the mean of the two velocities taken in the turning frame,
+   *   dp = dt sinc(theta / 2) R_z(theta / 2) v_bar,   v_bar = (v_0 + R_z(-theta) v_1) / 2
+   * (TargetTrajectoriesCalculatorBase::planarArcDisplacement()): exact for a constant body twist, v_1 = R_z(theta) v_0
+   * at a constant rate (a turning velocity command, whose knots lie on that arc), and at theta = 0 the trapezoid, exact
+   * for a world velocity that ramps linearly without turning, bit for bit what the trapezoid of the two world velocities
+   * gave there. Otherwise it is off by (dt^2 / 12) J (w_bar dv - dw v_bar) + O(dt^3) to first order in the change of the
+   * command, J = R_z(pi / 2), w_bar = theta / dt, dv = R_z(-theta) v_1 - v_0 and dw = w_1 - w_0 (the form of the
+   * velocity commands' ramp term, TargetTrajectoriesCalculatorBase). The trapezoid of the two world velocities it
+   * replaces, dt cos(theta / 2) R_z(theta / 2) v_0 on a constant twist, fell short of the arc along its chord by
+   * dt |v_0| (sinc(theta / 2) - cos(theta / 2)), about |v_0| dt theta^2 / 12. Exposed for the unit test.
+   */
+  static PlanarPoseChange commandedPoseChange(const PlanarCommandAt& start, const PlanarCommandAt& end, scalar_t duration);
 
   /** The divergent component of motion of a reduced-order plan, and the pendulum it belongs to. */
   struct PlannedDcm {
@@ -322,10 +366,16 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   /// plan; filled only while a foothold heuristic is listed.
   vector2_t measuredComVelocity_{vector2_t::Zero()};
   scalar_t measuredComHeight_ = 0.0;
-  /// [kg] the robot's mass, and [kg m^2] the yaw component of its composite inertia about the center of mass at the
-  /// last solve. Together they invert the target's angular-momentum channel back into a commanded yaw rate.
+  /// [kg] the robot's mass (the weight of the wrench heuristics' context), and [kg m^2] the yaw component of its composite
+  /// inertia about the center of mass at the last solve, 0 until the first: what a centroidal model's
+  /// getTargetPlanarCommand() inverts the target's angular-momentum channel back into a commanded yaw rate with.
   scalar_t totalMass_ = 0.0;
   scalar_t yawInertia_ = 0.0;
+  /**
+   * The command (v_x, v_y, yaw rate) of the target at `time`, as the model reads a knot's (getTargetPlanarCommand(),
+   * with the latched yaw inertia); nullopt without a target, or for a target of another state size.
+   */
+  std::optional<vector3_t> targetPlanarCommandAt(scalar_t time) const;
   /** True while anything downstream needs captureMeasuredState() to do its work; see that function. */
   bool needsMeasuredState() const;
   /**
@@ -333,7 +383,10 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * from the last latched measurement, the commands at `time`, and the stance the foot is about to begin.
    */
   FootholdHeuristicContext footholdContext(size_t contactIndex, scalar_t time) const;
-  /** [m], [rad] The base position and yaw predicted at `time`: the last measurement carried forward by the command. */
+  /**
+   * [m], [rad] The base position and yaw predicted at `time`: the last measurement carried forward by the target's
+   * command at the last solve and at `time` (commandedPoseChange(): exact on the arc of a turning velocity command).
+   */
   std::pair<vector2_t, scalar_t> predictedBaseAt(scalar_t time) const;
 
   /**

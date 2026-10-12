@@ -114,19 +114,18 @@ inline constexpr size_t kWrenchForceYIndex = 1;
 inline constexpr size_t kWrenchForceZIndex = 2;
 inline constexpr size_t kWrenchTorqueXIndex = 3;
 inline constexpr size_t kWrenchTorqueYIndex = 4;
-inline constexpr size_t kWrenchTorqueZIndex = 5;
 
 namespace humanoid {
 
 /******************************************************************************************************/
 /* Floating base & generalized coordinates definition
-   The floating base consists of 3 translation coordinates (x, y, z) and 3 spherical ZYX rotation
-   coordinates (yaw, pitch, roll). Actuated joints follow the floating base degrees of freedom.
+   The floating base is Pinocchio's Composite(Translation, Spherical) root joint: its configuration is the position
+   (x, y, z) and the unit quaternion (x, y, z, w) of the base orientation, its velocity the world-frame linear velocity
+   and the body angular velocity. Actuated joints follow the floating base degrees of freedom. The display keeps the
+   Euler angles (yaw, pitch, roll) of the orientation (getBaseDofNames()).
 */
 /******************************************************************************************************/
 
-inline constexpr size_t kBasePosXIndex = 0;
-inline constexpr size_t kBasePosYIndex = 1;
 inline constexpr size_t kBasePosZIndex = 2;
 
 inline constexpr size_t kBaseRotYawIndex = 0;
@@ -135,13 +134,37 @@ inline constexpr size_t kBaseRotRollIndex = 2;
 
 inline constexpr size_t kBaseTranslationDim = 3;
 inline constexpr size_t kBaseRotationDim = 3;
-inline constexpr size_t kFloatingBaseDim = kBaseTranslationDim + kBaseRotationDim;  // 6 DoF
-inline constexpr size_t kJointCoordinateOffset = kFloatingBaseDim;
 
+/**
+ * The base's entries of the Pinocchio configuration q (nq = kBaseConfigurationDim + the MPC joints) and of its velocity
+ * v, the tangent of q (nv = kBaseVelocityDim + the MPC joints): q holds the position and the quaternion (x, y, z, w), v
+ * the world linear velocity and the body angular velocity (humanoid_nmpc/docs/quaternion_base_orientation/README.md,
+ * section 2.2). A buffer of q is sized with the first, one of v (velocities, generalized forces) with the second.
+ */
+inline constexpr size_t kBaseConfigurationDim = 7;
+inline constexpr size_t kBaseVelocityDim = 6;
+/** The first joint entry of q and of v. */
+inline constexpr size_t kJointConfigurationOffset = kBaseConfigurationDim;
+inline constexpr size_t kJointVelocityOffset = kBaseVelocityDim;
+
+/**
+ * The display names of the six base degrees of freedom of a pose: the position and the ZYX Euler angles of the
+ * orientation, which the display buffers hold instead of the quaternion of q.
+ */
 inline const std::vector<std::string>& getBaseDofNames() {
   static const absl::NoDestructor<std::vector<std::string>> kBaseDofNames(
       std::vector<std::string>{"base_x", "base_y", "base_z", "base_yaw", "base_pitch", "base_roll"});
   return *kBaseDofNames;
+}
+
+/**
+ * The names of the base's kBaseVelocityDim entries of the Pinocchio velocity v (and of a generalized force): the linear
+ * velocity in the world frame, then the angular velocity in the base frame.
+ */
+inline const std::vector<std::string>& getBaseVelocityDofNames() {
+  static const absl::NoDestructor<std::vector<std::string>> kBaseVelocityDofNames(
+      std::vector<std::string>{"base_vx", "base_vy", "base_vz", "base_wx", "base_wy", "base_wz"});
+  return *kBaseVelocityDofNames;
 }
 
 }  // namespace humanoid

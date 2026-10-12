@@ -44,8 +44,7 @@ namespace ocs2 {
  */
 class RungeKuttaDormandPrince5 : public IntegratorBase {
  public:
-  explicit RungeKuttaDormandPrince5(std::shared_ptr<SystemEventHandler> eventHandlerPtr = nullptr)
-      : IntegratorBase(std::move(eventHandlerPtr)){};
+  RungeKuttaDormandPrince5() = default;
 
   ~RungeKuttaDormandPrince5() override = default;
 

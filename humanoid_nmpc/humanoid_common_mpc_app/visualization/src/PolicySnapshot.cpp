@@ -30,7 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc_app/visualization/PolicySnapshot.h"
 
 #include "absl/base/nullability.h"
+#include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/misc/LinearInterpolation.h"
+#include "ocs2_oc/oc_data/StateTrajectoryInterpolation.h"
 
 namespace ocs2::humanoid::visualization {
 
@@ -55,13 +57,18 @@ bool isConsistentPlan(const PolicySnapshot& plan, size_t stateDim, size_t inputD
   return true;
 }
 
-void samplePlan(const PolicySnapshot& plan, scalar_t time, vector_t* absl_nonnull state, vector_t* absl_nonnull input) {
-  const LinearInterpolation::index_alpha_t indexAlpha = LinearInterpolation::timeSegment(time, plan.time);
-  *state = LinearInterpolation::interpolate(indexAlpha, plan.state);
-  *input = LinearInterpolation::interpolate(indexAlpha, plan.input);
+void samplePlan(const PolicySnapshot& plan,
+                const StateManifold* absl_nonnull stateManifold,
+                scalar_t time,
+                vector_t* absl_nonnull state,
+                vector_t* absl_nonnull input) {
+  // Both through LinearInterpolation's time lookup.
+  *state = interpolateStateTrajectory(stateManifold, time, plan.time, plan.state);
+  *input = LinearInterpolation::interpolate(time, plan.time, plan.input);
 }
 
 TargetSample sampleTarget(const TargetTrajectories& target,
+                          const StateManifold* absl_nonnull stateManifold,
                           scalar_t time,
                           size_t stateDim,
                           size_t inputDim,
@@ -75,8 +82,7 @@ TargetSample sampleTarget(const TargetTrajectories& target,
       return TargetSample::kNone;
     }
   }
-  const LinearInterpolation::index_alpha_t indexAlpha = LinearInterpolation::timeSegment(time, target.timeTrajectory);
-  *state = LinearInterpolation::interpolate(indexAlpha, target.stateTrajectory);
+  *state = interpolateStateTrajectory(stateManifold, time, target.timeTrajectory, target.stateTrajectory);
   if (target.inputTrajectory.size() != target.timeTrajectory.size()) {
     return TargetSample::kState;
   }
@@ -85,7 +91,7 @@ TargetSample sampleTarget(const TargetTrajectories& target,
       return TargetSample::kState;
     }
   }
-  *input = LinearInterpolation::interpolate(indexAlpha, target.inputTrajectory);
+  *input = LinearInterpolation::interpolate(time, target.timeTrajectory, target.inputTrajectory);
   return TargetSample::kStateAndInput;
 }
 

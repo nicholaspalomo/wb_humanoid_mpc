@@ -49,8 +49,8 @@ namespace ocs2::humanoid {
  * something an engineer can turn: an amplitude, a frequency and a phase.
  *
  * Because it is a limit cycle at gait frequency it is also the heuristic that could not be expressed by shaping the
- * target trajectory, whose three knots over a one-second horizon would sample two or three whole periods and
- * interpolate linearly between the samples. It only works at the per-node seam.
+ * target trajectory, whose knots over a one-second horizon, placed by the command (three on a straight walk), would
+ * sample two or three whole periods and interpolate linearly between the samples. It only works at the per-node seam.
  */
 class PeriodicOrientationHeuristic final : public BasePoseHeuristic {
  public:

@@ -35,22 +35,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 
 #include <ocs2_core/NumericTraits.h>
-#include <ocs2_core/misc/Numerics.h>
 
 #include "absl/base/nullability.h"
-#include "absl/log/check.h"
 
 namespace ocs2 {
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-void RolloutBase::setStateManifold(std::shared_ptr<const StateManifold> stateManifold) {
-  CHECK(stateManifold == nullptr || supportsStateManifold())
-      << "[RolloutBase::setStateManifold] This rollout does not support a state manifold: it would neither project its "
-         "states nor keep the manifold when cloned. Use a TimeTriggeredRollout.";
-  stateManifoldPtr_ = std::move(stateManifold);
-}
 
 /******************************************************************************************************/
 /******************************************************************************************************/

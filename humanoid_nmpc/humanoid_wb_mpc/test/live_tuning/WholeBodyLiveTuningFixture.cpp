@@ -46,7 +46,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
+#include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/reference/ModeSchedule.h"
+#include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
@@ -178,6 +180,15 @@ std::unique_ptr<WBMpcInterface> createWholeBodyMpc(const mpc_config::TaskFile& t
   return created.ok() ? *std::move(created) : nullptr;
 }
 
+void expectQuaternionLayout(const WBMpcInterface& interface) {
+  const std::shared_ptr<const StateManifold>& manifold = interface.getStateManifold();
+  ASSERT_NE(manifold, nullptr) << "the whole-body MPC runs on no state manifold";
+  EXPECT_EQ(interface.getOptimalControlProblem().stateManifoldPtr, manifold) << "the problem's state manifold is not the interface's";
+  EXPECT_EQ(manifold->getAmbientDim(), manifold->getTangentDim() + 1) << "the state is not the quaternion layout";
+  EXPECT_EQ(manifold->getAmbientDim(), interface.getMpcRobotModel().getStateDim());
+  EXPECT_EQ(manifold->getTangentDim(), interface.getMpcRobotModel().getStateTangentDim());
+}
+
 WBMpcInterface* absl_nullable shippedWholeBodyMpc() {
   static WBMpcInterface* absl_nullable const kInterface = createWholeBodyMpc(shippedTaskFile()).release();
   return kInterface;
@@ -204,7 +215,8 @@ std::vector<EvaluationPoint> evaluationPoints(const WBMpcInterface& interface, s
   std::mt19937 generator(20'261'005);
   std::uniform_real_distribution<scalar_t> unit(-1.0, 1.0);
   const WBAccelMpcRobotModel<scalar_t>& model = interface.getMpcRobotModel();
-  const Eigen::Index numCoordinates = static_cast<Eigen::Index>(model.getGenCoordinatesDim());
+  // The state is [q, v]: its first getConfigurationDim() entries are the configuration.
+  const Eigen::Index numCoordinates = static_cast<Eigen::Index>(model.getConfigurationDim());
   const Eigen::Index numWrenchInputs = static_cast<Eigen::Index>(6 * kNumContacts);
   // Inside the swing, and in stance before and after it.
   const std::vector<scalar_t> times = {0.1, 0.3, 0.45, -0.4, 0.9};

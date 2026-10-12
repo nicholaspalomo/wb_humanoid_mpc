@@ -48,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/MujocoUtils.h"
+#include "mujoco_sim_interface/viewer/ViewerNames.h"
 #include "robot_model/RobotJointAction.h"
 
 /*
@@ -92,7 +93,7 @@ std::unique_ptr<MujocoSimInterface> makeSimOf(const WeldedScene& robot,
                                               absl::string_view hold = kWeldConstraintGantryHoldName) {
   MujocoSimConfig config;
   config.scenePath = robot.scene;
-  config.headless = true;
+  config.viewer.names = {kNoViewerName};
   config.isGantryLocked = gantryLocked;
   config.gantryHold = std::string(hold);
   // A render snapshot after every step, so readLatestMjState shows the state of the step just taken.

@@ -97,7 +97,12 @@ class HotUpdateTarget {
   const StateInputLayout& layout() const { return *layout_; }
   /** The contacts of the layout, in input order. */
   const std::vector<std::string>& contactNames() const { return layout_->contactNames; }
-  size_t stateDim() const { return stateDim_; }
+  /**
+   * Rows of the task file's state_weights and final_state_weights: tuningDimension() of the layout. The quadratic state
+   * costs' setters compare a converted Q with the running problem's tuning dimension, the robot model's
+   * getStateTangentDim().
+   */
+  size_t tuningDim() const { return tuningDim_; }
   /** The dimension of the OCP input: with basis-vector contact inputs the basis-space one, not the wrench-space one. */
   size_t inputDim() const { return inputDim_; }
 
@@ -124,7 +129,7 @@ class HotUpdateTarget {
   SqpSolver* absl_nonnull solver_;
   SwitchedModelReferenceManager* absl_nullable referenceManager_;
   const StateInputLayout* absl_nonnull layout_;
-  size_t stateDim_ = 0;
+  size_t tuningDim_ = 0;
   size_t inputDim_ = 0;
   std::string source_;
   // The blocks converted on first use: whether each was converted, and its value (nullopt: refused).

@@ -35,8 +35,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/dynamics/ControlledSystemBase.h>
 #include <ocs2_core/integration/Integrator.h>
-#include <ocs2_core/integration/StateTriggeredEventHandler.h>
-#include <ocs2_core/integration/SystemEventHandler.h>
 
 #include "ocs2_oc/rollout/RolloutBase.h"
 
@@ -60,19 +58,11 @@ class TimeTriggeredRollout : public RolloutBase {
   TimeTriggeredRollout& operator=(const TimeTriggeredRollout&) = delete;
   TimeTriggeredRollout* absl_nonnull clone() const override;
 
-  bool supportsStateManifold() const override { return true; }
-
-  /** Returns the underlying dynamics. */
-  ControlledSystemBase* absl_nonnull systemDynamicsPtr() { return systemDynamicsPtr_.get(); }
-
-  void abortRollout() override { systemEventHandlersPtr_->killIntegration_ = true; }
-  void reactivateRollout() override { systemEventHandlersPtr_->killIntegration_ = false; }
-
   vector_t run(scalar_t initTime,
                const vector_t& initState,
                scalar_t finalTime,
                ControllerBase* absl_nullable controller,
-               ModeSchedule& modeSchedule,
+               const ModeSchedule& modeSchedule,
                scalar_array_t& timeTrajectory,
                size_array_t& postEventIndices,
                vector_array_t& stateTrajectory,
@@ -81,8 +71,6 @@ class TimeTriggeredRollout : public RolloutBase {
  private:
   std::unique_ptr<PreComputation> preCompPtr_;
   std::unique_ptr<ControlledSystemBase> systemDynamicsPtr_;
-
-  std::shared_ptr<SystemEventHandler> systemEventHandlersPtr_;
 
   std::unique_ptr<IntegratorBase> dynamicsIntegratorPtr_;
 };

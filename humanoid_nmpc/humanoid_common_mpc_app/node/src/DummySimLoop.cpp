@@ -69,13 +69,13 @@ absl::StatusOr<std::unique_ptr<DummySimLoop>> DummySimLoop::Create(std::unique_p
   if (!std::isfinite(config.mpcDesiredFrequency)) {
     return absl::InvalidArgumentError(absl::StrCat("DummySimLoop: the MPC frequency is ", config.mpcDesiredFrequency, " Hz"));
   }
-  std::unique_ptr<DummySimLoop> loop = absl::WrapUnique(new DummySimLoop(std::move(bus), config));
-  ASSIGN_OR_RETURN(loop->link_, ipc::RemoteMpcLink::Create(*loop->bus_, loop->supervisor_, config.link));
+  std::unique_ptr<DummySimLoop> loop = absl::WrapUnique(new DummySimLoop(std::move(bus), std::move(config)));
+  ASSIGN_OR_RETURN(loop->link_, ipc::RemoteMpcLink::Create(*loop->bus_, loop->supervisor_, loop->config_.link));
   loop->link_->initRollout(&rollout);
   return loop;
 }
 
-DummySimLoop::DummySimLoop(std::unique_ptr<robot::ipc::Bus> bus, Config config) : bus_(std::move(bus)), config_(config) {}
+DummySimLoop::DummySimLoop(std::unique_ptr<robot::ipc::Bus> bus, Config config) : bus_(std::move(bus)), config_(std::move(config)) {}
 
 DummySimLoop::~DummySimLoop() {
   // Before the link and the supervisor its callbacks reach are destroyed.
@@ -90,8 +90,8 @@ absl::Status DummySimLoop::run(const SystemObservation& initialObservation, cons
   publishLatest(initialObservation);
   RETURN_IF_ERROR(bus_->start());
 
-  // As the ROS dummy did. The remote link sends the request in the observation's counters; the MPC node resets to the
-  // target its own reset target function makes of the observation, not to this one.
+  // A full reset of the MPC node. The remote link sends the request in the observation's counters; the MPC node resets
+  // to the target its own reset target function makes of the observation, not to this one.
   link_->resetMpcNode(TargetTrajectories({initialObservation.time}, {initialObservation.state}, {initialObservation.input}));
   LOG(INFO) << "[DummySim] Waiting for the initial policy of the MPC node ...";
   if (!awaitInitialPolicy(initialObservation, shouldStop)) {

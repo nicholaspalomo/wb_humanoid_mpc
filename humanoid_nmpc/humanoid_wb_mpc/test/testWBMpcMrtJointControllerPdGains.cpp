@@ -50,7 +50,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 #include "ocs2_mpc/MPC_Settings.h"
 #include "ocs2_mpc_test/ScriptedMpc.h"
-#include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/solver/SolverSettingsFromConfig.h"
@@ -108,19 +107,22 @@ class WholeBodyPdGainsHarness {
         robotState_(description_),
         action_(description_) {
     const vector_t initialState =
-        stateValuesFromConfig(task_.initial_state, stateInputLayout(modelSettings_, StateInputLayout::Mpc::kWholeBody), "initial_state")
+        model_
+            .stateFromTuning(stateValuesFromConfig(task_.initial_state, stateInputLayout(modelSettings_, StateInputLayout::Mpc::kWholeBody),
+                                                   "initial_state")
+                                 .value())
             .value();
     mpcJointIndices_ = description_.getJointIndices(modelSettings_.mpcModelJointNames);
     otherJointIndices_ = description_.getJointIndices(modelSettings_.fixedJointNames);
     robotState_.setRootPositionInWorldFrame(model_.getBasePosition(initialState));
-    robotState_.setRootRotationLocalToWorldFrame(
-        getQuaternionFromEulerAnglesZyx(vector3_t(model_.getBaseOrientationEulerZYX(initialState))));
+    robotState_.setRootRotationLocalToWorldFrame(quaternion_t(model_.getBaseOrientation(initialState)));
     const vector_t joints = model_.getJointAngles(initialState);
     for (size_t i = 0; i < mpcJointIndices_.size(); ++i) robotState_.setJointPosition(mpcJointIndices_[i], joints[i]);
     robotState_.setContactFlag(/*index=*/0, /*contactFlag=*/true);
     robotState_.setContactFlag(/*index=*/1, /*contactFlag=*/true);
-    absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> created = WBMpcMrtJointController::Create(
-        description_, modelSettings_, mpc_, pinocchioInterface_, /*mpcDesiredFrequency=*/1000.0, pdGainsFile);
+    absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> created =
+        WBMpcMrtJointController::Create(description_, modelSettings_, mpc_, /*solverObservationObserver=*/nullptr, pinocchioInterface_,
+                                        /*mpcDesiredFrequency=*/1000.0, pdGainsFile);
     if (created.ok()) {
       controller_ = *std::move(created);
     } else {

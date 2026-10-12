@@ -36,8 +36,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_common_mpc/contact_planning/execution/PlanCoverage.h"
+#include "humanoid_common_mpc/orientation/BaseOrientation.h"
 
 namespace ocs2::humanoid {
+
+scalar_t acomHeadingOffset(const AngularCenterOfMass& acom, const vector_t& jointAngles) {
+  return twistHeading(quaternionExp(acom.computeJointOrientationOffset(jointAngles)));
+}
 
 std::string PlannedHeadingOverride::describe() const {
   return "the plan's heading replaces the commanded base yaw of the MPC target trajectory";
@@ -56,11 +61,11 @@ void PlannedHeadingOverride::overrideTarget(const ExecutionContext& ctx, TargetT
     const std::optional<scalar_t> heading = plan.headingAtTime(time);
     if (!heading.has_value()) continue;
     vector_t& stateRef = targetTrajectories.stateTrajectory[i];
-    vector3_t euler = mpcRobotModel_->getBaseOrientationEulerZYX(stateRef);
+    vector3_t euler = mpcRobotModel_->getBaseOrientationEulerZyx(stateRef);
     scalar_t offset = 0.0;
-    if (acom != nullptr) offset = acomXyzToZyx(acom->computeJointOrientationOffset(mpcRobotModel_->getJointAngles(stateRef)))(0);
+    if (acom != nullptr) offset = acomHeadingOffset(*acom, mpcRobotModel_->getJointAngles(stateRef));
     euler(0) = moduloAngleWithReference(*heading - offset, euler(0));
-    mpcRobotModel_->setBaseOrientationEulerZYX(stateRef, euler);
+    mpcRobotModel_->setBaseOrientationEulerZyx(stateRef, euler);
   }
 }
 

@@ -5,13 +5,13 @@ package humanoid_rerun_viewer_proto;
 import "nproto/options.proto";
 
 // A plot configuration for humanoid_rerun_viewer: the topics, signals, wildcards, or tabs/panels to plot on 2D line
-// graphs in Rerun.
+// graphs in Rerun, and the MuJoCo viewer the robot process of a simulation starts.
 //
-// Next ID: 5
+// Next ID: 6
 message PlotConfig {
   option (nproto.generate_struct) = "ocs2::humanoid::rerun::PlotConfig";
 
-  reserved 5 to max;
+  reserved 6 to max;
 
   // The signals, telemetry/status paths (e.g. "base_pose/position_x", "status/mpc/*"), wildcards (e.g. "joints/*"),
   // or contract tab/panel titles (e.g. "Base Pose & Euler", "Joint Positions & Targets") to plot on 2D line graphs.
@@ -28,4 +28,13 @@ message PlotConfig {
   // Whether to draw the end-of-trajectory / horizon robot visualization ("terminal_state").
   // Defaults to true when unset.
   optional bool draw_terminal_state = 4;
+
+  // The MuJoCo viewer of the robot process, by registry name (robot_runtime/mujoco_sim_interface/README.md, "Viewers"):
+  // "glfw" (a window on DISPLAY), "web" (a browser tab at http://localhost:6090) or "none"; several are a preference
+  // list tried in order, e.g. ["web", "none"]. The robot process reads it from its --plot_config when no --viewer is
+  // given (the Makefile's VIEWER=, WB_ROBOT_VIEWER), and refuses an unknown name at start-up.
+  // LINT.IfChange(default_mujoco_viewer)
+  // Empty: "web".
+  repeated string mujoco_viewer = 5;
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/RobotAppOptions.h:default_viewer)
 }

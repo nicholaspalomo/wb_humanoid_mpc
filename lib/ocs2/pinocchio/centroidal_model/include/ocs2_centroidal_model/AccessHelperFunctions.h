@@ -91,16 +91,30 @@ const Eigen::Block<const Derived, 6, 1> getNormalizedMomentum(const Eigen::Matri
                                                               const CentroidalModelInfoTpl<SCALAR>& info);
 
 /**
- * Provides read/write access to the base pose.
+ * Provides read/write access to the base position p_W (3 entries at 6), in the world frame.
  */
 template <typename Derived, typename SCALAR>
-Eigen::Block<Derived, 6, 1> getBasePose(Eigen::MatrixBase<Derived>& state, const CentroidalModelInfoTpl<SCALAR>& info);
+Eigen::Block<Derived, 3, 1> getBasePosition(Eigen::MatrixBase<Derived>& state, const CentroidalModelInfoTpl<SCALAR>& info);
 
 /**
- * Provides read access to the base pose.
+ * Provides read access to the base position p_W.
  */
 template <typename Derived, typename SCALAR>
-const Eigen::Block<const Derived, 6, 1> getBasePose(const Eigen::MatrixBase<Derived>& state, const CentroidalModelInfoTpl<SCALAR>& info);
+const Eigen::Block<const Derived, 3, 1> getBasePosition(const Eigen::MatrixBase<Derived>& state, const CentroidalModelInfoTpl<SCALAR>& info);
+
+/**
+ * Provides read/write access to the base orientation xi (4 entries at 9): the coefficients (x, y, z, w) of the quaternion
+ * from the base frame to the world, as the state stores them, not normalized.
+ */
+template <typename Derived, typename SCALAR>
+Eigen::Block<Derived, 4, 1> getBaseQuaternion(Eigen::MatrixBase<Derived>& state, const CentroidalModelInfoTpl<SCALAR>& info);
+
+/**
+ * Provides read access to the base orientation xi, as the state stores it.
+ */
+template <typename Derived, typename SCALAR>
+const Eigen::Block<const Derived, 4, 1> getBaseQuaternion(const Eigen::MatrixBase<Derived>& state,
+                                                          const CentroidalModelInfoTpl<SCALAR>& info);
 
 /**
  * Provides read/write access to the joint angles.
@@ -116,17 +130,27 @@ const Eigen::Block<const Derived, -1, 1> getJointAngles(const Eigen::MatrixBase<
                                                         const CentroidalModelInfoTpl<SCALAR>& info);
 
 /**
- * Provides read/write access to the generalized coordinates.
+ * Provides read/write access to the generalized coordinates [p_W, xi, q_j] (nq = info.configurationDim entries at 6), as
+ * the state stores them: the quaternion is not normalized (CentroidalModelPinocchioMapping::getPinocchioJointPosition()
+ * normalizes it).
  */
 template <typename Derived, typename SCALAR>
 Eigen::Block<Derived, -1, 1> getGeneralizedCoordinates(Eigen::MatrixBase<Derived>& state, const CentroidalModelInfoTpl<SCALAR>& info);
 
 /**
- * Provides read access to the generalized coordinates.
+ * Provides read access to the generalized coordinates, as the state stores them.
  */
 template <typename Derived, typename SCALAR>
 const Eigen::Block<const Derived, -1, 1> getGeneralizedCoordinates(const Eigen::MatrixBase<Derived>& state,
                                                                    const CentroidalModelInfoTpl<SCALAR>& info);
+
+/**
+ * Provides read/write access to the rows of a state derivative that hold the time derivative of the generalized
+ * coordinates: d/dt [p_W, xi, q_j] (nq entries at 6), which computeConfigurationDerivative() computes from the pinocchio
+ * velocity v (nv entries).
+ */
+template <typename Derived, typename SCALAR>
+Eigen::Block<Derived, -1, 1> configurationDerivative(Eigen::MatrixBase<Derived>& stateDerivative, const CentroidalModelInfoTpl<SCALAR>& info);
 
 }  // namespace centroidal_model
 }  // namespace ocs2

@@ -48,9 +48,6 @@ struct AnnotatedTime {
   explicit AnnotatedTime(scalar_t t, Event e = Event::None) : time(t), event(e){};
 };
 
-/** Computes the time at which to interpolate, respecting interpolation rules around event times */
-scalar_t getInterpolationTime(const AnnotatedTime& annotatedTime);
-
 /** Computes the interval start that respects interpolation rules around event times */
 scalar_t getIntervalStart(const AnnotatedTime& start);
 
@@ -83,14 +80,6 @@ std::vector<AnnotatedTime> timeDiscretizationWithEvents(scalar_t initTime, scala
  * @return The time trajectory.
  */
 scalar_array_t toTime(const std::vector<AnnotatedTime>& annotatedTime);
-
-/**
- * Extracts the time trajectory from the annotated time trajectory respecting interpolation rules around event times.
- *
- * @param annotatedTime : Annotated time trajectory.
- * @return The time trajectory.
- */
-scalar_array_t toInterpolationTime(const std::vector<AnnotatedTime>& annotatedTime);
 
 /**
  * Extracts the array of indices indicating the post-event times from the annotated time trajectory.

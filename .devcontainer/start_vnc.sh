@@ -30,8 +30,7 @@ RESOLUTION="${DEFAULT_RESOLUTION}"
 if [ "${1:-}" = "stop" ]; then
     MODE="stop"
 elif [ -n "${1:-}" ]; then
-    # Anything else must be a resolution: there is a single display, and a stale call naming a display mode is refused
-    # instead of starting an X server of that geometry.
+    # Anything else must be a resolution: another argument is refused before any X server starts.
     if [[ ! "$1" =~ ^[0-9]+x[0-9]+$ ]]; then
         echo "usage: $0 [WIDTHxHEIGHT | stop]  (got '$1'; there is a single display, ${VNC_DISPLAY:-:99})" >&2
         exit 2

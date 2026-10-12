@@ -100,7 +100,7 @@ TEST(CppAdLibraryDimensionCheck, AStaleDomainThrowsAndNamesTheFolder) {
     const std::string message = error.what();
     EXPECT_NE(message.find(newLayout.getLibraryFolder()), std::string::npos) << message;
     EXPECT_NE(message.find("domain is 4"), std::string::npos) << message;
-    EXPECT_NE(message.find("recompileLibrariesCppAd"), std::string::npos) << message;
+    EXPECT_NE(message.find("model_settings.recompile_libraries_cpp_ad"), std::string::npos) << message;
   }
 }
 

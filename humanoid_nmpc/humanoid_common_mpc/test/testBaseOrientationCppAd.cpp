@@ -42,8 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 
 /*
- * Step 5 of humanoid_nmpc/docs/quaternion_base_orientation/README.md: the two pieces of quaternion algebra the
- * humanoid CppAD tapes use, the safe normalization (BaseOrientation.h, on ocs2::quaternionSafeNorm) and the quaternion
+ * The two pieces of quaternion algebra the humanoid CppAD tapes use (humanoid_nmpc/docs/quaternion_base_orientation/
+ * README.md, section 2.6), the safe normalization (BaseOrientation.h, on ocs2::quaternionSafeNorm) and the quaternion
  * rate matrix (ocs2::quaternionRateMatrix, the kinematic row of the flow maps), taped as CppAdInterface tapes every MPC
  * function (at x = ones) and code-generated:
  *   - the tape records no comparison between variables, which CppADCodeGen cannot generate (the reason Eigen's
@@ -52,7 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *     differences, at random quaternions, at x = ones, below epsilon and at the zero quaternion;
  *   - in particular the reverse-mode Jacobian, the mode CppADCodeGen generates when a function has fewer outputs than
  *     inputs (every cost), is finite at the zero quaternion. Guarding the norm instead of the squared norm makes it NaN
- *     there (Step 0, testQuaternionRootJointCppAd.cpp); that guard is the positive control.
+ *     there (testQuaternionRootJointCppAd.cpp); that guard is the positive control.
  * It compiles three small libraries, so it runs alone (tags = ["exclusive"]).
  */
 

@@ -42,7 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/misc/Collection.h"
-#include "ocs2_core/penalties/augmented/AugmentedPenaltyBase.h"
+#include "ocs2_core/penalties/penalties/PenaltyBase.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
 
 /**
@@ -102,10 +102,10 @@ bool carriesTerm(const Collection<Term>& collection, const std::string& name) {
   return collection.getTermNameMap().contains(name);
 }
 
-/** Hands `parameters` to every penalty of `softConstraint`; PenaltyBaseWrapper delegates them to the penalty it wraps. */
+/** Hands `parameters` to every penalty of `softConstraint`. */
 template <typename SoftConstraint>
 void setPenaltyParameters(SoftConstraint& softConstraint, const vector_t& parameters) {
-  for (std::unique_ptr<augmented::AugmentedPenaltyBase>& penalty : softConstraint.getPenalty().getPenaltyPtrArray()) {
+  for (std::unique_ptr<PenaltyBase>& penalty : softConstraint.getPenalty().getPenaltyPtrArray()) {
     penalty->setParameters(parameters);
   }
 }
@@ -122,10 +122,9 @@ std::optional<T> convertedOrReported(absl::StatusOr<T> converted, absl::string_v
 
 /**
  * Sets the weight of the soft term `<foot><termSuffix>` of every foot of `contactNames` in every problem of `problems`
- * (its QuadraticPenalty, wrapped inside a PenaltyBaseWrapper, whose setParameters() delegates to
- * QuadraticPenalty::setParameters()). A term the problem does not list has no penalty to scale, which is not a failure.
- * Precondition: `weight` is finite and positive, as footConstraintFromConfig() holds both soft weights of the foot
- * constraints to at start-up and on a reload alike.
+ * (its QuadraticPenalty, through QuadraticPenalty::setParameters()). A term the problem does not list has no penalty to
+ * scale, which is not a failure. Precondition: `weight` is finite and positive, as footConstraintFromConfig() holds
+ * both soft weights of the foot constraints to at start-up and on a reload alike.
  */
 void setSoftTermWeight(std::vector<OptimalControlProblem>& problems,
                        const std::vector<std::string>& contactNames,

@@ -692,8 +692,8 @@ class FormulationWarningsTest(unittest.TestCase):
         self,
     ):
         # The MPC refuses a task file that still carries use_com_and_acom_tracking, so the report says so, and the key
-        # no longer counts as the ACoM cost being listed - even when it is true. The strict parser refuses the YAML's
-        # camelCase spelling of the name too, and so does the report.
+        # does not count as the ACoM cost being listed - even when it is true. The strict parser refuses the camelCase
+        # spelling of the name too, and so does the report.
         for key in ("use_com_and_acom_tracking", "useComAndAcomTracking"):
             for value in (True, False):
                 with self.subTest(key=key, value=value):
@@ -965,9 +965,8 @@ class ShippedConfigurationTest(unittest.TestCase):
                     )
 
     def test_uncommenting_one_name_turns_on_exactly_that_name(self):
-        # The documented opt-in is "uncomment one name". In the YAML files the lists once shipped as `base_pose: []`,
-        # after which that edit was not YAML at all (HC1) - so every name offered under every list is uncommented here,
-        # one at a time, and the file must still parse and list exactly that name.
+        # The documented opt-in is "uncomment one name", so every name offered under every list is uncommented here, one
+        # at a time, and the file must still parse and list exactly that name.
         for robot in sorted(derive.ROBOTS):
             lines = _read_text(_task_file(robot)).splitlines(keepends=True)
             for kind, known in EXPECTED_HEURISTIC_NAMES.items():

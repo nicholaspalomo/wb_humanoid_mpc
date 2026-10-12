@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/fwd.hpp"  // forward declarations must be included first.
 
 #include <chrono>
+#include <cmath>
 #include <memory>
 #include <string>
 #include <thread>
@@ -40,7 +41,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 #include "ocs2_mpc/MPC_Settings.h"
 #include "ocs2_mpc_test/ScriptedMpc.h"
-#include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "humanoid_common_mpc/mrt/MpcLink.h"
+#include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
@@ -61,8 +62,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /*
  * wbMpcResetTargetTrajectories(), the one reset target of the whole-body MPC: the observation held still and upright
- * with the weight on both feet, and exactly what the MRT joint controller hands its MPC link, so that the in-process
- * link and the MPC node (which calls the function itself) reset to the same target.
+ * at the twist heading of its attitude with the weight on both feet, and exactly what the MRT joint controller hands its
+ * MPC link, so that the in-process link and the MPC node (which calls the function itself) reset to the same target.
  */
 
 namespace ocs2::humanoid {
@@ -79,9 +80,12 @@ class G1Model {
         pinocchioInterface_(loadCustomPinocchioInterface(task_, urdfFile_, modelSettings_).value()),
         model_(modelSettings_),
         description_(robot::model::RobotDescription::Create(urdfFile_).value()),
-        initialState_(
-            stateValuesFromConfig(task_.initial_state, stateInputLayout(modelSettings_, StateInputLayout::Mpc::kWholeBody), "initial_state")
-                .value()) {}
+        initialState_(model_
+                          .stateFromTuning(stateValuesFromConfig(task_.initial_state,
+                                                                 stateInputLayout(modelSettings_, StateInputLayout::Mpc::kWholeBody),
+                                                                 "initial_state")
+                                               .value())
+                          .value()) {}
 
   const ModelSettings& modelSettings() const { return modelSettings_; }
   const PinocchioInterface& pinocchioInterface() const { return pinocchioInterface_; }
@@ -94,11 +98,14 @@ class G1Model {
     SystemObservation observation;
     observation.time = time;
     observation.state = initialState_;
-    observation.state(0) += 0.3;   // base x
-    observation.state(3) += 0.4;   // yaw
-    observation.state(4) = 0.05;   // pitch
-    observation.state(5) = -0.03;  // roll
-    observation.state.tail(model_.getGenCoordinatesDim()).setConstant(0.2);
+    // Moved along x, turned by 0.4 rad and tilted, through the robot model's accessors: the state stores a quaternion.
+    vector6_t basePose = model_.getBasePoseEulerZyx(initialState_);
+    basePose(0) += 0.3;
+    basePose(3) += 0.4;
+    basePose(4) = 0.05;
+    basePose(5) = -0.03;
+    model_.setBasePoseEulerZyx(observation.state, basePose);
+    observation.state.tail(model_.getVelocityDim()).setConstant(0.2);
     observation.input = vector_t::Zero(model_.getInputDim());
     observation.mode = ModeNumber::kStance;
     return observation;
@@ -138,15 +145,15 @@ TEST(WBMpcResetTarget, HoldsTheObservedConfigurationStillAndUprightWithTheWeight
   EXPECT_EQ(target.inputTrajectory.front(), target.inputTrajectory.back());
 
   const vector_t& state = target.stateTrajectory.front();
-  const size_t numCoordinates = g1.model().getGenCoordinatesDim();
-  EXPECT_TRUE(state.tail(numCoordinates).isZero(0.0));
-  EXPECT_EQ(state(4), 0.0);
-  EXPECT_EQ(state(5), 0.0);
-  // The configuration is observed: position, yaw and the joints.
-  for (Eigen::Index i = 0; i < static_cast<Eigen::Index>(numCoordinates); ++i) {
-    if (i == 4 || i == 5) continue;
-    EXPECT_EQ(state(i), observation.state(i)) << "state entry " << i;
-  }
+  EXPECT_TRUE(state.tail(g1.model().getVelocityDim()).isZero(0.0));
+  // Upright at the observed heading, the twist of the observed attitude (design decision D9).
+  const vector3_t eulerZyx = g1.model().getBaseOrientationEulerZyx(state);
+  EXPECT_NEAR(eulerZyx(0), g1.model().getBaseHeading(observation.state), 1.0e-12);
+  EXPECT_EQ(eulerZyx(1), 0.0);
+  EXPECT_EQ(eulerZyx(2), 0.0);
+  // The rest of the configuration is observed: the position and the joints.
+  EXPECT_EQ(g1.model().getBasePosition(state), g1.model().getBasePosition(observation.state));
+  EXPECT_EQ(g1.model().getJointAngles(state), g1.model().getJointAngles(observation.state));
 
   // The robot's weight, carried by both feet in the world frame.
   const vector_t& input = target.inputTrajectory.front();
@@ -155,6 +162,34 @@ TEST(WBMpcResetTarget, HoldsTheObservedConfigurationStillAndUprightWithTheWeight
   const scalar_t weight = computeRobotWeight(g1.pinocchioInterface());
   EXPECT_NEAR(left.z() + right.z(), weight, 1.0e-9 * weight);
   EXPECT_NEAR(left.z(), right.z(), 1.0e-9 * weight);
+}
+
+TEST(WBMpcResetTarget, IsUprightAtTheTwistHeadingOfTheObservedAttitude) {
+  const G1Model g1;
+  const WBAccelMpcRobotModel<scalar_t>& model = g1.model();
+  // Stored yaws on both sides of +-pi and beyond it, tilted: the heading of the target is the twist of the observed
+  // attitude, wrapped into (-pi, pi], which differs from the stored yaw by the wrap and by -2 atan(tan(theta / 2)
+  // tan(phi / 2)).
+  for (const vector3_t& eulerZyx : {vector3_t(3.5, 0.15, 0.15), vector3_t(-3.1, -0.2, 0.1), vector3_t(7.0, 0.05, -0.3)}) {
+    SCOPED_TRACE(eulerZyx.transpose());
+    SystemObservation observation = g1.movingObservation(/*time=*/1.0);
+    model.setBaseOrientationEulerZyx(observation.state, eulerZyx);
+    const vector_t target = wbMpcResetTargetTrajectories(observation, model, g1.pinocchioInterface()).stateTrajectory.front();
+
+    const scalar_t heading = model.getBaseHeading(observation.state);
+    const scalar_t expectedHeading =
+        std::remainder(eulerZyx(0) - 2.0 * std::atan(std::tan(eulerZyx(1) / 2.0) * std::tan(eulerZyx(2) / 2.0)), 2.0 * M_PI);
+    EXPECT_NEAR(heading, expectedHeading, 1.0e-12);
+    const vector3_t targetEulerZyx = model.getBaseOrientationEulerZyx(target);
+    EXPECT_NEAR(targetEulerZyx(0), heading, 1.0e-12);
+    EXPECT_GT(targetEulerZyx(0), -M_PI);
+    EXPECT_LE(targetEulerZyx(0), M_PI);
+    EXPECT_EQ(targetEulerZyx(1), 0.0);
+    EXPECT_EQ(targetEulerZyx(2), 0.0);
+    // Its attitude is the heading quaternion of the observed one, up to the sign of the quaternion.
+    const vector4_t expected = headingQuaternion(model.getBaseOrientation(observation.state));
+    EXPECT_NEAR(std::abs(model.getBaseOrientation(target).dot(expected)), 1.0, 1.0e-15);
+  }
 }
 
 TEST(WBMpcResetTarget, IsWhatTheControllerHandsItsMpcLink) {
@@ -184,8 +219,7 @@ TEST(WBMpcResetTarget, IsWhatTheInProcessLinkResetsTheMpcTo) {
   const vector_t& initialState = g1.initialState();
   robotState.setTime(2.0);
   robotState.setRootPositionInWorldFrame(g1.model().getBasePosition(initialState));
-  robotState.setRootRotationLocalToWorldFrame(
-      getQuaternionFromEulerAnglesZyx(vector3_t(g1.model().getBaseOrientationEulerZYX(initialState))));
+  robotState.setRootRotationLocalToWorldFrame(quaternion_t(g1.model().getBaseOrientation(initialState)));
   const std::vector<size_t> jointIndices = g1.description().getJointIndices(g1.modelSettings().mpcModelJointNames);
   const vector_t joints = g1.model().getJointAngles(initialState);
   for (size_t i = 0; i < jointIndices.size(); ++i) robotState.setJointPosition(jointIndices[i], joints[i]);
@@ -194,7 +228,8 @@ TEST(WBMpcResetTarget, IsWhatTheInProcessLinkResetsTheMpcTo) {
   {
     // The default constructor's link: InProcessMpcLink, which resets the MPC fully from the start observation.
     absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> created =
-        WBMpcMrtJointController::Create(g1.description(), g1.modelSettings(), mpc, g1.pinocchioInterface(), /*mpcDesiredFrequency=*/100.0);
+        WBMpcMrtJointController::Create(g1.description(), g1.modelSettings(), mpc, /*solverObservationObserver=*/nullptr,
+                                        g1.pinocchioInterface(), /*mpcDesiredFrequency=*/100.0);
     ASSERT_TRUE(created.ok()) << created.status();
     WBMpcMrtJointController& controller = **created;
     controller.startMpcThread(robotState);

@@ -56,8 +56,8 @@ enum class Updater {
 /**
  * The whole-body MPC of a task file around the SQP solver, as the MPC node runs it, with or without the parameter
  * updater registered (makeWholeBodyMpcParameterUpdater(), no file watched), on the G1 standing still and then stepping
- * once with each foot (walkingSchedule()). The robot is the MPC's own model: it moves as the last policy predicts. Not
- * thread-safe; one test drives it.
+ * once with each foot (walkingSchedule()). The robot is the MPC's own model: it moves as the last policy predicts, on the
+ * state manifold. Not thread-safe; one test drives it.
  */
 class WholeBodySolverStack {
  public:
@@ -85,6 +85,12 @@ class WholeBodySolverStack {
    * (the swing trajectory planner's configuration) is then in the swing trajectories the terms read.
    */
   void replanReferences();
+
+  /**
+   * Expects the stack to solve on the quaternion layout: its interface's (expectQuaternionLayout()), and every worker of
+   * its solver on the interface's state manifold.
+   */
+  void expectQuaternionLayout();
 
   /** Runs `count` solves, one per kSolvePeriod of solver time from where the last left off, and returns each policy. */
   std::vector<PrimalSolution> solve(size_t count);

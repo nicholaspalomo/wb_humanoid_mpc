@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/RobotBackend.h"
 #include "mujoco_sim_interface/MujocoContactPatch.h"
+#include "mujoco_sim_interface/viewer/ViewerSettings.h"
 #include "robot_model/RobotState.h"
 
 namespace ocs2::humanoid {
@@ -74,8 +75,11 @@ struct RobotBackendOptions {
   /** The target contact patches the viewer draws, per contact; empty: none (no contact planner). */
   std::vector<robot::mujoco_sim_interface::ContactPatchCorners> contactPatchCorners;
   SimulatorSettings simulator;
-  /** No viewer window (--headless): the robot-runtime image has no GL, and the tests have no display. */
-  bool headless = false;
+  /**
+   * The simulator's viewer by name, in order of preference, and the web viewer's options (--viewer, --web_viewer_*,
+   * --viewer_cores); a hardware backend ignores it. `none` for the robot-runtime image, which has no GL, and the tests.
+   */
+  robot::mujoco_sim_interface::ViewerSettings viewer;
 };
 
 // LINT.IfChange(backend_names)

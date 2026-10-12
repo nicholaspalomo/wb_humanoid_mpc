@@ -41,8 +41,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::mujoco_sim_interface {
 
 void BaseVelocityVisualization::addSceneGeoms(const VisualizationFrame& frame) {
-  if (frame.sim == nullptr || frame.state == nullptr || frame.scene == nullptr) return;
-  const mjModel* absl_nonnull model = frame.sim->getModel();
+  if (frame.sim == nullptr || frame.model == nullptr || frame.state == nullptr || frame.scene == nullptr) return;
+  const mjModel* absl_nonnull model = frame.model;
   const mjData* absl_nullable data = frame.state->data;
   mjvScene& scene = *frame.scene;
   if (data == nullptr || model->nq < 7 || model->nbody < 2) return;

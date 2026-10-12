@@ -60,7 +60,7 @@ configuration:
 | `SwitchedModelReferenceManager` | the gait schedule (`GaitSchedule::reset()`: the reference file's initial stance schedule and template), the lift-off positions of the feet, the measured base, CoM and yaw inertia; the target's ground offset |
 | `ContactPlanningReferenceManager` | the above, the active and the pending plan, the applied schedule, the lift-off history, the foot bookkeeping, the swing latches, the rule outputs, the NMPC prediction, the schedule shifts, the target contact poses and the operator's target; a new plan epoch |
 | `ContactPlannerModule` | the snapshot waiting for the worker and the throttle. The planner's own state (`ContactPlannerInterface::reset()`: its warm start, its previous plan) is reset by the thread that plans, at the first snapshot of the new plan epoch; a snapshot of an older epoch is not planned from |
-| `ProceduralMpcMotionManager` | the gait (`stance`), the gait-change hold-off, the acceleration ramp; then its reset hook, which resets the target calculator |
+| `ProceduralMpcMotionManager` | the gait (`stance`), the gait-change hold-off, the acceleration ramp, the stride history of the measured motion (`StrideMotionHistory`: the next solve starts it again from the exact base twist of its observation, which the targets read and the gait switches do not: they wait until the window is measured throughout) with the gaits the schedule runs, and the observation handed over before a solve; then its reset hook, which resets the target calculator |
 | `TargetTrajectoriesCalculatorBase` / `CentroidalMpcTargetTrajectoriesCalculator` | the velocity filter; the joint-state filter and its clock, so that the joint target starts again from the joints the robot has at the reset, however late it comes (it used to decay over the whole time since the filter's clock was last set, and jumped to the nominal joints) |
 | `MRT_BASE` | the policy waiting in the buffer (the policy in use is replaced by the control thread with the first policy of the new epoch) |
 
@@ -168,12 +168,11 @@ cached library of the old residual is never loaded in its place.
 
 ## 6. The whole-body controller
 
-`WBMpcMrtJointController` gained the modes of the centroidal one: ZERO_TORQUE, JOINT_PD (the nominal posture with the
+`WBMpcMrtJointController` has the modes of the centroidal one: ZERO_TORQUE, JOINT_PD (the nominal posture with the
 gravity torques of the base-held robot), GRAVITY_COMP, SAFETY (the shared decay law of
 `humanoid_common_mpc/mrt/SafetyDecay.h`) and WB_MPC with the hold of section 3. The robot process
-(`humanoid_common_mpc_app/robot`) hands it the FSM mode and the nominal posture every cycle, as the ROS-era
-`WBMpcRobotSim` came to: JOINT_PD, GRAVITY_COMP and SAFETY used to leave the whole-body MPC driving a robot caught on
-the gantry. Its reset target has two knots and carries the weight on both feet.
+(`humanoid_common_mpc_app/robot`) hands it the FSM mode and the nominal posture every cycle, so that JOINT_PD,
+GRAVITY_COMP and SAFETY never leave the whole-body MPC driving a robot caught on the gantry. Its reset target has two knots and carries the weight on both feet.
 
 ## 7. Tests
 

@@ -28,8 +28,8 @@ keyboard teleoperation ([`../teleop`](../teleop/README.md)). The binaries are bu
 A formulation's node (`CentroidalMpcNode`, `WBMpcNode`) builds the MPC and its synchronized modules and hands the
 runtime what it is made of (`MpcNodeRuntime::Components`):
 
-- `mpc`: the `SqpMpc`, with the reference manager and the synchronized modules registered in the order of the ROS
-  nodes (motion manager, contact planner, parameter updater);
+- `mpc`: the `SqpMpc`, with the reference manager and the synchronized modules registered in this order: motion
+  manager, contact planner, parameter updater;
 - `resetTargetTrajectories`: the formulation's reset target, the same free function the MRT joint controller hands its
   in-process link (`centroidalMpcResetTargetTrajectories()`, `wbMpcResetTargetTrajectories()`), so that a reset served
   by the MPC node and one served in process restart the MPC from the same target;
@@ -52,6 +52,15 @@ and without `mlockall()` (`MemoryLock::kNone`), because the solver allocates as 
 their main thread to the MPC cores before they build the MPC, so that the SQP solver's worker threads and the bus's IO
 thread inherit them.
 
+### The observation hand-over
+
+Before every solve the runtime's `MpcServer` hands the observation the solve starts from to the motion manager
+(`MpcServer::Hooks::preSolveObserver` -> `ProceduralMpcMotionManager::observe()`), on the solver thread. The MPC's
+`run()` takes the observation's time and state only, and the motion manager needs its input as well: the centroidal MRT
+writes the measured joint velocities there, without which the base twist of a centroidal state is the twist of the robot
+with its joints locked. The lockstep closed loop hands it over the same way, through
+`InProcessMpcLink::Config::solverObservationObserver` (LINT pair `observation_hand_over`).
+
 ### The visualization publisher
 
 `MpcNodeRuntime::VisualizationAttacher` is called once, by `Create()`, with the node's bus before the bus starts: the
@@ -60,15 +69,14 @@ publishes `viz/scene` and `viz/telemetry` from a thread of its own. It returns t
 server calls after every policy it publishes, on the solver thread, with the command, the solution and the performance
 index: the observer copies what it needs and returns.
 
-Both formulation nodes always attach it, as the ROS nodes always ran their visualizer:
-`CentroidalMpcNode` and `WBMpcNode` hand the runtime `visualization::VisualizationPublisher::MakeBusAttacher()` on the
+Both formulation nodes always attach it: `CentroidalMpcNode` and `WBMpcNode` hand the runtime `visualization::VisualizationPublisher::MakeBusAttacher()` on the
 MPC's own models, keep the publisher as a member declared before the runtime (so that it outlives the server whose
 observer feeds it), start it in `start()` before the runtime, and stop it in `stop()` before the runtime, which owns
 the bus. `Options::visualization` sets its thread and queue. The runtime's tests attach scripted observers instead.
 
 ## The dummy simulator: `DummySimLoop`
 
-OCS2's `MRT_ROS_Dummy_Loop` without ROS. The plant is the MPC's own model, rolled out under the policy in use
+The plant is the MPC's own model, rolled out under the policy in use
 (`MRT_BASE::rolloutPolicy()` with the formulation's `RolloutBase`), and the MPC is the MPC node, reached through an
 `ipc::RemoteMpcLink` exactly as the robot process reaches it: the dummy publishes as the bus node `robot`, so it runs
 against the same MPC node as the robot would.
@@ -79,8 +87,8 @@ against the same MPC node as the robot would.
    sent the step before (one that starts within 0.1 MPC periods of the plant's time), and it sends only that
    observation. The plant's time advances by one MPC period per solve however long a solve takes.
 3. With `mpc_desired_frequency <= 0` it runs in real time: every step takes the newest policy and sends its observation.
-4. Every step rolls the plant forward by `1 / simulationFrequency` (100 Hz centroidal, 80 Hz whole-body, as before),
-   paced on absolute deadlines (`robot::realtime::PeriodicTimer`).
+4. Every step rolls the plant forward by `1 / simulationFrequency` (100 Hz centroidal, 80 Hz whole-body), paced on
+   absolute deadlines (`robot::realtime::PeriodicTimer`).
 
 The link's health is not acted on: the plant keeps rolling the policy in use out. The dummy publishes
 `robot/mpc_observation` only, no `robot/state`.
@@ -112,7 +120,7 @@ SIGINT and SIGTERM ask for a clean shutdown (`ShutdownSignal.h`); a second one e
 | `:test_node_messages` | the velocity command clamped to the normalized ranges and refused when not finite; the annotations |
 | `:test_node_process` | SIGTERM asks for the shutdown; an empty `--network_config` is the shipped network; an unknown node is refused |
 | `:test_mpc_node_runtime` | the runtime around the DRC Atlas references and motion manager with OCS2's scripted MPC (no CppAD), against a scripted robot and operator over loopback: observation in and policy out, resets through the observation counters, the velocity command reaching the motion manager and the next policy's annotations, a parameter document applied in the next solve and not before, one of another robot, schema or configuration (or
-without a `config_path` at a node with an identity) refused, no parameter subscription without a sink, a target patch per foot under the contact planner, the visualization attacher |
+without a `config_path` at a node with an identity) refused, no parameter subscription without a sink, a target patch per foot under the contact planner, the visualization attacher; network stalls of 0.15 to 0.95 s, across which the motion manager's stride history is bridged, its mean not reading the gait's sway as a turn and the gait switches waiting for a stride free of the stall |
 | `:test_dummy_sim_loop` | the loop against an `MpcServer` with the scripted MPC: synchronized (one policy per update, solved for it), in real time, stopping while it waits, no reset after the first |
 
 The formulation packages test the real MPCs end to end (`humanoid_centroidal_mpc_app:test_centroidal_mpc_node`,

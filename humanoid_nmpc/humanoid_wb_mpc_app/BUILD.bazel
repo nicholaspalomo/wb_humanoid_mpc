@@ -99,6 +99,44 @@ cc_binary(
 # simulator standing on the node's policies for a few seconds without a reset. Large: it builds the G1 whole-body MPC's CppAD libraries on a cold
 # cache. That took 520-575 s of the 900 s a large test gets on a 20-core workstation, and CI's 4-vCPU runner starts with
 # no CppAD cache at all: the timeout is the longest Bazel has (3600 s), not the size's.
+# The whole-body MPC's ManifoldLinearController over the network MPC link (feedback policy on): the robot decodes the
+# node's policy node for node and evaluates it as the in-process MRT does, bit for bit, across a contact event. Builds
+# the whole-body G1's CppAD libraries on a cold cache. Exclusive: one at a time.
+cc_test(
+    name = "test_wb_mpc_manifold_policy_over_bus",
+    size = "large",
+    timeout = "eternal",
+    srcs = ["test/testWBMpcManifoldPolicyOverBus.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    tags = ["exclusive"],
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:mpc_reset_supervisor",
+        "//humanoid_nmpc/humanoid_mpc_ipc",
+        "//humanoid_nmpc/humanoid_mpc_ipc:mpc_link_test_support",
+        "//humanoid_nmpc/humanoid_mpc_ipc:mpc_server",
+        "//humanoid_nmpc/humanoid_mpc_ipc:realtime_policy_evaluator",
+        "//humanoid_nmpc/humanoid_mpc_ipc:remote_mpc_link",
+        "//humanoid_nmpc/humanoid_wb_mpc",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_sqp",
+        "//robot_runtime/robot_core:resource_paths",
+        "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/time",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
 cc_test(
     name = "test_wb_mpc_node",
     size = "large",

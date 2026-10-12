@@ -3,8 +3,7 @@
 The robot process of the distributed runtime ([`humanoid_nmpc/docs/distributed_runtime/README.md`](../../docs/distributed_runtime/README.md)):
 the binary that runs on the robot's realtime computer, and - with the MuJoCo backend - in simulation, in the same
 topology. It is the realtime loop over a **robot backend** chosen by name and an **MRT joint controller** of either
-formulation, and the mailboxes, telemetry and FSM around it on the bus. It replaces the ROS-era MuJoCo simulation
-nodes (deleted with ROS) and does what they did, in the same order, without ROS.
+formulation, and the mailboxes, telemetry and FSM around it on the bus.
 
 <!-- LINT.IfChange(robot_binaries) -->
 | Binary | Bus node | What |
@@ -42,8 +41,12 @@ not read) and these:
 | `--realtime_priority` | `0` | `SCHED_FIFO` priority of the realtime thread, 1-99, with the memory locked; 0 = the time-sharing scheduler |
 | `--realtime_cores` | `default` | cores of the realtime thread: `default` (`ThreadAffinity.h`'s MRT cores of the process's CPU set, a container's cpuset included), `none`, or a list (`4,5`) |
 | `--backend_cores` | `default` | cores of the backend's threads (the MuJoCo physics): `default` (the simulation cores of that set), `none`, or a list |
-| `--mpc_link` | | retired: the robot reaches its MPC node over the bus only; any value is refused at start-up, naming the MPC node |
-| `--headless` | `false` | the MuJoCo backend without its viewer (the robot-runtime image has no GL; the tests have no display) |
+| `--viewer` | | the MuJoCo backend's viewer, by name (`MujocoViewerRegistry`), or a comma-separated list tried in order: `glfw` (a window on `DISPLAY`), `web` (offscreen, served to a browser at `--web_viewer_address`:`--web_viewer_port`), `none` (the robot-runtime image, the tests); `web,none` falls back to none when the web viewer cannot start, `web` alone refuses to start then. An unknown name is refused with the list. Empty: the `mujoco_viewer` of `--plot_config`, else `web` (`kDefaultViewerName`) |
+| `--plot_config` | | a plot configuration (`humanoid_rerun_viewer_proto.PlotConfig`, the Rerun bridge's `--plot_config`; the launch files pass `humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto`) whose `mujoco_viewer` names the viewer while `--viewer` is empty, `web` when it lists none. Read only then, strictly (`nproto::LoadTextprotoFile()`: a syntax error or an unknown field at its `<file>:<line>:<column>`), and a bad file or viewer name is refused at start-up |
+| `--web_viewer_address` | `127.0.0.1` | the address the web viewer binds: loopback, so only this machine reaches it (an SSH tunnel or VS Code's port forwarding from another); `0.0.0.0` or an interface's address serves every client that reaches it, without authentication (a bridge-networked container needs it) |
+| `--web_viewer_port` | `6090` | the web viewer's TCP port (`0`: any free one, logged) |
+| `--web_viewer_allowed_hosts` | | host names the web viewer answers besides `localhost`, `127.0.0.1`, `::1` and the address it binds, comma-separated and without ports (a machine's LAN name with `--web_viewer_address=0.0.0.0`; `name:6090` is refused at start-up); any other `Host` is refused |
+| `--viewer_cores` | `default` | cores of the web viewer's threads (rendering, the server): `default` (`ThreadAffinity.h`'s viewer cores: those no other partition takes, else the simulation cores, never the MPC's), `none`, or a list; the threads run under `SCHED_IDLE`, so the physics preempts them at once |
 | `--config_store_dir` | | the persistent directory of this robot configuration ([The configuration store](#the-configuration-store)), seeded from `--task_file`, `--reference_file` and the PD gains beside them; empty: read those files in place |
 | `--config_seed` | `when_bundle_changes` | when a stored copy is replaced by the bundled file, by name: `when_bundle_changes`, `every_start`, `never` |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotAppFlags.cpp:robot_flags) -->
@@ -53,20 +56,35 @@ A setting the process may not take - `SCHED_FIFO` without `CAP_SYS_NICE` or an r
 regardless. `default` cores are taken from the CPUs the process may use (`sched_getaffinity`), so that a container's
 cpuset (`deploy_robot.sh --cpuset`) gets cores inside it.
 
+**The MuJoCo viewer** is chosen by name, never by a boolean: `--viewer` when it is given (the Makefile's `VIEWER=`,
+`WB_ROBOT_VIEWER`), else the `mujoco_viewer` of the plot configuration `--plot_config` names, else `web`
+(`viewerNamesFromFlags()`, which logs where the choice came from). So `make launch-<robot>-sim` opens the web viewer at
+`http://localhost:6090` from the shipped plot configuration alone, and the robot-runtime image, whose entry point passes
+`--viewer=none`, never reads the file's choice unless `WB_ROBOT_PLOT_CONFIG` asks for it. `--viewer=web` renders
+offscreen through EGL on threads of its own (the `--viewer_cores`, under `SCHED_IDLE`; never the realtime or the physics thread) and serves a page at
+`http://localhost:6090` that shows the simulation and takes the viewer's mouse and keys (orbit, pan, zoom, the
+visualizations' hotkeys, camera reset and tracking). The page moves the viewer's camera and markers only: nothing it
+sends reaches the physics, the controller, the gantry and its weld, or the bus, which stay the operator GUI's. It binds
+loopback by default; another machine reaches it through `ssh -L 6090:127.0.0.1:6090 <host>` (or VS Code's port
+forwarding), and an `--web_viewer_address` other than loopback is an explicit opt-in that the viewer warns about, with
+its `Host` checks still on (`robot_runtime/mujoco_sim_interface/README.md`, "Viewers", has the trust model). Without
+EGL (`robot-runtime`), or when its port is taken, `--viewer=web` refuses to start, naming the fix; `--viewer=web,none`
+runs without a viewer instead. `MUJOCO_EGL_DEVICE_ID` picks the EGL device (a GPU) to render on, read once at start-up.
+
 **No optimal control problem on the robot.** The binary builds only what the controller needs:
 `CentroidalMpcInterface::CreateControllerModels()` (the model settings, the Pinocchio model, the centroidal model info,
 the MPC robot model and the effective one - the basis-vector decorator under `contact_input_parameterization:
 "basis_vectors"` - and the initial state) or `WBMpcInterface::CreateControllerModels()`. Nothing is taped, generated or
 loaded with CppAD; the binary still links the formulation library. Its MPC is the MPC node, over the bus; the robot
-binaries have no in-process MPC (`--mpc_link=in_process` was removed, and `InProcessMpcLink` serves the controller unit
-tests and the lockstep closed loop of `humanoid_nmpc/humanoid_mpc_validation`, which mirrors this process's cycle).
+binaries have no in-process MPC (`InProcessMpcLink` serves the controller unit tests and the lockstep closed loop of
+`humanoid_nmpc/humanoid_mpc_validation`, which mirrors this process's cycle).
 
 ## The backends
 
 <!-- LINT.IfChange(backend_names) -->
 | Name | Class | What |
 |---|---|---|
-| `mujoco` | `MujocoRobotBackend` | `robot_runtime/mujoco_sim_interface`'s `MujocoSimInterface`: the scene of `--mjcf_file`, the task file's simulator keys, the viewer (unless `--headless`), and the `cheater_sim` contact estimator |
+| `mujoco` | `MujocoRobotBackend` | `robot_runtime/mujoco_sim_interface`'s `MujocoSimInterface`: the scene of `--mjcf_file`, the task file's simulator keys, the viewer of `--viewer`, and the `cheater_sim` contact estimator |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/RobotBackendRegistry.h:backend_names) -->
 
 A backend is a `RobotBackend` (`RobotBackend.h`): the `robot::model::RobotHWInterfaceBase` the loop reads and writes,
@@ -78,7 +96,8 @@ backend is one `RobotBackendRegistry::add()`; an unknown `--backend` is refused 
 **No hardware backend exists yet.** `RobotProcess` drives the simulator's gantry and torque switch through the
 `SimFsmBridge` and the `SimFallRecovery`, so `RobotProcess::Create()` refuses a backend without a simulator
 (Unimplemented). A hardware backend brings its own FSM bridge (the torque switch of its drives, no gantry); until then the
-robot deployment runs the MuJoCo backend headless on the robot computer, which is a true split-machine simulation.
+robot deployment runs the MuJoCo backend without a viewer (`--viewer=none`) on the robot computer, which is a true
+split-machine simulation.
 
 ## The realtime thread
 
@@ -97,7 +116,7 @@ The cycle (`RobotProcess::cycle()`):
 1. read the robot state from the backend;
 2. take the operator's joint targets into the JOINT_PD posture;
 3. hand the controller the mode and the posture (the centroidal controller the mode first, the whole-body controller
-   the posture first, as their sims did) and run `computeJointControlAction()`, which writes the observation into the
+   the posture first: `CycleInputOrder`) and run `computeJointControlAction()`, which writes the observation into the
    MPC link;
 4. tell the viewer the contact state the policy in use plans for now (the contact timeline);
 5. every telemetry decimation, copy the cycle into the telemetry ring;
@@ -107,11 +126,11 @@ The cycle (`RobotProcess::cycle()`):
 9. send the joint action to the backend, unless the torques are off;
 10. the MPC's health into the FSM state.
 
-The ROS sims sent the action (9) before the FSM command and the fall recovery (7, 8). A cycle that switched the
-torques back on then left the backend the action latched when they went off - in WB_MPC, high gains and the inverse
-dynamics' feedforward - for a whole control period, against a robot that had slumped since. Now that cycle hands it the
-action it computed, ZERO_TORQUE's (no gain, no torque), and the next cycle the new mode's; and the simulator executes no
-action applied before its torques came back on (`RobotHWInterfaceBase::discardAppliedJointAction()`).
+The action (9) goes to the backend after the FSM command and the fall recovery (7, 8). Sent before them, a cycle that
+switched the torques back on would leave the backend the action latched when they went off - in WB_MPC, high gains and
+the inverse dynamics' feedforward - for a whole control period, against a robot that had slumped since. That cycle
+hands it the action it computed, ZERO_TORQUE's (no gain, no torque), and the next cycle the new mode's; and the
+simulator executes no action applied before its torques came back on (`RobotHWInterfaceBase::discardAppliedJointAction()`).
 
 A cycle that throws (a contact estimator that reports the wrong number of flags, Pinocchio) ends the loop on the
 realtime thread instead of the process: `RealtimeLoopRunner` catches it, the backend goes to its safe state, and
@@ -151,17 +170,21 @@ does the backend hand-over (`:test_robot_realtime_allocations`), and the control
 observation, the passive modes and the hold of WB_MPC (`test_centroidal_mpc_mrt_joint_controller_allocations`,
 `testWBMpcMrtJointControllerAllocations`). What remains:
 
-- Pinocchio's passes over the composite base joint of the MPC models (the Euler-angle floating base) make one
-  temporary each, of the joint's dynamic-size motion subspace: the centroidal map of the centroidal observation, the
+- Pinocchio's passes over the composite base joint of the MPC models (`Composite(Translation, Spherical)`, the
+  quaternion floating base) make one temporary each, as the Euler-angle base did, of the joint's dynamic-size motion
+  subspace: the centroidal map of the centroidal observation, the
   nonlinear effects of the gravity compensation (JOINT_PD, GRAVITY_COMP, the WB_MPC hold). The tests measure those
   passes and expect exactly them;
 
 - executing a policy in WB_MPC allocates: the model accessors return vectors by value (`getJointAngles()`,
   `getGeneralizedVelocities()` through OCS2's centroidal mapping, the basis-vector decorator's wrench reconstruction)
   and the inverse dynamics builds its Jacobians per call. Its policy evaluation does not (`RealtimePolicyEvaluator`,
-  bit-identical by its parity test), and a policy of a controller type the evaluator does not take falls back to
-  `MRT_BASE::evaluatePolicy()`. These are temporaries freed in the cycle that made them, so in steady state the
-  allocator reuses the same blocks rather than growing the heap;
+  bit-identical by its parity test), and a policy the evaluator refuses (a controller type it does not take on the
+  state, or a policy of other dimensions) is never left to `MRT_BASE::evaluatePolicy()`, which allocates and aborts
+  on a malformed policy: the robot is held with the JOINT_PD action and `kPolicyRefused` is posted once, until a
+  policy the evaluator takes is in use. These are temporaries freed in the cycle that made them, so in steady state
+  the allocator reuses the same blocks rather than growing the heap. They predate the quaternion base orientation,
+  which added none;
 - the simulator's viewer setters (`setTargetContactFlags()`, atomics).
 
 ## The communication thread
@@ -170,7 +193,7 @@ The bus's IO thread. Its handlers fill the `OperatorCommandMailbox`; its periodi
 thread's mailboxes every 5 ms: the event log to the log, the telemetry ring to the telemetry sinks, the FSM state to
 `robot/fsm_state` (on change, and again at 2 Hz), the loop timing to `robot/loop_timing`, and the newest viewer
 annotations to the MuJoCo viewer. It polls the PD gains file every 100 (centroidal) or 500 (whole-body) control periods,
-about 1 Hz as before, and the task file's controller-side settings once a second. Both are the typed files of
+about 1 Hz, and the task file's controller-side settings once a second. Both are the typed files of
 humanoid_nmpc/humanoid_mpc_config (`joint_pd_gains.textproto`, `task.textproto`; [The configuration
 files](#the-configuration-files)).
 
@@ -290,7 +313,7 @@ GUI then reports in sync; a file the save did not change otherwise, which it rep
 
 Retired, and refused at start-up with their replacement: `enable_telemetry` (now `telemetry_sinks`),
 `use_gravity_comp_feedforward` (now `wb_mpc_feedforward`). A value the robot process cannot run with is refused by its
-field, where the ROS sims logged a warning and dropped the block.
+field.
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/task_file.proto:robot_task_keys, //humanoid_nmpc/humanoid_mpc_config/task_file.proto:robot_controller_keys, //humanoid_nmpc/humanoid_mpc_config/task_file.proto:retired_robot_keys) -->
 
 <!-- LINT.IfChange(telemetry_sinks) -->
@@ -330,16 +353,17 @@ field, where the ROS sims logged a warning and dropped the block.
 | `:test_operator_command_mailbox` | FSM commands in order and once, aliases, unknown names; joint targets merged, the newest wins; dodgeballs; the gantry clamp; controller settings resolved, estimators kept alive, unknown names, a whole task file without a gate being the instantaneous gate; PD gains to the controller; the handlers, typed tuning payloads included, on a loopback bus |
 | `:test_sim_fsm_bridge` | the FSM against the headless simulator: torques, gantry, one command per cycle, the slider, controller resets and health in the state, joint targets, the dodgeball |
 | `:test_sim_fall_recovery`, `:test_base_tilt_angle` | the fall recovery against the real simulator (ported), and its reports |
+| `:test_initial_sim_state` | the simulator's initial state from the MPC's in every formulation: the base orientation through the robot model's `getBaseOrientation()` (the stored unit quaternion bit for bit, the rotation of the Euler angles it was set from to round-off, an unwrapped yaw included), the MPC joints by name, every other joint zero |
 | `:config_robot_test` | the typed task file's robot settings and the GUI's typed `DodgeballThrow` (`test/data/dodgeball_throw.textproto`, shared with remote_control's test) converted, every refusal |
 | `:test_telemetry_sampler` | decimation, the sample round-tripped through `robot/state`'s message, the joint names, drops |
-| `:test_robot_backend_registry` | `mujoco` by name (headless Atlas), an unknown name listing the available ones, the configuration from the options |
+| `:test_robot_backend_registry` | `mujoco` by name (Atlas, `--viewer=none`), an unknown name listing the available ones, the configuration from the options, the viewer settings copied and checked (an unknown viewer, `glfw,none`, a web option out of range refused) |
 | `:test_robot_process_settings` | the task file read strictly, errors naming the file; the defaults, every field, wrong types and refused values, the retired booleans; every shipped task file; a YAML task file refused naming the file |
 | `:test_task_file_watcher` | a write reported once, an unchanged or vanished file never |
 | `:test_config_file_store` | a save written atomically on the writer thread with the replaced copy kept; unchanged; every refusal (malformed, an unknown field, another robot, configuration or fingerprint, oversize, a contact estimator, telemetry sink or simulator option the robot refuses) with the stored copy and its time untouched; a store that cannot be written; no store; a full queue; a repeated save answered again and not rewritten; `stop()`; `NOT_STORED` naming the file read in place |
 | `:test_robot_configuration_check` | each check of `checkRobotConfiguration()` refusing on its own, naming the field; a saved file checked in place of its stored copy |
 | `:test_robot_config_directory` | an empty store seeded, a restart keeping a save, the seed policies, the contact planner's mirror, a store that cannot be written, the boot marker's fallback (not after the machine booted) and `rejectStoredCopies()`; `bringUpRobot()` rejecting the stored copies only when the bundle starts where they did not, and keeping them, with the marker withdrawn, for a failure the bundle shares |
 | `:test_atomic_file_write` | a write replacing the file and leaving no temporary; a write that fails before the rename leaving the file as it was, which is no DataLoss |
-| `:test_robot_app_options` | the retired `--mpc_link` refused with its replacement, the core lists, the `MpcLink` over the remote link handed to the controller once |
+| `:test_robot_app_options` | the core lists, the viewer by name (`web,none` parsed, `vnc` refused listing `glfw, web, none`, nothing after `glfw` or `none`), its precedence (`--viewer`, else the `mujoco_viewer` of `--plot_config`, else `web`; the file not read with `--viewer`), a bad plot configuration refused (an unknown name, a list the registry refuses, a misspelled field at its line and column, another message's file, a missing file), the shipped plot configurations' `web`, the web viewer's port, address and allowed hosts, `--viewer_cores=default` as the allocation's viewer cores, `MUJOCO_EGL_DEVICE_ID`, `LP_NUM_THREADS` for the web viewer's cores and its log line, the `MpcLink` over the remote link handed to the controller once |
 | `:test_realtime_event_log` | the reports' order, wording and drops, the controller's reports through it |
 | `:test_robot_process` | the process without an MPC: a scripted controller, the headless simulator, a loopback bus and an operator - modes, `robot/state`, `robot/fsm_state`, `robot/loop_timing` (skipped periods and lateness included), the period, settings from the GUI and the task file, PD gains, the gantry's resets, health, `stop()`; the cycle that switches the torques on handing the backend its own action; a cycle that throws stopping the loop with the backend in its safe state; a save on the bus stored and applied by the task file's watcher; an MPC parameter update of another configuration installing nothing; the boot report of `runUntilShutdown()` |
 | `//humanoid_nmpc/humanoid_centroidal_mpc_app:test_config_save_end_to_end` | the robot binary as a process with a store: saves of the task file and the PD gains stored, refusals, a restart on the saved task file (its telemetry rate), and stored files the robot refuses - or a start that did not confirm its boot - falling back to the bundle, leaving `.rejected` |

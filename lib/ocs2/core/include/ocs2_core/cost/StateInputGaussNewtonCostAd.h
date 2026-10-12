@@ -77,6 +77,15 @@ class StateInputCostGaussNewtonAd : public StateInputCost {
                                                                  const TargetTrajectories& targetTrajectories,
                                                                  const PreComputation& preComputation) const override;
 
+  /**
+   * The cost vector f(x,u,p) and its Jacobians dfdx and dfdu at (time, state, input), p = getParameters(): the residual
+   * whose half squared norm getValue() is and whose Gauss-Newton model getQuadraticApproximation() is. For the tests of
+   * that model (humanoid_nmpc/humanoid_common_mpc/test/equivalence/testQuaternionRootTermHessians.cpp).
+   */
+  VectorFunctionLinearApproximation getCostVectorLinearApproximation(scalar_t time, const vector_t& state, const vector_t& input,
+                                                                     const TargetTrajectories& targetTrajectories,
+                                                                     const PreComputation& preComputation) const;
+
  protected:
   StateInputCostGaussNewtonAd(const StateInputCostGaussNewtonAd& rhs);
 

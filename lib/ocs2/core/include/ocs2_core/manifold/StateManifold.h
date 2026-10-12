@@ -71,14 +71,30 @@ class StateManifold {
   virtual void retract(const vector_t& x, const vector_t& dx, scalar_t alpha, vector_t& xNew) const = 0;
 
   /**
-   * The tangent vector d at x0 with x0 (+) d = x1, along the shortest path (for a rotation, |d| <= pi). It is a function
-   * of the rotation x1 represents, so it is invariant under x1 -> -x1 on a quaternion block, and it does not require x1
-   * to be normalized: difference(xNext, Phi) is the shooting gap of an ambient flow Phi.
+   * The tangent vector d at x0 with x0 (+) d = x1, along the shortest path (for a rotation, |d| <= pi). On a quaternion
+   * block it is Log(xi0^-1 (x) xi1) (ocs2::quaternionLog()), which depends on x1 only through x1 / |x1| (the same for
+   * x1 and c x1, every c > 0), so x1 need not be normalized: difference(xNext, Phi) is the shooting gap of an ambient
+   * flow Phi. It is invariant under x1 -> -x1 except where xi0^-1 (x) xi1 is an exact half turn (w = +-0): there it
+   * returns -d, the other logarithm of the same rotation.
    */
   virtual vector_t difference(const vector_t& x0, const vector_t& x1) const = 0;
 
   /** The shortest-path geodesic from x0 (alpha = 0) to x1 (alpha = 1); linear on Euclidean blocks. */
   virtual vector_t interpolate(const vector_t& x0, const vector_t& x1, scalar_t alpha) const = 0;
+
+  /**
+   * difference(x0, x1) written into `dx`, the same doubles: difference() is defined through it. For a realtime thread,
+   * this one allocates nothing and checks nothing. Precondition: x0 and x1 have getAmbientDim() entries, dx already has
+   * getTangentDim() entries (it is written block by block, not resized), and dx is neither x0 nor x1.
+   */
+  virtual void differenceInto(const vector_t& x0, const vector_t& x1, vector_t& dx) const = 0;
+
+  /**
+   * interpolate(x0, x1, alpha) written into `x`, the same doubles: interpolate() is defined through it. For a realtime
+   * thread, this one allocates nothing and checks nothing. Precondition: x0, x1 and x have getAmbientDim() entries (x
+   * is written block by block, not resized), and x is neither x0 nor x1.
+   */
+  virtual void interpolateInto(const vector_t& x0, const vector_t& x1, scalar_t alpha, vector_t& x) const = 0;
 
   /** Projects an ambient vector onto the manifold in place (normalizes every quaternion block). */
   virtual void project(vector_t& x) const = 0;
@@ -115,6 +131,12 @@ class StateManifold {
    *   dfdu = Jr^-1(f) E+(Pi(Phi)) Pi'(Phi) dPhi/du             (tangent x inputs),
    * with Pi the projection onto the manifold and Jr^-1 the inverse right Jacobian of each rotation block (identity on
    * Euclidean blocks). An empty dfdu (no rows) is left as it is.
+   *
+   * Precondition: every unit-quaternion block of Phi is longer than kQuaternionNormalizationEpsilon
+   * (UnitQuaternionMath.h), as the flow of a state on the manifold over one step is (|Phi| = 1 + O(dt^2) at worst). Then
+   * E+(Pi(Phi)) Pi'(Phi) = 2 G(Phi)' / |Phi|^2. At or below the guard the safe norm reads 1 and the maps are 2 G(Phi)'
+   * instead, which is not the derivative of the gap (the projection has none at Phi = 0); the gap f itself, through the
+   * homogeneous Log, is still the gap.
    */
   virtual void pushForwardDynamics(const vector_t& x, const vector_t& xNext, VectorFunctionLinearApproximation& dynamics) const = 0;
 

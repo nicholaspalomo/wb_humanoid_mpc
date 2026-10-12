@@ -62,9 +62,6 @@ std::vector<std::string> sensitivityIntegratorNames();
 /** Every name rollout.integrator_type accepts: the rollouts' integrators, by OCS2's names. */
 std::vector<std::string> rolloutIntegratorNames();
 
-/** Every name rollout.root_finder_type accepts: the state-triggered rollout's root-finding algorithms. */
-std::vector<std::string> rootFinderNames();
-
 /**
  * The SQP settings of a task file's multiple_shooting block. A field the file leaves out has the default of
  * sqp::Settings, which the schema repeats, so an empty block gives sqp::Settings{}; the HPIPM settings, which no file
@@ -81,8 +78,7 @@ absl::StatusOr<sqp::Settings> toSqpSettings(const mpc_config::SqpSettingsConfig&
  *
  * @param config The block.
  * @return InvalidArgument naming the field (rollout.<field>) when integrator_type names no integrator (the message
- *         lists them), when root_finder_type names no root finder (the message lists them), or when
- *         max_num_steps_per_second is negative.
+ *         lists them), or when max_num_steps_per_second is negative.
  */
 absl::StatusOr<rollout::Settings> toRolloutSettings(const mpc_config::RolloutSettingsConfig& config);
 

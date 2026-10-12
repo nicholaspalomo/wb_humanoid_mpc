@@ -61,7 +61,7 @@ struct RobotConfiguration {
   std::string sceneFile;  ///< the MuJoCo scene
   std::string pdGainsFile;
   /// The walking scenario the robot survives, whose recorded states the solve benchmark replays by default: walk_0p5,
-  /// or walk_0p3 for a robot that falls at 0.5 m/s (EngineAI SA01 and Unitree R1 in M0).
+  /// or walk_0p3 for a robot that falls at 0.5 m/s (EngineAI SA01 and Unitree R1).
   std::string walkingScenario = "walk_0p5";
 
   /**
@@ -74,7 +74,9 @@ struct RobotConfiguration {
 // LINT.IfChange(robot_configurations)
 /** drc_atlas, engineai_sa01, unitree_g1, unitree_r1 (centroidal) and unitree_g1_wb (whole-body). */
 const std::vector<RobotConfiguration>& robotConfigurations();
-// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/BUILD.bazel:robot_configurations, //Makefile:closed_loop_targets)
+// clang-format off
+// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/BUILD.bazel:robot_configurations, //Makefile:closed_loop_targets, //humanoid_nmpc/humanoid_common_mpc/test/equivalence/BUILD.bazel:mpc_equivalence_robots)
+// clang-format on
 
 /** The configuration named `name`; NotFound listing the names when there is none. */
 absl::StatusOr<RobotConfiguration> findRobotConfiguration(absl::string_view name);

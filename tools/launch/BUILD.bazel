@@ -14,7 +14,8 @@ load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 package(default_visibility = ["//visibility:public"])
 
 # The schema of a launch file. Imported as "launch_proto/launch_file.proto", so that Python imports
-# `from launch_proto import launch_file_pb2`: a top-level `launch` package would collide with the one of ROS 2.
+# `from launch_proto import launch_file_pb2`: a generic top-level `launch` package collides easily with an installed
+# package of the same name.
 proto_library(
     name = "launch_file_proto",
     srcs = ["proto/launch_file.proto"],

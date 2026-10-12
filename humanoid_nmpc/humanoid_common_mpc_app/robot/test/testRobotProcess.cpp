@@ -73,6 +73,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_msgs/loop_timing.pb.h"
 #include "humanoid_mpc_msgs/robot_state_sample.pb.h"
 #include "humanoid_nmpc/humanoid_common_mpc_app/robot/test/RobotTestSupport.h"
+#include "mujoco_sim_interface/viewer/ViewerNames.h"
 #include "nproto/Textproto.h"
 #include "robot_ipc/Delivery.h"
 #include "robot_model/ContactEstimator.h"
@@ -155,7 +156,7 @@ class RobotProcessTest : public ::testing::Test {
     options.contactFrameNames = modelSettings.contactNames;
     options.contactParentJointNames = modelSettings.contactParentJointNames;
     options.simulator.visualizations = std::vector<std::string>{};
-    options.headless = true;
+    options.viewer.names = {robot::mujoco_sim_interface::kNoViewerName};
     initialState_.emplace(*options.initialState);
     absl::StatusOr<std::unique_ptr<RobotBackend>> backend = RobotBackendRegistry().create("mujoco", options);
     ASSERT_TRUE(backend.ok()) << backend.status();
@@ -615,7 +616,7 @@ humanoid_mpc_msgs::ConfigFileSave taskFileSave(const std::string& text, uint64_t
 TEST_F(RobotProcessTest, ASaveOnTheBusIsStoredAndTheTaskFileWatcherAppliesIt) {
   RobotProcess::Config config = processConfig();
   // The test's task file is the store's copy.
-  config.configStore.task = {.path = taskFile_, .identity = kTestTaskIdentity};
+  config.configStore.task = {.path = taskFile_, .identity = kTestTaskIdentity, .inPlacePath = ""};
   absl::StatusOr<std::unique_ptr<RobotProcess>> created = RobotProcess::Create(*robotBus_, *backend_, controller_, estimators_, config);
   ASSERT_TRUE(created.ok()) << created.status();
   process_ = *std::move(created);

@@ -25,7 +25,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""Every first-party C++ and Python file starts with the repository's BSD-3 license block (AGENTS.md; decision D5).
+"""Every first-party C++ and Python file starts with the repository's BSD-3 license block (AGENTS.md).
 
 The block is the file's first comment: one or more holder lines, `Copyright (c) <year>[-<year>], <holder>. All rights
 reserved.`, then the preamble, the three conditions of the BSD 3-Clause License and its disclaimer, in the language's
@@ -199,7 +199,7 @@ def check_source(source: str, path: str = "<source>") -> list[check_types.Findin
     if _GENERATED.match(first):
         return []
     return [
-        check_types.Finding(path, line, 1, NAME, f"{message} (AGENTS.md, decision D5).")
+        check_types.Finding(path, line, 1, NAME, f"{message} (AGENTS.md).")
         for line, message in finding_lines(lines, start, end)
     ]
 
@@ -210,7 +210,7 @@ CHECKS = [
         languages=frozenset({check_types.Language.CPP}),
         scope=lint_files.Scope.FIRST_PARTY,
         check_source=check_source,
-        description="every C++ file starts with the repository's BSD-3 license block, with a named holder (AGENTS.md; D5).",
+        description="every C++ file starts with the repository's BSD-3 license block, with a named holder (AGENTS.md).",
         hint="Copy the block of a neighboring file. A holder line names its holder (`git log`); an existing holder is "
         "kept.",
     )

@@ -74,7 +74,7 @@ class ThrowingRollout final : public RolloutBase {
                const vector_t& /*initState*/,
                scalar_t /*finalTime*/,
                ControllerBase* absl_nullable /*controller*/,
-               ModeSchedule& /*modeSchedule*/,
+               const ModeSchedule& /*modeSchedule*/,
                scalar_array_t& /*timeTrajectory*/,
                size_array_t& /*postEventIndices*/,
                vector_array_t& /*stateTrajectory*/,

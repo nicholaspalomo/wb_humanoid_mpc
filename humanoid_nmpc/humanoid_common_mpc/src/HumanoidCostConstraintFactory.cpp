@@ -45,7 +45,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "ocs2_core/constraint/StateInputConstraint.h"
-#include "ocs2_core/cost/QuadraticStateCost.h"
 #include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
 #include "ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h"
 #include "ocs2_core/penalties/penalties/SquaredHingePenalty.h"
@@ -192,16 +191,17 @@ std::unique_ptr<StateInputConstraint> HumanoidCostConstraintFactory::getZeroWren
 /***************************** The terms of the typed task file (make*()) *****************************/
 /******************************************************************************************************/
 
-absl::StatusOr<matrix_t> HumanoidCostConstraintFactory::stateWeights(const mpc_config::TaskFile& taskFile) const {
-  ASSIGN_OR_RETURN(matrix_t Q, stateWeightsFromConfig(taskFile.state_weights, layout_, "state_weights"));
-  RETURN_IF_ERROR(checkSquareOfSize("state_weights", Q, mpcRobotModelADPtr_->getStateDim()));
+BasePoseWeights HumanoidCostConstraintFactory::basePoseWeights() const {
   // With com_and_acom_tracking_cost listed the base pose is regulated in CoM and ACoM coordinates, whichever of the two
-  // quadratic state costs carries the rest of Q.
-  if (comAndAcomTrackingCostListed_) {
-    ComAndAcomTrackingCost::zeroBasePoseWeights(Q);
-    if (verbose_) {
-      LOG(INFO) << "[HumanoidCostConstraintFactory] com_and_acom_tracking_cost is listed. Zeroing out base pose weights in state_weights.";
-    }
+  // quadratic state costs carries the rest of Q, and the terminal instance regulates the terminal one.
+  return comAndAcomTrackingCostListed_ ? BasePoseWeights::kZeroedForComAndAcomTracking : BasePoseWeights::kKept;
+}
+
+absl::StatusOr<matrix_t> HumanoidCostConstraintFactory::stateWeights(const mpc_config::TaskFile& taskFile) const {
+  ASSIGN_OR_RETURN(matrix_t Q, trackingStateWeightsFromConfig(taskFile.state_weights, layout_, "state_weights", basePoseWeights()));
+  RETURN_IF_ERROR(checkSquareOfSize("state_weights", Q, mpcRobotModelPtr_->getStateTangentDim()));
+  if (comAndAcomTrackingCostListed_ && verbose_) {
+    LOG(INFO) << "[HumanoidCostConstraintFactory] com_and_acom_tracking_cost is listed. Zeroing out base pose weights in state_weights.";
   }
   return Q;
 }
@@ -236,7 +236,9 @@ absl::StatusOr<std::unique_ptr<StateInputCost>> HumanoidCostConstraintFactory::m
               << R << "\n"
               << " #### =============================================================================";
   }
-  return std::make_unique<StateInputQuadraticCost>(std::move(Q), std::move(R), *referenceManagerPtr_, *mpcRobotModelPtr_);
+  ASSIGN_OR_RETURN(std::unique_ptr<StateInputQuadraticCost> cost,
+                   StateInputQuadraticCost::Create(std::move(Q), std::move(R), referenceManagerPtr_, mpcRobotModelPtr_));
+  return cost;
 }
 
 absl::StatusOr<std::unique_ptr<StateInputCost>> HumanoidCostConstraintFactory::makeStateQuadraticCost() const {
@@ -249,7 +251,9 @@ absl::StatusOr<std::unique_ptr<StateInputCost>> HumanoidCostConstraintFactory::m
               << Q << "\n"
               << " #### =============================================================================";
   }
-  return std::make_unique<StateQuadraticCost>(std::move(Q), mpcRobotModelADPtr_->getInputDim(), *referenceManagerPtr_);
+  ASSIGN_OR_RETURN(std::unique_ptr<StateQuadraticCost> cost,
+                   StateQuadraticCost::Create(std::move(Q), referenceManagerPtr_, mpcRobotModelPtr_));
+  return cost;
 }
 
 absl::StatusOr<std::unique_ptr<StateInputCost>> HumanoidCostConstraintFactory::makeInputQuadraticCost() const {
@@ -262,7 +266,9 @@ absl::StatusOr<std::unique_ptr<StateInputCost>> HumanoidCostConstraintFactory::m
               << R << "\n"
               << " #### =============================================================================";
   }
-  return std::make_unique<InputQuadraticCost>(std::move(R), mpcRobotModelADPtr_->getStateDim(), *referenceManagerPtr_, *mpcRobotModelPtr_);
+  ASSIGN_OR_RETURN(std::unique_ptr<InputQuadraticCost> cost,
+                   InputQuadraticCost::Create(std::move(R), referenceManagerPtr_, *mpcRobotModelPtr_));
+  return cost;
 }
 
 absl::StatusOr<std::unique_ptr<StateCost>> HumanoidCostConstraintFactory::buildComAndAcomTrackingCost(const mpc_config::TaskFile& taskFile,
@@ -283,13 +289,13 @@ absl::StatusOr<std::unique_ptr<StateCost>> HumanoidCostConstraintFactory::buildC
               << " #### =============================================================================\n"
               << "com_weights:\n"
               << Q_com << "\n"
-              << "acom_weights (rows are ZYX Euler: yaw, pitch, roll):\n"
+              << "acom_weights (rows yaw, pitch, roll of the heading-tilt residual):\n"
               << Q_acom << "\n"
               << " #### =============================================================================";
   }
-  ASSIGN_OR_RETURN(
-      std::unique_ptr<ComAndAcomTrackingCost> cost,
-      ComAndAcomTrackingCost::Create(std::move(Q_com), std::move(Q_acom), *pinocchioInterfacePtr_, info, modelSettings_.robotName));
+  ASSIGN_OR_RETURN(std::unique_ptr<ComAndAcomTrackingCost> cost,
+                   ComAndAcomTrackingCost::Create(std::move(Q_com), std::move(Q_acom), *pinocchioInterfacePtr_, info, mpcRobotModelPtr_,
+                                                  modelSettings_.robotName));
   return std::unique_ptr<StateCost>(std::move(cost));
 }
 
@@ -312,22 +318,21 @@ absl::StatusOr<std::unique_ptr<StateCost>> HumanoidCostConstraintFactory::makeTe
   const mpc_config::TaskFile& taskFile = *taskFilePtr_;
   ASSIGN_OR_RETURN(const scalar_t terminalCostScaling, terminalCostScalingFromConfig(taskFile));
   LOG(INFO) << "terminal_cost_scaling: " << terminalCostScaling;
-  ASSIGN_OR_RETURN(matrix_t Qf, stateWeightsFromConfig(taskFile.final_state_weights, layout_, "final_state_weights"));
-  RETURN_IF_ERROR(checkSquareOfSize("final_state_weights", Qf, mpcRobotModelPtr_->getStateDim()));
-  if (comAndAcomTrackingCostListed_) {
-    // Zeroed for the reason the running cost's block is (stateWeights()); makeTerminalComAndAcomTrackingCost()
-    // regulates the terminal base pose in its place.
-    ComAndAcomTrackingCost::zeroBasePoseWeights(Qf);
-    if (verbose_) {
-      LOG(INFO) << "[HumanoidCostConstraintFactory] com_and_acom_tracking_cost is listed. Zeroing out base pose weights in "
-                   "final_state_weights.";
-    }
+  // Zeroed under com_and_acom_tracking_cost for the reason the running cost's block is (basePoseWeights());
+  // makeTerminalComAndAcomTrackingCost() regulates the terminal base pose in its place.
+  ASSIGN_OR_RETURN(matrix_t Qf, terminalStateWeightsFromConfig(taskFile.final_state_weights, terminalCostScaling, layout_,
+                                                               "final_state_weights", basePoseWeights()));
+  RETURN_IF_ERROR(checkSquareOfSize("final_state_weights", Qf, mpcRobotModelPtr_->getStateTangentDim()));
+  if (comAndAcomTrackingCostListed_ && verbose_) {
+    LOG(INFO) << "[HumanoidCostConstraintFactory] com_and_acom_tracking_cost is listed. Zeroing out base pose weights in "
+                 "final_state_weights.";
   }
-  Qf *= terminalCostScaling;
   if (verbose_) LOG(INFO) << "final_state_weights:\n" << Qf;
   // Shaped by the locomotion heuristics' base-pose offsets like the running costs, so the horizon's last node does not
   // pull back to the unshaped pose; identical to QuadraticStateCost when none is listed.
-  return std::make_unique<BasePoseShapedQuadraticStateCost>(Qf, *referenceManagerPtr_);
+  ASSIGN_OR_RETURN(std::unique_ptr<BasePoseShapedQuadraticStateCost> cost,
+                   BasePoseShapedQuadraticStateCost::Create(std::move(Qf), referenceManagerPtr_, mpcRobotModelPtr_));
+  return cost;
 }
 
 absl::StatusOr<std::unique_ptr<StateCost>> HumanoidCostConstraintFactory::makeFootCollisionConstraint() const {

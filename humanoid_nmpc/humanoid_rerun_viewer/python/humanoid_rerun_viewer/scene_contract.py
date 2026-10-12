@@ -33,8 +33,8 @@ per URDF link (world/robots/<instance>/<link>, whose Transform3D is the link's w
 its children (world/robots/<instance>/<link>/visual_<i>, static, at the visual origin of the URDF).
 
 The markers listed in MARKERS are the ones the visualization publisher draws. Their defaults (radius and colors) apply
-when a message leaves them unset: a radius of 0, or no color. They keep the look the ROS-era 3D view had: OCS2's
-palette, 0.01 m arrow shafts with 0.02 m heads, 0.01 m wide lines.
+when a message leaves them unset: a radius of 0, or no color. They are OCS2's palette, 0.01 m arrow shafts with
+0.02 m heads and 0.01 m wide lines.
 """
 
 import dataclasses

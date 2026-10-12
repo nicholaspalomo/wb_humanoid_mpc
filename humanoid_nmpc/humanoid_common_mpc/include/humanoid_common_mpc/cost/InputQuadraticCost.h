@@ -29,10 +29,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <utility>
+#include <cstddef>
+#include <memory>
 
 #include "absl/base/nullability.h"
-#include "ocs2_core/cost/QuadraticStateInputCost.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "ocs2_core/PreComputation.h"
+#include "ocs2_core/cost/StateInputCost.h"
+#include "ocs2_core/reference/TargetTrajectories.h"
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
@@ -40,14 +45,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * @brief Quadratic input effort cost: 0.5 * (u - u_nom)^T * R * (u - u_nom)
+ * The quadratic input effort cost (input_quadratic_cost), 1/2 (u - u_ref)' R (u - u_ref), with the reference manager's
+ * getDesiredInput() as u_ref. Input-only: it holds no state weight, and its derivatives with respect to the state are
+ * zeros of the evaluated state's size, so that no state-sized matrix of it has to follow the state's layout.
+ *
+ * The reference manager must outlive it. Like every OCS2 term it is cloned for each solver thread; its const functions
+ * are safe to call concurrently, setInputWeights() is not.
  */
-class InputQuadraticCost final : public QuadraticStateInputCost {
+class InputQuadraticCost final : public StateInputCost {
  public:
-  InputQuadraticCost(matrix_t R,
-                     size_t stateDim,
-                     const SwitchedModelReferenceManager& referenceManager,
-                     const MpcRobotModelBase<scalar_t>& mpcRobotModel);
+  /**
+   * The cost of `inputWeights` (R, `mpcRobotModel`'s getInputDim() square) against `referenceManager`'s input
+   * reference; the reference manager is retained, the model is not. InvalidArgument when R is refused
+   * (setInputWeights()).
+   */
+  static absl::StatusOr<std::unique_ptr<InputQuadraticCost>> Create(matrix_t inputWeights,
+                                                                    const SwitchedModelReferenceManager* absl_nonnull referenceManager,
+                                                                    const MpcRobotModelBase<scalar_t>& mpcRobotModel);
 
   ~InputQuadraticCost() override = default;
   InputQuadraticCost& operator=(const InputQuadraticCost&) = delete;
@@ -55,17 +69,41 @@ class InputQuadraticCost final : public QuadraticStateInputCost {
   InputQuadraticCost& operator=(InputQuadraticCost&&) = delete;
   InputQuadraticCost* absl_nonnull clone() const override { return new InputQuadraticCost(*this); }
 
+  /** 1/2 (u - u_ref)' R (u - u_ref). */
+  scalar_t getValue(scalar_t time,
+                    const vector_t& state,
+                    const vector_t& input,
+                    const TargetTrajectories& targetTrajectories,
+                    const PreComputation& preComputation) const override;
+
+  /** The value, R (u - u_ref) and R; zero dfdx, dfdxx and dfdux of `state`'s size. */
+  ScalarFunctionQuadraticApproximation getQuadraticApproximation(scalar_t time,
+                                                                 const vector_t& state,
+                                                                 const vector_t& input,
+                                                                 const TargetTrajectories& targetTrajectories,
+                                                                 const PreComputation& preComputation) const override;
+
+  /**
+   * Replaces R. InvalidArgument, with R left as it was, unless `inputWeights` is the input dimension square, finite and
+   * symmetric (validateQuadraticWeights()).
+   */
+  absl::Status setInputWeights(matrix_t inputWeights);
+
+  /** R, the input dimension square. */
+  const matrix_t& getInputWeights() const { return inputWeights_; }
+
  private:
-  InputQuadraticCost(const InputQuadraticCost& rhs);
+  InputQuadraticCost(const SwitchedModelReferenceManager* absl_nonnull referenceManager, size_t inputDim);
+  InputQuadraticCost(const InputQuadraticCost& other) = default;
 
-  std::pair<vector_t, vector_t> getStateInputDeviation(scalar_t time,
-                                                       const vector_t& state,
-                                                       const vector_t& input,
-                                                       const TargetTrajectories& targetTrajectories) const override;
+  /** u - u_ref, u_ref the reference manager's desired input at `time`. */
+  vector_t inputDeviation(scalar_t time, const vector_t& state, const vector_t& input, const TargetTrajectories& targetTrajectories) const;
 
-  const size_t stateDim_;
   const SwitchedModelReferenceManager* absl_nonnull referenceManagerPtr_;
-  const MpcRobotModelBase<scalar_t>* absl_nonnull mpcRobotModelPtr_;
+  // Entries of the input, the size of R.
+  size_t inputDim_ = 0;
+  // R; empty only until Create() sets it.
+  matrix_t inputWeights_;
 };
 
 }  // namespace ocs2::humanoid

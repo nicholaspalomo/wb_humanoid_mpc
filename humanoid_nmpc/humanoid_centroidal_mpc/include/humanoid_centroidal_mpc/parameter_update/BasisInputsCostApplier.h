@@ -70,8 +70,8 @@ class BasisInputsCostApplier final : public HotFieldApplier {
    * The applier of the running transform `basisCostTransform` (nullopt: the inputs are not basis vectors, and it applies
    * nothing) for an OCP input of `inputDim`, or the InvalidArgument that says which is inconsistent: inputDim is not the
    * transform's basisInputDim(), its map does not have wrenchInputDim rows, its numBasisInputs exceeds inputDim, or it
-   * fails validateBasisInputsCostTransformConfig(). The setGains() R is written with performs no size check, so a
-   * wrench-versus-basis dimension mix-up is refused here, at construction, rather than corrupting the input cost online.
+   * fails validateBasisInputsCostTransformConfig(). A wrench-versus-basis dimension mix-up is refused here, at
+   * construction, rather than by every reload's setInputWeights() of the input costs.
    */
   static absl::StatusOr<std::unique_ptr<BasisInputsCostApplier>> Create(std::optional<BasisInputsCostTransformConfig> basisCostTransform,
                                                                         size_t inputDim);

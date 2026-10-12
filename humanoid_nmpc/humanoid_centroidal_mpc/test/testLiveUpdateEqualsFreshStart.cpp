@@ -54,8 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"
 #include "gtest/gtest.h"
-#include "ocs2_core/cost/QuadraticStateCost.h"
-#include "ocs2_core/cost/QuadraticStateInputCost.h"
+#include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/soft_constraint/StateInputSoftConstraint.h"
 #include "ocs2_core/soft_constraint/StateSoftConstraint.h"
 #include "ocs2_mpc/MPC_MRT_Interface.h"
@@ -76,6 +75,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/HumanoidPreComputation.h"
 #include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
 #include "humanoid_common_mpc/common/ContactTermNames.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/config/ConfigReload.h"
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
 #include "humanoid_common_mpc/constraint/ContactComplementarityConstraint.h"
@@ -86,8 +86,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h"
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
+#include "humanoid_common_mpc/cost/InputQuadraticCost.h"
+#include "humanoid_common_mpc/cost/TuningQuadraticStateCost.h"
+#include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
+#include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_common_mpc/parameter_update/CommandLimitsReloaders.h"
 #include "humanoid_common_mpc/parameter_update/MpcParameterUpdaterModule.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
@@ -99,6 +103,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/task_file.pb.h"
 #include "nproto/options.pb.h"
 #include "robot_core/ResourcePaths.h"
+#include "support/ShippedCentroidalRobot.h"
 #include "support/TypedConfigFiles.h"
 
 /**
@@ -107,14 +112,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * deterministic step that keeps the file valid (a nonzero value times 1.05 to 1.10, an integer plus one), into the file E;
  * an MPC started from the shipped file and handed E through its parameter updater, before any solve, then solves exactly
  * as an MPC started from E does: the same policies, solve for solve, standing and then walking (expected bit for bit;
- * the check allows 1e-12 relative). On the DRC Atlas as it ships (basis-vector contact inputs, the CoM + ACoM cost, the
- * DCM terminal cost) and on the variants whose problems carry the terms it does not: the contact-implicit formulation, and
- * the quadratic terminal cost with a soft zero_velocity, the state-input quadratic cost and listed locomotion heuristics.
+ * the check allows 1e-12 relative), after the reload has written the running weights the fresh start builds, bit for bit.
+ * On the DRC Atlas as it ships (basis-vector contact inputs, the CoM + ACoM cost, the DCM terminal cost) and on the
+ * variants whose problems carry the terms it does not: the contact-implicit formulation, and the quadratic terminal cost
+ * with a soft zero_velocity, the state-input quadratic cost and listed locomotion heuristics. Since that step keeps a zero
+ * a zero, two more cases pin the orientation rows: every base-orientation row of Q and Q_final moved off the shipped zero
+ * (on a variant without the CoM + ACoM cost), and every row of Q_acom weighed (on the Atlas as it ships).
  *
  * terrain_height is left out of that equality on purpose (a live ground change lifts the target in use once, a fresh
  * start on the new ground does not); its live semantics are pinned on their own (L4t). Every perturbed field is also
  * shown to change what it writes, one field at a time, on the variant whose problem carries its term (the liveness of the
  * design); and an updater fed nothing changes no solve at all (L5).
+ *
+ * Every case runs on the quaternion layout of the base orientation, which every stack checks as it is built: the problem
+ * and every worker of its solver on a state manifold with one ambient coordinate more than its tangent, so the Euler rows
+ * of the tuning reach the formulation through the one mapping of the costs (TuningLayoutDeviation) at start-up and live
+ * alike.
  *
  * Generates the Atlas CppAD libraries on a cold cache.
  */
@@ -370,8 +383,11 @@ class Stack {
   /** Whether the updater is registered with the solver. */
   enum class Updater { kRegistered, kNone };
 
-  Stack(const CentroidalMpcConfig& config, Updater updaterUse) {
-    const CentroidalRobotFiles files = atlasFiles();
+  /** The stack of the DRC Atlas's files, configured by `config`. */
+  Stack(const CentroidalMpcConfig& config, Updater updaterUse) : Stack(config, updaterUse, atlasFiles()) {}
+
+  /** The stack of the robot of `files` (its URDF and its reference file), configured by `config`. */
+  Stack(const CentroidalMpcConfig& config, Updater updaterUse, const CentroidalRobotFiles& files) {
     absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> created = CentroidalMpcInterface::Create(config, files.urdfFile);
     EXPECT_TRUE(created.ok()) << created.status();
     if (!created.ok()) return;
@@ -381,7 +397,7 @@ class Stack {
     const MpcRobotModelBase<scalar_t>& effectiveModel = interface_->getEffectiveMpcRobotModel();
     absl::StatusOr<std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator>> calculator =
         CentroidalMpcTargetTrajectoriesCalculator::Create(config.reference, effectiveModel, interface_->getPinocchioInterface(),
-                                                          interface_->getCentroidalModelInfo(), interface_->mpcSettings().timeHorizon_);
+                                                          interface_->mpcSettings().timeHorizon_);
     EXPECT_TRUE(calculator.ok()) << calculator.status();
     if (!calculator.ok()) return;
     calculator_ = *std::move(calculator);
@@ -391,8 +407,9 @@ class Stack {
     absl::StatusOr<std::unique_ptr<ProceduralMpcMotionManager>> motionManager = ProceduralMpcMotionManager::Create(
         robot::resolveResourcePath("humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto").value(), files.referenceFile,
         interface_->getSwitchedModelReferenceManagerPtr(), effectiveModel,
-        [calculatorPtr](const vector4_t& velocity, scalar_t initTime, scalar_t /*finalTime*/, const vector_t& initState) {
-          return calculatorPtr->commandedVelocityToTargetTrajectories(velocity, initTime, initState);
+        [calculatorPtr](const vector4_t& velocity, scalar_t initTime, scalar_t /*finalTime*/, const vector_t& initState,
+                        const BasePlanarMotion& measuredMotion) {
+          return calculatorPtr->commandedVelocityToTargetTrajectories(velocity, initTime, initState, measuredMotion);
         });
     EXPECT_TRUE(motionManager.ok()) << motionManager.status();
     if (!motionManager.ok()) return;
@@ -407,6 +424,9 @@ class Stack {
     updater_ = *std::move(parameterUpdater);
     if (updaterUse == Updater::kRegistered) mpc_->getSolverPtr()->addSynchronizedModule(updater_);
     mrt_ = std::make_unique<MPC_MRT_Interface>(*mpc_);
+    // The robot follows the plan as the robot's MRT reads it: the base quaternion slerped along the state manifold.
+    mrt_->setStateManifold(interface_->getStateManifold());
+    expectTheQuaternionLayout();
     observation_.time = 0.0;
     observation_.state = interface_->getInitialState();
     observation_.input = vector_t::Zero(effectiveModel.getInputDim());
@@ -469,6 +489,25 @@ class Stack {
   const PrimalSolution& policy() const { return mrt_->getPolicy(); }
 
  private:
+  /**
+   * Expects the problem, and every worker of the solver, to run on the quaternion layout: a state manifold with one
+   * ambient coordinate more than its tangent (the base quaternion's four for its rotation's three), the robot model's state
+   * and tangent sizes. Every case of this file builds its stacks here, so every case checks it.
+   */
+  void expectTheQuaternionLayout() {
+    const MpcRobotModelBase<scalar_t>& model = interface_->getMpcRobotModel();
+    const std::shared_ptr<const StateManifold>& manifold = interface_->getOptimalControlProblem().stateManifoldPtr;
+    ASSERT_NE(manifold, nullptr) << "the problem runs on no state manifold";
+    EXPECT_EQ(manifold->getAmbientDim(), manifold->getTangentDim() + 1);
+    EXPECT_EQ(manifold->getAmbientDim(), model.getStateDim());
+    EXPECT_EQ(manifold->getTangentDim(), model.getStateTangentDim());
+    EXPECT_EQ(manifold, interface_->getStateManifold());
+    for (const OptimalControlProblem& worker : solver().getOcpDefinitions()) {
+      ASSERT_NE(worker.stateManifoldPtr, nullptr) << "a worker of the solver runs on no state manifold";
+      EXPECT_EQ(worker.stateManifoldPtr->getAmbientDim(), worker.stateManifoldPtr->getTangentDim() + 1);
+    }
+  }
+
   std::unique_ptr<CentroidalMpcInterface> interface_;
   std::unique_ptr<SqpMpc> mpc_;
   std::unique_ptr<CentroidalMpcTargetTrajectoriesCalculator> calculator_;
@@ -481,6 +520,12 @@ class Stack {
 /** `value` at 17 significant digits, so that two dumps differ exactly when the values do. */
 std::string exact(scalar_t value);
 std::string exact(const matrix_t& value);
+
+/** Values by name, at 17 digits (exact()). */
+using Dump = std::map<std::string, std::string>;
+
+/** The keys of `a` whose values differ in `b`, or that `b` does not have. */
+std::vector<std::string> changedKeys(const Dump& a, const Dump& b);
 
 /** The largest relative difference of `a` and `b` (relative to max(1, |a|)); infinity when their sizes differ. */
 scalar_t relativeDifference(const vector_t& a, const vector_t& b) {
@@ -532,30 +577,204 @@ void expectTheSameSolves(Stack& a, Stack& b) {
   ::testing::Test::RecordProperty("largest_relative_difference", exact(largest));
 }
 
-/** L4 on `config`: the shipped file plus a live update of E solves as a fresh start from E. */
-void expectALiveUpdateIsAFreshStart(const CentroidalMpcConfig& config) {
+/**
+ * The file E of `config`: every applied leaf perturbed by Step::kScale, but the leaves `moved`, which Step::kScaleOrSet
+ * moves whatever their value (a zero weight becomes 0.05), so that the rows they weigh take part in the equality. Fails
+ * the test when a leaf of `moved` is not an applied leaf of the file.
+ */
+CentroidalMpcConfig editedFile(const CentroidalMpcConfig& config, const std::set<std::string>& moved) {
+  const std::set<std::string> applied = appliedLeafPaths();
+  for (const std::string& path : moved) EXPECT_TRUE(applied.contains(path)) << path << " is not a leaf a reload applies";
+  std::set<std::string> scaled;
+  for (const std::string& path : applied) {
+    if (!moved.contains(path)) scaled.insert(path);
+  }
   CentroidalMpcConfig edited = config;
-  const std::set<std::string> perturbed = perturb(edited.task, appliedLeafPaths(), Step::kScale);
-  ASSERT_GT(perturbed.size(), 50U) << "the perturbation reached almost no field: " << absl::StrJoin(perturbed, ", ");
+  const std::set<std::string> perturbed = perturb(edited.task, scaled, Step::kScale);
+  EXPECT_GT(perturbed.size(), 50U) << "the perturbation reached almost no field: " << absl::StrJoin(perturbed, ", ");
+  EXPECT_EQ(perturb(edited.task, moved, Step::kScaleOrSet), moved) << "a leaf to move is not in the file";
+  return edited;
+}
+
+/**
+ * The weights the one weight mapping of the task file writes into the running problem of `stack`, on every worker of
+ * its solver, by worker, collection and term: Q and R of the Tuning* state-input costs, R of InputQuadraticCost, Q_final
+ * of the Tuning* terminal cost, and Q_com and Q_acom of the CoM + ACoM cost.
+ */
+Dump runningWeightsOf(Stack& stack) {
+  Dump dump;
+  std::vector<OptimalControlProblem>& workers = stack.solver().getOcpDefinitions();
+  for (size_t worker = 0; worker < workers.size(); ++worker) {
+    OptimalControlProblem& ocp = workers[worker];
+    for (const std::pair<const std::string, size_t>& term : ocp.costPtr->getTermNameMap()) {
+      StateInputCost& cost = ocp.costPtr->get<StateInputCost>(term.first);
+      const std::string key = absl::StrCat("worker ", worker, " cost/", term.first);
+      if (const TuningQuadraticStateInputCost* absl_nullable quadratic = dynamic_cast<const TuningQuadraticStateInputCost*>(&cost)) {
+        dump[key] = absl::StrCat(exact(quadratic->getStateWeights()), " | ", exact(quadratic->getInputWeights()));
+      } else if (const InputQuadraticCost* absl_nullable input = dynamic_cast<const InputQuadraticCost*>(&cost)) {
+        dump[key] = exact(input->getInputWeights());
+      }
+    }
+    for (StateCostCollection* absl_nonnull collection : {ocp.stateCostPtr.get(), ocp.finalCostPtr.get()}) {
+      const std::string name = collection == ocp.stateCostPtr.get() ? "stateCost/" : "finalCost/";
+      for (const std::pair<const std::string, size_t>& term : collection->getTermNameMap()) {
+        StateCost& cost = collection->get<StateCost>(term.first);
+        const std::string key = absl::StrCat("worker ", worker, " ", name, term.first);
+        if (const TuningQuadraticStateCost* absl_nullable quadratic = dynamic_cast<const TuningQuadraticStateCost*>(&cost)) {
+          dump[key] = exact(quadratic->getStateWeights());
+        } else if (const ComAndAcomTrackingCost* absl_nullable comAndAcom = dynamic_cast<const ComAndAcomTrackingCost*>(&cost)) {
+          dump[key] = absl::StrCat(exact(comAndAcom->getQCom()), " | ", exact(comAndAcom->getQAcom()));
+        }
+      }
+    }
+  }
+  return dump;
+}
+
+/**
+ * L4 on `config`: the shipped file plus a live update of E (editedFile() with the leaves `moved`) writes the running
+ * weights a fresh start from E builds, bit for bit on every worker, and solves as that fresh start does.
+ * `expectOnTheReloaded` checks the reloaded stack before the solves: what the case is there to exercise.
+ */
+void expectALiveUpdateIsAFreshStart(const CentroidalMpcConfig& config,
+                                    const std::set<std::string>& moved,
+                                    absl::FunctionRef<void(Stack&)> expectOnTheReloaded) {
+  const CentroidalMpcConfig edited = editedFile(config, moved);
   Stack live(config, Stack::Updater::kRegistered);
   ASSERT_TRUE(live.ok());
   live.applyNow(edited.task);
   Stack fresh(edited, Stack::Updater::kRegistered);
   ASSERT_TRUE(fresh.ok());
+  expectOnTheReloaded(live);
+  const Dump liveWeights = runningWeightsOf(live);
+  const Dump freshWeights = runningWeightsOf(fresh);
+  EXPECT_FALSE(freshWeights.empty()) << "no running weight to compare";
+  EXPECT_EQ(liveWeights.size(), freshWeights.size());
+  EXPECT_THAT(changedKeys(freshWeights, liveWeights), testing::IsEmpty()) << "the live update wrote other weights than a fresh start";
   expectTheSameSolves(live, fresh);
 }
 
+/** The reloaded stack's check of a case that exercises nothing beyond the equality. */
+void expectNothingMore(Stack& /*reloaded*/) {}
+
 TEST(LiveUpdateEqualsFreshStart, OnTheShippedAtlas) {
-  expectALiveUpdateIsAFreshStart(shippedAtlas());
+  expectALiveUpdateIsAFreshStart(shippedAtlas(), /*moved=*/{}, expectNothingMore);
 }
 
 TEST(LiveUpdateEqualsFreshStart, OnTheContactImplicitAtlas) {
-  expectALiveUpdateIsAFreshStart(contactImplicitAtlas(shippedAtlas()));
+  expectALiveUpdateIsAFreshStart(contactImplicitAtlas(shippedAtlas()), /*moved=*/{}, expectNothingMore);
 }
 
 TEST(LiveUpdateEqualsFreshStart, OnTheAtlasWithQuadraticCostsASoftZeroVelocityAndHeuristics) {
-  expectALiveUpdateIsAFreshStart(quadraticCostsWithHeuristicsAtlas(shippedAtlas()));
+  expectALiveUpdateIsAFreshStart(quadraticCostsWithHeuristicsAtlas(shippedAtlas()), /*moved=*/{}, expectNothingMore);
 }
+
+// L4 with every orientation row weighed. Step::kScale keeps every zero a zero, and every robot ships a yaw weight of 0
+// (the Atlas its whole base-orientation block, which the CoM + ACoM cost zeroes as well), so the cases above leave the
+// base-orientation rows of Q and Q_final out of the equality. The two cases below weigh every one of them, and every row
+// of Q_acom: the rows that the one mapping of the Euler tuning carries into the formulation (the design's section 3).
+
+/**
+ * Expects every running Q and Q_final of `reloaded` (the Tuning* costs, on every worker) to weigh the yaw, pitch and
+ * roll rows of the base orientation in the model's tuning layout.
+ */
+void expectEveryBaseOrientationRowWeighed(Stack& reloaded) {
+  const absl::StatusOr<size_t> orientationRow =
+      tuningSegmentStart(reloaded.interface().getMpcRobotModel().getTuningLayout(), "base_orientation");
+  ASSERT_TRUE(orientationRow.ok()) << orientationRow.status();
+  size_t weighed = 0;
+  for (OptimalControlProblem& ocp : reloaded.solver().getOcpDefinitions()) {
+    std::vector<matrix_t> stateWeights;
+    for (const std::pair<const std::string, size_t>& term : ocp.costPtr->getTermNameMap()) {
+      if (const TuningQuadraticStateInputCost* absl_nullable quadratic =
+              dynamic_cast<const TuningQuadraticStateInputCost*>(&ocp.costPtr->get<StateInputCost>(term.first))) {
+        stateWeights.push_back(quadratic->getStateWeights());
+      }
+    }
+    for (const std::pair<const std::string, size_t>& term : ocp.finalCostPtr->getTermNameMap()) {
+      if (const TuningQuadraticStateCost* absl_nullable quadratic =
+              dynamic_cast<const TuningQuadraticStateCost*>(&ocp.finalCostPtr->get<StateCost>(term.first))) {
+        stateWeights.push_back(quadratic->getStateWeights());
+      }
+    }
+    for (const matrix_t& weights : stateWeights) {
+      for (Eigen::Index row = static_cast<Eigen::Index>(*orientationRow); row < static_cast<Eigen::Index>(*orientationRow) + 3; ++row) {
+        EXPECT_NE(weights(row, row), 0.0) << "tuning row " << row << " of a running state weight is not weighed";
+      }
+      ++weighed;
+    }
+  }
+  EXPECT_GE(weighed, 2U) << "the running and the terminal Tuning* cost of a worker";
+}
+
+/** Expects the Q_acom of every running CoM + ACoM cost of `reloaded`, on every worker, to weigh yaw, pitch and roll. */
+void expectEveryAcomRowWeighed(Stack& reloaded) {
+  size_t weighed = 0;
+  for (OptimalControlProblem& ocp : reloaded.solver().getOcpDefinitions()) {
+    for (StateCostCollection* absl_nonnull collection : {ocp.stateCostPtr.get(), ocp.finalCostPtr.get()}) {
+      for (const std::pair<const std::string, size_t>& term : collection->getTermNameMap()) {
+        if (const ComAndAcomTrackingCost* absl_nullable comAndAcom =
+                dynamic_cast<const ComAndAcomTrackingCost*>(&collection->get<StateCost>(term.first))) {
+          const matrix_t& acomWeights = comAndAcom->getQAcom();
+          ASSERT_EQ(acomWeights.rows(), 3);
+          for (Eigen::Index row = 0; row < 3; ++row) EXPECT_NE(acomWeights(row, row), 0.0) << "Q_acom row " << row << " is not weighed";
+          ++weighed;
+        }
+      }
+    }
+  }
+  EXPECT_GE(weighed, 1U) << "no CoM + ACoM cost runs";
+}
+
+TEST(LiveUpdateEqualsFreshStart, WithEveryBaseOrientationRowWeighedOnTheAtlasWithoutTheAcomCost) {
+  // Without the CoM + ACoM cost, so that the factory weighs the base-pose blocks of Q and Q_final rather than zeroes them.
+  const std::set<std::string> baseOrientation = {"state_weights.base_orientation.yaw",         "state_weights.base_orientation.pitch",
+                                                 "state_weights.base_orientation.roll",        "final_state_weights.base_orientation.yaw",
+                                                 "final_state_weights.base_orientation.pitch", "final_state_weights.base_orientation.roll"};
+  expectALiveUpdateIsAFreshStart(otherHeuristicsWithoutAcomAtlas(shippedAtlas()), baseOrientation, expectEveryBaseOrientationRowWeighed);
+}
+
+TEST(LiveUpdateEqualsFreshStart, WithEveryAcomRowWeighedOnTheShippedAtlas) {
+  // The CoM + ACoM cost as it ships, which zeroes the base-pose blocks of Q and Q_final and weighs the ACoM attitude.
+  const std::set<std::string> acomAttitude = {"acom_weights.yaw", "acom_weights.pitch", "acom_weights.roll"};
+  expectALiveUpdateIsAFreshStart(shippedAtlas(), acomAttitude, expectEveryAcomRowWeighed);
+}
+
+// The same with every orientation row moved on each other shipped centroidal robot, without a solve: the weights the one
+// mapping writes into the running problem by a live update are a fresh start's, bit for bit (the Atlas above solves).
+class LiveUpdateWeightsEqualFreshStart : public testing::TestWithParam<ShippedCentroidalRobot> {};
+
+TEST_P(LiveUpdateWeightsEqualFreshStart, WithEveryOrientationRowMoved) {
+  const CentroidalRobotFiles files = shippedCentroidalRobotFiles(GetParam());
+  const absl::StatusOr<CentroidalMpcConfig> config = loadConfigOf(files);
+  ASSERT_TRUE(config.ok()) << config.status();
+  // None of them has the CoM + ACoM cost (the Atlas's): their Q and Q_final weigh the base pose themselves. EngineAI SA01
+  // ends its horizon with the DCM cost, so its final_state_weights reach no running term.
+  const std::set<std::string> moved = {"state_weights.base_orientation.yaw",         "state_weights.base_orientation.pitch",
+                                       "state_weights.base_orientation.roll",        "final_state_weights.base_orientation.yaw",
+                                       "final_state_weights.base_orientation.pitch", "final_state_weights.base_orientation.roll"};
+  const CentroidalMpcConfig edited = editedFile(*config, moved);
+  Stack live(*config, Stack::Updater::kRegistered, files);
+  ASSERT_TRUE(live.ok());
+  const Dump started = runningWeightsOf(live);
+  live.applyNow(edited.task);
+  Stack fresh(edited, Stack::Updater::kRegistered, files);
+  ASSERT_TRUE(fresh.ok());
+  expectEveryBaseOrientationRowWeighed(live);
+  const Dump liveWeights = runningWeightsOf(live);
+  const Dump freshWeights = runningWeightsOf(fresh);
+  EXPECT_FALSE(freshWeights.empty()) << "no running weight to compare";
+  EXPECT_EQ(liveWeights.size(), freshWeights.size());
+  EXPECT_THAT(changedKeys(freshWeights, liveWeights), testing::IsEmpty()) << "the live update wrote other weights than a fresh start";
+  EXPECT_THAT(changedKeys(started, liveWeights), testing::Not(testing::IsEmpty())) << "the live update wrote nothing";
+}
+
+INSTANTIATE_TEST_SUITE_P(OtherShippedRobots,
+                         LiveUpdateWeightsEqualFreshStart,
+                         testing::Values(ShippedCentroidalRobot::kEngineAiSa01,
+                                         ShippedCentroidalRobot::kUnitreeG1,
+                                         ShippedCentroidalRobot::kUnitreeR1),
+                         shippedCentroidalRobotTestName);
 
 TEST(LiveUpdateEqualsFreshStart, AnUpdaterFedNothingChangesNoSolve) {
   // L5: the updater registered, fed nothing and watching no changed file, against no updater at all.
@@ -664,13 +883,11 @@ std::string exact(const matrix_t& value) {
   return out;
 }
 
-using Dump = std::map<std::string, std::string>;
-
 /** The parameters of every penalty of `softConstraint`. */
 template <typename SoftConstraint>
 std::string penaltyParameters(SoftConstraint& softConstraint) {
   std::string out;
-  for (std::unique_ptr<augmented::AugmentedPenaltyBase>& penalty : softConstraint.getPenalty().getPenaltyPtrArray()) {
+  for (std::unique_ptr<PenaltyBase>& penalty : softConstraint.getPenalty().getPenaltyPtrArray()) {
     vector_t parameters;
     penalty->getParameters(parameters);
     absl::StrAppend(&out, exact(parameters), ";");
@@ -689,12 +906,10 @@ void dumpTerms(OptimalControlProblem& ocp, Dump& dump) {
   for (const std::pair<const std::string, size_t>& term : ocp.costPtr->getTermNameMap()) {
     StateInputCost& cost = ocp.costPtr->get<StateInputCost>(term.first);
     const std::string key = absl::StrCat("cost/", term.first);
-    if (QuadraticStateInputCost* absl_nullable quadratic = dynamic_cast<QuadraticStateInputCost*>(&cost)) {
-      matrix_t Q;
-      matrix_t R;
-      matrix_t P;
-      quadratic->getGains(Q, R, P);
-      dump[key] = absl::StrCat(exact(Q), " | ", exact(R), " | ", exact(P));
+    if (TuningQuadraticStateInputCost* absl_nullable quadratic = dynamic_cast<TuningQuadraticStateInputCost*>(&cost)) {
+      dump[key] = absl::StrCat(exact(quadratic->getStateWeights()), " | ", exact(quadratic->getInputWeights()));
+    } else if (InputQuadraticCost* absl_nullable input = dynamic_cast<InputQuadraticCost*>(&cost)) {
+      dump[key] = exact(input->getInputWeights());
     } else if (EndEffectorKinematicsQuadraticCost* absl_nullable link = dynamic_cast<EndEffectorKinematicsQuadraticCost*>(&cost)) {
       vector12_t weights;
       link->getWeights(weights);
@@ -724,10 +939,8 @@ void dumpTerms(OptimalControlProblem& ocp, Dump& dump) {
   for (const std::pair<const std::string, size_t>& term : ocp.finalCostPtr->getTermNameMap()) {
     StateCost& cost = ocp.finalCostPtr->get<StateCost>(term.first);
     const std::string key = absl::StrCat("finalCost/", term.first);
-    if (QuadraticStateCost* absl_nullable quadratic = dynamic_cast<QuadraticStateCost*>(&cost)) {
-      matrix_t Q;
-      quadratic->getGains(Q);
-      dump[key] = exact(Q);
+    if (TuningQuadraticStateCost* absl_nullable quadratic = dynamic_cast<TuningQuadraticStateCost*>(&cost)) {
+      dump[key] = exact(quadratic->getStateWeights());
     } else if (DcmTerminalCost* absl_nullable dcm = dynamic_cast<DcmTerminalCost*>(&cost)) {
       const DcmTerminalCost::Config& config = dcm->getConfig();
       dump[key] = absl::StrCat(exact(config.comHeight.value_or(-1.0)), " ", exact(config.gravity), " ", exact(config.weights), " ",
@@ -801,7 +1014,6 @@ Dump dumpOf(Stack& stack) {
   return dump;
 }
 
-/** The keys whose values differ between `a` and `b`. */
 std::vector<std::string> changedKeys(const Dump& a, const Dump& b) {
   std::vector<std::string> changed;
   for (const std::pair<const std::string, std::string>& entry : a) {

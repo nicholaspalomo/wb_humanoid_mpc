@@ -40,8 +40,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::mujoco_sim_interface {
 
 void DcmVisualization::addSceneGeoms(const VisualizationFrame& frame) {
-  if (frame.sim == nullptr || frame.state == nullptr || frame.scene == nullptr) return;
-  const mjModel* absl_nonnull model = frame.sim->getModel();
+  if (frame.model == nullptr || frame.state == nullptr || frame.scene == nullptr) return;
+  const mjModel* absl_nonnull model = frame.model;
   const RobotCentroidalState state = robotCentroidalState(model, frame.state->data);
   if (!state.valid) return;
   const double gravity = std::fabs(model->opt.gravity[2]);

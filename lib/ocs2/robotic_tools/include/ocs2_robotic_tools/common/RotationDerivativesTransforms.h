@@ -36,50 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2 {
 
 /**
- * Compute the matrix that maps derivatives of ZYX-Euler angles to global angular velocities
- *
- * @param [in] eulerAngles: ZYX-Euler angles
- * @return 3x3 matrix mapping
- */
-template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 3, 3> getMappingFromEulerAnglesZyxDerivativeToGlobalAngularVelocity(
-    const Eigen::Matrix<SCALAR_T, 3, 1>& eulerAngles) {
-  const SCALAR_T sz = sin(eulerAngles(0));
-  const SCALAR_T cz = cos(eulerAngles(0));
-  const SCALAR_T sy = sin(eulerAngles(1));
-  const SCALAR_T cy = cos(eulerAngles(1));
-  Eigen::Matrix<SCALAR_T, 3, 3> transformationMatrix;
-  // clang-format off
-  transformationMatrix << SCALAR_T(0.0),            -sz,    cy*cz,
-                          SCALAR_T(0.0),             cz,    cy*sz,
-                          SCALAR_T(1.0),  SCALAR_T(0.0),      -sy;
-  // clang-format on
-  return transformationMatrix;
-}
-
-/**
- * Compute angular velocities expressed in the world frame from derivatives of ZYX-Euler angles
- *
- * @param [in] eulerAngles: ZYX-Euler angles
- * @param [in] derivativesEulerAngles: time-derivative of ZYX-Euler angles
- * @return angular velocity expressed in world frame
- */
-template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 3, 1> getGlobalAngularVelocityFromEulerAnglesZyxDerivatives(
-    const Eigen::Matrix<SCALAR_T, 3, 1>& eulerAngles, const Eigen::Matrix<SCALAR_T, 3, 1>& derivativesEulerAngles) {
-  const SCALAR_T sz = sin(eulerAngles(0));
-  const SCALAR_T cz = cos(eulerAngles(0));
-  const SCALAR_T sy = sin(eulerAngles(1));
-  const SCALAR_T cy = cos(eulerAngles(1));
-  const SCALAR_T dz = derivativesEulerAngles(0);
-  const SCALAR_T dy = derivativesEulerAngles(1);
-  const SCALAR_T dx = derivativesEulerAngles(2);
-  return {-sz * dy + cy * cz * dx, cz * dy + cy * sz * dx, dz - sy * dx};
-}
-
-/**
  * Compute derivatives of ZYX-Euler angles from global angular velocities
- * The inverse of getGlobalAngularVelocityFromEulerAnglesZyxDerivatives
+ * The inverse of the map w = [0, -sz, cy*cz; 0, cz, cy*sz; 1, 0, -sy] * d/dt (z, y, x)
  *
  * This transformation is singular for y = +- pi / 2
  *
@@ -99,37 +57,6 @@ Eigen::Matrix<SCALAR_T, 3, 1> getEulerAnglesZyxDerivativesFromGlobalAngularVeloc
   const SCALAR_T wz = angularVelocity(2);
   const SCALAR_T tmp = cz * wx / cy + sz * wy / cy;
   return {sy * tmp + wz, -sz * wx + cz * wy, tmp};
-}
-
-/**
- * Compute angular accelerations expressed in the world frame from derivatives of ZYX-Euler angles
- *
- * @param [in] eulerAngles: ZYX-Euler angles
- * @param [in] derivativesEulerAngles: time-derivative of ZYX-Euler angles
- * @param [in] secondDerivativesEulerAngles: second order time-derivative of ZYX-Euler angles
- * @return angular acceleration expressed in world frame
- */
-template <typename SCALAR_T>
-Eigen::Matrix<SCALAR_T, 3, 1> getGlobalAngularAccelerationFromEulerAnglesZyxDerivatives(
-    const Eigen::Matrix<SCALAR_T, 3, 1>& eulerAngles, const Eigen::Matrix<SCALAR_T, 3, 1>& derivativesEulerAngles,
-    const Eigen::Matrix<SCALAR_T, 3, 1>& secondDerivativesEulerAngles) {
-  const SCALAR_T sz = sin(eulerAngles(0));
-  const SCALAR_T cz = cos(eulerAngles(0));
-  const SCALAR_T sy = sin(eulerAngles(1));
-  const SCALAR_T cy = cos(eulerAngles(1));
-  const SCALAR_T sx = sin(eulerAngles(2));
-  const SCALAR_T cx = cos(eulerAngles(2));
-  const SCALAR_T dz = derivativesEulerAngles(0);
-  const SCALAR_T dy = derivativesEulerAngles(1);
-  const SCALAR_T dx = derivativesEulerAngles(2);
-  Eigen::Matrix<SCALAR_T, 3, 3> transformationMatrix = getMappingFromEulerAnglesZyxDerivativeToGlobalAngularVelocity(eulerAngles);
-  Eigen::Matrix<SCALAR_T, 3, 3> derivativeTransformationMatrix;
-  // clang-format off
-  derivativeTransformationMatrix << SCALAR_T(0), -cz*dz, (-sy*dy)*cz + cy*(-sz*dz),
-                                    SCALAR_T(0), -sz*dz,  (-sy*dy)*sz + cy*(cz*dz),
-                                    SCALAR_T(0),  SCALAR_T(0),   -cy*dy;
-  // clang-format on
-  return derivativeTransformationMatrix * derivativesEulerAngles + transformationMatrix * secondDerivativesEulerAngles;
 }
 
 /**

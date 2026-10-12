@@ -46,7 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
-#include "ocs2_core/misc/LinearInterpolation.h"
+#include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/centroidal.hpp"
@@ -60,6 +60,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/execution/PlannedHeadingOverride.h"
 #include "humanoid_common_mpc/contact_planning/execution/ScheduleAdaptationPipeline.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 namespace ocs2::humanoid {
@@ -68,6 +69,62 @@ namespace {
 constexpr scalar_t kShiftLogAge = 2.0;                 // [s] schedule shifts older than this cannot concern a pending plan any more
 constexpr scalar_t kSameSwingTolerance = 1.0e-6;       // [s] lift-off times closer than this identify the same swing
 constexpr scalar_t kPredictionTimeTolerance = 1.0e-6;  // [s] slack when checking that a prediction covers the solver time
+// [rad] The largest rotation of the base between consecutive knots of the dense resample of the target, the spacing of
+// the target calculators' knots (TargetTrajectoriesCalculatorBase::kMaxKnotYawSpacing): the shortest-path slerp between
+// two knots then follows the target the way it turns (design README section 2.9).
+constexpr scalar_t kMaxResampleRotationSpacing = 0.5 * M_PI;
+
+/** [rad] The angle |Log(xi_a^-1 xi_b)| in [0, pi] between the base orientations of the states `a` and `b` of `model`. */
+scalar_t baseRotationBetween(const MpcRobotModelBase<scalar_t>& model, const vector_t& a, const vector_t& b) {
+  const vector4_t relative =
+      quaternionProduct<scalar_t>(quaternionConjugate<scalar_t>(model.getBaseOrientation(a)), model.getBaseOrientation(b));
+  return quaternionLog<scalar_t>(relative).norm();
+}
+
+/**
+ * The times strictly between `startTime` and `endTime` at which the dense resample of `source` must add knots so that
+ * consecutive knots are at most kMaxResampleRotationSpacing apart, in increasing order; `startState` and `endState` are
+ * source's desired states at the two times. None while the base turns by no more along `source` (the sum of the
+ * rotations between its knots in the interval), the case of every command up to 63 rad/s. Otherwise every knot of
+ * `source` in the interval, and each piece of `source` between them cut into the fewest equal parts in time for the
+ * spacing: within a piece the slerp turns at a constant rate, so equal parts in time are equal parts of its rotation.
+ */
+scalar_array_t boundedRotationResampleTimes(const MpcRobotModelBase<scalar_t>& model,
+                                            const TargetTrajectories& source,
+                                            scalar_t startTime,
+                                            const vector_t& startState,
+                                            scalar_t endTime,
+                                            const vector_t& endState) {
+  scalar_array_t times;
+  // The pieces of `source` between its knots in the interval, by their ends; the states are not copied.
+  scalar_array_t breakpoints{startTime};
+  std::vector<const vector_t* absl_nonnull> states{&startState};
+  for (size_t i = 0; i < source.timeTrajectory.size(); ++i) {
+    const scalar_t time = source.timeTrajectory[i];
+    if (time > startTime && time < endTime) {
+      breakpoints.push_back(time);
+      states.push_back(&source.stateTrajectory[i]);
+    }
+  }
+  breakpoints.push_back(endTime);
+  states.push_back(&endState);
+  std::vector<scalar_t> rotations(breakpoints.size() - 1);
+  scalar_t totalRotation = 0.0;
+  for (size_t i = 0; i + 1 < breakpoints.size(); ++i) {
+    rotations[i] = baseRotationBetween(model, *states[i], *states[i + 1]);
+    totalRotation += rotations[i];
+  }
+  if (totalRotation <= kMaxResampleRotationSpacing) return times;
+  for (size_t i = 0; i + 1 < breakpoints.size(); ++i) {
+    if (i > 0) times.push_back(breakpoints[i]);
+    const scalar_t parts = std::ceil(rotations[i] / kMaxResampleRotationSpacing);
+    for (scalar_t part = 1.0; part < parts; part += 1.0) {
+      times.push_back(breakpoints[i] + (part / parts) * (breakpoints[i + 1] - breakpoints[i]));
+    }
+  }
+  return times;
+}
+
 }  // namespace
 
 absl::StatusOr<std::shared_ptr<ContactPlanningReferenceManager>> ContactPlanningReferenceManager::Create(
@@ -174,9 +231,10 @@ absl::Status ContactPlanningReferenceManager::loadHeadingModelEvaluator() {
 
 scalar_t ContactPlanningReferenceManager::computeHeading(const vector_t& state) const {
   if (acom_) {
-    return acom_->computeAcomOrientation(mpcRobotModelPtr_->getGeneralizedCoordinates(state))(0);
+    // The twist heading psi_h(xi_a) of the ACoM attitude (design section 2.9), in (-pi, pi].
+    return twistHeading(acom_->acomAttitude(mpcRobotModelPtr_->getBaseOrientation(state), mpcRobotModelPtr_->getJointAngles(state)));
   }
-  return mpcRobotModelPtr_->getBaseOrientationEulerZYX(state)(0);
+  return mpcRobotModelPtr_->getBaseHeading(state);
 }
 
 feet_array_t<scalar_t> ContactPlanningReferenceManager::readFootYaws() const {
@@ -221,7 +279,7 @@ void ContactPlanningReferenceManager::captureOperatorCommand(scalar_t initTime, 
   operatorTarget_.updateFromBuffer();
   const TargetTrajectories& operatorTarget = operatorTarget_.get();
   if (operatorTarget.empty()) return;
-  const vector_t desiredState = operatorTarget.getDesiredState(initTime);
+  const vector_t desiredState = mpcRobotModelPtr_->getDesiredState(operatorTarget, initTime);
   if (desiredState.size() < 6) return;
   // The linear part of the same channel is the commanded CoM velocity. It has to be read here, before the rules run,
   // for the same reason the yaw rate does and then some: planned_com_override rewrites exactly this channel with the
@@ -456,7 +514,7 @@ void ContactPlanningReferenceManager::updatePredictedComState(scalar_t initTime)
         initTime > predictedTimes_.back() + kPredictionTimeTolerance) {
       return;
     }
-    predictedState = LinearInterpolation::interpolate(initTime, predictedTimes_, predictedStates_);
+    predictedState = mpcRobotModelPtr_->interpolateStateTrajectory(initTime, predictedTimes_, predictedStates_);
   }
   // A diverged solve hands over a non-finite trajectory; measuring against it would poison the foot reference.
   if (predictedState.size() != static_cast<Eigen::Index>(mpcRobotModelPtr_->getStateDim()) || !predictedState.allFinite()) return;
@@ -611,11 +669,25 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
     const std::function<vector_t(scalar_t)> tailInput = [&](scalar_t time) -> vector_t {
       return operatorTarget.inputTrajectory.empty() ? targetTrajectories.getDesiredInput(time) : operatorTarget.getDesiredInput(time);
     };
+    // A sample of the live target at `time`.
+    const std::function<void(scalar_t, vector_t)> appendLiveSample = [&](scalar_t time, vector_t state) {
+      denseTarget.timeTrajectory.push_back(time);
+      denseTarget.stateTrajectory.push_back(std::move(state));
+      if (hasInput) denseTarget.inputTrajectory.push_back(targetTrajectories.getDesiredInput(time));
+    };
     for (size_t i = 0; i < numNodes; ++i) {
       const scalar_t time = plan.startTime + static_cast<scalar_t>(i) * plan.dt;
-      denseTarget.timeTrajectory.push_back(time);
-      denseTarget.stateTrajectory.push_back(targetTrajectories.getDesiredState(time));
-      if (hasInput) denseTarget.inputTrajectory.push_back(targetTrajectories.getDesiredInput(time));
+      vector_t state = mpcRobotModelPtr_->getDesiredState(targetTrajectories, time);
+      if (i > 0) {
+        // The nodes are omega dt apart in yaw, above the bound only for a turn faster than 63 rad/s at dt = 0.025 s; the
+        // knots of the bound (boundedRotationResampleTimes()) go before the node.
+        for (const scalar_t boundTime :
+             boundedRotationResampleTimes(*mpcRobotModelPtr_, targetTrajectories, denseTarget.timeTrajectory.back(),
+                                          denseTarget.stateTrajectory.back(), time, state)) {
+          appendLiveSample(boundTime, mpcRobotModelPtr_->getDesiredState(targetTrajectories, boundTime));
+        }
+      }
+      appendLiveSample(time, std::move(state));
     }
     const scalar_t lastDenseTime = denseTarget.timeTrajectory.empty() ? plan.startTime : denseTarget.timeTrajectory.back();
     for (size_t i = 0; i < numOperatorKnots; ++i) {
@@ -627,7 +699,7 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
     }
     if (denseTarget.timeTrajectory.empty() || denseTarget.timeTrajectory.back() < finalTime) {
       denseTarget.timeTrajectory.push_back(finalTime);
-      denseTarget.stateTrajectory.push_back(operatorTarget.getDesiredState(finalTime));
+      denseTarget.stateTrajectory.push_back(mpcRobotModelPtr_->getDesiredState(operatorTarget, finalTime));
       if (hasInput) denseTarget.inputTrajectory.push_back(tailInput(finalTime));
     }
     targetTrajectories = std::move(denseTarget);
@@ -802,7 +874,7 @@ ContactPlannerInput ContactPlanningReferenceManager::makePlannerInput(scalar_t i
   input.velocityCommand = velocityCommand;
 
   std::tie(input.comPosition, input.comVelocity) = computeComState(initState);
-  input.yaw = mpcRobotModelPtr_->getBaseOrientationEulerZYX(initState)(0);
+  input.yaw = mpcRobotModelPtr_->getBaseHeading(initState);
 
   const feet_array_t<vector3_t> feet = computeFootPositions(initState);
   for (size_t i = 0; i < kNumContacts; ++i) {

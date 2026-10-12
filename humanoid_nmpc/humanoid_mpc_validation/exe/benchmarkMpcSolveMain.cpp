@@ -52,7 +52,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /*
  * benchmark_mpc_solve: the solve benchmark of the quaternion design's section 4.6 (runSolveBenchmark) for one robot
  * configuration, on robot states a lockstep walking run recorded. Writes <robot>_solve_benchmark.json into --output_dir
- * (by default the test's undeclared outputs, where `make benchmark-mpc-solve` collects it) and prints it.
+ * (by default the test's undeclared outputs, where `make benchmark-mpc-solve` collects it) and prints it. --robot and
+ * --label are required.
  */
 
 // The defaults of the numeric flags.
@@ -74,9 +75,9 @@ ABSL_FLAG(std::string,
 ABSL_FLAG(std::string,
           baseline,
           "",
-          "A label under data/benchmark/ (e.g. B0) to hold the run to with the real-time gate of section 4.6; empty: none.");
+          "A label under data/benchmark/ to hold the run to with the real-time gate (SolveBenchmarkGate.h); empty: none.");
 // NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
-ABSL_FLAG(std::string, label, "B0", "The label written into the document.");
+ABSL_FLAG(std::string, label, "", "The label written into the document (required).");
 // NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
 ABSL_FLAG(std::string, output_dir, "", "Where the document goes; empty: $TEST_UNDECLARED_OUTPUTS_DIR, else the working directory.");
 // NOLINTNEXTLINE(misc-use-internal-linkage): ABSL_FLAG must be at global scope.
@@ -98,6 +99,10 @@ constexpr char kStatesDirectory[] = "humanoid_nmpc/humanoid_mpc_validation/data/
 // LINT.ThenChange(//Makefile:closed_loop_targets)
 
 int runBenchmark() {
+  if (absl::GetFlag(FLAGS_label).empty()) {
+    std::cerr << "--label is required: the label the document is recorded under.\n";
+    return 2;
+  }
   const absl::StatusOr<RobotConfiguration> configuration = findRobotConfiguration(absl::GetFlag(FLAGS_robot));
   if (!configuration.ok()) {
     std::cerr << configuration.status() << "\n";

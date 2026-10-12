@@ -169,6 +169,37 @@ class TokenizeTest(unittest.TestCase):
         )
 
 
+class CallArgumentsTest(unittest.TestCase):
+    def _arguments(self, source: str) -> list[list[str]] | None:
+        tokens = cpp_source.code_tokens(source)
+        opening = next(k for k, token in enumerate(tokens) if token.text in "({")
+        arguments = cpp_source.call_arguments(tokens, opening)
+        if arguments is None:
+            return None
+        return [[token.text for token in argument] for argument in arguments]
+
+    def test_top_level_commas_split(self):
+        self.assertEqual(
+            self._arguments("f(a, g(b, c), {d, e}, x[1, 2]);"),
+            [
+                ["a"],
+                ["g", "(", "b", ",", "c", ")"],
+                ["{", "d", ",", "e", "}"],
+                ["x", "[", "1", ",", "2", "]"],
+            ],
+        )
+
+    def test_braces_open_a_list_too(self):
+        self.assertEqual(self._arguments("T t{1.0, 2.0};"), [["1.0"], ["2.0"]])
+
+    def test_an_empty_list_has_no_argument_and_an_open_one_is_none(self):
+        self.assertEqual(self._arguments("f();"), [])
+        self.assertIsNone(self._arguments("f(a, b"))
+
+    def test_an_empty_argument_is_kept(self):
+        self.assertEqual(self._arguments("f(a, );"), [["a"], []])
+
+
 class MaskTest(unittest.TestCase):
     def test_comments_and_literals_are_blanked_in_place(self):
         source = 'int a; // x\nconst char* s = "y"; /* z */\n'

@@ -190,8 +190,9 @@ costs: "external_torque_cost"
 # cannot be dragged negative. Several of these are physically negative (height_compensation.height_per_speed, for one).
 # Type the value into the entry box, which widens the bounds.
 #
-# Orientation sign: the base pose is Euler ZYX about a z-up world, so a POSITIVE pitch puts the nose DOWN. Leaning
-# into a forward command is therefore a POSITIVE pitch_per_forward_velocity - the sign of Bledt's own fitted +0.0725.
+# Orientation sign: the heuristic offsets are ZYX Euler angles of the base at the Euler boundary, about a z-up world,
+# so a POSITIVE pitch puts the nose DOWN. Leaning into a forward command is therefore a POSITIVE
+# pitch_per_forward_velocity - the sign of Bledt's own fitted +0.0725.
 locomotion_heuristics {
   # Each list ships empty, its candidate names commented out below, one line per entry, so that uncommenting a line
   # adds that name to its list. The offsets within a list are SUMMED, so the order here is

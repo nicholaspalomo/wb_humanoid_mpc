@@ -63,8 +63,7 @@ struct CentroidalMpcConfig {
  * (loadContactPlanningFileBeside()).
  *
  * @return The loaders' errors: NotFound naming a file that does not exist, and InvalidArgument naming the file, the line
- *         and the column of a file that does not parse strictly (a file in another format, such as the YAML of the old
- *         task files, among them).
+ *         and the column of a file that does not parse strictly (a file in another format, such as YAML, among them).
  */
 absl::StatusOr<CentroidalMpcConfig> loadCentroidalMpcConfig(const std::string& taskFile, const std::string& referenceFile);
 

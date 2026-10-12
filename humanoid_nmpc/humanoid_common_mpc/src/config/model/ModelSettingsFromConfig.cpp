@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/StateLayout.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_mpc_config/contact_implicit_config.nproto.h"
 #include "humanoid_mpc_config/model_settings_config.nproto.h"
@@ -233,7 +234,10 @@ absl::StatusOr<ModelSettings> ModelSettings::Create(const mpc_config::TaskFile& 
   settings.robotName = config.robot_name;
   settings.verboseCppAd = config.verbose_cpp_ad;
   settings.recompileLibrariesCppAd = config.recompile_libraries_cpp_ad;
-  settings.modelFolderCppAd = absl::StrCat("cppad_code_gen/cppad_", mpcName, settings.robotName);
+  // LINT.IfChange(cppad_model_folder)
+  // One folder per state layout (StateLayout.h): a library taped for another layout is never loaded for this one.
+  settings.modelFolderCppAd = absl::StrCat("cppad_code_gen/cppad_", mpcName, settings.robotName, "/", kStateLayoutTag);
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/StateLayout.h:cppad_layout_tag)
   settings.phaseTransitionStanceTime = config.phase_transition_stance_time;
   settings.fixedJointNames = config.fixed_joint_names;
   settings.contactNames6DoF = config.contact_names_6dof;

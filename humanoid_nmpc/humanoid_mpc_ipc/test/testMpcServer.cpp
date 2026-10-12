@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // serves from which observation, what it stamps on the policies, the status after every attempt, the solution window,
 // the hooks, the pacing, the back-off, and its lifecycle.
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -49,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_mpc/CommandData.h"
+#include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_oc/oc_data/PerformanceIndex.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
 
@@ -95,13 +97,11 @@ class FakeRobot {
   }
 
   void publishWithSequence(uint64_t sequence, scalar_t time, uint64_t requested, uint64_t fullRequested, scalar_t value = 1.0) {
-    humanoid_mpc_msgs::MpcObservation message;
-    toProto(observationAt(time, value), message.mutable_observation());
-    message.mutable_resets()->set_requested(requested);
-    message.mutable_resets()->set_full_requested(fullRequested);
-    message.set_sequence(sequence);
-    CHECK_OK(bus_->publish(topics::kRobotMpcObservation, message));
+    publishObservation(sequence, observationAt(time, value), requested, fullRequested);
   }
+
+  /** Publishes `observation` as the next control cycle, with no reset requested. */
+  void publish(const SystemObservation& observation) { publishObservation(++sequence_, observation, /*requested=*/0, /*fullRequested=*/0); }
 
   std::vector<humanoid_mpc_msgs::MpcPolicy> policies() const {
     absl::MutexLock lock(mutex_);
@@ -131,6 +131,14 @@ class FakeRobot {
   uint64_t sequence() const { return sequence_; }
 
  private:
+  void publishObservation(uint64_t sequence, const SystemObservation& observation, uint64_t requested, uint64_t fullRequested) {
+    humanoid_mpc_msgs::MpcObservation message;
+    toProto(observation, message.mutable_observation());
+    message.mutable_resets()->set_requested(requested);
+    message.mutable_resets()->set_full_requested(fullRequested);
+    message.set_sequence(sequence);
+    CHECK_OK(bus_->publish(topics::kRobotMpcObservation, message));
+  }
   std::unique_ptr<robot::ipc::Bus> bus_;
   uint64_t sequence_ = 0;
   mutable absl::Mutex mutex_;
@@ -332,6 +340,45 @@ TEST_F(MpcServerTest, TheHooksSeeEveryPolicyAndAHookThatFailsStopsNothing) {
   server_->stop();
   EXPECT_EQ(observed.load(), server_->statistics().policiesPublished);
   EXPECT_TRUE(server_->statistics().healthy);
+}
+
+TEST_F(MpcServerTest, ThePreSolveObserverSeesTheObservationOfEverySolve) {
+  // The observation the solve starts from, handed over before it, bit for bit: ProceduralMpcMotionManager::observe()
+  // reads the joint velocities of its input, which the solve itself does not take. Every entry differs, so a mix-up of
+  // fields or entries, or an input dropped on the way, shows.
+  absl::Mutex mutex;
+  std::vector<SystemObservation> observations;
+  MpcServer::Hooks hooks;
+  hooks.preSolveObserver = [&mutex, &observations](const SystemObservation& observation) {
+    absl::MutexLock lock(mutex);
+    observations.push_back(observation);
+  };
+  build(defaultConfig(), std::move(hooks));
+  warmUp();
+  std::vector<SystemObservation> sent;
+  for (const scalar_t time : {1.1, 1.2}) {
+    SystemObservation observation = observationAt(time, /*value=*/1.0);
+    observation.state = vector_t::LinSpaced(static_cast<Eigen::Index>(test_support::kStateDim), -0.7 * time, 0.3 + time);
+    observation.input = vector_t::LinSpaced(static_cast<Eigen::Index>(test_support::kInputDim), 0.11 * time, -1.3 * time);
+    robot_.publish(observation);
+    ASSERT_TRUE(waitFor([&]() { return robot_.hasPolicyFrom(time); })) << "no policy from t = " << time;
+    sent.push_back(observation);
+  }
+  // Joined before the hook's state goes out of scope.
+  server_->stop();
+  absl::MutexLock lock(mutex);
+  EXPECT_EQ(observations.size(), server_->statistics().solveAttempts);
+  for (const SystemObservation& expected : sent) {
+    SCOPED_TRACE(expected.time);
+    const std::vector<SystemObservation>::const_iterator found =
+        std::find_if(observations.begin(), observations.end(),
+                     [&expected](const SystemObservation& observation) { return observation.time == expected.time; });
+    ASSERT_NE(found, observations.end());
+    EXPECT_EQ(found->state, expected.state);
+    EXPECT_EQ(found->input, expected.input);
+    EXPECT_EQ(found->mode, expected.mode);
+    ASSERT_GT(expected.input.cwiseAbs().minCoeff(), 0.0) << "every input entry must be nonzero to tell it from a default";
+  }
 }
 
 TEST_F(MpcServerTest, AnAnnotationsProviderThatFailsSendsThePolicyWithoutAnnotations) {

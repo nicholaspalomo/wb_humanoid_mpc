@@ -32,10 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 
 #include <ocs2_core/control/FeedforwardController.h>
-#include <ocs2_core/initialization/DefaultInitializer.h>
 
-#include "ocs2_oc/rollout/InitializerRollout.h"
-#include "ocs2_oc/rollout/StateTriggeredRollout.h"
 #include "ocs2_oc/rollout/TimeTriggeredRollout.h"
 #include "ocs2_oc/test/RigidBodyAttitudeDynamics.h"
 
@@ -100,26 +97,6 @@ TEST(TimeTriggeredRolloutManifold, ProjectsAcrossEventsAndKeepsTheManifoldWhenCl
   for (const vector_t& state : result.state) {
     EXPECT_NEAR(state.head<4>().norm(), 1.0, 1e-15);
   }
-}
-
-TEST(TimeTriggeredRolloutManifold, RolloutsThatCannotHonorAManifoldRejectIt) {
-  // Only TimeTriggeredRollout projects its states and keeps the manifold when cloned. The others must not accept one
-  // and then silently integrate (and clone) as if the state were flat.
-  const RigidBodyAttitudeDynamics dynamics(/*withPosition=*/false);
-  TimeTriggeredRollout timeTriggered(dynamics);
-  StateTriggeredRollout stateTriggered(dynamics);
-  InitializerRollout initializer(DefaultInitializer(/*inputDim=*/3));
-  EXPECT_TRUE(timeTriggered.supportsStateManifold());
-  EXPECT_FALSE(stateTriggered.supportsStateManifold());
-  EXPECT_FALSE(initializer.supportsStateManifold());
-
-  // The flat default stays settable on every rollout.
-  stateTriggered.setStateManifold(/*stateManifold=*/nullptr);
-  initializer.setStateManifold(/*stateManifold=*/nullptr);
-  EXPECT_EQ(stateTriggered.getStateManifold(), nullptr);
-
-  EXPECT_DEATH(stateTriggered.setStateManifold(dynamics.getStateManifold()), "does not support a state manifold");
-  EXPECT_DEATH(initializer.setStateManifold(dynamics.getStateManifold()), "does not support a state manifold");
 }
 
 }  // namespace

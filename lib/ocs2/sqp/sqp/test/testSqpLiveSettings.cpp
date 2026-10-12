@@ -199,9 +199,6 @@ TEST(SqpLiveSettings, TheLiveSettingsAreWrittenAndNoOtherSettingChanges) {
   settings.gamma_c = 4e-6;
   settings.useFeedbackPolicy = false;
   settings.integratorType = SensitivityIntegratorType::RK4;
-  settings.inequalityConstraintMu = 0.3;
-  settings.inequalityConstraintDelta = 5e-3;
-  settings.extractProjectionMultiplier = true;
   settings.logSize = 17;
   settings.logFilePath = "/nonexistent/sqp_live_settings/";
   settings.threadPriority = 7;
@@ -221,13 +218,9 @@ TEST(SqpLiveSettings, TheLiveSettingsAreWrittenAndNoOtherSettingChanges) {
   EXPECT_EQ(after.armijoFactor, before.armijoFactor);
   EXPECT_EQ(after.gamma_c, before.gamma_c);
   EXPECT_EQ(after.useFeedbackPolicy, before.useFeedbackPolicy);
-  EXPECT_EQ(after.createValueFunction, before.createValueFunction);
   EXPECT_EQ(after.dt, before.dt);
   EXPECT_EQ(after.integratorType, before.integratorType);
-  EXPECT_EQ(after.inequalityConstraintMu, before.inequalityConstraintMu);
-  EXPECT_EQ(after.inequalityConstraintDelta, before.inequalityConstraintDelta);
   EXPECT_EQ(after.projectStateInputEqualityConstraints, before.projectStateInputEqualityConstraints);
-  EXPECT_EQ(after.extractProjectionMultiplier, before.extractProjectionMultiplier);
   EXPECT_EQ(after.printSolverStatus, before.printSolverStatus);
   EXPECT_EQ(after.printSolverStatistics, before.printSolverStatistics);
   EXPECT_EQ(after.printLinesearch, before.printLinesearch);

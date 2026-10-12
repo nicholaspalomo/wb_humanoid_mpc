@@ -88,9 +88,8 @@ absl::StatusOr<LocomotionHeuristicModelParameters> deriveLocomotionHeuristicMode
   // this leg's contact frame to the LAST joint before the floating base - that joint is the hip, however the URDF
   // happens to name it, which is why this does not look for a name. Its placement in the world at the nominal posture,
   // expressed relative to the base and with the vertical dropped, is r_hip.
-  const vector6_t basePose = mpcRobotModel.getBasePose(nominalState);
-  const vector2_t basePosition = basePose.head<2>();
-  const scalar_t baseYaw = basePose(3);
+  const vector2_t basePosition = mpcRobotModel.getBasePosition(nominalState).head<2>();
+  const scalar_t baseYaw = mpcRobotModel.getBaseHeading(nominalState);
   const scalar_t cosYaw = std::cos(baseYaw);
   const scalar_t sinYaw = std::sin(baseYaw);
   const std::vector<std::string>& contactParentJointNames = mpcRobotModel.modelSettings.contactParentJointNames;

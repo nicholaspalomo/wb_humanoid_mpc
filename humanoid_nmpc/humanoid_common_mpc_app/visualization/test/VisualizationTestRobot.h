@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/base/nullability.h"
 #include "ocs2_centroidal_model/CentroidalModelInfo.h"
+#include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_mpc/CommandData.h"
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
@@ -89,6 +90,8 @@ class TestRobot {
   const ModelSettings& modelSettings() const { return *modelSettings_; }
   const PinocchioInterface& pinocchioInterface() const { return *pinocchioInterface_; }
   const MpcRobotModelBase<scalar_t>& robotModel() const { return *robotModel_; }
+  /** The manifold of the robot model's state (stateManifoldOf(): the base quaternion on SO(3)), which model() hands over. */
+  const StateManifold* absl_nullable stateManifold() const { return stateManifold_.get(); }
   /** A second, independently built MPC Pinocchio model, for reference kinematics. */
   PinocchioInterface makeReferencePinocchioInterface() const;
   const std::string& taskFile() const { return taskFile_; }
@@ -97,7 +100,7 @@ class TestRobot {
   const std::string& urdfFile() const { return urdfFile_; }
   Formulation formulation() const { return formulation_; }
 
-  /** The task file's initial_state: a standing configuration. */
+  /** The task file's initial_state on the robot model's state (MpcRobotModelBase::stateFromTuning): a standing configuration. */
   const vector_t& nominalState() const { return nominalState_; }
 
   /** The nominal state at `time` in `mode`, its input zero. */
@@ -136,6 +139,8 @@ class TestRobot {
   std::unique_ptr<PinocchioInterface> pinocchioInterface_;
   CentroidalModelInfo centroidalModelInfo_;
   std::unique_ptr<MpcRobotModelBase<scalar_t>> robotModel_;
+  // A std::shared_ptr because stateManifoldOf() returns one (the OCS2 solvers share the manifold).
+  std::shared_ptr<const StateManifold> stateManifold_;
   vector_t nominalState_;
 };
 

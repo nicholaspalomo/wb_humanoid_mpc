@@ -59,7 +59,8 @@ namespace ocs2::humanoid {
  * runSolverIteration() runs:
  *  1. it serves a requested reset (MpcResetSupervisor::takeResetRequest()) from the observation current then, through
  *     the controller's reset target: MPC_MRT_Interface::resetMpcNode() for a full one, resetMpcSolver() otherwise;
- *  2. it solves once (MPC_MRT_Interface::advanceMpc()), which moves the policy to the MRT buffer;
+ *  2. it solves once (MPC_MRT_Interface::advanceMpc()), which moves the policy to the MRT buffer, and before that hands
+ *     the observation of the solve to Config::solverObservationObserver;
  *  3. it reports the result to the supervisor (MpcResetSupervisor::onSolveResult()), then to the solve observer;
  *  4. a failure that asks for a pause waits it out (waitBeforeRetry(), cut short by a new reset request or by stop())
  *     and starts the next iteration;
@@ -71,6 +72,10 @@ namespace ocs2::humanoid {
  * early when MpcResetSupervisor::resetRequestedSinceLastFailure() says what waitBeforeRetry() polls. That is how
  * the lockstep closed loop of humanoid_nmpc/humanoid_mpc_validation solves in simulation time, with the production
  * controller and the production reset and failure policy.
+ *
+ * The MRT interpolates the planned state on the state manifold of the MPC's optimal control problem
+ * (OptimalControlProblem::stateManifoldPtr, MRT_BASE::setStateManifold()), which the link takes from the MPC's solver
+ * when it is constructed.
  *
  * setCurrentObservation() copies the observation under MPC_MRT_Interface's observation mutex, which the solver thread
  * holds only for the copy it takes at the start of a solve, into storage it keeps from solve to solve, so that the
@@ -102,6 +107,9 @@ class InProcessMpcLink final : public MpcLink {
     std::string solverThreadName = "MPC Solver Thread";
     /// Optional; see SolveObserver.
     SolveObserver solveObserver;
+    /// Optional: called on the thread that solves with the observation each solve starts from, right before the solve
+    /// (MPC_MRT_Interface::SolverObservationObserver); the nodes hand it to ProceduralMpcMotionManager::observe().
+    MPC_MRT_Interface::SolverObservationObserver solverObservationObserver;
     /// See Execution.
     Execution execution = Execution::kSolverThread;
   };

@@ -228,7 +228,7 @@ vector_t DcmTerminalCost::getParameters(scalar_t time, const TargetTrajectories&
   // instead of towards a straight line the gait is not following.
   vector2_t velocityCommand = vector2_t::Zero();
   if (!targetTrajectories.empty()) {
-    const vector_t desiredState = targetTrajectories.getDesiredState(time);
+    const vector_t desiredState = mpcRobotModelAdPtr_->getDesiredState(targetTrajectories, time);
     if (desiredState.size() >= 2) {
       velocityCommand = desiredState.head<2>();
     }
@@ -254,6 +254,12 @@ vector2_t DcmTerminalCost::computeDcmError(const vector_t& state, const vector_t
   vector_t unweighted = parameters;
   unweighted.segment<2>(6).setOnes();
   return adInterfacePtr_->getFunctionValue(state, unweighted).head<2>();
+}
+
+matrix_t DcmTerminalCost::computeDcmErrorJacobian(const vector_t& state, const vector_t& parameters) const {
+  vector_t unweighted = parameters;
+  unweighted.segment<2>(6).setOnes();
+  return adInterfacePtr_->getJacobian(state, unweighted).topRows<2>();
 }
 
 scalar_t DcmTerminalCost::getValue(scalar_t time,

@@ -191,9 +191,6 @@ TEST(RetiredFieldTest, TheFormulationSwitchesThatBecameNamesAreAnsweredWithTheir
            {.text = "centroidalModelType: 1\n",
             .position = "task.textproto:1:1: 'centroidalModelType' is retired: ",
             .replacement = "\"single_rigid_body_dynamics\" where it was 1"},
-           {.text = "rollout {\n  root_finding_algorithm: 0\n}\n",
-            .position = "task.textproto:2:3: 'root_finding_algorithm' is retired: ",
-            .replacement = "root_finder_type: \"ANDERSON_BJORCK\" where it was 0"},
            {.text = "model_settings {\n  foot_constraint {\n    constrain_orientation: true\n  }\n}\n",
             .position = "task.textproto:3:5: 'constrain_orientation' is retired: ",
             .replacement = R"(stance_constraint: "position" where it was false, "position_and_tilt" where it was true)"},
@@ -226,8 +223,9 @@ TEST(RetiredFieldTest, TheFormulationSwitchesThatBecameNamesAreAnsweredWithTheir
   }
 }
 
-TEST(RetiredFieldTest, TheSqpSettingsNothingReadsAreRefusedWithWhatToDo) {
-  // multiple_shooting.inequality_constraint_mu and _delta: nothing in the SQP solver read them, so a file that sets them
+TEST(RetiredFieldTest, TheSolverSettingsNothingReadsAreRefusedWithWhatToDo) {
+  // multiple_shooting.inequality_constraint_mu, _delta, create_value_function and extract_projection_multiplier, and
+  // the settings of the state-triggered rollout that the fork no longer has: nothing read them, so a file that sets them
   // is told to delete the line instead of tuning a value that changes nothing.
   for (const RetiredKeyCase& retired : std::vector<RetiredKeyCase>{
            {.text = "multiple_shooting {\n  inequality_constraint_mu: 0.1\n}\n",
@@ -236,6 +234,27 @@ TEST(RetiredFieldTest, TheSqpSettingsNothingReadsAreRefusedWithWhatToDo) {
            {.text = "multiple_shooting {\n  inequalityConstraintDelta: 5.0\n}\n",
             .position = "task.textproto:2:3: 'inequalityConstraintDelta' is retired: ",
             .replacement = "nothing in the SQP solver reads it; delete the line"},
+           {.text = "multiple_shooting {\n  create_value_function: true\n}\n",
+            .position = "task.textproto:2:3: 'create_value_function' is retired: ",
+            .replacement = "the SQP solver no longer stores one; delete the line"},
+           {.text = "multiple_shooting {\n  extract_projection_multiplier: false\n}\n",
+            .position = "task.textproto:2:3: 'extract_projection_multiplier' is retired: ",
+            .replacement = "the SQP solver no longer extracts one; delete the line"},
+           {.text = "multiple_shooting {\n  extractProjectionMultiplier: true\n}\n",
+            .position = "task.textproto:2:3: 'extractProjectionMultiplier' is retired: ",
+            .replacement = "the SQP solver no longer extracts one; delete the line"},
+           {.text = "rollout {\n  root_finding_algorithm: 0\n}\n",
+            .position = "task.textproto:2:3: 'root_finding_algorithm' is retired: ",
+            .replacement = "state-triggered rollout, which the fork no longer has (both MPCs roll out time-triggered); delete the line"},
+           {.text = "rollout {\n  rootFinderType: \"ILLINOIS\"\n}\n",
+            .position = "task.textproto:2:3: 'rootFinderType' is retired: ",
+            .replacement = "state-triggered rollout"},
+           {.text = "rollout {\n  max_single_event_iterations: 7\n}\n",
+            .position = "task.textproto:2:3: 'max_single_event_iterations' is retired: ",
+            .replacement = "state-triggered rollout"},
+           {.text = "rollout {\n  use_trajectory_spreading_controller: true\n}\n",
+            .position = "task.textproto:2:3: 'use_trajectory_spreading_controller' is retired: ",
+            .replacement = "state-triggered rollout"},
        }) {
     const absl::StatusOr<humanoid_mpc_config::TaskFile> task =
         nproto::ParseTextproto<humanoid_mpc_config::TaskFile>(retired.text, "task.textproto");

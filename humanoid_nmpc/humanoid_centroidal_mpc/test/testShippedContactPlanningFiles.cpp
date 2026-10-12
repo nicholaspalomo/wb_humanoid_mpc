@@ -144,7 +144,7 @@ class ShippedContactPlanningFile : public ::testing::TestWithParam<ShippedPlanne
         loadCustomPinocchioInterface(files_.task, urdfFile, modelSettings, /*scaleTotalMass=*/false).value();
     const CentroidalModelInfo info = centroidalModelInfoOf(files_, pinocchioInterface, modelSettings).value();
     const CentroidalMpcRobotModel<scalar_t> robotModel(modelSettings, pinocchioInterface, info);
-    const vector_t initialState = initialStateOf(files_.task, modelSettings).value();
+    const vector_t initialState = initialStateOnModel(files_.task, robotModel).value();
     modelComHeight_ = computeComHeightAboveFeet(robotModel.getGeneralizedCoordinates(initialState), pinocchioInterface, robotModel);
     ASSERT_GT(modelComHeight_, 0.4) << GetParam().robot;
 

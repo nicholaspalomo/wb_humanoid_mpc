@@ -32,10 +32,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cppad/cppad.hpp>
 
 #include <cmath>
+#include <cstring>
 #include <memory>
 #include <vector>
 
 #include <Eigen/Geometry>
+
+#include "absl/base/nullability.h"
 
 #include <ocs2_core/manifold/EuclideanStateManifold.h>
 #include <ocs2_core/manifold/ProductStateManifold.h>
@@ -63,6 +66,36 @@ Eigen::Quaterniond eigenQuaternion(const quaternion_t& xi) {
   Eigen::Quaterniond q;
   q.coeffs() = xi;
   return q;
+}
+
+/** The same entries to the bit: the Into functions must compute exactly what the by-value ones return. */
+::testing::AssertionResult bitwiseEqual(const vector_t& expected, const vector_t& actual) {
+  if (expected.size() != actual.size()) {
+    return ::testing::AssertionFailure() << expected.size() << " entries != " << actual.size() << " entries";
+  }
+  if (std::memcmp(expected.data(), actual.data(), sizeof(scalar_t) * static_cast<size_t>(expected.size())) != 0) {
+    return ::testing::AssertionFailure() << expected.transpose() << "\n!=\n" << actual.transpose();
+  }
+  return ::testing::AssertionSuccess();
+}
+
+/**
+ * differenceInto() and interpolateInto() of `manifold` against difference() and interpolate() at (x0, x1): the same bits,
+ * written into the storage the outputs already had, through the base class as a realtime caller holds the manifold.
+ */
+void expectIntoEqualsByValue(const StateManifold& manifold, const vector_t& x0, const vector_t& x1) {
+  vector_t dx = vector_t::Constant(manifold.getTangentDim(), 42.0);
+  vector_t x = vector_t::Constant(manifold.getAmbientDim(), 42.0);
+  const scalar_t* absl_nonnull dxStorage = dx.data();
+  const scalar_t* absl_nonnull xStorage = x.data();
+  manifold.differenceInto(x0, x1, dx);
+  EXPECT_TRUE(bitwiseEqual(manifold.difference(x0, x1), dx));
+  for (const scalar_t alpha : {0.0, 1e-9, 0.25, 0.5, 0.9, 1.0}) {
+    manifold.interpolateInto(x0, x1, alpha, x);
+    EXPECT_TRUE(bitwiseEqual(manifold.interpolate(x0, x1, alpha), x)) << "alpha = " << alpha;
+  }
+  EXPECT_EQ(dx.data(), dxStorage) << "differenceInto() reallocated its output";
+  EXPECT_EQ(x.data(), xStorage) << "interpolateInto() reallocated its output";
 }
 
 /** A rotation's distance, insensitive to the sign of the quaternion. */
@@ -132,6 +165,126 @@ TEST(UnitQuaternionMath, SmallAngleSeriesAreContinuous) {
   EXPECT_TRUE(quaternionLog(quaternion_t::Zero().eval()).isZero());
 }
 
+/**
+ * Log(c xi) = Log(xi) for every c > 0, against Eigen's AngleAxis of the unit quaternion (independent of the library), also
+ * for quaternions at or below kQuaternionNormalizationEpsilon. Guards absolute in |v| and w read a quaternion that short
+ * through the small-angle series whatever its angle: 1 rad came out as 0.984 rad at |xi| = 2e-6 and as 0.959 |xi| at
+ * |xi| <= 1e-6.
+ */
+TEST(UnitQuaternionMath, LogIsHomogeneousOfDegreeZeroAtEveryScale) {
+  const rotation_t axis = rotationVector(/*x=*/1.0, /*y=*/2.0, /*z=*/3.0).normalized();
+  for (const scalar_t angle : {0.0, 1e-9, 0.999e-6, 1.001e-6, 1e-4, 0.2, 1.0, 3.0, kPi - 1e-9}) {
+    const quaternion_t unit = quaternionExp((angle * axis).eval());
+    const Eigen::AngleAxisd angleAxis(eigenQuaternion(unit));
+    const rotation_t expected = angleAxis.angle() * angleAxis.axis();
+    for (const scalar_t scale : {1e150, 1e3, 3.0, 1.0, 1e-3, 1e-5, 2e-6, 1.2e-6, 1e-6, 5e-7, 1e-7, 1e-30, 1e-100, 1e-150}) {
+      const quaternion_t scaled = scale * unit;
+      EXPECT_LT((quaternionLog(scaled) - expected).norm(), 4e-15) << "angle " << angle << ", scale " << scale;
+      EXPECT_LT((quaternionLog((-scaled).eval()) - expected).norm(), 4e-15) << "angle " << angle << ", scale " << scale;
+    }
+  }
+  // A short pure-vector quaternion is a half turn, not the rotation by 2 |v| of the series.
+  EXPECT_LT((quaternionLog(quaternion_t(5e-7, 0.0, 0.0, 0.0)) - rotationVector(/*x=*/kPi, /*y=*/0.0, /*z=*/0.0)).norm(), 1e-15);
+  // So is the difference of a short ambient flow from the state it should match.
+  const quaternion_t state = quaternionExp(rotationVector(/*x=*/0.3, /*y=*/-0.2, /*z=*/0.5));
+  const quaternion_t flow = quaternionProduct(state, quaternionExp(rotationVector(/*x=*/0.1, /*y=*/0.0, /*z=*/-0.4)));
+  EXPECT_LT((quaternionLog(quaternionProduct(quaternionConjugate(state), (1e-7 * flow).eval())) -
+             rotationVector(/*x=*/0.1, /*y=*/0.0, /*z=*/-0.4))
+                .norm(),
+            1e-14);
+}
+
+/**
+ * At an exact half turn, w = +0 or -0, -xi and conj(xi) have the same coefficients up to the sign of the zero, so Log can
+ * keep only one of Log(-xi) = Log(xi) and Log(conj(xi)) = -Log(xi): it keeps the inversion, and returns pi v / |v| for
+ * either zero. Both values are logarithms of the half turn. Everywhere else both identities hold bit for bit.
+ */
+TEST(UnitQuaternionMath, LogKeepsTheInversionAtAnExactHalfTurn) {
+  for (const rotation_t& vector : {rotationVector(/*x=*/1.0, /*y=*/0.0, /*z=*/0.0), rotationVector(/*x=*/0.0, /*y=*/0.0, /*z=*/1.0),
+                                   rotationVector(/*x=*/0.6, /*y=*/0.0, /*z=*/0.8), rotationVector(/*x=*/0.6, /*y=*/-0.48, /*z=*/0.64)}) {
+    for (const scalar_t zero : {0.0, -0.0}) {
+      quaternion_t halfTurn;
+      halfTurn << vector, zero;
+      const rotation_t log = quaternionLog(halfTurn);
+      EXPECT_LT((log - kPi * vector.normalized()).norm(), 1e-15) << halfTurn.transpose();
+      EXPECT_EQ(quaternionLog((-halfTurn).eval()), (-log).eval()) << halfTurn.transpose();
+      EXPECT_EQ(quaternionLog(quaternionConjugate(halfTurn)), (-log).eval()) << halfTurn.transpose();
+      const Eigen::Matrix3d rotation = quaternionRotationMatrix(halfTurn);
+      EXPECT_LT((quaternionRotationMatrix(quaternionExp(log)) - rotation).cwiseAbs().maxCoeff(), 1e-15);
+      EXPECT_LT((quaternionRotationMatrix(quaternionExp((-log).eval())) - rotation).cwiseAbs().maxCoeff(), 1e-15);
+    }
+  }
+  // Products of exact quaternions reach w = 0: x0^-1 (x) x1 for x1 = x0 (x) (1, 0, 0, 0) is the half turn about x, so the
+  // difference to -x1 is the other logarithm.
+  const quaternion_t x0(0.0, 0.0, std::sin(0.3), std::cos(0.3));
+  const quaternion_t x1 = quaternionProduct(x0, quaternion_t(1.0, 0.0, 0.0, 0.0));
+  const quaternion_t relative = quaternionProduct(quaternionConjugate(x0), x1);
+  ASSERT_EQ(relative(3), 0.0);
+  EXPECT_LT((quaternionLog(relative) - rotationVector(/*x=*/kPi, /*y=*/0.0, /*z=*/0.0)).norm(), 1e-15);
+  EXPECT_EQ(quaternionLog(quaternionProduct(quaternionConjugate(x0), (-x1).eval())), (-quaternionLog(relative)).eval());
+  // slerp: both geodesics to a half turn are shortest, and x1 and -x1 take opposite ones.
+  const quaternion_t identity(0.0, 0.0, 0.0, 1.0);
+  const quaternion_t halfTurnX(1.0, 0.0, 0.0, 0.0);
+  const quaternion_t viaPlus = quaternionSlerp(identity, halfTurnX, /*alpha=*/0.5);
+  const quaternion_t viaMinus = quaternionSlerp(identity, (-halfTurnX).eval(), /*alpha=*/0.5);
+  EXPECT_NEAR(rotationDistance(identity, viaPlus), 0.5 * kPi, 1e-15);
+  EXPECT_NEAR(rotationDistance(identity, viaMinus), 0.5 * kPi, 1e-15);
+  EXPECT_NEAR(rotationDistance(viaPlus, viaMinus), kPi, 1e-14);
+  // Away from w = 0, a subnormal w included, the double cover holds bit for bit; the inversion holds everywhere.
+  for (const scalar_t w : {5e-324, -5e-324, 1e-300, -1e-300, 6.123233995736766e-17}) {
+    const quaternion_t xi(0.6, -0.48, 0.64, w);
+    EXPECT_EQ(quaternionLog((-xi).eval()), quaternionLog(xi)) << w;
+    EXPECT_EQ(quaternionLog(quaternionConjugate(xi)), (-quaternionLog(xi)).eval()) << w;
+  }
+  for (int trial = 0; trial < 100; ++trial) {
+    const quaternion_t xi = (0.5 + 0.02 * trial) * randomUnitQuaternion();
+    EXPECT_EQ(quaternionLog((-xi).eval()), quaternionLog(xi)) << xi.transpose();
+    EXPECT_EQ(quaternionLog(quaternionConjugate(xi)), (-quaternionLog(xi)).eval()) << xi.transpose();
+  }
+}
+
+/** 2 atan2(|v|, w) v / |v| of q = (v, w), |v| > 0: the logarithm's branch through the hemisphere w >= 0, continued across w = 0. */
+rotation_t upperHemisphereLog(const quaternion_t& q) {
+  const rotation_t v = q.head<3>();
+  return 2.0 * std::atan2(v.norm(), q(3)) * v.normalized();
+}
+
+TEST(UnitQuaternionMath, AtAnExactHalfTurnJrInverseIsTheDerivativeOfTheReturnedLogarithm) {
+  // At w = +-0 Log returns pi v / |v|, the value of the branch of the hemisphere w >= 0, and Jr^-1(Log(xi)) is that
+  // branch's derivative along xi (x) Exp(b): by central differences of the branch, and by one-sided differences of
+  // quaternionLog() itself along the directions d with v.d < 0, which keep w(xi (x) Exp(h d)) = -h v.d / 2 + O(h^3) > 0.
+  // The other logarithm's linearization would not match (UnitQuaternionMath.h; design README section 2.1, the double
+  // cover at an exact half turn).
+  const scalar_t h = 1e-6;
+  for (const rotation_t& vector : {rotationVector(/*x=*/1.0, /*y=*/0.0, /*z=*/0.0), rotationVector(/*x=*/0.6, /*y=*/-0.48, /*z=*/0.64)}) {
+    for (const scalar_t zero : {0.0, -0.0}) {
+      quaternion_t halfTurn;
+      halfTurn << vector.normalized(), zero;
+      const rotation_t log = quaternionLog(halfTurn);
+      ASSERT_EQ(log, upperHemisphereLog(halfTurn)) << halfTurn.transpose();
+      const Eigen::Matrix3d jacobianInverse = so3RightJacobianInverse(log);
+      Eigen::Matrix3d centralDifferences;
+      for (int i = 0; i < 3; ++i) {
+        const rotation_t step = h * rotation_t::Unit(i);
+        centralDifferences.col(i) = (upperHemisphereLog(quaternionProduct(halfTurn, quaternionExp(step))) -
+                                     upperHemisphereLog(quaternionProduct(halfTurn, quaternionExp((-step).eval())))) /
+                                    (2.0 * h);
+      }
+      EXPECT_LT((jacobianInverse - centralDifferences).norm(), 1e-8) << halfTurn.transpose();
+      // The other logarithm, -pi v / |v|, has the linearization Jr^-1(-pi v / |v|), which is not this branch's.
+      EXPECT_GT((so3RightJacobianInverse((-log).eval()) - centralDifferences).norm(), 1.0) << halfTurn.transpose();
+      const rotation_t axis = vector.normalized();
+      const rotation_t across = axis.unitOrthogonal();
+      for (const rotation_t& direction : {(-axis).eval(), (-axis + 0.5 * across).eval(), (-axis - 0.7 * axis.cross(across)).eval()}) {
+        const quaternion_t moved = quaternionProduct(halfTurn, quaternionExp((h * direction).eval()));
+        ASSERT_GT(moved(3), 0.0);
+        const rotation_t oneSided = (quaternionLog(moved) - log) / h;
+        EXPECT_LT((oneSided - jacobianInverse * direction).norm(), 1e-5 * direction.norm()) << direction.transpose();
+      }
+    }
+  }
+}
+
 TEST(UnitQuaternionMath, RightJacobiansMatchFiniteDifferences) {
   const scalar_t eps = 1e-6;
   for (const rotation_t& phi : {rotationVector(/*x=*/0.3, /*y=*/-0.2, /*z=*/0.5), rotationVector(/*x=*/1.2, /*y=*/0.4, /*z=*/-2.1),
@@ -168,6 +321,12 @@ TEST(UnitQuaternionMath, TangentMapsAreInverse) {
     EXPECT_TRUE((EPlus * E).isApprox(Eigen::Matrix3d::Identity(), 1e-14));
     EXPECT_LT((EPlus * xi).norm(), 1e-14);
   }
+  // At or below kQuaternionNormalizationEpsilon the divisor is 1: E+ = 2 G', E+ E = |xi|^2 I, still orthogonal to xi.
+  const quaternion_t tiny = 0.5 * kQuaternionNormalizationEpsilon * randomUnitQuaternion();
+  const Eigen::Matrix<scalar_t, 3, 4> tinyEPlus = quaternionTangentMapPseudoInverse(tiny);
+  EXPECT_TRUE(tinyEPlus.isApprox(2.0 * quaternionRateMatrix(tiny).transpose(), 1e-15));
+  EXPECT_TRUE((tinyEPlus * quaternionTangentMap(tiny)).isApprox(tiny.squaredNorm() * Eigen::Matrix3d::Identity(), 1e-14));
+  EXPECT_LT((tinyEPlus * tiny).norm(), 1e-27);
 }
 
 TEST(UnitQuaternionMath, SlerpEndpointsAndAntipodes) {
@@ -225,8 +384,17 @@ TEST(UnitQuaternionMath, TapedAtOnesIsValidEverywhere) {
                                             quaternion_t(0.0, 0.0, 0.0, -1.0),
                                             quaternion_t(1e-9, -2e-9, 0.0, 1.0),
                                             quaternion_t(1.0, 0.0, 0.0, 0.0),
+                                            quaternion_t(0.6, -0.48, 0.64, -0.0),
                                             quaternion_t::Zero(),
-                                            quaternion_t(0.0, 0.03, -0.04, 0.998)};
+                                            quaternion_t(0.0, 0.03, -0.04, 0.998),
+                                            // Short quaternions, where Log's guards are relative to |xi|.
+                                            (2e-6 * quaternionExp(rotationVector(/*x=*/0.3, /*y=*/-0.5, /*z=*/0.4))).eval(),
+                                            (1e-7 * randomUnitQuaternion()).eval(),
+                                            quaternion_t(5e-7, 0.0, 0.0, 0.0),
+                                            quaternion_t(1e-15, 0.0, 0.0, 1e-9),
+                                            // The ends of the range the guards are valid in (the file comment).
+                                            (1e-150 * quaternionExp(rotationVector(/*x=*/0.3, /*y=*/-0.5, /*z=*/0.4))).eval(),
+                                            (1e150 * quaternionExp(rotationVector(/*x=*/-1.1, /*y=*/0.2, /*z=*/0.7))).eval()};
   for (const quaternion_t& point : points) {
     const std::vector<scalar_t> input(point.data(), point.data() + 4);
     const std::vector<scalar_t> taped = tape.Forward(/*q=*/0, input);
@@ -385,6 +553,27 @@ TEST(ProductStateManifold, InterpolateAndProject) {
   EXPECT_EQ(x.segment<2>(7), before.segment<2>(7));
 }
 
+TEST(ProductStateManifold, IntoFunctionsComputeTheByValueResultsToTheBit) {
+  const std::shared_ptr<const ProductStateManifold> manifold = twoQuaternionManifold();
+  for (int trial = 0; trial < 20; ++trial) {
+    const vector_t x0 = randomState(*manifold);
+    vector_t x1 = randomState(*manifold);
+    expectIntoEqualsByValue(*manifold, x0, x1);
+    // The other sign of a quaternion block, an unnormalized one (an ambient flow's), and the same state.
+    x1.segment<4>(3) *= -1.0;
+    expectIntoEqualsByValue(*manifold, x0, x1);
+    x1.segment<4>(9) *= 2.5;
+    expectIntoEqualsByValue(*manifold, x0, x1);
+    expectIntoEqualsByValue(*manifold, x0, x0);
+  }
+  // The toy manifold of the MPC link's tests, [E(3), Q, E(5)].
+  const std::shared_ptr<const ProductStateManifold> linkManifold =
+      ProductStateManifold::create(
+          {StateManifoldSegment::euclidean(3), StateManifoldSegment::unitQuaternion(), StateManifoldSegment::euclidean(5)})
+          .value();
+  expectIntoEqualsByValue(*linkManifold, randomState(*linkManifold), randomState(*linkManifold));
+}
+
 TEST(ProductStateManifold, RetractionCurvatureIdentity) {
   // d^2 (xi (x) Exp(delta)) / d delta_i d delta_j = -xi / 4 delta_ij at delta = 0: the term that vanishes from the
   // pulled-back Hessian of a function that sees the quaternion only through xi / |xi|.
@@ -484,9 +673,51 @@ TEST(ProductStateManifold, PushForwardEqualsTheDenseFormula) {
   EXPECT_EQ(jump.dfdu.cols(), 0);
 }
 
+/**
+ * pushForwardDynamics()'s precondition: a flow Phi = c x off the sphere by any c above kQuaternionNormalizationEpsilon
+ * has the gap of x and the gap's derivative Jr^-1(gap) along the body perturbation of x, against central differences.
+ * At or below the guard the row map is 2 G(Phi)' instead of 2 G(Phi)' / |Phi|^2, which is not that derivative.
+ */
+TEST(ProductStateManifold, PushForwardIsTheGapsDerivativeForAFlowLongerThanTheGuard) {
+  const std::shared_ptr<const ProductStateManifold> manifold = ProductStateManifold::create({StateManifoldSegment::unitQuaternion()}).value();
+  const vector_t x = quaternionExp(rotationVector(/*x=*/0.3, /*y=*/-0.2, /*z=*/0.5));
+  const vector_t xNext = quaternionExp(rotationVector(/*x=*/0.4, /*y=*/-0.2, /*z=*/0.1));
+  constexpr scalar_t kStep = 1e-6;
+  for (const scalar_t scale : {1.0, 1e-3, 2e-6, 1e-7}) {
+    VectorFunctionLinearApproximation dynamics;
+    dynamics.f = scale * x;
+    dynamics.dfdx = scale * matrix_t::Identity(4, 4);
+    manifold->pushForwardDynamics(x, xNext, dynamics);
+    EXPECT_LT((dynamics.f - manifold->difference(xNext, x)).norm(), 1e-15) << scale;
+    matrix_t centralDifferences(3, 3);
+    for (int k = 0; k < 3; ++k) {
+      vector_t dx = vector_t::Zero(3);
+      dx(k) = kStep;
+      vector_t plus;
+      vector_t minus;
+      manifold->retract(x, dx, /*alpha=*/1.0, plus);
+      manifold->retract(x, dx, /*alpha=*/-1.0, minus);
+      centralDifferences.col(k) = (manifold->difference(xNext, scale * plus) - manifold->difference(xNext, scale * minus)) / (2.0 * kStep);
+    }
+    const scalar_t error = (dynamics.dfdx - centralDifferences).norm() / centralDifferences.norm();
+    if (scale > kQuaternionNormalizationEpsilon) {
+      EXPECT_LT(error, 1e-8) << scale;
+    } else {
+      EXPECT_GT(error, 0.5) << scale;
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // EuclideanStateManifold
 // ---------------------------------------------------------------------------------------------------------------------
+
+TEST(EuclideanStateManifold, IntoFunctionsComputeTheByValueResultsToTheBit) {
+  const EuclideanStateManifold manifold(5);
+  for (int trial = 0; trial < 10; ++trial) {
+    expectIntoEqualsByValue(manifold, vector_t::Random(5), 3.0 * vector_t::Random(5));
+  }
+}
 
 TEST(EuclideanStateManifold, IsTheFlatSpace) {
   const EuclideanStateManifold manifold(4);

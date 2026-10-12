@@ -43,15 +43,25 @@ such that its time derivative $\dot{\boldsymbol{\theta}}_{\text{aCOM}} = \mathbf
 
 #### $SE(3)$ Floating-Base Equivariance
 
-To guarantee that pure floating-base rotations shift the whole-body orientation rigidly while translations have zero effect:
-$$\boldsymbol{\theta}_{\text{aCOM}}(\mathbf{q}) = \boldsymbol{\theta}_{\text{base}} + \Delta \boldsymbol{\theta}(\mathbf{q}_j)$$
-$$\mathbf{J}_{\text{aCOM}}(\mathbf{q}) = \begin{bmatrix} \mathbf{0}_{3 \times 3} & \mathbf{I}_{3 \times 3} & \frac{\partial \Delta \boldsymbol{\theta}}{\partial \mathbf{q}_j}(\mathbf{q}_j) \end{bmatrix}$$
+To guarantee that pure floating-base rotations shift the whole-body orientation rigidly while translations have zero
+effect, the joint contribution is composed with the base orientation. The paper adds it to the base angles; this
+repository composes it as a rotation, on the right of the base orientation $\boldsymbol{\xi}$ (a unit quaternion):
+$$\boldsymbol{\xi}_{\text{aCOM}}(\mathbf{q}) = \hat{\boldsymbol{\xi}} \otimes \operatorname{Exp}\big(\Delta \boldsymbol{\theta}(\mathbf{q}_j)\big)$$
 
-where $\Delta \boldsymbol{\theta}(\mathbf{q}_j): \mathbb{R}^{n_j} \to \mathbb{R}^3$ represents the internal joint contribution to whole-body orientation.
+where $\Delta \boldsymbol{\theta}(\mathbf{q}_j): \mathbb{R}^{n_j} \to \mathbb{R}^3$ is the internal joint contribution to whole-body
+orientation, a rotation vector in the base frame. A rotation $\mathbf{q}_R$ of the whole robot rotates the aCOM one for
+one, $\boldsymbol{\xi}_{\text{aCOM}}(\mathbf{q}_R \otimes \boldsymbol{\xi}) = \mathbf{q}_R \otimes \boldsymbol{\xi}_{\text{aCOM}}(\boldsymbol{\xi})$, at
+every attitude. Its angular velocity, in its own frame, is
+$$\boldsymbol{\omega}_{\text{aCOM}} = \mathbf{R}(\Delta\boldsymbol{\theta})^\top \boldsymbol{\omega}_b + \mathbf{J}_r(\Delta\boldsymbol{\theta})\,\frac{\partial \Delta \boldsymbol{\theta}}{\partial \mathbf{q}_j}\,\dot{\mathbf{q}}_j$$
+
+with $\mathbf{J}_r$ the right Jacobian of $SO(3)$; to first order in $|\Delta\boldsymbol{\theta}|$ it is the paper's
+$\boldsymbol{\omega}_b + \mathbf{J}_{\Delta\theta}\dot{\mathbf{q}}_j$. The design is section 2.8.3 of
+`humanoid_nmpc/docs/quaternion_base_orientation/README.md`.
 
 #### Optimization Objective (Frobenius Loss on Jacobians)
 
-The equivariance decomposition reduces the full optimization to matching only the joint block:
+The equivariance decomposition reduces the full optimization to matching only the joint block (exactly in the paper's
+additive form, to first order in $|\Delta\boldsymbol{\theta}|$ in the composed one, where the network is used unchanged):
 $$\min_{\Delta \boldsymbol{\theta}} \mathbb{E}_{\mathbf{q} \sim \mathcal{D}} \left\| \frac{\partial \Delta \boldsymbol{\theta}}{\partial \mathbf{q}_j}(\mathbf{q}_j) - \bar{\mathbf{A}}_{\omega, j}(\mathbf{q}) \right\|_F^2$$
 
 The training loss used in practice includes a regularization term to keep the offset centered near zero:
@@ -61,20 +71,21 @@ $$\mathcal{L}_{\text{total}} = \underbrace{\mathbb{E}_{\mathbf{q}} \left\| \math
 
 ### 1.3 Coordinate Conventions
 
-> **Critical implementation detail:** The Python training and C++ runtime use different Euler angle orderings.
+> **Implementation detail:** the network's output is a rotation vector, not a set of Euler angles.
 
-| Context | Convention | Order | Index Meaning |
-|---|---|---|---|
-| Python (SIREN output) | XYZ / RPY | `[0, 1, 2]` | `[Roll, Pitch, Yaw]` |
-| C++ (OCS2 centroidal state) | ZYX | `[0, 1, 2]` | `[Yaw, Pitch, Roll]` |
+| Context | Quantity | Order |
+|---|---|---|
+| Python and C++ (SIREN output) | $\Delta\boldsymbol{\theta}$, rotation vector in the base frame | `[x, y, z]` about the base's axes |
+| C++ (base orientation) | $\boldsymbol{\xi}$, unit quaternion, base to world | `[x, y, z, w]` (Eigen `coeffs()`, Pinocchio) |
+| Task file (`acom_weights`) | rows of the heading-tilt residual of $\boldsymbol{\xi}_{\text{aCOM}}$ | `[yaw, pitch, roll]` |
 
-A permutation matrix $\mathbf{P}$ (row swap 0 ↔ 2) is applied at the C++ boundary to convert:
+No permutation is applied: $\operatorname{Exp}(\Delta\boldsymbol{\theta})$ reads the vector in its native order. The
+tracking cost compares two aCOM attitudes through the heading-tilt residual of
+`humanoid_common_mpc/orientation/BaseOrientation.h` (design section 2.8.1), whose rows are the twist heading about the
+world vertical and the tilt about the heading frame's y and x axes - the (yaw, pitch, roll) that `acom_weights` names,
+as `state_weights.base_orientation` names them for the base:
 
-$$\boldsymbol{\theta}_{\text{aCOM}}^{\text{ZYX}} = \boldsymbol{\theta}_{\text{base}}^{\text{ZYX}} + \mathbf{P} \cdot \Delta\boldsymbol{\theta}^{\text{XYZ}}(\mathbf{q}_j)$$
-
-The Jacobian rows are reordered identically:
-
-$$\mathbf{J}_{\text{aCOM}}^{\text{ZYX}} = \begin{bmatrix} \mathbf{0}_{3 \times 6} & \mathbf{0}_{3 \times 3} & \mathbf{I}_{3 \times 3} & \mathbf{P} \cdot \mathbf{J}_{\Delta\theta}^{\text{XYZ}} \end{bmatrix}$$
+$$\mathbf{e}_{\text{aCOM}} = \mathbf{e}_{HT}\big(\boldsymbol{\xi}_{\text{aCOM}}(\mathbf{x}),\ \boldsymbol{\xi}_{\text{aCOM}}(\mathbf{x}_{\text{ref}})\big)$$
 
 ---
 
@@ -115,16 +126,15 @@ flowchart TD
 
     subgraph CppInference ["4. C++ Real-Time Inference"]
         Header --> StaticLoad["AngularCenterOfMass::Create()<br/>(joint names checked<br/>against the MPC model)"]
-        StaticLoad --> Forward["computeJointOrientationOffset(q_j)<br/>→ Δθ ∈ ℝ³ (XYZ)"]
-        StaticLoad --> ChainRule["computeJointOffsetJacobian(q_j)<br/>→ J_Δθ ∈ ℝ³ˣⁿʲ (XYZ)"]
+        StaticLoad --> Forward["computeJointOrientationOffset(q_j)<br/>→ Δθ ∈ ℝ³ (rotation vector, base axes)"]
+        StaticLoad --> ChainRule["computeJointOffsetJacobian(q_j)<br/>→ J_Δθ ∈ ℝ³ˣⁿʲ"]
     end
 
     subgraph MPCIntegration ["5. MPC Cost Integration (ComAndAcomTrackingCost.cpp)"]
-        Forward --> XYZtoZYX["P · Δθ (XYZ → ZYX)"]
-        ChainRule --> JacReorder["P · J_Δθ (row reorder)"]
-        XYZtoZYX --> ThetaACOM["θ_aCOM = θ_base_ZYX + P·Δθ"]
-        ThetaACOM --> ThetaErr["θ_err = θ_aCOM − θ_ref<br/>(yaw wrapped to [-π,π])"]
-        JacReorder --> JacFull["J_aCOM/dx =<br/>[0₃ₓ₆ | 0₃ₓ₃ | I₃ₓ₃ | P·J_Δθ]"]
+        Forward --> Attitude["acomAttitude(ξ, q_j)<br/>ξ_aCOM = ξ̂ ⊗ Exp(Δθ)"]
+        ChainRule --> Tangent["acomAttitudeTangentJacobian(q_j)<br/>[R(Δθ)ᵀ | J_r(Δθ)·J_Δθ]"]
+        Attitude --> ThetaErr["e_aCOM = e_HT(ξ_aCOM(x), ξ_aCOM(x_ref))<br/>(yaw, pitch, roll; yaw wrapped)"]
+        Tangent --> JacFull["∂e_aCOM/∂x = J_HT(ξ_aCOM) ·<br/>[R(Δθ)ᵀ·T_rot(x) on the orientation slots |<br/>J_r(Δθ)·J_Δθ on the joints]"]
         ThetaErr --> Cost["½ e_com' Q_com e_com<br/>+ ½ e_aCOM' Q_aCOM e_aCOM"]
         JacFull --> GaussNewton["Gauss-Newton Hessian:<br/>J' Q J"]
         GaussNewton --> SQP["OCS2 SQP Solver"]
@@ -198,9 +208,11 @@ $$\mathcal{L}_{\text{CoM+aCOM}}(\mathbf{x}, \mathbf{x}_{\text{ref}}) = \frac{1}{
 
 where:
 $$\mathbf{e}_{\text{CoM}} = \mathbf{r}_{\text{CoM}}(\mathbf{q}) - \mathbf{r}_{\text{CoM}}(\mathbf{q}_{\text{ref}}) \in \mathbb{R}^3$$
-$$\mathbf{e}_{\text{aCOM}} = \boldsymbol{\theta}_{\text{aCOM}}(\mathbf{q}) - \boldsymbol{\theta}_{\text{aCOM}}(\mathbf{q}_{\text{ref}}) \in \mathbb{R}^3$$
+$$\mathbf{e}_{\text{aCOM}} = \mathbf{e}_{HT}\big(\boldsymbol{\xi}_{\text{aCOM}}(\mathbf{x}),\ \boldsymbol{\xi}_{\text{aCOM}}(\mathbf{x}_{\text{ref}})\big) \in \mathbb{R}^3$$
 
-The yaw component of $\mathbf{e}_{\text{aCOM}}$ is wrapped to $[-\pi, \pi]$ via `moduloAngleWithReference` to handle the $\pm\pi$ discontinuity.
+The rows are (yaw, pitch, roll) of the heading-tilt residual (section 1.3). Its yaw row is wrapped to $(-\pi, \pi]$, so a
+heading error across $\pm\pi$ is the short way round, and its tilt rows are exactly independent of the yaw error: a turn
+of the whole robot about the vertical moves the yaw row alone.
 
 Everything the replacement involves follows from that one entry (`CentroidalMpcInterface::setupOptimalControlProblem`):
 
@@ -237,29 +249,46 @@ flowchart LR
 
 ### 4.2 Gauss-Newton Quadratic Approximation
 
-The cost function provides a quadratic approximation for the OCS2 SQP solver using Jacobians w.r.t. the centroidal state $\mathbf{x}$:
-
-$$\mathbf{x} = \begin{bmatrix} \mathbf{h}_{\text{norm}} \\ \mathbf{p}_{\text{base}} \\ \boldsymbol{\theta}_{\text{base}}^{\text{ZYX}} \\ \mathbf{q}_j \end{bmatrix} \in \mathbb{R}^{n_x}, \quad \text{indices: } [0..5, \; 6..8, \; 9..11, \; 12..12{+}n_j]$$
+The cost function provides a quadratic approximation for the OCS2 SQP solver using Jacobians w.r.t. the centroidal state
+$\mathbf{x}$. It reads the state only through the MPC's robot model (`MpcRobotModelBase`): the Pinocchio configuration,
+the base orientation $\boldsymbol{\xi}$, the joint angles and two tangent maps, so it does not depend on how the state
+stores the base orientation.
 
 #### CoM Jacobian
 
-> **Critical implementation detail:** the floating base of this Pinocchio model is a `JointModelComposite` of `JointModelTranslation` and `JointModelSphericalZYX` (see `getBaseJointcomposite` in `createPinocchioModel.cpp`), **not** a `JointModelFreeFlyer`. Consequently $n_q = n_v$ and the tangent vector is literally the time derivative of the generalized coordinates:
-> $$\mathbf{v} = \begin{bmatrix} \dot{\mathbf{p}}_{\text{base}} & \dot{\boldsymbol{\theta}}_{\text{ZYX}} & \dot{\mathbf{q}}_j \end{bmatrix}^\top$$
-> In particular $\mathbf{v}_{[3:6]}$ is the **Euler angle rate**, not the angular velocity $\boldsymbol{\omega}$. Pinocchio's CoM Jacobian is therefore already $\partial \mathbf{r}_{\text{CoM}} / \partial \mathbf{q}$, and **no** $\mathbf{T}(\boldsymbol{\theta})$ mapping may be chained onto its base orientation columns. Doing so double-counts the mapping and, at $\boldsymbol{\theta} = \mathbf{0}$, swaps the yaw and roll columns outright.
+Pinocchio's CoM Jacobian $\mathbf{J}_{\text{com}}$ ($3 \times n_v$) is with respect to its configuration tangent
+$\mathbf{v}$. The robot model's `getPinocchioTangentJacobian()` ($n_v \times n_x$) says how a state step moves the
+configuration in that tangent, and the CoM rows are their product:
 
-$$\frac{\partial \mathbf{r}_{\text{CoM}}}{\partial \mathbf{x}} = \begin{bmatrix} \mathbf{0}_{3 \times 6} & \mathbf{J}_{\text{com}}^{[:, 0:3]} & \mathbf{J}_{\text{com}}^{[:, 3:6]} & \mathbf{J}_{\text{com}}^{[:, 6:]} \end{bmatrix}$$
+$$\frac{\partial \mathbf{r}_{\text{CoM}}}{\partial \mathbf{x}} = \mathbf{J}_{\text{com}} \cdot \frac{\partial \mathbf{v}}{\partial \mathbf{x}}$$
 
-This convention is pinned by `testComAndAcomTrackingCost.cpp`, which builds the cost on the reduced Atlas model and
-checks, at a tilted base with bent joints, that `getQuadraticApproximation`'s gradient equals central differences of
-`getValue` and that its Hessian equals $\mathbf{J}^\top\mathbf{Q}\mathbf{J}$ with each $\mathbf{J}$ taken by finite
-differences of the CoM position and of $\boldsymbol{\theta}_{\text{aCOM}}$. Re-chaining $\mathbf{T}(\boldsymbol{\theta})$,
-shifting a block to the wrong state index, or dropping the XYZ-to-ZYX reordering fails it.
+The floating base is a `JointModelComposite` of `JointModelTranslation` and `JointModelSpherical`
+(`createPinocchioModel.cpp`), so $\mathbf{v} = [\dot{\mathbf{p}}_W, \boldsymbol{\omega}_B, \dot{\mathbf{q}}_j]$ is the
+configuration's tangent, not the time derivative of its coordinates: the map is the identity on the position and joint
+slots and $\mathbf{E}^+(\boldsymbol{\xi})$ (3 x 4) on the quaternion's
+(`humanoid_nmpc/docs/quaternion_base_orientation/README.md`, sections 2.2 and 2.3). No angular-rate mapping is chained
+on by hand, which would double-count it.
 
 #### aCOM Jacobian
 
-The aCOM Jacobian is structurally simpler due to the equivariance decomposition:
+The aCOM attitude moves by the body tangent $\delta\boldsymbol{\varphi}_{\text{aCOM}} = \mathbf{R}(\Delta\boldsymbol{\theta})^\top \delta\boldsymbol{\varphi} + \mathbf{J}_r(\Delta\boldsymbol{\theta})\mathbf{J}_{\Delta\theta}\,\delta\mathbf{q}_j$
+(`acomAttitudeTangentJacobian`), with $\delta\boldsymbol{\varphi}$ the base rotation's body tangent, which the robot model's
+`getBaseRotationTangentJacobian()` $\mathbf{T}_{\text{rot}}(\mathbf{x})$ gives for a step of the orientation slots
+($\mathbf{E}^+(\boldsymbol{\xi})$, 3 x 4). The residual moves by $\mathbf{J}_{HT}(\boldsymbol{\xi}_{\text{aCOM}})$ of that:
 
-$$\frac{\partial \boldsymbol{\theta}_{\text{aCOM}}}{\partial \mathbf{x}} = \begin{bmatrix} \mathbf{0}_{3 \times 6} & \mathbf{0}_{3 \times 3} & \mathbf{I}_{3 \times 3} & \mathbf{P} \cdot \mathbf{J}_{\Delta\theta}(\mathbf{q}_j) \end{bmatrix}$$
+$$\frac{\partial \mathbf{e}_{\text{aCOM}}}{\partial \mathbf{x}_{\text{orientation}}} = \mathbf{J}_{HT}(\boldsymbol{\xi}_{\text{aCOM}})\,\mathbf{R}(\Delta\boldsymbol{\theta})^\top\,\mathbf{T}_{\text{rot}}(\mathbf{x}), \qquad
+\frac{\partial \mathbf{e}_{\text{aCOM}}}{\partial \mathbf{q}_j} = \mathbf{J}_{HT}(\boldsymbol{\xi}_{\text{aCOM}})\,\mathbf{J}_r(\Delta\boldsymbol{\theta})\,\mathbf{J}_{\Delta\theta}(\mathbf{q}_j)$$
+
+and is zero elsewhere. At a level base with $\Delta\boldsymbol{\theta} \to 0$ the orientation block, in the body tangent,
+is $\mathbf{P}_3$, the permutation to (yaw, pitch, roll) rows, which is the identity through the Euler chart,
+$\mathbf{T}_B(\mathbf{0}) = \mathbf{P}_3$; the paper's additive rule agrees with it to first order,
+$O(|\Delta\boldsymbol{\theta}|\,|\text{tilt}| + |\Delta\boldsymbol{\theta}|^2)$.
+
+These blocks are pinned by `testComAndAcomTrackingCost.cpp`, which builds the cost on the reduced Atlas model and checks,
+at a tilted base with bent joints, that `getQuadraticApproximation`'s gradient equals central differences of `getValue`
+and that its Hessian equals $\mathbf{J}^\top\mathbf{Q}\mathbf{J}$ with each $\mathbf{J}$ taken by finite differences of the
+CoM position and of $\mathbf{e}_{\text{aCOM}}$, recomputed from the state's slots. Dropping the adjoint or the right
+Jacobian, chaining an Euler-rate map onto the CoM, or shifting a block to the wrong state index fails it.
 
 #### Gradient and Hessian
 
@@ -287,7 +316,7 @@ com_weights {
   z: 1.0  # weight on p_com_z
 }
 
-# The aCOM is weighted in the centroidal state's ZYX Euler convention, as state_weights.base_orientation is.
+# The rows of the aCOM's heading-tilt residual, named as state_weights.base_orientation's are for the base.
 acom_weights {
   scaling: 1.0
   yaw: 1.0  # weight on the aCOM yaw
@@ -296,8 +325,8 @@ acom_weights {
 }
 ```
 
-With the cost listed, the factory zeroes the 6x6 base-pose block (the diagonal block at rows and columns 6..11:
-$\mathbf{p}_{\text{base}}$ and the base Euler angles) of both the running `state_weights` and the terminal
+With the cost listed, the factory zeroes the 6x6 base-pose block (the diagonal block at rows and columns 6..11 of the
+tuning layout: `base_position` and `base_orientation`) of both the running `state_weights` and the terminal
 `final_state_weights`, to avoid penalizing the same error twice in two parameterizations;
 `ComAndAcomTrackingCost::zeroBasePoseWeights` defines that
 block, and the live parameter updater calls the same function. `testAcomWiring` pins the wiring: the named cost
@@ -343,9 +372,10 @@ humanoid_nmpc/humanoid_common_mpc/
 ├── src/cost/
 │   └── ComAndAcomTrackingCost.cpp # MPC cost with CoM + aCOM tracking
 └── test/
-    ├── testAngularCenterOfMass.cpp              # FD Jacobian, equivariance, dimension guards
+    ├── testAngularCenterOfMass.cpp              # FD Jacobians, attitude equivariance, dimension guards
     ├── testComAndAcomTrackingCost.cpp           # The cost: gradient and Hessian vs finite differences, yaw wrap,
-    │                                            # ZYX row weighting, clone, construction checks
+    │                                            # heading-tilt row weighting, clone, construction checks
+    ├── testPlannedHeadingOverrideAcom.cpp       # The ACoM heading of the planner input and the heading override
     └── testAcomAngularVelocityConsistency.cpp   # Per-robot acceptance of every shipped header, joint order
 
 humanoid_nmpc/humanoid_centroidal_mpc/test/
@@ -414,7 +444,7 @@ tensorboard --logdir /tmp/acom_atlas/tb_logs
 | | `loss/train_frobenius`, `loss/val_frobenius` | Frobenius error $\|\mathbf{J}_{\Delta\theta}(\mathbf{q}_j) - \bar{\mathbf{A}}_{\omega, j}(\mathbf{q})\|_F^2$ |
 | | `loss/train_regularization`, `loss/val_regularization` | Offset centering penalty $\lambda_{\text{reg}} \|\Delta\boldsymbol{\theta}(\mathbf{q}_j)\|^2$ |
 | | `loss/val_rmse_rad_per_rad` | RMSE per Jacobian entry: $\sqrt{\mathcal{L}_{\text{frob}} / (3 \cdot n_j)}$ |
-| **Per-Axis Error** | `error_axes/roll_x_frob_loss`, `error_axes/pitch_y_frob_loss`, `error_axes/yaw_z_frob_loss` | Per-axis Frobenius fitting error, rows of the network's XYZ output |
+| **Per-Axis Error** | `error_axes/roll_x_frob_loss`, `error_axes/pitch_y_frob_loss`, `error_axes/yaw_z_frob_loss` | Per-axis Frobenius fitting error, rows of the network's output (rotation about the base's x, y, z) |
 | **Optimization** | `optim/learning_rate` | Cosine LR decay schedule |
 | | `gradients/global_l2_norm` | Global $L_2$ gradient norm |
 | | `gradients/layer_{l}_{weight,bias}_norm` | Per-layer gradient norms |
@@ -430,12 +460,15 @@ tensorboard --logdir /tmp/acom_atlas/tb_logs
 # Python: model, training, export, and dataset generator
 bazel test //humanoid_learning/acom/tests:test_acom
 
-# C++: analytical Jacobian, equivariance, and dimension guards of the evaluator
+# C++: analytical Jacobians, attitude equivariance, and dimension guards of the evaluator
 bazel test //humanoid_nmpc/humanoid_common_mpc:testAngularCenterOfMass
 
-# C++: the cost itself - gradient and Hessian against finite differences, yaw wrap, ZYX row weighting,
+# C++: the cost itself - gradient and Hessian against finite differences, yaw wrap, heading-tilt row weighting,
 # clone(), and the construction checks
 bazel test //humanoid_nmpc/humanoid_common_mpc:testComAndAcomTrackingCost
+
+# C++: the ACoM heading the contact planner is handed, and planned_heading_override's knots
+bazel test //humanoid_nmpc/humanoid_common_mpc:testPlannedHeadingOverrideAcom
 
 # C++: does each SHIPPED weight header actually approximate the centroidal angular velocity, and is it indexed by
 # exactly the MPC model's joints?
@@ -462,11 +495,14 @@ independent of how good the network is.
 the robot actually runs rather than through the JAX parameters, for **every** robot with a compiled-in network (it
 fails if a network is registered without a case of its own). It states the defining property directly:
 
-$$\dot{\boldsymbol{\theta}}_{\text{aCOM}} \;\approx\; \boldsymbol{\omega}_{\text{locked}} = \mathbf{I}_G^{-1}\mathbf{L}_G$$
+$$\boldsymbol{\omega}_{\text{aCOM}} \;\approx\; \boldsymbol{\omega}_{\text{locked}} = \mathbf{I}_G^{-1}\mathbf{L}_G$$
 
-and, via the equivariant decomposition whose base block is exact by construction, reduces it to the joint block
-$\mathbf{J}_{\Delta\theta} \approx \bar{\mathbf{A}}_{\omega,j}$ - the Frobenius objective of section 1.2, recomputed
-with Pinocchio's `ccrba` on the reduced MPC model, over configurations drawn uniformly from the URDF joint-limit box.
+in angular velocities, in world axes, through the aCOM attitude and the tangent Jacobian the MPC cost assembles, at a
+tilted base driven through its root joint's body velocity. Via the equivariant decomposition, whose base term is exact
+by construction (a test of its own), it reduces to the joint block $\mathbf{J}_l(\Delta\boldsymbol{\theta})\mathbf{J}_{\Delta\theta}
+\approx \bar{\mathbf{A}}_{\omega,j}$ - the Frobenius objective of section 1.2 to first order in $|\Delta\boldsymbol{\theta}|$,
+recomputed with Pinocchio's `ccrba` on the reduced MPC model, over configurations drawn uniformly from the URDF
+joint-limit box.
 That is the box `dataset_generator.py` samples now. The shipped headers were trained on that box trimmed by 10 % of
 each joint's range at both ends - a margin since removed because it left G1's nominal knee angle outside the training
 set - so the numbers below include the trimmed margins, where the error is larger (Atlas: about 0.17 mean inside the
@@ -480,11 +516,11 @@ same network fed its joints in the wrong order.
 in `kAcomRobotCases`):
 
 <!-- LINT.IfChange(acom_acceptance_numbers) -->
-| robot | status | relative Frobenius error $\|\mathbf{J}_{\Delta\theta}-\bar{\mathbf{A}}_{\omega,j}\|_F / \|\bar{\mathbf{A}}_{\omega,j}\|_F$ | relative rate error $\|\dot{\boldsymbol{\theta}}_{\text{aCOM}}-\boldsymbol{\omega}_{\text{locked}}\| / (\|\bar{\mathbf{A}}_{\omega,j}\|_F\|\dot{\mathbf{q}}_j\|)$ | constant-Jacobian baseline |
+| robot | status | relative Frobenius error $\|\mathbf{J}_{\Delta\theta}-\bar{\mathbf{A}}_{\omega,j}\|_F / \|\bar{\mathbf{A}}_{\omega,j}\|_F$ | relative rate error $\|\boldsymbol{\omega}_{\text{aCOM}}-\boldsymbol{\omega}_{\text{locked}}\| / (\|\bar{\mathbf{A}}_{\omega,j}\|_F\|\dot{\mathbf{q}}_j\|)$ | constant-Jacobian baseline |
 |---|---|---|---|---|
-| `atlas` | validated | 0.219 / 0.375 | 0.042 / 0.138 | 0.378 |
-| `g1` | **NOT VALIDATED** | 0.402 / 1.33 | 0.072 / 0.238 | 0.929 |
-| `engineai_sa01` | **NOT VALIDATED** | 0.508 / 1.62 | 0.127 / 0.647 | 0.649 |
+| `atlas` | validated | 0.219 / 0.375 | 0.039 / 0.137 | 0.378 |
+| `g1` | **NOT VALIDATED** | 0.402 / 1.33 | 0.076 / 0.246 | 0.929 |
+| `engineai_sa01` | **NOT VALIDATED** | 0.508 / 1.62 | 0.121 / 0.632 | 0.649 |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testAcomAngularVelocityConsistency.cpp:acom_acceptance_robots) -->
 
 Atlas's bounds (0.30 / 0.50 and 0.08 / 0.25) sit well above its measurement on purpose, where a meaningful regression
@@ -516,7 +552,9 @@ sits at 2.17°. Nearly every training sample is a posture the robot never adopts
 the operating region, or mixing uniform samples with a nominal-centered ball, is the lever with real headroom left; it
 trades tail accuracy for operating-point accuracy, so it is a deliberate design choice rather than a free win.
 
-The rate error is much smaller than the Frobenius error because contracting a matrix error with a velocity averages over
+The rate error is that of the composed attitude, whose joint term carries the factor
+$\mathbf{J}_l(\Delta\boldsymbol{\theta})$ the Frobenius objective leaves out; measured with the paper's additive rule, the
+same samples gave 0.042 / 0.138 (Atlas), 0.072 / 0.238 (G1) and 0.127 / 0.647 (SA01). The rate error is much smaller than the Frobenius error because contracting a matrix error with a velocity averages over
 its directions. Note that it is measured against $\|\bar{\mathbf{A}}_{\omega,j}\|_F\|\dot{\mathbf{q}}_j\|$ rather
 than against $\|\boldsymbol{\omega}_{\text{locked}}\|$: the latter passes arbitrarily close to zero for velocity
 directions near the connection's null space, so that ratio is unbounded for a fixed, perfectly good network and the test
@@ -536,14 +574,17 @@ absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> acomOr =
 if (!acomOr.ok()) return acomOr.status();
 std::unique_ptr<AngularCenterOfMass> acom = *std::move(acomOr);
 
-// Joint offset and its Jacobian, in the network's native XYZ ordering.
+// Joint rotation and its Jacobian: a rotation vector in the base frame, components about the base's x, y and z axes.
 const vector3_t delta_theta = acom->computeJointOrientationOffset(q_joints);
 const matrix_t J_delta = acom->computeJointOffsetJacobian(q_joints);
 
-// Whole-body aCOM, in the centroidal state's ZYX ordering. Takes the Pinocchio
-// generalized coordinates q = [pos_base(3), euler_zyx_base(3), q_joints(n_j)].
-const vector3_t theta_acom = acom->computeAcomOrientation(q);
-const matrix_t J_acom = acom->computeAcomJacobian(q);
+// Whole-body aCOM attitude xi_a = xi_hat (x) Exp(delta_theta), from the base orientation xi (quaternion coefficients
+// x, y, z, w; robotModel.getBaseOrientation(state)), and its body tangent Jacobian: R(delta_theta)^T for a body
+// rotation of the base, J_r(delta_theta) J_delta for the joints.
+const vector4_t xi_acom = acom->acomAttitude(xi, q_joints);
+const AcomAttitudeTangentJacobian J_acom = acom->acomAttitudeTangentJacobian(q_joints);
+// Its heading, as the contact planner's heading model reads it (orientation/BaseOrientation.h).
+const scalar_t heading = twistHeading(xi_acom);
 ```
 
 `AngularCenterOfMass::registeredRobotNames()` lists the robots with a network. `Create()` is the only factory: the
@@ -555,7 +596,7 @@ older `createForRobot(robotName)`, which skipped the joint check and threw inste
 
 1. **Drift-Free Holonomic Tracking**:
    Replaces velocity-level momentum bounds with a direct configuration error penalty in the MPC cost function:
-   $$\mathcal{L}_{\text{rot}} = w_{\text{aCOM}} \left\| \boldsymbol{\theta}_{\text{aCOM}}(\mathbf{q}) - \boldsymbol{\theta}_{\text{ref}}(t) \right\|^2$$
+   $$\mathcal{L}_{\text{rot}} = \tfrac{1}{2}\,\mathbf{e}_{HT}^\top \mathbf{Q}_{\text{aCOM}}\, \mathbf{e}_{HT}, \quad \mathbf{e}_{HT} = \mathbf{e}_{HT}\big(\boldsymbol{\xi}_{\text{aCOM}}(\mathbf{q}), \boldsymbol{\xi}_{\text{aCOM}}(\mathbf{q}_{\text{ref}}(t))\big)$$
 
 2. **Emergent Arm Swing**:
    When the aCOM cost penalizes whole-body orientation error, the optimizer naturally counter-swings the robot's arms during walking to maintain orientation alignment. This produces realistic, dynamically-motivated arm swing without requiring a hand-crafted swing trajectory generator.

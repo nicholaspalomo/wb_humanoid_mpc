@@ -77,6 +77,13 @@ mpc_config::TaskFile variantTaskFile();
  */
 std::unique_ptr<WBMpcInterface> createWholeBodyMpc(const mpc_config::TaskFile& task);
 
+/**
+ * Expects `interface` to run on the quaternion layout of the whole-body state (design section 2.3): its optimal control
+ * problem carries the robot model's state manifold, the interface's own, whose ambient state - the unit quaternion of the
+ * base among it - has one row more than its tangent and is the robot model's state.
+ */
+void expectQuaternionLayout(const WBMpcInterface& interface);
+
 /** Returns the MPC of shippedTaskFile(), built once for the test program and never destroyed; nullptr when refused. */
 WBMpcInterface* absl_nullable shippedWholeBodyMpc();
 

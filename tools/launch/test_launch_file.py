@@ -323,7 +323,6 @@ class StrictParsingTest(unittest.TestCase):
             ),
             "env as a map": minimal(process='env { key: "A" value: "1" }'),
             "unclosed block": "processes {\n",
-            "yaml": "processes:\n  - name: mpc\n",
         }
         for case, text in cases.items():
             with self.subTest(case=case):
@@ -332,15 +331,6 @@ class StrictParsingTest(unittest.TestCase):
                 self.assertRegex(
                     str(raised.exception), rf"^{re.escape(SOURCE)}:\d+(:\d+)?: "
                 )
-
-    def test_a_yaml_file_is_told_that_launch_files_are_textprotos(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            path = os.path.join(directory, "old.launch.yaml")
-            with open(path, "w", encoding="utf-8") as stream:
-                stream.write("processes:\n  - name: mpc\n")
-            with self.assertRaises(launch_file.LaunchFileError) as raised:
-                launch_file.load_launch_file(path)
-        self.assertIn("textprotos of launch_proto.LaunchFile", str(raised.exception))
 
 
 class ValidationTest(unittest.TestCase):

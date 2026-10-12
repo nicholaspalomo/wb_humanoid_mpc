@@ -372,95 +372,6 @@ class HpipmInterface::Impl {
     return RiccatiFeedback;
   }
 
-  vector_array_t getRiccatiFeedforward(const VectorFunctionLinearApproximation& dynamics0,
-                                       const ScalarFunctionQuadraticApproximation& cost0) {
-    const int N = ocpSize_.numStages;
-    vector_array_t RiccatiFeedforward(N);
-
-    // k = 0, state is not a decision variable. Reconstruct backward pass from k = 1
-    matrix_t P1(ocpSize_.numStates[1], ocpSize_.numStates[1]);
-    d_ocp_qp_ipm_get_ric_P(&qp_, &arg_, &workspace_, 1, P1.data());
-
-    matrix_t Lr(ocpSize_.numInputs[0], ocpSize_.numInputs[0]);
-    d_ocp_qp_ipm_get_ric_Lr(&qp_, &arg_, &workspace_, 0, Lr.data());
-    LinearAlgebra::setTriangularMinimumEigenvalues(Lr);
-
-    vector_t p1(ocpSize_.numStates[1]);
-    d_ocp_qp_ipm_get_ric_p(&qp_, &arg_, &workspace_, 1, p1.data());
-
-    // RiccatiFeedforward[0] = -(inv(Lr)^T * inv(Lr)) * (r0 + B0.transpose() * p1 + B0.transpose() * P1 * b0);
-    RiccatiFeedforward[0] = -cost0.dfdu;
-    p1.noalias() += P1 * dynamics0.f;  // p1 + P1 * b0
-    RiccatiFeedforward[0].noalias() -= dynamics0.dfdu.transpose() * p1;
-    Lr.triangularView<Eigen::Lower>().solveInPlace(RiccatiFeedforward[0]);
-    Lr.triangularView<Eigen::Lower>().transpose().solveInPlace(RiccatiFeedforward[0]);
-
-    // k > 0
-    for (int k = 1; k < N; ++k) {
-      RiccatiFeedforward[k].resize(ocpSize_.numInputs[k]);
-      d_ocp_qp_ipm_get_ric_k(&qp_, &arg_, &workspace_, k, RiccatiFeedforward[k].data());
-    }
-
-    return RiccatiFeedforward;
-  }
-
-  std::vector<ScalarFunctionQuadraticApproximation> getRiccatiCostToGo(const VectorFunctionLinearApproximation& dynamics0,
-                                                                       const ScalarFunctionQuadraticApproximation& cost0) {
-    /*
-     * Note on notation: HPIPM uses P, p for the cost-to-go, where we use Sm, sv
-     */
-    const int N = ocpSize_.numStages;
-    std::vector<ScalarFunctionQuadraticApproximation> RiccatiCostToGo(N + 1);
-
-    // k > 0, this first so we have P[1] ready for P[0].
-    for (int k = 1; k <= N; k++) {
-      RiccatiCostToGo[k].dfdxx.resize(ocpSize_.numStates[k], ocpSize_.numStates[k]);
-      RiccatiCostToGo[k].dfdx.resize(ocpSize_.numStates[k]);
-      d_ocp_qp_ipm_get_ric_P(&qp_, &arg_, &workspace_, k, RiccatiCostToGo[k].dfdxx.data());
-      d_ocp_qp_ipm_get_ric_p(&qp_, &arg_, &workspace_, k, RiccatiCostToGo[k].dfdx.data());
-    }
-
-    // k = 0
-    matrix_t Lr0(ocpSize_.numInputs[0], ocpSize_.numInputs[0]);
-    d_ocp_qp_ipm_get_ric_Lr(&qp_, &arg_, &workspace_, 0, Lr0.data());
-    LinearAlgebra::setTriangularMinimumEigenvalues(Lr0);
-
-    // Shorthand notation
-    const matrix_t& A0 = dynamics0.dfdx;
-    const matrix_t& B0 = dynamics0.dfdu;
-    const vector_t& b0 = dynamics0.f;
-    const matrix_t& Q0 = cost0.dfdxx;
-    matrix_t tmp1 = cost0.dfdux;
-    const vector_t& q0 = cost0.dfdx;
-    vector_t tmp2 = cost0.dfdu;
-    const matrix_t& P1 = RiccatiCostToGo[1].dfdxx;
-    vector_t tmp3 = RiccatiCostToGo[1].dfdx;
-
-    // Matrix terms
-    // RiccatiCostToGo[0].dfdxx = Q0 + A0.transpose() * P1 * A0 -
-    //                              (S0 + B0.transpose() * P1 * A0).transpose() * (R0 + B0.transpose() * P1 * B0).inverse() *
-    //                                  (S0 + B0.transpose() * P1 * A0)
-    // Use that inv(Lr0)^T * inv(Lr0) = (R0 + B0.transpose() * P1 * B0).inverse();
-    const matrix_t P1_A0 = P1 * A0;
-    tmp1.noalias() += B0.transpose() * P1_A0;
-    Lr0.triangularView<Eigen::Lower>().solveInPlace(tmp1);  // tmp1 = inv(Lr0) * (S0.transpose() + A0.transpose() * P1 * B0)
-    RiccatiCostToGo[0].dfdxx = Q0;
-    RiccatiCostToGo[0].dfdxx.noalias() += A0.transpose() * P1_A0;
-    RiccatiCostToGo[0].dfdxx.noalias() -= tmp1.transpose() * tmp1;
-
-    // Vector terms
-    // RiccatiCostToGo[0].dfdx = qk + A0.transpose() * p1 + A0.transpose() * P1 * b0 -
-    //                   (S0.transpose() + A0.transpose() * P1 * B0) * (R0 + B0.transpose() * P1 * B0).inverse() *
-    //                       (r0 + B0.transpose() * p1 + B0.transpose() * P1 * b0);
-    tmp3.noalias() += P1 * b0;  // tmp3 = p1 + B0.transpose() * P1 * b0
-    tmp2.noalias() += B0.transpose() * tmp3;
-    Lr0.triangularView<Eigen::Lower>().solveInPlace(tmp2);  // tmp2 = inv(Lr0) * (r0 + B0.transpose() * p1 + B0.transpose() * P1 * b0)
-    RiccatiCostToGo[0].dfdx = q0;
-    RiccatiCostToGo[0].dfdx.noalias() += A0.transpose() * tmp3;
-    RiccatiCostToGo[0].dfdx.noalias() -= tmp1.transpose() * tmp2;
-    return RiccatiCostToGo;
-  }
-
   void printStatus() {
     int hpipmStatus = -1;
     d_ocp_qp_ipm_get_status(&workspace_, &hpipmStatus);
@@ -548,17 +459,9 @@ hpipm_status HpipmInterface::solve(const vector_t& x0,
   return pImpl_->solve(x0, dynamics, cost, constraints, stateTrajectory, inputTrajectory, verbose);
 }
 
-std::vector<ScalarFunctionQuadraticApproximation> HpipmInterface::getRiccatiCostToGo(const VectorFunctionLinearApproximation& dynamics0,
-                                                                                     const ScalarFunctionQuadraticApproximation& cost0) {
-  return pImpl_->getRiccatiCostToGo(dynamics0, cost0);
-}
 matrix_array_t HpipmInterface::getRiccatiFeedback(const VectorFunctionLinearApproximation& dynamics0,
                                                   const ScalarFunctionQuadraticApproximation& cost0) {
   return pImpl_->getRiccatiFeedback(dynamics0, cost0);
-}
-vector_array_t HpipmInterface::getRiccatiFeedforward(const VectorFunctionLinearApproximation& dynamics0,
-                                                     const ScalarFunctionQuadraticApproximation& cost0) {
-  return pImpl_->getRiccatiFeedforward(dynamics0, cost0);
 }
 
 }  // namespace ocs2

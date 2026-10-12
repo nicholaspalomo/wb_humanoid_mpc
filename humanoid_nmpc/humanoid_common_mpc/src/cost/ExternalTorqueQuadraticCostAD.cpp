@@ -157,16 +157,18 @@ ad_vector_t ExternalTorqueQuadraticCostAD::costVectorFunction(ad_scalar_t /*time
   PinocchioInterfaceCppAd::Data& data = pinocchioInterfaceCppAd_.getData();
 
   const ad_vector_t q = mpcRobotModelADPtr_->getGeneralizedCoordinates(state);
-  ad_matrix_t J_ee = ad_matrix_t::Zero(6, mpcRobotModelADPtr_->getGenCoordinatesDim());
+  ad_matrix_t J_ee = ad_matrix_t::Zero(6, static_cast<Eigen::Index>(mpcRobotModelADPtr_->getVelocityDim()));
   pinocchio::computeFrameJacobian(model, data, q, frameID_, pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED, J_ee);
 
   // The Jacobian is LOCAL_WORLD_ALIGNED, so the wrench must be expressed in the world frame. The state-aware
   // accessor is frame-correct for both wrench-space and basis-vector (local-frame) input parameterizations.
   ad_vector_t tauExt = J_ee.transpose() * mpcRobotModelADPtr_->getContactWrenchInWorldFrame(state, input, contactPointIndex_);
 
+  // tau_ext has the Pinocchio velocity's entries: the floating base's, then one per joint.
+  const size_t jointVelocityStart = mpcRobotModelADPtr_->getVelocityDim() - mpcRobotModelADPtr_->getJointDim();
   ad_vector_t tauExtActive = ad_vector_t::Zero(sqrtWeights_.size());
   for (Eigen::Index i = 0; i < sqrtWeights_.size(); ++i) {
-    tauExtActive[i] = tauExt[6 + activeJointIndices_[static_cast<size_t>(i)]];
+    tauExtActive[i] = tauExt[static_cast<Eigen::Index>(jointVelocityStart + activeJointIndices_[static_cast<size_t>(i)])];
   }
 
   const ad_vector_t sqrtWeightsAD = parameters.head(sqrtWeights_.size());

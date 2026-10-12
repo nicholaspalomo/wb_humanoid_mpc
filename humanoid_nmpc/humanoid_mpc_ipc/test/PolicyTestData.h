@@ -30,10 +30,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <cstddef>
+#include <memory>
 #include <random>
 
 #include "ocs2_core/Types.h"
 #include "ocs2_core/control/ControllerType.h"
+#include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_core/reference/ModeSchedule.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/CommandData.h"
@@ -44,7 +46,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /**
  * Random OCS2 objects for the conversion tests, deterministic for a given generator state. The primal solutions look
  * like those of OCS2's multiple-shooting solvers: the two nodes of an event share one time, the post-event indices
- * point at the second of them, and the controller is built on the time trajectory.
+ * point at the second of them, and the controller is built on the time trajectory; a ManifoldLinearController exactly
+ * as the SQP builds it on a state manifold (multiple_shooting::toPrimalSolution()).
  */
 namespace ocs2::humanoid::ipc::test_data {
 
@@ -56,7 +59,18 @@ struct PolicyShape {
   // At most (nodes - 1) / 3 events fit, each with at least one node of its own on either side.
   size_t events = 0;
   ControllerType controllerType = ControllerType::FEEDFORWARD;
+  /**
+   * The manifold the states live on, or null for flat ones. With one, stateDim is its ambient dimension and every state
+   * is a point of it (each quaternion block normalized). A MANIFOLD_LINEAR controller needs one, and two nodes at least.
+   */
+  std::shared_ptr<const StateManifold> stateManifold = nullptr;
 };
+
+/** The state manifold of the manifold-policy tests, [E(3), Q, E(5)]: 12 ambient and 11 tangent dimensions. */
+std::shared_ptr<const StateManifold> toyStateManifold();
+
+/** A state drawn as randomVector() draws one and projected onto `manifold`. */
+vector_t randomManifoldState(std::mt19937& generator, const StateManifold& manifold);
 
 /** A vector of `size` values drawn from N(0, 10). */
 vector_t randomVector(std::mt19937& generator, size_t size);
@@ -82,7 +96,11 @@ PerformanceIndex randomPerformanceIndex(std::mt19937& generator);
 /** Command data of an observation and target trajectories of `targetNodes` nodes. */
 CommandData randomCommandData(std::mt19937& generator, size_t stateDim, size_t inputDim, size_t targetNodes);
 
-/** A primal solution of the given shape, with a controller of the given type built on its time trajectory. */
+/**
+ * A primal solution of the given shape, with a controller of the given type built on its time trajectory. A
+ * MANIFOLD_LINEAR controller comes from multiple_shooting::toPrimalSolution(..., shape.stateManifold): its pre-event
+ * nodes and its last node carry the anchor, input and gain of the node before them, not their own state.
+ */
 PrimalSolution randomPrimalSolution(std::mt19937& generator, const PolicyShape& shape);
 
 }  // namespace ocs2::humanoid::ipc::test_data

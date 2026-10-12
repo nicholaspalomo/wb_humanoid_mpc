@@ -125,16 +125,7 @@ vector_t ProductStateManifold::difference(const vector_t& x0, const vector_t& x1
   CHECK_EQ(sizeOf(x0.size()), ambientDim_);
   CHECK_EQ(sizeOf(x1.size()), ambientDim_);
   vector_t d(tangentDim_);
-  for (const Block& block : blocks_) {
-    if (block.type == StateManifoldSegment::Type::kEuclidean) {
-      d.segment(block.tangentOffset, block.tangentDim) =
-          x1.segment(block.ambientOffset, block.ambientDim) - x0.segment(block.ambientOffset, block.ambientDim);
-    } else {
-      const quaternion_t xi0 = x0.segment<4>(block.ambientOffset);
-      const quaternion_t xi1 = x1.segment<4>(block.ambientOffset);
-      d.segment<3>(block.tangentOffset) = quaternionLog(quaternionProduct(quaternionConjugate(xi0), xi1));
-    }
-  }
+  differenceInto(x0, x1, d);
   return d;
 }
 
@@ -142,6 +133,24 @@ vector_t ProductStateManifold::interpolate(const vector_t& x0, const vector_t& x
   CHECK_EQ(sizeOf(x0.size()), ambientDim_);
   CHECK_EQ(sizeOf(x1.size()), ambientDim_);
   vector_t x(ambientDim_);
+  interpolateInto(x0, x1, alpha, x);
+  return x;
+}
+
+void ProductStateManifold::differenceInto(const vector_t& x0, const vector_t& x1, vector_t& dx) const {
+  for (const Block& block : blocks_) {
+    if (block.type == StateManifoldSegment::Type::kEuclidean) {
+      dx.segment(block.tangentOffset, block.tangentDim) =
+          x1.segment(block.ambientOffset, block.ambientDim) - x0.segment(block.ambientOffset, block.ambientDim);
+    } else {
+      const quaternion_t xi0 = x0.segment<4>(block.ambientOffset);
+      const quaternion_t xi1 = x1.segment<4>(block.ambientOffset);
+      dx.segment<3>(block.tangentOffset) = quaternionLog(quaternionProduct(quaternionConjugate(xi0), xi1));
+    }
+  }
+}
+
+void ProductStateManifold::interpolateInto(const vector_t& x0, const vector_t& x1, scalar_t alpha, vector_t& x) const {
   for (const Block& block : blocks_) {
     if (block.type == StateManifoldSegment::Type::kEuclidean) {
       x.segment(block.ambientOffset, block.ambientDim) =
@@ -152,7 +161,6 @@ vector_t ProductStateManifold::interpolate(const vector_t& x0, const vector_t& x
       x.segment<4>(block.ambientOffset) = quaternionSlerp(xi0, xi1, alpha);
     }
   }
-  return x;
 }
 
 void ProductStateManifold::project(vector_t& x) const {

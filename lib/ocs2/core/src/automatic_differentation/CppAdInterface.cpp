@@ -204,7 +204,8 @@ void CppAdInterface::loadModels(bool verbose) {
 void CppAdInterface::checkLoadedModelDimensions(size_t expectedRangeDim) const {
   if (model_ == nullptr) {
     throw std::runtime_error(absl::StrCat("[CppAdInterface] The library in '", libraryFolder_, "' has no model named '", modelName_,
-                                          "'. Delete the folder, or set recompileLibrariesCppAd: true, to regenerate it."));
+                                          "'. Delete the folder, or set the task file's model_settings.recompile_libraries_cpp_ad: true, ",
+                                          "to regenerate it."));
   }
   const size_t expectedDomainDim = variableDim_ + parameterDim_;
   if (model_->Domain() != expectedDomainDim || model_->Range() != expectedRangeDim) {
@@ -212,8 +213,8 @@ void CppAdInterface::checkLoadedModelDimensions(size_t expectedRangeDim) const {
         "[CppAdInterface] The library in '", libraryFolder_, "' was generated for another function: its domain is ", model_->Domain(),
         " and its range ", model_->Range(), ", but the function now takes ", variableDim_, " variables + ", parameterDim_,
         " parameters = ", expectedDomainDim, " and returns ", expectedRangeDim,
-        ". It is stale (for example from before a change of the state layout): delete the folder, or set recompileLibrariesCppAd: true, "
-        "to regenerate it."));
+        ". It is stale (for example from before a change of the state layout): delete the folder, or set the task file's "
+        "model_settings.recompile_libraries_cpp_ad: true, to regenerate it."));
   }
 }
 

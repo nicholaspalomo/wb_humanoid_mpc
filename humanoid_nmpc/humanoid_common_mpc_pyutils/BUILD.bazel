@@ -41,7 +41,7 @@ py_binary(
     deps = [":mpc_observation_logger_lib"],
 )
 
-# The default columns (the logger's, and the ROS-era logger's), explicit columns, and every row of every file.
+# The default columns (the logger's state and input), explicit columns, and every row of every file.
 py_test(
     name = "test_export_rollouts",
     size = "small",

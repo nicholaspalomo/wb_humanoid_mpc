@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <random>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "Eigen/Geometry"
@@ -38,16 +39,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "gtest/gtest.h"
+#include "ocs2_robotic_tools/common/RotationDerivativesTransforms.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_common_mpc/orientation/BaseOrientation.h"
 #include "humanoid_common_mpc/orientation/EulerBoundary.h"
 
 /*
- * Step 5 of humanoid_nmpc/docs/quaternion_base_orientation/README.md: the Euler boundary. Round trips in both
- * directions (the rotation at every attitude, gimbal lock included), the clamped asin at +-90 degrees, parity with the
- * conversion of before the switch, T_B against the rate of the rotation matrix, and the tuning layout: its conversion of
- * task-file-shaped vectors and the errors that name the expected layout.
+ * The Euler boundary of humanoid_nmpc/docs/quaternion_base_orientation/README.md (section 2.9). Round trips in both
+ * directions (the rotation at every attitude, gimbal lock included), the clamped asin at +-90 degrees - for a sine of the
+ * pitch past one by round-off and for a measured quaternion slightly longer than one - parity with an independent ZYX
+ * conversion with the same clamp (legacyEulerZyxFromQuaternion()), T_B, its inverse and its derivative against the
+ * rate of the rotation matrix, and the tuning layout: its placement on the state, the lookup of its blocks, its
+ * conversion of task-file-shaped vectors and the errors that name the expected layout.
  */
 
 namespace ocs2::humanoid {
@@ -60,7 +64,7 @@ constexpr scalar_t kDegree = M_PI / 180.0;
 /** The G1's joint count, for layouts of the shipped sizes (centroidal 35 -> 36, whole body 58 -> 59). */
 constexpr size_t kNumJoints = 23;
 
-/** The conversion of before the switch, pinocchio_model/DynamicsHelperFunctions.h quaternionToEulerZYX, with the clamp. */
+/** An independent quaternion-to-ZYX conversion with the clamp of the asin: the reference of the parity cases. */
 vector3_t legacyEulerZyxFromQuaternion(const vector4_t& xi) {
   const scalar_t x = xi(0);
   const scalar_t y = xi(1);
@@ -110,8 +114,8 @@ std::vector<vector3_t> gimbalLockAngles() {
   return angles;
 }
 
-/** The centroidal tuning layout of design section 2.3: [h(6), p_W(3), (yaw, pitch, roll), q_j(nj)]. */
-TuningLayout centroidalLayout() {
+/** The centroidal tuning layout of design section 2.3, not placed: [h(6), p_W(3), (yaw, pitch, roll), q_j(nj)]. */
+TuningLayout unplacedCentroidalLayout() {
   return TuningLayout{
       .name = "centroidal",
       .segments =
@@ -124,9 +128,14 @@ TuningLayout centroidalLayout() {
   };
 }
 
-/** The whole-body tuning layout of design section 2.3: [p_W, (yaw, pitch, roll), q_j, pd_W, (w_z, w_y, w_x), qd_j]. */
+/** The centroidal tuning layout placed on a quaternion state [h(6), p_W(3), xi(4), q_j(nj)]. */
+TuningLayout centroidalLayout() {
+  return placeTuningLayout(unplacedCentroidalLayout());
+}
+
+/** The whole-body tuning layout of design section 2.3, placed on a quaternion state [p_W, xi, q_j, pd_W, w_B, qd_j]. */
 TuningLayout wholeBodyLayout() {
-  return TuningLayout{
+  return placeTuningLayout(TuningLayout{
       .name = "whole-body",
       .segments =
           {
@@ -137,7 +146,7 @@ TuningLayout wholeBodyLayout() {
               {.name = "w_B", .kind = TuningSegmentKind::kZyxOrderedAngularVelocity, .tuningDim = 3},
               {.name = "qd_j", .kind = TuningSegmentKind::kEuclidean, .tuningDim = kNumJoints},
           },
-  };
+  });
 }
 
 /** A tuning-layout vector with distinct entries and a valid (yaw, pitch, roll) at `eulerStart`. */
@@ -226,6 +235,21 @@ TEST(EulerBoundary, AsinIsClampedAtNinetyDegrees) {
     }
   }
 
+  // A measured quaternion normalized only to round-off - a part in 1e12 or 1e9 too long - at exactly +-90 degrees: the
+  // sine of the pitch exceeds one by far more than a rounding step, and the angles are still finite and describe its
+  // rotation.
+  for (const scalar_t sign : {1.0, -1.0}) {
+    for (const scalar_t scale : {1.0 + 1.0e-12, 1.0 + 1.0e-9}) {
+      const vector4_t xi = scale * vector4_t(0.0, sign * std::sqrt(0.5), 0.0, std::sqrt(0.5));
+      ASSERT_GT(std::abs(2.0 * (xi(3) * xi(1) - xi(2) * xi(0))), 1.0 + 1.0e-13) << "scale " << scale;
+      const vector3_t euler = eulerZyxFromQuaternion(xi);
+      ASSERT_TRUE(euler.allFinite()) << "scale " << scale << ": " << euler.transpose();
+      EXPECT_LE(std::abs(euler(1)), M_PI_2) << "scale " << scale;
+      EXPECT_NEAR(euler(1), sign * M_PI_2, 1.0e-8) << "scale " << scale;
+      EXPECT_LT(rotationDistance(quaternionFromEulerZyx(euler), xi.normalized()), 1.0e-8) << "scale " << scale;
+    }
+  }
+
   // A measured quaternion slightly off the unit sphere near 90 degrees takes the asin formula, and its argument exceeds
   // one by more than round-off: the clamp gives exactly +-pi/2.
   for (const scalar_t sign : {1.0, -1.0}) {
@@ -293,9 +317,124 @@ TEST(EulerBoundary, LocalAngularVelocityIsTheRateOfTheRotation) {
   EXPECT_EQ(eulerZyxRateToLocalAngularVelocityMatrix(vector3_t::Zero()), permutation);
 }
 
+TEST(EulerBoundary, EulerRatesAreTheInverseOfTheLocalAngularVelocity) {
+  std::mt19937 generator(16);
+  std::uniform_real_distribution<scalar_t> rate(-2.0, 2.0);
+  for (int i = 0; i < 16; ++i) {
+    const vector3_t euler = randomEulerAngles(generator, /*maximumPitch=*/1.4);
+    const vector3_t localAngularVelocity(rate(generator), rate(generator), rate(generator));
+    const vector3_t eulerRates = eulerZyxRatesFromLocalAngularVelocity(euler, localAngularVelocity);
+    // Bit for bit OCS2's own conversion of the rates.
+    EXPECT_EQ(eulerRates, getEulerAnglesZyxDerivativesFromLocalAngularVelocity<scalar_t>(euler, localAngularVelocity));
+    EXPECT_LT((localAngularVelocityFromEulerZyxRates(euler, eulerRates) - localAngularVelocity).cwiseAbs().maxCoeff(), 1.0e-12);
+    EXPECT_LT((eulerZyxRateToLocalAngularVelocityMatrix(euler).inverse() * localAngularVelocity - eulerRates).cwiseAbs().maxCoeff(),
+              1.0e-12);
+  }
+}
+
+TEST(EulerBoundary, LocalAngularVelocityJacobianMatchesFiniteDifferences) {
+  std::mt19937 generator(17);
+  std::uniform_real_distribution<scalar_t> rate(-2.0, 2.0);
+  for (int i = 0; i < 16; ++i) {
+    const vector3_t euler = randomEulerAngles(generator, /*maximumPitch=*/1.4);
+    const vector3_t eulerRates(rate(generator), rate(generator), rate(generator));
+    const matrix3_t jacobian = localAngularVelocityEulerZyxJacobian(euler, eulerRates);
+    for (Eigen::Index j = 0; j < 3; ++j) {
+      const vector3_t step = kFiniteDifferenceStep * vector3_t::Unit(j);
+      const vector3_t column = (localAngularVelocityFromEulerZyxRates(vector3_t(euler + step), eulerRates) -
+                                localAngularVelocityFromEulerZyxRates(vector3_t(euler - step), eulerRates)) /
+                               (2.0 * kFiniteDifferenceStep);
+      EXPECT_LT((column - jacobian.col(j)).cwiseAbs().maxCoeff(), kFiniteDifferenceTolerance) << "column " << j;
+    }
+    // T_B does not depend on the yaw.
+    EXPECT_EQ(jacobian.col(0), vector3_t::Zero());
+  }
+}
+
 /******************************************************************************************************/
 /* The tuning layout                                                                                  */
 /******************************************************************************************************/
+
+TEST(EulerBoundaryTuningLayout, PlacementPutsTheBlocksConsecutivelyOnTheState) {
+  const TuningLayout unplaced = unplacedCentroidalLayout();
+  for (const TuningSegment& segment : unplaced.segments) {
+    EXPECT_EQ(segment.stateStart, 0U) << segment.name;
+    EXPECT_EQ(segment.stateDim, 0U) << segment.name;
+  }
+  // Every block as many state rows as tuning rows but the orientation, which gets the quaternion's 4: one row more from
+  // the orientation on.
+  const TuningLayout quaternion = placeTuningLayout(unplaced);
+  ASSERT_EQ(quaternion.segments.size(), 4U);
+  const std::vector<size_t> quaternionStarts = {0, 6, 9, 13};
+  const std::vector<size_t> quaternionDims = {6, 3, 4, kNumJoints};
+  for (size_t i = 0; i < quaternion.segments.size(); ++i) {
+    EXPECT_EQ(quaternion.segments[i].stateStart, quaternionStarts[i]) << quaternion.segments[i].name;
+    EXPECT_EQ(quaternion.segments[i].stateDim, quaternionDims[i]) << quaternion.segments[i].name;
+    EXPECT_EQ(quaternion.segments[i].tuningDim, unplaced.segments[i].tuningDim) << quaternion.segments[i].name;
+  }
+  EXPECT_EQ(getTuningLayoutStateDim(quaternion), getTuningLayoutDim(quaternion) + 1);
+  EXPECT_EQ(getTuningLayoutDim(quaternion), getTuningLayoutDim(unplaced));
+
+  // The whole body: the angular velocity has as many state rows as tuning rows.
+  const TuningLayout wholeBody = wholeBodyLayout();
+  EXPECT_EQ(wholeBody.segments[4].stateStart, 10 + kNumJoints);
+  EXPECT_EQ(wholeBody.segments[4].stateDim, 3U);
+}
+
+TEST(EulerBoundaryTuningLayout, SegmentStartsAreTheTuningOffsetsByName) {
+  const TuningLayout layout = wholeBodyLayout();
+  const std::vector<std::pair<std::string, size_t>> expected = {
+      {"p_W", 0}, {"base_orientation", 3}, {"q_j", 6}, {"pd_W", 6 + kNumJoints}, {"w_B", 9 + kNumJoints}, {"qd_j", 12 + kNumJoints}};
+  for (const std::pair<std::string, size_t>& block : expected) {
+    const absl::StatusOr<size_t> start = tuningSegmentStart(layout, block.first);
+    ASSERT_TRUE(start.ok()) << start.status();
+    EXPECT_EQ(*start, block.second) << block.first;
+  }
+  // The tuning offsets do not depend on the placement.
+  for (const TuningLayout& centroidal : {unplacedCentroidalLayout(), centroidalLayout()}) {
+    const absl::StatusOr<size_t> jointsStart = tuningSegmentStart(centroidal, "q_j");
+    ASSERT_TRUE(jointsStart.ok()) << jointsStart.status();
+    EXPECT_EQ(*jointsStart, 12U);
+  }
+
+  const absl::StatusOr<size_t> missing = tuningSegmentStart(layout, "base_twist");
+  ASSERT_FALSE(missing.ok());
+  EXPECT_EQ(missing.status().code(), absl::StatusCode::kNotFound);
+  for (const std::string& part : {std::string("'base_twist'"), std::string("whole-body tuning layout"), std::string("q_j 23")}) {
+    EXPECT_TRUE(absl::StrContains(missing.status().message(), part)) << "'" << part << "' missing from: " << missing.status();
+  }
+}
+
+TEST(EulerBoundaryTuningLayout, OnlyThePlacedLayoutIsConverted) {
+  const vector_t tuning = tuningVector(12 + kNumJoints, /*eulerStart=*/9, vector3_t(0.4, 0.1, -0.2));
+
+  // The orientation placed by hand on the 3 rows of its Euler angles, the blocks after it moved up to follow on: the
+  // placement mismatch names the block and the quaternion's rows.
+  TuningLayout threeRows = centroidalLayout();
+  threeRows.segments[2].stateDim = 3;
+  threeRows.segments[3].stateStart -= 1;
+  ASSERT_EQ(getTuningLayoutStateDim(threeRows), getTuningLayoutDim(threeRows));
+  const absl::StatusOr<vector_t> threeRowsState = stateFromTuningLayout(tuning, threeRows);
+  ASSERT_FALSE(threeRowsState.ok());
+  EXPECT_EQ(threeRowsState.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(threeRowsState.status().message(), "'base_orientation'")) << threeRowsState.status();
+  EXPECT_TRUE(absl::StrContains(threeRowsState.status().message(), "with 3 rows; placeTuningLayout() puts it at row 9 with 4."))
+      << threeRowsState.status();
+  const absl::StatusOr<vector_t> threeRowsTuning = tuningLayoutFromState(tuning, threeRows);
+  ASSERT_FALSE(threeRowsTuning.ok());
+  EXPECT_EQ(threeRowsTuning.status().code(), absl::StatusCode::kInvalidArgument);
+
+  // A layout that is not placed, or placed by hand elsewhere.
+  const absl::StatusOr<vector_t> unplacedState = stateFromTuningLayout(tuning, unplacedCentroidalLayout());
+  ASSERT_FALSE(unplacedState.ok());
+  EXPECT_EQ(unplacedState.status().code(), absl::StatusCode::kInvalidArgument);
+  TuningLayout shifted = centroidalLayout();
+  shifted.segments[3].stateStart += 1;
+  const absl::StatusOr<vector_t> shiftedState = stateFromTuningLayout(tuning, shifted);
+  ASSERT_FALSE(shiftedState.ok());
+  EXPECT_EQ(shiftedState.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(shiftedState.status().message(), "'q_j'")) << shiftedState.status();
+}
 
 TEST(EulerBoundaryTuningLayout, CentroidalLayoutConvertsTheEulerRowsOnly) {
   const TuningLayout layout = centroidalLayout();
@@ -349,11 +488,11 @@ TEST(EulerBoundaryTuningLayout, WholeBodyLayoutReordersTheAngularVelocityRows) {
 }
 
 TEST(EulerBoundaryTuningLayout, EuclideanLayoutIsTheIdentity) {
-  // The Euler state of before the switch: every block Euclidean, so both directions copy the vector bit for bit.
-  const TuningLayout layout{
+  // A layout of Euclidean blocks only: both directions copy the vector bit for bit.
+  const TuningLayout layout = placeTuningLayout(TuningLayout{
       .name = "euler_state",
       .segments = {{.name = "x", .kind = TuningSegmentKind::kEuclidean, .tuningDim = 12 + kNumJoints}},
-  };
+  });
   const vector_t tuning = tuningVector(getTuningLayoutDim(layout), /*eulerStart=*/9, vector3_t(0.1, 0.2, 0.3));
   const absl::StatusOr<vector_t> state = stateFromTuningLayout(tuning, layout);
   ASSERT_TRUE(state.ok()) << state.status();
@@ -398,11 +537,11 @@ TEST(EulerBoundaryTuningLayout, WrongSizesAreRejectedNamingTheExpectedLayout) {
 
 TEST(EulerBoundaryTuningLayout, RotationBlocksOfTheWrongSizeAreRejected) {
   for (const TuningSegmentKind kind : {TuningSegmentKind::kEulerZyxOrientation, TuningSegmentKind::kZyxOrderedAngularVelocity}) {
-    const TuningLayout layout{
+    const TuningLayout layout = placeTuningLayout(TuningLayout{
         .name = "malformed",
         .segments = {{.name = "p_W", .kind = TuningSegmentKind::kEuclidean, .tuningDim = 3},
                      {.name = "rotation", .kind = kind, .tuningDim = 2}},
-    };
+    });
     const absl::StatusOr<vector_t> state = stateFromTuningLayout(vector_t::Zero(5), layout);
     ASSERT_FALSE(state.ok());
     EXPECT_EQ(state.status().code(), absl::StatusCode::kInvalidArgument);

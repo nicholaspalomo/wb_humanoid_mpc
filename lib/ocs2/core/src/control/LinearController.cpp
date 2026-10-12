@@ -39,9 +39,8 @@ namespace ocs2 {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-LinearController::LinearController(const LinearController& other) : LinearController(other.timeStamp_, other.biasArray_, other.gainArray_) {
-  deltaBiasArray_ = other.deltaBiasArray_;
-}
+LinearController::LinearController(const LinearController& other)
+    : LinearController(other.timeStamp_, other.biasArray_, other.gainArray_) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -63,16 +62,6 @@ LinearController& LinearController::operator=(LinearController rhs) {
 /******************************************************************************************************/
 LinearController* absl_nonnull LinearController::clone() const {
   return new LinearController(*this);
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-void LinearController::setController(const scalar_array_t& controllerTime, const vector_array_t& controllerBias,
-                                     const matrix_array_t& controllerGain) {
-  timeStamp_ = controllerTime;
-  biasArray_ = controllerBias;
-  gainArray_ = controllerGain;
 }
 
 /******************************************************************************************************/
@@ -181,31 +170,6 @@ LinearController LinearController::unFlatten(const size_array_t& stateDim,
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void LinearController::concatenate(const ControllerBase* absl_nonnull nextController, int index, int length) {
-  if (const LinearController* absl_nullable nextLinCtrl = dynamic_cast<const LinearController*>(nextController)) {
-    if (!timeStamp_.empty() && timeStamp_.back() > nextLinCtrl->timeStamp_.front()) {
-      throw std::runtime_error("Concatenate requires that the nextController comes later in time.");
-    }
-    int last = index + length;
-    timeStamp_.insert(timeStamp_.end(), nextLinCtrl->timeStamp_.begin() + index, nextLinCtrl->timeStamp_.begin() + last);
-    biasArray_.insert(biasArray_.end(), nextLinCtrl->biasArray_.begin() + index, nextLinCtrl->biasArray_.begin() + last);
-    gainArray_.insert(gainArray_.end(), nextLinCtrl->gainArray_.begin() + index, nextLinCtrl->gainArray_.begin() + last);
-
-    // deltaBiasArray can be of different, incompatible size.
-    if (last < nextLinCtrl->deltaBiasArray_.size()) {
-      deltaBiasArray_.insert(deltaBiasArray_.end(), nextLinCtrl->deltaBiasArray_.begin() + index,
-                             nextLinCtrl->deltaBiasArray_.begin() + last);
-    } else {
-      deltaBiasArray_.clear();
-    }
-  } else {
-    throw std::runtime_error("Concatenate only works with controllers of the same type.");
-  }
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 int LinearController::size() const {
   return timeStamp_.size();
 }
@@ -223,7 +187,6 @@ ControllerType LinearController::getType() const {
 void LinearController::clear() {
   timeStamp_.clear();
   biasArray_.clear();
-  deltaBiasArray_.clear();
   gainArray_.clear();
 }
 
@@ -244,53 +207,9 @@ void LinearController::display() const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void LinearController::getFeedbackGain(scalar_t time, matrix_t& gain) const {
-  gain = LinearInterpolation::interpolate(time, timeStamp_, gainArray_);
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-void LinearController::getBias(scalar_t time, vector_t& bias) const {
-  bias = LinearInterpolation::interpolate(time, timeStamp_, biasArray_);
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-scalar_array_t LinearController::controllerEventTimes() const {
-  // simple controller case
-  if (timeStamp_.size() < 2) {
-    return scalar_array_t(0);
-  }
-
-  scalar_array_t eventTimes{0.0};
-  scalar_t lastevent = timeStamp_.front();
-  for (int i = 0; i < timeStamp_.size() - 1; i++) {
-    bool eventDetected = timeStamp_[i + 1] - timeStamp_[i] < 2.0 * numeric_traits::weakEpsilon<scalar_t>();
-    const bool sufficientTimeSinceEvent = timeStamp_[i] - lastevent > 2.0 * numeric_traits::weakEpsilon<scalar_t>();
-
-    if (eventDetected && sufficientTimeSinceEvent) {  // push back event when event is detected
-      eventTimes.push_back(timeStamp_[i]);
-      lastevent = eventTimes.back();
-    } else if (eventDetected) {
-      // if event is detected to close to the last event, it is assumed that the earlier event was not an event
-      // but was due to the refining steps taken in event detection
-      // The last "detected event" is the time the event took place
-      eventTimes.back() = timeStamp_[i];
-      lastevent = eventTimes.back();
-    }
-  }
-  return eventTimes;
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 void swap(LinearController& a, LinearController& b) noexcept {
   std::swap(a.timeStamp_, b.timeStamp_);
   std::swap(a.biasArray_, b.biasArray_);
-  std::swap(a.deltaBiasArray_, b.deltaBiasArray_);
   std::swap(a.gainArray_, b.gainArray_);
 }
 

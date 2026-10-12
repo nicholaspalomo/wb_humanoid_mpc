@@ -29,7 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_wb_mpc/dynamics/DynamicsHelperFunctions.h"
 
-#include "ocs2_robotic_tools/common/RotationDerivativesTransforms.h"
+#include "ocs2_core/manifold/UnitQuaternionMath.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
@@ -64,9 +64,9 @@ VECTOR6_T<SCALAR_T> computeBaseAcceleration(const VECTOR_T<SCALAR_T>& state,
   pinocchio::crba(model, data, q);
   pinocchio::nonLinearEffects(model, data, q, qd);
 
-  // Compute Jacobians for the foot frames
-  MATRIX_T<SCALAR_T> J_foot_l = MATRIX_T<SCALAR_T>::Zero(6, mpcRobotModel.getGenCoordinatesDim());
-  MATRIX_T<SCALAR_T> J_foot_r = MATRIX_T<SCALAR_T>::Zero(6, mpcRobotModel.getGenCoordinatesDim());
+  // Compute Jacobians for the foot frames: one column per entry of the Pinocchio velocity v.
+  MATRIX_T<SCALAR_T> J_foot_l = MATRIX_T<SCALAR_T>::Zero(6, mpcRobotModel.getVelocityDim());
+  MATRIX_T<SCALAR_T> J_foot_r = MATRIX_T<SCALAR_T>::Zero(6, mpcRobotModel.getVelocityDim());
 
   pinocchio::computeFrameJacobian(model, data, q, model.getFrameId("foot_l_contact"), pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED,
                                   J_foot_l);
@@ -102,8 +102,8 @@ VECTOR_T<SCALAR_T> computeGeneralizedAccelerations(const VECTOR_T<SCALAR_T>& sta
                                                    const VECTOR_T<SCALAR_T>& input,
                                                    const PinocchioInterfaceTpl<SCALAR_T>& pinInterface,
                                                    WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel) {
-  // Generalized Accelerations = [ddq_base, ddq_joints]
-  VECTOR_T<SCALAR_T> generalizedAccelerations = VECTOR_T<SCALAR_T>::Zero(mpcRobotModel.getGenCoordinatesDim());
+  // Generalized Accelerations = [ddq_base, ddq_joints], the derivative of the Pinocchio velocity v (nv entries)
+  VECTOR_T<SCALAR_T> generalizedAccelerations = VECTOR_T<SCALAR_T>::Zero(mpcRobotModel.getVelocityDim());
   generalizedAccelerations.head(6) = computeBaseAcceleration<SCALAR_T>(state, input, pinInterface, mpcRobotModel);
   generalizedAccelerations.tail(mpcRobotModel.getJointDim()) = mpcRobotModel.getJointAccelerations(input);
   return generalizedAccelerations;
@@ -126,13 +126,19 @@ VECTOR_T<SCALAR_T> computeStateDerivative(const VECTOR_T<SCALAR_T>& state,
                                           const VECTOR_T<SCALAR_T>& input,
                                           const PinocchioInterfaceTpl<SCALAR_T>& pinInterface,
                                           WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel) {
-  // State derivative = [dq; ddq_base, ddq_joints]
+  // State derivative = [dq/dt; ddq_base, ddq_joints] of the state [q (nq entries), v (nv entries)]: v starts at nq. The
+  // configuration rate is [dp_W, 1/2 G(xi) w_B, dq_j] (design section 2.5), with the raw xi of the state, so that the
+  // quaternion's norm is constant to first order (xi' G(xi) = 0).
+  const Eigen::Index velocityStart = static_cast<Eigen::Index>(mpcRobotModel.getConfigurationDim());
+  const Eigen::Index orientationStart = static_cast<Eigen::Index>(mpcRobotModel.getBaseOrientationStartIndex());
   VECTOR_T<SCALAR_T> state_derivative = VECTOR_T<SCALAR_T>::Zero(mpcRobotModel.getStateDim());
-  state_derivative.head(3) = state.segment(mpcRobotModel.getGenCoordinatesDim(), 3);
-  // Derivatives of the euler angles ZYX
-  state_derivative.segment(3, 3) = state.segment(mpcRobotModel.getGenCoordinatesDim() + 3, 3);
-  state_derivative.segment(6, mpcRobotModel.getJointDim()) = mpcRobotModel.getJointVelocities(state, input);
-  state_derivative.tail(mpcRobotModel.getGenCoordinatesDim()) =
+  state_derivative.segment(mpcRobotModel.getBaseStartindex(), 3) = state.segment(velocityStart, 3);
+  const VECTOR4_T<SCALAR_T> orientation = state.template segment<4>(orientationStart);
+  const VECTOR3_T<SCALAR_T> angularVelocityLocal = state.template segment<3>(velocityStart + 3);
+  state_derivative.template segment<4>(orientationStart) = SCALAR_T(0.5) * (quaternionRateMatrix(orientation) * angularVelocityLocal);
+  state_derivative.segment(mpcRobotModel.getJointStartindex(), mpcRobotModel.getJointDim()) =
+      mpcRobotModel.getJointVelocities(state, input);
+  state_derivative.tail(mpcRobotModel.getVelocityDim()) =
       computeGeneralizedAccelerations<SCALAR_T>(state, input, pinInterface, mpcRobotModel);
   return state_derivative;
 }

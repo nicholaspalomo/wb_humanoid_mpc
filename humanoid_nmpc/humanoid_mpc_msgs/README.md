@@ -73,7 +73,7 @@ no clock synchronization.
 | `mode_schedule.proto` | `ModeSchedule` | `ocs2::ModeSchedule` |
 | `target_trajectories.proto` | `TargetTrajectories` | `ocs2::TargetTrajectories` |
 | `performance_index.proto` | `PerformanceIndex` | `ocs2::PerformanceIndex` |
-| `controller_type.proto` | `ControllerType` (enum) | feedforward or linear controller |
+| `controller_type.proto` | `ControllerType` (enum) | feedforward, linear or manifold-linear controller (the last, code 3, is the `ManifoldLinearController` of a solver on a state manifold) |
 | `mpc_solver_status.proto` | `MpcSolverStatus` | the MPC side's solver health |
 | `target_contact_patch.proto` | `TargetContactPatch` | a planned foot placement, for the MuJoCo viewer |
 | `viewer_annotations.proto` | `ViewerAnnotations` | display-only data the simulator draws about the plan |

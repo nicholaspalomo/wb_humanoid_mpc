@@ -44,7 +44,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
+#include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_mpc/MPC_BASE.h"
+#include "ocs2_mpc/MPC_MRT_Interface.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_common_mpc/contact/ContactWrenchGate.h"
@@ -77,6 +79,10 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
    * A controller whose MPC runs in this process (InProcessMpcLink over `mpc`).
    *
    * @param [in] mpc: The underlying MPC class to be used; it must outlive the controller.
+   * @param [in] solverObservationObserver: Called with the observation of every solve, on the solver thread right before
+   *        it (InProcessMpcLink::Config::solverObservationObserver), and kept by the link: the observe() of the MPC's
+   *        ProceduralMpcMotionManager, whose measured motion needs the observation's joint velocities, as the MPC node
+   *        wires it; null for an MPC without one.
    * @param [in] mpcDesiredFrequency: The max frequency to run the mpc at; <= 0 runs the solves back to back.
    * @param [in] pdGainsFile: the robot's joint_pd_gains.textproto (loadJointPdGains()); missing or empty: the default gains.
    *        Reloaded by pollPdGainsFile().
@@ -89,6 +95,7 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
       const ModelSettings& modelSettings,
       const CentroidalMpcRobotModel<scalar_t>& mpcRobotModel,
       MPC_BASE& mpc,
+      MPC_MRT_Interface::SolverObservationObserver solverObservationObserver,
       PinocchioInterface pinocchioInterface,
       scalar_t mpcDesiredFrequency = -1,
       const std::string& pdGainsFile = "",
@@ -130,7 +137,9 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
    * In the passive modes (ZERO_TORQUE, JOINT_PD, GRAVITY_COMP, SAFETY) and the hold of WB_MPC its own code allocates
    * nothing once the controller is built, takes no lock and writes no log line (reports go to the event sink); Pinocchio's
    * passes over the composite base joint make one temporary each. Executing a policy in WB_MPC still allocates inside
-   * the model's accessors and the inverse dynamics (humanoid_common_mpc_app/robot/README.md). `robotJointAction` is one
+   * the model's accessors and the inverse dynamics (humanoid_common_mpc_app/robot/README.md). A policy the realtime
+   * evaluator refuses is never evaluated by MRT_BASE (which allocates, and aborts on a malformed policy): the robot is
+   * held with the JOINT_PD action, and kPolicyRefused posted, until a policy it evaluates is in use. `robotJointAction` is one
    * of the controller's RobotDescription: its joints are reached without a check, which the constructor made once.
    */
   void computeJointControlAction(scalar_t time,
@@ -328,7 +337,8 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
                                   PinocchioInterface pinocchioInterface,
                                   const std::string& pdGainsFile,
                                   const MpcRobotModelBase<scalar_t>* absl_nullable effectiveMpcRobotModel,
-                                  InitialPdGains initialPdGains);
+                                  InitialPdGains initialPdGains,
+                                  std::shared_ptr<const StateManifold> stateManifold);
 
   /** InvalidArgument when the link factory of the constructor made no link. */
   absl::Status checkConstruction() const;
@@ -413,6 +423,8 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   ControllerEventSink* absl_nonnull eventSink_;
   /// The weight-compensating action of WB_MPC without a policy was reported since the last mode change.
   bool noPolicyReported_ = false;
+  /// A refused policy (kPolicyRefused) was reported since the last cycle that evaluated one.
+  bool refusedPolicyReported_ = false;
 
   // Workspaces of the control thread, sized by the constructor, so that a cycle allocates nothing in them.
   vector_t qPinocchio_;                          ///< generalized coordinates of the measured state (updateMpcState())
@@ -426,8 +438,12 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   vector_t gravityTorques_;                      ///< and result
   ::robot::model::RobotJointAction holdAction_;  ///< the held action the entry ramp blends from (applyEntryBlend())
 
+  // The state manifold of the model's layout (stateManifoldOf()), never null; declared before policyEvaluator_, which
+  // retains a pointer to it. A std::shared_ptr because the MRT and the rollout of OCS2 take the manifold as one.
+  const std::shared_ptr<const StateManifold> stateManifold_;
   // The policy in use is evaluated as MRT_BASE::evaluatePolicy() would, bit for bit, without its heap allocations and
-  // its logging (humanoid_mpc_ipc/RealtimePolicyEvaluator.h), into outputs sized once for the effective model.
+  // its logging (humanoid_mpc_ipc/RealtimePolicyEvaluator.h), into outputs sized once for the effective model: on the
+  // state manifold, a ManifoldLinearController's law on preallocated buffers.
   ipc::RealtimePolicyEvaluator policyEvaluator_;
   vector_t mpcPolicyState_;
   vector_t mpcPolicyInput_;

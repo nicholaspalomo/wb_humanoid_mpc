@@ -87,9 +87,6 @@ class MPC_BASE {
   /** Gets a const pointer to the underlying solver used in the MPC. */
   virtual const SolverBase* absl_nonnull getSolverPtr() const = 0;
 
-  /** Returns the time horizon for which the optimizer is called. */
-  scalar_t getTimeHorizon() const { return mpcSettings_.timeHorizon_; }
-
   /** Gets the MPC settings. */
   const mpc::Settings& settings() const { return mpcSettings_; }
 
@@ -102,9 +99,6 @@ class MPC_BASE {
    * @param [in] finalTime: Final time. This value can be adjusted by the optimizer.
    */
   virtual void calculateController(scalar_t initTime, const vector_t& initState, size_t initMode, scalar_t finalTime) = 0;
-
-  /** Whether this is the first iteration of MPC or not. */
-  bool isFirstMpcRun() const { return initRun_; }
 
  private:
   bool initRun_ = true;

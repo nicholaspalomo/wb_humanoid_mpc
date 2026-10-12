@@ -30,11 +30,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <string>
-#include <vector>
 
 #include "absl/flags/declare.h"
 #include "absl/status/statusor.h"
 
+#include "humanoid_common_mpc/common/ThreadAffinity.h"
 #include "humanoid_common_mpc_app/node/MpcAppFlags.h"
 #include "humanoid_common_mpc_app/robot/RobotAppOptions.h"
 
@@ -47,8 +47,12 @@ ABSL_DECLARE_FLAG(std::string, backend);
 ABSL_DECLARE_FLAG(int, realtime_priority);
 ABSL_DECLARE_FLAG(std::string, realtime_cores);
 ABSL_DECLARE_FLAG(std::string, backend_cores);
-ABSL_DECLARE_FLAG(std::string, mpc_link);
-ABSL_DECLARE_FLAG(bool, headless);
+ABSL_DECLARE_FLAG(std::string, viewer);
+ABSL_DECLARE_FLAG(std::string, plot_config);
+ABSL_DECLARE_FLAG(std::string, web_viewer_address);
+ABSL_DECLARE_FLAG(int, web_viewer_port);
+ABSL_DECLARE_FLAG(std::string, web_viewer_allowed_hosts);
+ABSL_DECLARE_FLAG(std::string, viewer_cores);
 ABSL_DECLARE_FLAG(std::string, config_store_dir);
 ABSL_DECLARE_FLAG(std::string, config_seed);
 
@@ -56,10 +60,20 @@ namespace ocs2::humanoid {
 
 /**
  * The robot binary's options from its flags, checked: the files exist, the core lists parse, the realtime priority is
- * 0-99, the retired --mpc_link is not given, --config_seed names a seed policy. `defaultRealtimeCores` and `defaultBackendCores` are what
- * `default` stands for.
+ * 0-99, --config_seed names a seed policy, the viewer flags and MUJOCO_EGL_DEVICE_ID make valid viewer settings
+ * (viewerSettingsFromFlags(); the viewer is --viewer, else the mujoco_viewer of --plot_config, else web). In `cores`,
+ * the MRT, simulation and viewer cores are what `default` stands for in --realtime_cores, --backend_cores and
+ * --viewer_cores. Reads the environment once (MUJOCO_EGL_DEVICE_ID) and, without --viewer, the plot configuration;
+ * call it from the main thread before other threads start.
  */
-absl::StatusOr<RobotAppOptions> robotAppOptionsFromFlags(const std::vector<int>& defaultRealtimeCores,
-                                                         const std::vector<int>& defaultBackendCores);
+absl::StatusOr<RobotAppOptions> robotAppOptionsFromFlags(const SystemCoreAllocation& cores);
+
+/**
+ * Bounds llvmpipe's rasterizer threads to the web viewer's cores: sets LP_NUM_THREADS to softwareRasterizerThreadsToSet()
+ * when that gives a value (`viewer` lists the web viewer and the environment sets none), and logs it
+ * (describeSoftwareRasterizerThreads()). Call it from the main thread before other threads start, since setenv() races
+ * with a getenv() on another thread.
+ */
+void exportSoftwareRasterizerThreads(const robot::mujoco_sim_interface::ViewerSettings& viewer);
 
 }  // namespace ocs2::humanoid

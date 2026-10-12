@@ -71,9 +71,12 @@ class RunResult(NamedTuple):
 
 
 DEFAULT_NETWORK_CONFIG = os.path.join("config", "ipc", "network.textproto")
+# The shipped plot configuration, which the launch targets give the robot of a simulation too.
+# LINT.IfChange(default_plot_config)
 DEFAULT_PLOT_CONFIG = os.path.join(
     "humanoid_nmpc", "humanoid_rerun_viewer", "config", "plot_config.textproto"
 )
+# LINT.ThenChange(//Makefile:plot_config_variable, //tools/deploy/session.sh:default_plot_config, //docker-compose.robot.sim.yaml:sim_plot_config_mount)
 DEFAULT_APP_ID = "humanoid_nmpc"
 DEFAULT_WEB_MAX_SCENE_FREQUENCY = 12.5
 DEFAULT_WEB_FLUSH_PERIOD_S = 0.1
@@ -195,12 +198,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--robot_instances",
         default="",
         help="comma-separated list of robot instances to draw (e.g. 'measured', 'measured,terminal_state'; default: all)",
-    )
-    parser.add_argument(
-        "--measured_only",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="log only the measured robot instance in viz/scene (alias for --no-terminal_state; default: off)",
     )
     # LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/README.md:sink_flags)
     parser.add_argument(
@@ -343,7 +340,6 @@ def run(args: argparse.Namespace, stop: threading.Event | None = None) -> RunRes
         config=plot_config,
         cli_robot_instances=cli_robot_instances,
         cli_terminal_state=getattr(args, "terminal_state", None),
-        cli_measured_only=bool(getattr(args, "measured_only", False)),
     )
 
     layout = blueprint.build_blueprint(
@@ -460,7 +456,3 @@ def main(argv: list[str] | None = None) -> int:
         # pylint: disable-next=protected-access  # os._exit is public API: an exit that skips the exit handlers.
         os._exit(result.exit_status)
     return result.exit_status
-
-
-if __name__ == "__main__":
-    sys.exit(main())

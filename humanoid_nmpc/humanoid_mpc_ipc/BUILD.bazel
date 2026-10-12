@@ -6,7 +6,7 @@ load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 # humanoid_mpc_ipc - the MPC link's side of the IPC bus (humanoid_nmpc/docs/distributed_runtime/README.md): the topic
 # names in C++ and Python, the lossless conversions between OCS2 types and the humanoid_mpc_msgs messages, and the two
 # ends of the network MPC link (:remote_mpc_link on the robot, :mpc_server on the MPC machine). Builds on OCS2, the
-# messages, the bus and the reset supervisor alone: no Pinocchio, no robot model, no ROS.
+# messages, the bus and the reset supervisor alone: no Pinocchio, no robot model.
 
 package(default_visibility = ["//visibility:public"])
 
@@ -69,7 +69,8 @@ cc_library(
     ],
 )
 
-# Evaluates the policy in use on the realtime thread as MRT_BASE::evaluatePolicy() does, without allocating or logging.
+# Evaluates the policy in use on the realtime thread as MRT_BASE::evaluatePolicy() does, without allocating or logging,
+# on a flat state or on a state manifold.
 cc_library(
     name = "realtime_policy_evaluator",
     srcs = ["src/RealtimePolicyEvaluator.cpp"],
@@ -81,6 +82,7 @@ cc_library(
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_oc",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:check",
         "@eigen",
     ],
 )
@@ -127,7 +129,8 @@ py_library(
     imports = ["python"],
 )
 
-# Random OCS2 policies shaped like those of the multiple-shooting solvers, for the conversion tests.
+# Random OCS2 policies shaped like those of the multiple-shooting solvers, flat or on a toy state manifold, for the
+# conversion tests.
 cc_library(
     name = "policy_test_data",
     testonly = True,
@@ -139,6 +142,8 @@ cc_library(
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_oc",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/status:statusor",
         "@eigen",
     ],
 )
@@ -180,7 +185,9 @@ cc_test(
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_oc",
         "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@eigen",
         "@googletest//:gtest_main",
@@ -209,7 +216,8 @@ cc_test(
     ],
 )
 
-# What the tests of the network MPC link share: the scripted MPC, loopback buses, a gate that holds a policy in flight.
+# What the tests of the network MPC link share: the scripted MPCs (flat, and on a toy state manifold), loopback buses, a
+# gate that holds a policy in flight.
 cc_library(
     name = "mpc_link_test_support",
     testonly = True,
@@ -218,6 +226,7 @@ cc_library(
     copts = FIRST_PARTY_COPTS,
     deps = [
         ":humanoid_mpc_ipc",
+        ":policy_test_data",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_mpc",
@@ -276,7 +285,7 @@ cc_test(
     ],
 )
 
-# The two controller types the link carries are told apart by their exact type, not by ControllerBase::getType().
+# The three controller types the link carries are told apart by their exact type, not by ControllerBase::getType().
 cc_test(
     name = "test_policy_controllers",
     size = "small",
@@ -303,7 +312,7 @@ cc_test(
     size = "small",
     srcs = ["test/testRemoteMpcLinkProtocol.cpp"],
     copts = FIRST_PARTY_COPTS,
-    deps = _MPC_LINK_TEST_DEPS,
+    deps = _MPC_LINK_TEST_DEPS + [":policy_test_data"],
 )
 
 # The MPC side against a robot the test scripts: resets, stamps, statuses, solution window, hooks, pacing, back-off.
@@ -325,13 +334,18 @@ cc_test(
     deps = _MPC_LINK_TEST_DEPS,
 )
 
-# The same script through MPC_MRT_Interface in process and through the network link: the same policies, cycle by cycle.
+# The same script through MPC_MRT_Interface in process and through the network link: the same policies, cycle by cycle,
+# on a flat state and with a ManifoldLinearController on a state manifold, which the robot's RealtimePolicyEvaluator
+# evaluates as the in-process MRT does across its event.
 cc_test(
     name = "test_remote_mpc_link_parity",
     size = "small",
     srcs = ["test/testRemoteMpcLinkParity.cpp"],
     copts = FIRST_PARTY_COPTS,
-    deps = _MPC_LINK_TEST_DEPS,
+    deps = _MPC_LINK_TEST_DEPS + [
+        ":policy_test_data",
+        ":realtime_policy_evaluator",
+    ],
 )
 
 # The realtime thread's calls on the link, and its evaluation of the policy in use, allocate nothing once warmed up;

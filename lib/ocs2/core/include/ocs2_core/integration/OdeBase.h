@@ -44,9 +44,6 @@ class OdeBase {
   /** Default destructor */
   virtual ~OdeBase() = default;
 
-  /** Returns the number of function calls. */
-  size_t getNumFunctionCalls() const { return numFunctionCalls_; }
-
   /** Resets the number of function calls to zero. */
   void resetNumFunctionCalls() { numFunctionCalls_ = 0; }
 
@@ -69,15 +66,6 @@ class OdeBase {
    * @return mapped state after transition
    */
   virtual vector_t computeJumpMap(scalar_t time, const vector_t& state);
-
-  /**
-   * Interface method to the guard surfaces.
-   *
-   * @param [in] time: transition time
-   * @param [in] state: transition state
-   * @return An array of guard surfaces values
-   */
-  virtual vector_t computeGuardSurfaces(scalar_t time, const vector_t& state);
 
  protected:
   /** Copy constructor */

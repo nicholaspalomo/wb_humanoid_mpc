@@ -25,7 +25,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""The geometry of throwing a dodgeball at the robot, with no Tk and no ROS in sight.
+"""The geometry of throwing a dodgeball at the robot, with no Tk in sight.
 
 Separated from the tab widget on purpose. The GUI tests in this package are headless and test the helpers rather than
 the widgets, and everything here that could be wrong - an angle convention, a sign, the gravity compensation, the

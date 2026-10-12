@@ -60,9 +60,9 @@ namespace {
 constexpr absl::Duration kPumpPeriod = absl::Milliseconds(5);
 /** robot/fsm_state is published on every change and again at this period. */
 constexpr std::chrono::milliseconds kFsmStateRepublishPeriod{500};
-/** The task file's controller-side keys are checked this often, as the in-process parameter updater checks them. */
+/** The task file's controller-side keys are checked this often, as the MPC node's parameter updater checks its files. */
 constexpr absl::Duration kTaskFileCheckPeriod = absl::Seconds(1);
-/** The ROS sims' default telemetry rate, when the task file names none [Hz]. */
+/** The telemetry rate when the task file names none, capped at the control rate [Hz]. */
 constexpr double kDefaultTelemetryFrequency = 100.0;
 
 std::chrono::nanoseconds periodOf(scalar_t frequency) {

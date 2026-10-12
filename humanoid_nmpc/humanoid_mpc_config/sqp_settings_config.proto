@@ -21,10 +21,21 @@ message SqpSettingsConfig {
     name: "inequality_constraint_delta"
     replacement: "nothing in the SQP solver reads it; delete the line"
   };
+  option (nproto.retired_field) = {
+    name: "create_value_function"
+    replacement: "nothing read the value function, and the SQP solver no longer stores one; delete the line"
+  };
+  option (nproto.retired_field) = {
+    name: "extract_projection_multiplier"
+    replacement: "nothing read the multiplier it extracted, and the SQP solver no longer extracts one; delete the line"
+  };
 
   reserved 26 to max;
-  // 14 and 15 were inequality_constraint_mu and inequality_constraint_delta, which no part of the solver read.
-  reserved 14, 15;
+  // 14 and 15 were inequality_constraint_mu and inequality_constraint_delta, which no part of the solver read; 11 was
+  // create_value_function, whether the solution stored a value function that nothing read; 17 was
+  // extract_projection_multiplier, whether the solver extracted the multiplier of the projected equality constraints
+  // (with a QR projection in place of the LU one) for a coefficient nothing read.
+  reserved 11, 14, 15, 17;
 
   // The SQP iterations of one solve, at least 0; 1 is the real-time iteration scheme.
   int32 sqp_iteration = 1 [default = 10, (humanoid_mpc_config.tuning) = { reload: RELOAD_HOT }];
@@ -50,8 +61,6 @@ message SqpSettingsConfig {
 
   // The policy: the feedback controller of the solution (true), or its feedforward input alone (false).
   bool use_feedback_policy = 10 [default = true];
-  // Whether the solution stores the value function.
-  bool create_value_function = 11 [default = false];
 
   // [s] The time step of the discretization of the horizon.
   double dt = 12 [default = 0.01, (humanoid_mpc_config.tuning) = { unit: "s" }];
@@ -63,8 +72,6 @@ message SqpSettingsConfig {
 
   // Whether the state-input equality constraints C x + D u + e = 0 are resolved by projection.
   bool project_state_input_equality_constraints = 16 [default = true];
-  // Whether the Lagrange multiplier of the projected equality constraints is extracted.
-  bool extract_projection_multiplier = 17 [default = false];
 
   // Whether the HPIPM status is printed after each QP subproblem.
   bool print_solver_status = 18 [

@@ -13,8 +13,11 @@ py_library(
     name = "lint_files",
     srcs = ["lint_files.py"],
     # The clang-tidy collector groups findings by Bazel package, and its tests check the aspect's file lists against
-    # this one.
-    visibility = ["//tools/clang_tidy:__pkg__"],
+    # this one; the editor's Python import roots are its python_import_roots().
+    visibility = [
+        "//tools/clang_tidy:__pkg__",
+        "//tools/ide:__pkg__",
+    ],
 )
 
 py_library(
@@ -50,6 +53,7 @@ py_library(
         ":check_types",
         ":cpp_google_style",
         ":cpp_totw",
+        ":euler_boundary",
         ":include_style",
         ":inclusive_language",
         ":license_header",
@@ -62,6 +66,9 @@ py_library(
         ":python_docstrings",
         ":python_imports",
         ":python_language",
+        ":quaternion_scalar_constructor",
+        ":spherical_zyx",
+        ":state_interpolation",
         ":textproto_headers",
         ":todo_format",
         ":yaml_usage",
@@ -358,6 +365,89 @@ py_test(
     deps = [
         ":check_test_support",
         ":yaml_usage",
+    ],
+)
+
+# The base orientation's checks (AGENTS.md, humanoid_nmpc/docs/quaternion_base_orientation/README.md): the Euler root
+# joint, the Euler API outside its boundary, linear interpolation of states and four-scalar quaternion construction.
+py_library(
+    name = "spherical_zyx",
+    srcs = ["spherical_zyx.py"],
+    deps = [
+        ":check_types",
+        ":cpp_source",
+        ":lint_files",
+    ],
+)
+
+py_test(
+    name = "test_spherical_zyx",
+    size = "small",
+    srcs = ["test_spherical_zyx.py"],
+    deps = [
+        ":check_test_support",
+        ":spherical_zyx",
+    ],
+)
+
+py_library(
+    name = "euler_boundary",
+    srcs = ["euler_boundary.py"],
+    deps = [
+        ":check_types",
+        ":cpp_source",
+        ":lint_files",
+    ],
+)
+
+py_test(
+    name = "test_euler_boundary",
+    size = "small",
+    srcs = ["test_euler_boundary.py"],
+    deps = [
+        ":check_test_support",
+        ":euler_boundary",
+    ],
+)
+
+py_library(
+    name = "state_interpolation",
+    srcs = ["state_interpolation.py"],
+    deps = [
+        ":check_types",
+        ":cpp_source",
+        ":euler_boundary",
+        ":lint_files",
+    ],
+)
+
+py_test(
+    name = "test_state_interpolation",
+    size = "small",
+    srcs = ["test_state_interpolation.py"],
+    deps = [
+        ":check_test_support",
+        ":state_interpolation",
+    ],
+)
+
+py_library(
+    name = "quaternion_scalar_constructor",
+    srcs = ["quaternion_scalar_constructor.py"],
+    deps = [
+        ":check_types",
+        ":cpp_source",
+        ":lint_files",
+    ],
+)
+
+py_test(
+    name = "test_quaternion_scalar_constructor",
+    size = "small",
+    srcs = ["test_quaternion_scalar_constructor.py"],
+    deps = [
+        ":check_test_support",
+        ":quaternion_scalar_constructor",
     ],
 )
 

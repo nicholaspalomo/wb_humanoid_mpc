@@ -1,9 +1,11 @@
 # humanoid_mpc_validation
 
-The measurement infrastructure of the switch from Euler angles to a quaternion base orientation
-(`humanoid_nmpc/docs/quaternion_base_orientation/README.md`, Step 1): golden files, the lockstep MuJoCo closed loop with
-its metrics, and the solve benchmark. It runs the production MPC, as the MPC node builds it, and the production MRT joint
-controller, as the robot binary builds it, in one thread and without the bus.
+The closed-loop measurements of the MPC formulations: the lockstep MuJoCo closed loop with its metrics, the comparison
+of two recorded labels within the bands of the metrics, and the solve benchmark with its real-time gate; beside them the
+Euler chart the equivalence suites map their Euler oracle through. The closed loop runs the production MPC, as the MPC
+node builds it, and the production MRT joint controller, as the robot binary builds it, in one thread and without the
+bus. The design these measurements verify is `humanoid_nmpc/docs/quaternion_base_orientation/README.md` (sections 4.5
+and 4.6).
 
 ```
  scenario (section 4.5)      GUI message            the MPC node's conversion       ProceduralMpcMotionManager
@@ -23,13 +25,14 @@ controller, as the robot binary builds it, in one thread and without the bus.
 
 | Piece | Files | What it does |
 |---|---|---|
-| Golden files | `io/GoldenIo.h`, `io/Sha256.h`, `io/RunProvenance.h` | Labeled matrices at `%.17g` (NaN, infinities and the sign of zero kept), with a header carrying the commit, the worktree state, the machine and the SHA-256 of every configuration file. |
+| Golden files | `io/GoldenIo.h`, `io/Sha256.h`, `io/RunProvenance.h` | Labeled matrices at `%.17g` (NaN, infinities and the sign of zero kept), with a header carrying the commit, the worktree state, the machine and the SHA-256 of every configuration file: the format of a run's time series and of the recorded robot states. |
 | JSON | `io/JsonValue.h` | The documents the metrics and the benchmark write; insertion-ordered, shortest round-trip numbers. |
 | Lockstep closed loop | `closed_loop/LockstepClosedLoop.h`, `closed_loop/ClosedLoopDriver.h`, `closed_loop/CentroidalClosedLoopDriver.h`, `closed_loop/WholeBodyClosedLoopDriver.h` | The headless simulator, the formulation's MPC as its MPC node builds it, its MRT joint controller as its robot binary builds it, and between the two an `InProcessMpcLink` whose solver iterations the runner calls (`InProcessMpcLink::Execution::kCaller`, `runSolverIteration()`). One thread, no bus. |
 | Scenarios | `closed_loop/ClosedLoopScenario.h` | The commands of section 4.5, driven through the GUI's message. |
-| Metrics | `closed_loop/ClosedLoopMetrics.h`, `closed_loop/ClosedLoopMetricsSchema.h`, `closed_loop/MetricBands.h` | The metrics of section 4.5, their JSON schema, and the bands against a baseline. |
-| Solve benchmark | `benchmark/MpcSolveBenchmark.h`, `exe/benchmarkMpcSolveMain.cpp` | Section 4.6: recorded walking states replayed through the controller, solve times per phase and the tape operation count of every CppAD library. |
-| Recorded data | `data/closed_loop/<label>/`, `data/benchmark/<label>/`, `data/benchmark/states/` | The baselines (M0, B0, ...) with a README each saying how they were made. |
+| Metrics | `closed_loop/ClosedLoopMetrics.h`, `closed_loop/ClosedLoopMetricsSchema.h`, `closed_loop/MetricBands.h`, `exe/compareClosedLoopMain.cpp` | The metrics of section 4.5, their JSON schema, the band rules against a baseline label, and the offline comparison of two recorded labels. |
+| Solve benchmark | `benchmark/MpcSolveBenchmark.h`, `benchmark/SolveBenchmarkGate.h`, `exe/benchmarkMpcSolveMain.cpp` | Section 4.6: recorded walking states replayed through the controller, solve times per phase and the tape operation count of every CppAD library, and the real-time gate of a benchmark against a baseline label. |
+| Recorded data | `data/closed_loop/<label>/`, `data/benchmark/<label>/`, `data/benchmark/states/` | The labels the Make targets record (["Recording and comparing labels"](#recording-and-comparing-labels)), and the walking states the benchmark replays. |
+| Euler chart | `chart/EulerChart.h` | Phi, Phi^-1, dPhi / dx_e and P_e between the ZYX Euler coordinates of a state and the physical state of the quaternion formulation (design section 2.12), through `orientation/EulerBoundary.h`: what the equivalence suites of `humanoid_common_mpc/test/equivalence` map their Euler oracle through. |
 
 ## The lockstep closed loop
 
@@ -70,8 +73,7 @@ against `-0 - v`. A sandboxed test generates the libraries afresh in every run, 
 agreed bit for bit with any number of threads. The vendored CppADCodeGen now hashes a constant by its value, and the
 generator stamp regenerates every library made before (`lib/ocs2/README.md`, "Local changes to the vendored CppAD /
 CppADCodeGen"). The SQP's per-thread performance sums do follow the thread schedule, but they only decide the line
-search's comparisons, and no recorded run has changed from them. Comparisons across a code change use the bands below,
-since a code change moves the results.
+search's comparisons. Comparisons across a code change use the bands below, since a code change moves the results.
 
 What the robot process does and the runner does not: the bus and the remote MPC link (the runner's link solves in the
 loop, without latency or transport), the start in ZERO_TORQUE (the runner starts in JOINT_PD with the torques on, and
@@ -85,73 +87,10 @@ typed, when the task file's textproto changes, checked once a second of simulati
 once a second of wall time. The file is the whole file, as for the robot process: a task file without a
 `contact_wrench_gate` block sets the instantaneous gate, one whose block is refused keeps the gate in use.
 The task files are read through the runfiles, which link into the checkout, so an edit of a task file during a run
-reaches the run: do not edit the configuration while a baseline is recorded.
+reaches the run: do not edit the configuration while a label is recorded.
 
 The JOINT_PD posture is the posture the robot is spawned in (`createInitialSimState()`, before any physics step), as the
 robot process's FSM bridge takes it.
-
-### On the main line, against the baselines recorded before it
-
-M0 and B0 were recorded on the quaternion worktree before the ROS removal, where the runner mirrored the ROS sim nodes.
-On the main line it mirrors the robot process and the MPC node instead, and these differences move the recorded metrics
-(numerically: the runs are not those of M0 bit for bit; compare them with the bands, never exactly):
-
-- **The operator's FSM commands are served after the cycle's action and solve**, as `RobotProcess::cycle()` serves the
-  FSM commands and the fall recovery after the action and before applying it; before, the runner served them at the
-  start of the cycle, before the action. The switch to WB_MPC and the gantry release therefore take effect one control
-  period later, the release's MPC reset is requested after the release cycle's solve and served by the next one, and
-  the first unlocked physics steps run the action computed before that request. The end of the entry moves by one MPC
-  period instead where the solve that serves the controller's reset at WB_MPC used to run in the switching cycle: it is
-  now the next one. The scenario's commands are no FSM command (the GUI's message reaches the MPC node, never the robot
-  process), so they still start `standingTime` after the release cycle, at the top of the cycle, as in M0.
-  `entry_end_time_s`, `gantry_release_time_s` and `command_start_time_s` keep their definitions (the cycle the event is
-  seen in, the first cycle of the commands); on the centroidal robots the release and the commands come 10 ms later
-  than in M0, on the whole-body Unitree G1 (MPC at 60 Hz) 16 ms. Relative to the solve that serves the release's reset,
-  the commands of the centroidal robots start 10 ms earlier than in M0 (1.99 s instead of 2.00 s), those of the
-  whole-body G1 as in M0.
-- **A failed solve's back-off ends early on a reset requested after it**, as `MpcResetSupervisor::waitBeforeRetry()`
-  ends it on the solver thread (`LockstepSolveSchedule`, `resetRequestedSinceLastFailure()`), and the period counts
-  from the retry. No recorded run backs off, so this changes none of them.
-- **The whole-body controller gets its posture before its mode** (`CycleInputOrder::kPostureThenMode`, as the
-  whole-body binary and the ROS sim did); the runner used to hand both formulations the mode first. The posture is the
-  same in every cycle, so this changes nothing measured.
-- **The controller-side settings come from the robot process's path** (`TaskFileWatcher`,
-  `controllerSideSettingsFromConfig()`, applied as `RobotProcess::applyControllerSettings()`) for both formulations;
-  the parameter updater applies the MPC's fields only. Without an edit during a run this changes nothing.
-- **The task file's robot fields are read with `loadRobotProcessSettings()`**, which refuses the retired
-  `use_gravity_comp_feedforward` (now `wb_mpc_feedforward`), and the simulator is configured by
-  `MujocoRobotBackend::makeConfig()` (its viewer-only fields, `sim_contact_timeline_window` and `sim_visualizations`,
-  change nothing headless).
-- **The solve benchmark's later passes** start from a full reset requested at the start of the pass and served by its
-  first solve, because the link starts once; before, each pass restarted the controller's MPC directly. The first
-  `warmupSolves` of every pass are not timed either way.
-- **The Unitree G1 and R1 hang from the gantry weld**, not from `kinematic_teleport`. Their MuJoCo scenes
-  (`g1_29dof.xml`, used by both G1 configurations, and `R1.xml`) now declare the `gantry` weld, and their task files
-  name `weld_constraint`; in M0 the scenes had no weld, and the simulator fell back to `kinematic_teleport`. The weld
-  carries the base while `mj_step` integrates the dynamics, so these robots are released from another posture, and
-  every run of the three configurations changes (`data/closed_loop/M0_main/README.md`, "What the weld changes: the
-  state at the release"). DRC Atlas and EngineAI SA01 hang from their welds in M0 as here.
-
-`data/closed_loop/M0_main/` re-runs eleven of M0's runs on the main line: every configuration's `standing` and walking
-scenario, and the whole-body G1's `turn_in_place_720`. Nine stay within the bands of M0. Two leave them: EngineAI SA01's
-`walk_0p3`, from the first difference above, as a walk that changes its pattern under a 10 ms shift of the operator's
-timeline (it walks 13 mm higher but slips three times as much); and the whole-body G1's 720-degree turn, whose maximum
-tilt rises from 0.103 to 0.139 rad at the Euler yaw's first wrap, from the first difference as well, and whose heading
-peaks 3 % short of M0's (5.12 against 5.27 rad), from the gantry hold (the last difference above): on
-`kinematic_teleport` it turned further than M0 (5.39 rad). With the runner's operator sequence moved back to the start
-of the cycle, the main line reproduced M0 to a relative 2e-5 or better, and one re-recorded run bit for bit. The
-whole-body walk reproduced it only to 0.5 %: that was the spread its CppAD libraries then had from one generation to the
-next (above).
-
-All eleven documents were recorded again on 2026-10-06, on the deterministic libraries and with the Unitree G1's
-`gantry` weld, and the Unitree R1's two once more later that day, with the R1's weld. A run of the same code and
-configuration repeats them bit for bit; the solve times differ. The four runs of DRC Atlas and EngineAI SA01 differ from
-the documents they replace only at the rounding level, by a relative 1.2e-5 at most. The G1 and the R1 used to fall back
-to `kinematic_teleport`, as M0's did. Released from the weld, they start from another posture, which changes all seven
-of their runs. The G1's walk and the R1's walk are within M0's bands again. The README of M0_main has the numbers, the
-G1's release transient on both holds, and the check that the hold is the whole difference. Compare a main-line Euler run
-with M0_main where it has the run, within the bands. Re-record the other baselines on the main line (under new labels,
-before Step 3) when a comparison has to be exact up to the bands' noise rather than up to the cycle order.
 
 ## Scenarios
 
@@ -190,7 +129,7 @@ an open `provenance` and `settings` object, and these fields (null where nothing
 | `stance_foot_slip.{max_m, rms_m, stance_phases}` | the horizontal drift of a contact frame from its touch-down while in measured contact |
 | `joint_torque.rms_nm` | the commanded torque of the MPC joints |
 | `initial_state_gap.{max_rotation_rad, max_rotation_time_s, max_norm}` | `delta_x0` of each solve's first SQP iteration, as the solver records it: the observation against the node 0 it warm-started from (the previous solution after `trajectorySpread`), zero after a reset the solve served first |
-| `quaternion_norm.max_deviation` | `max | |xi_k| - 1 |` over the nodes of every solution; null for the Euler formulation |
+| `quaternion_norm.max_deviation` | `max | |xi_k| - 1 |` over the nodes of every solution; null without a solve |
 | `non_finite_values` | NaN or infinite values in the observations, policy inputs and joint torques |
 | `solve_time_ms.{total, lq_approximation, solve_qp, linesearch, compute_controller}.{mean, p50, p99, max}` | the solver iteration's wall time and the SQP's phases |
 | `failures.{failed_solves, resets_served, full_resets_served, simulator_resets, unhealthy_cycles}` | during the commands; simulator resets over the whole run |
@@ -199,57 +138,95 @@ an open `provenance` and `settings` object, and these fields (null where nothing
 ## Bands against a baseline
 
 <!-- LINT.IfChange(metric_bands) -->
-`compareClosedLoopMetrics()` holds a run to the bands of section 4.5: survival equal or better; height within 5 mm; tilt
-within max(20 %, 0.005 rad); velocity within max(15 %, 0.02 m/s); yaw rate within max(15 %, 0.02 rad/s); slip within
-max(20 %, 5 mm); p99 solve time at most +10 % (only on the machine of the baseline, `--compare_solve_time`); quaternion
-norm below 1e-9.
+`compareClosedLoopMetrics()` holds a run to the bands of section 4.5 around the same run of a baseline label, each in the
+direction its metric may move (`MetricBand::direction`), so that no gate fails on the improvement a change is meant to
+bring:
 
-`compareClosedLoopRuns()` adds the 720-degree turn exception of section 4.5 when the baseline's heading crosses an odd
-multiple of pi, the cut of the Euler formulation's wrapped yaw: the velocity and yaw-rate errors are recomputed from both
-time series outside +-0.5 s windows around the baseline's crossings; the run must turn at least as far as the baseline
-(and to the commanded 4 pi where the baseline got there); and its initial-state gap must stay below pi / 2, which a 2 pi
-wrap exceeds. A run on Euler coordinates (no quaternion norm) wraps where its own heading crosses the cut, as its Euler
-baseline does, and its gap then decays over a few solves: against a baseline whose gap reached pi / 2 too, it is checked
-solve by solve from its time series' `solve_initial_state_rotation_gap`, and a solve at or above pi / 2 must lie within
-+-0.5 s of one of the run's own crossings and below 2 pi + pi / 2, no more than a wrap of a gap below pi / 2. A spike
-elsewhere, a larger one, or one the series cannot locate is a violation. The crossings come from the baseline's time series, so `make closed-loop-metrics`
-archives the time series of the turning scenarios (`turn_*`, `arc`) beside their documents, and
-`test_closed_loop_metrics` requires one for every recorded run whose heading reaches +-pi.
+| Metric | Band | Direction |
+|---|---|---|
+| `base_height.mean_m` | 5 mm | either way (`kTwoSided`): a level, not an error |
+| `base_height.rms_error_m` | 5 mm | no worse (`kNoWorse`) |
+| `tilt.rms_rad`, `tilt.max_rad` | max(20 %, 0.005 rad) | no worse |
+| `velocity.rms_error_mps` | max(15 %, 0.02 m/s) | no worse |
+| `yaw_rate.rms_error_radps` | max(15 %, 0.02 rad/s) | no worse |
+| `stance_foot_slip.max_m` | max(20 %, 5 mm) | no worse |
+
+A `kNoWorse` metric fails only when the candidate is worse than its baseline by more than the band. Better by more than
+the band, it passes and is reported as an improvement. A comparison returns both (`ClosedLoopComparison`): the
+`violations`, of which a passing run has none, and the `improvements`, which the candidate label's README lists, so that
+a widened gate is documented rather than discovered. Survival must be equal or better (surviving where the baseline fell
+is an improvement; a run that fell in the baseline is compared on survival alone), the p99 solve time at most +10 %
+(only on the machine of the baseline, `--compare_solve_time`), and the quaternion norm below 1e-9. A metric that is null
+in either document is not compared.
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/MetricBands.h:metric_bands) -->
+
+## Recording and comparing labels
+
+A label is a directory of documents, one per run: `make closed-loop-metrics ROBOT=<robot> LABEL=<label>` writes
+`data/closed_loop/<label>/<robot>_<scenario>.json`, and `make benchmark-mpc-solve ROBOT=<robot> LABEL=<label>` writes
+`data/benchmark/<label>/<robot>_solve_benchmark.json`. No label is checked in: record a baseline on the code to compare
+against and a candidate on the change, on the same machine and container image, and give each label a README saying
+what it ran (the commit and the worktree state are in every document's provenance) and, for a candidate, the
+improvements its comparison found. Only the metrics documents are copied into the label; the time series and the
+`<robot>_<scenario>_comparison.txt` of each run stay in the test's outputs
+(`.bazel/testlogs/humanoid_nmpc/humanoid_mpc_validation/closed_loop_<robot>/test.outputs/`).
+
+With `BASELINE=<label>`, `make closed-loop-metrics` compares each run in the loop with the same run of that label
+(`compareClosedLoopMetrics()`), prints the violations and improvements at its end and fails on a violation; a run the
+baseline has no document of is only recorded. `make compare-closed-loop CANDIDATE=<label> BASELINE=<label>
+[ROBOT=<robot>]` makes the same comparison offline (`compareArchivedClosedLoopRuns()`): every run of
+`data/closed_loop/<CANDIDATE>/` that `data/closed_loop/<BASELINE>/` has too, from the archived documents, which read
+back bit for bit, so the verdict is the run's. No simulation runs. The target runs the manual test
+`compare_closed_loop_labels` under `bazel test`, inside the machine lock, prints each run's violations and improvements
+with a summary that names the runs without a baseline, and fails when a run has a violation or no run has a baseline.
+Neither target compares the p99 solve time; the binaries' `--compare_solve_time` does, between labels of one machine.
 
 ## How to run
 
 Inside the dev container, one robot at a time (each run compiles the robot's CppAD libraries and simulates for minutes):
 
 ```bash
-make closed-loop-metrics ROBOT=drc_atlas LABEL=M0                       # every scenario
-make closed-loop-metrics ROBOT=unitree_g1 SCENARIO=walk_0p5 LABEL=M1 BASELINE=M0
-make closed-loop-metrics ROBOT=unitree_g1 LABEL=M0 RECORD_STATES=1     # also keep the walking states
-make benchmark-mpc-solve ROBOT=unitree_g1 LABEL=B0
-make benchmark-mpc-solve ROBOT=unitree_g1 LABEL=B3 BASELINE=B0       # and hold it to the real-time gate of section 4.6
+make closed-loop-metrics ROBOT=drc_atlas LABEL=<baseline>                                   # every scenario
+make closed-loop-metrics ROBOT=unitree_g1 SCENARIO=walk_0p5 LABEL=<candidate> BASELINE=<baseline>
+make closed-loop-metrics ROBOT=unitree_g1 LABEL=<label> RECORD_STATES=1                    # also keep the walking states
+make benchmark-mpc-solve ROBOT=unitree_g1 LABEL=<baseline>
+make benchmark-mpc-solve ROBOT=unitree_g1 LABEL=<candidate> BASELINE=<baseline>             # held to the real-time gate
+make compare-closed-loop CANDIDATE=<candidate> BASELINE=<baseline>                          # two recorded labels, offline
 ```
 
+`RECORD_STATES=1` overwrites the states the benchmark replays: never set it on a comparison run.
+
+<!-- LINT.IfChange(real_time_gate) -->
 The benchmark replays `data/benchmark/states/<robot>_<walking scenario>_states.txt`: `walk_0p5`, or `walk_0p3` for
 EngineAI SA01 and Unitree R1, which fall at 0.5 m/s (`RobotConfiguration::walkingScenario`). `compareSolveBenchmarks()`
 (`benchmark/SolveBenchmarkGate.h`) is the gate: mean +5 %, p99 +10 %, LQ approximation +8 %, p99 below 80 % of the MPC
-period, every library's tape operation count and their total +5 %, a library matched to itself across the layout-tagged
-CppAD folder of Step 8 (`normalizedLibraryKey()`).
+period, and every library's tape operation count and their total +5 %. Libraries are matched by their name in
+`tape_operation_counts`; one that only one document counts is compared through the total alone. It compares solve times
+only between two documents of one machine and one toolchain (below) and refuses them otherwise, while it still checks
+the candidate's p99 against its MPC period and the tape operation counts, which do not depend on the machine. A
+container rebuild changes the toolchain: record the baseline again on the new image.
+<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/benchmark/SolveBenchmarkGate.h:real_time_gate) -->
+
+<!-- LINT.IfChange(provenance_toolchain) -->
+The provenance names the toolchain too: `provenance.toolchain` of a document, the `compiler`, `hpipm_target` and
+`container_image` notes of a golden file's header. `compiler` is `__VERSION__` of the compiler that built the run;
+`hpipm_target` is HPIPM's `-DTARGET` (`GENERIC`), which the Make targets read from `bazel/system_libs.bzl`;
+`container_image` is the id of the image, which the container cannot see itself: pass it from the host,
+`VALIDATION_CONTAINER_IMAGE=$(docker inspect --format '{{.Image}}' wbmpc-noros-dev)`, else it is `unknown`, and the
+label's README records `docker image inspect` by hand.
+<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/src/io/RunProvenance.cpp:toolchain_fields) -->
 
 The provenance's `worktree_state` (`tools/worktree_state.sh`) hashes the diff against HEAD, the status with every
 untracked file listed, and the contents of every untracked file, so that an edit of a file not yet committed changes it.
-The documents recorded before this (M0, B0) hashed only the diff and the collapsed status, which leaves the untracked
-files' contents out.
 
 The configuration files a run depends on (`RobotConfiguration::configurationFiles()`) are the robot's typed textprotos
 of [`humanoid_mpc_config`](../humanoid_mpc_config/README.md) - `config/mpc/task.textproto`,
 `config/command/reference.textproto`, `config/controller/joint_pd_gains.textproto`, the contact planner's
 `config/mpc/contact_planning.textproto` where the robot has one, and the gait file `gait.textproto` - plus its URDF and
-MuJoCo scene, and the provenance records the SHA-256 of each. The documents recorded before the textproto migration
-(M0 and the other labels under `data/` but M0_main) name and hash the YAML files they ran on, which held the same
-values; M0_main's documents, recorded again since, hash the textprotos.
+MuJoCo scene, and the provenance records the SHA-256 of each.
 
 `ROBOT` is `drc_atlas`, `engineai_sa01`, `unitree_g1`, `unitree_r1` or `unitree_g1_wb`. The targets run the manual tests
-`closed_loop_<robot>` and `benchmark_mpc_solve_<robot>` under `bazel test`, so that the machine lock of `tools/bazel`
+`closed_loop_<robot>`, `benchmark_mpc_solve_<robot>` and `compare_closed_loop_labels` under `bazel test`, so that the machine lock of `tools/bazel`
 keeps them from running next to another build, and copy the documents into `data/`.
 
 <!-- LINT.IfChange(output_names) -->
@@ -257,31 +234,38 @@ Each closed-loop run writes `<robot>_<scenario>.json` (the metrics), `<robot>_<s
 its reference at 50 Hz, and the rotation part of each solve's initial-state gap, a golden file whose matrices
 `TimeSeriesLabels.h` names) and, walking, `<robot>_<scenario>_states.txt` (the robot at 300 solves from 2 s into the
 commands, the input of the benchmark) into the test's undeclared outputs; the benchmark writes
-`<robot>_solve_benchmark.json`.
+`<robot>_solve_benchmark.json`. `make closed-loop-metrics` copies the metrics documents into the label (and, with
+`RECORD_STATES=1`, the states into `data/benchmark/states/`), `make benchmark-mpc-solve` the benchmark's.
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/include/humanoid_mpc_validation/closed_loop/LockstepOutputs.h:output_names) -->
 
 <!-- LINT.IfChange(recorded_state_labels) -->
 A recorded-states file holds, one row per solve, `time`, `base_position`, `base_quaternion_xyzw`,
 `base_linear_velocity_local`, `base_angular_velocity_local`, `joint_positions` and `joint_velocities` (every joint of the
 URDF, named in the `joint_names` note), `contact_flags` and `gui_command`. It is the robot the MRT reads, not the MPC
-state, so states recorded from the Euler formulation drive the quaternion one through the same observation path.
+state, so states recorded with one formulation drive another through the same observation path.
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_validation/src/closed_loop/RecordedRobotStates.cpp:recorded_state_labels) -->
 
 ## Tests
 
 | Target | What it checks |
 |---|---|
-| `test_validation_io` | SHA-256 against the FIPS test vectors; JSON round trips (numbers bit for bit); golden files bit for bit with their provenance; malformed input rejected with its position |
-| `test_closed_loop_metrics` | each metric on synthetic samples with a known answer; the schema test, including every document under `data/closed_loop/` |
-| `test_closed_loop_scenarios` | the scenario set, the GUI conversion and its clamp against the MPC node's, the configurations and their files against the robots' launch files, the bands and the 720-degree turn exception |
+| `test_validation_io` | SHA-256 against the FIPS test vectors; JSON round trips (numbers bit for bit); golden files bit for bit with their provenance, every recorded file under `data/` (the recorded states, and the documents of any label) formatting back to its bytes; malformed input rejected with its position; the toolchain through a document and a golden header, read from the environment the Make targets pass, a missing or malformed one refused |
+| `test_euler_chart` | the chart's blocks where `initial_state` puts them; Phi is the Euler boundary's conversion; dPhi / dx_e and P_e against central differences, P_e = E+ dPhi on the angles; the inverse chart (the angles wrapped); the rate coupling; the singularity; malformed layouts and a zero quaternion refused |
+| `test_closed_loop_metrics` | each metric on synthetic samples with a known answer; the schema test; the band directions, an improvement passed and reported, a regression failed, the height mean two-sided; the offline comparison of two labels archived from synthetic runs: the verdict of the runs as held in memory, run by run and in the order of the configurations and scenarios, the runs without a baseline named, one robot alone, the solve times only on request, and a missing directory, an unknown robot and an unreadable document refused |
+| `test_closed_loop_scenarios` | the scenario set, the GUI conversion and its clamp against the MPC node's, the configurations and their files against the robots' launch files, the bands (each the larger of its parts, survival, the quaternion norm) |
 | `test_lockstep_solve_schedule` | the runner's solve schedule: the pacing, a failed solve's pause and its end by a reset requested after the failure |
 | `test_recorded_robot_states` | a recording reads back as the recorded states; another robot is refused |
-| `test_lockstep_determinism` | smoke runs on the Unitree G1 with one solver thread agree to 1e-9, two in one process and one in a process of its own (exclusive: it compiles CppAD libraries) |
+| `test_stride_motion_of_recorded_walks` | the stride means of the base's planar motion on the recorded straight walks of `data/benchmark/states/` (design section 2.9): neither a turn nor a sideways walk over the cycle of the gait they walk, where the pelvis's own yaw rate and sideways velocity sway past the gait thresholds; an added turn reads exactly as that turn; a stall of the solves of up to 1 s is bridged; a history restarted from the instantaneous twist reads the sway as a turn. Builds no model |
+| `test_joint_feedback_torques` | the joint torques a control cycle records: the PD torque plus the feedforward of each MPC joint, in the order of the MPC's joints; a joint the action leaves out is an internal error naming it |
+| `test_lockstep_determinism` | smoke runs on the Unitree G1 with one solver thread agree to 1e-9, two in one process and one in a process of its own, and a run's per-solve gaps hold its document's largest (exclusive: it compiles CppAD libraries) |
+| `test_initial_state_gap` | the initial-state gap of a solve (`initialStateGapOf`): the state manifold's rotation angle wherever its layout puts the rotation block, zero without a rotation block; and the quaternion norm deviation of a solution (`maxQuaternionNormDeviationOf`), the largest distance of a stored quaternion from the unit sphere, none without a node |
 | `test_driver_settings_from_config` | the GUI's command scaling from its own fields of the reference file, a limit that is absent or not positive refused by name, every configuration's reference file; the contact wrench gate of a whole task file: no block is the instantaneous gate, a refused block keeps the gate in use, every configuration's task file sets its own |
 | `test_robot_scene_gantry_hold` | the gantry hold each configuration's task file names (pinned: a change is a change of its runs), its MuJoCo scene supporting it, the robot process's mujoco backend running on it without falling back to `kinematic_teleport`; each configuration on `weld_constraint` (all five) failing the check with its scene's weld taken out |
-| `test_solve_benchmark_gate` | the real-time gate: every recorded baseline passes against itself, each criterion fails alone, libraries match across the layout-tagged folder; every robot's default recorded states exist |
+| `test_hot_field_coverage` | the reload classes of the task file's schema against each formulation's parameter updater (T8, `humanoid_mpc_config/README.md`): the centroidal and the whole-body MPC each apply exactly the `RELOAD_HOT` fields they read, neither applies a field only the other formulation, the robot process or the GUI reads, and every applied name is a field of the schema. From the updaters' static field lists: builds no MPC |
+| `test_solve_benchmark_gate` | the real-time gate on synthetic documents: a document passes against itself (one without a toolchain compares its tape counts only), each criterion fails alone, only the libraries both documents count compared one by one, a solve time of another machine, compiler, HPIPM target or image refused while the tape counts still compare; every robot's default recorded states exist |
 | `test_worktree_state` | the provenance's worktree state in throwaway git repositories: untracked contents change it, ignored files do not |
-| `closed_loop_<robot>`, `benchmark_mpc_solve_<robot>` | manual, exclusive: the full scenarios and the benchmark |
+| `closed_loop_<robot>`, `benchmark_mpc_solve_<robot>` | manual, exclusive: the full scenarios and the benchmark; `closed_loop_scenarios` and `benchmark_mpc_solve`, their `bazel run` binaries, are not manual, so that `bazel build //...` compiles their sources |
+| `compare_closed_loop_labels` | manual: two recorded labels compared offline (`make compare-closed-loop`) |
 
 The link the runner solves through, `InProcessMpcLink` with `Execution::kCaller`, is tested in
 `humanoid_common_mpc:testInProcessMpcLink` and, under the MRT joint controllers, in

@@ -38,6 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/config/ConfigFiles.h"
+#include "humanoid_common_mpc/config/weights/StateInputLayout.h"
+#include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
 #include "humanoid_mpc_config/reference_file.nproto.h"
 #include "humanoid_mpc_config/task_file.nproto.h"
 #include "humanoid_mpc_config/xyz.nproto.h"
@@ -101,11 +103,20 @@ TEST(WBMpcInterfaceControllerModels, TheInitialStateIsTheFilesByName) {
   ASSERT_TRUE(created.ok()) << created.status();
   const WBAccelMpcRobotModel<scalar_t>& model = (*created)->getMpcRobotModel();
   const vector_t& state = (*created)->getInitialState();
-  EXPECT_EQ(model.getBasePose(state)(2), 1.25);
+  EXPECT_EQ(model.getBasePosition(state)(2), 1.25);
   const std::vector<std::string>& joints = (*created)->modelSettings().mpcModelJointNames;
   const std::vector<std::string>::const_iterator found = std::find(joints.begin(), joints.end(), joint);
   ASSERT_NE(found, joints.end()) << joint;
   EXPECT_EQ(model.getJointAngles(state)(found - joints.begin()), 0.375) << joint;
+
+  // The robot model's one mapping of tuning values onto the state: the file's values, in the tuning layout, come back.
+  const absl::StatusOr<vector_t> fileValues = stateValuesFromConfig(
+      raised.initial_state, stateInputLayout((*created)->modelSettings(), StateInputLayout::Mpc::kWholeBody), "initial_state");
+  ASSERT_TRUE(fileValues.ok()) << fileValues.status();
+  const absl::StatusOr<vector_t> tuningValues = model.tuningFromState(state);
+  ASSERT_TRUE(tuningValues.ok()) << tuningValues.status();
+  ASSERT_EQ(tuningValues->size(), fileValues->size());
+  EXPECT_LE((*tuningValues - *fileValues).cwiseAbs().maxCoeff(), 1.0e-12);
 }
 
 TEST(WBMpcInterfaceControllerModels, RefusesAMissingFileByName) {

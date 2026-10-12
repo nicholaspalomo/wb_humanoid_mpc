@@ -177,7 +177,7 @@ TEST_F(SimFsmBridgeTest, TheGantryFollowsTheSliderWhileLockedAndOnlyOnceItHasMov
   mailbox_->onWalkingVelocityCommand(command);
   bridge_->processCommands(mode, *sim_);
   EXPECT_DOUBLE_EQ(sim_->getGantryHeight(), 0.7);
-  // A cycle that processes a command leaves the height alone, as the ROS bridge did.
+  // A cycle that processes a command leaves the height alone.
   command.set_desired_pelvis_height(0.8);
   mailbox_->onWalkingVelocityCommand(command);
   send("GRAVITY_COMP");

@@ -52,6 +52,8 @@ class EuclideanStateManifold final : public StateManifold {
   void retract(const vector_t& x, const vector_t& dx, scalar_t alpha, vector_t& xNew) const override;
   vector_t difference(const vector_t& x0, const vector_t& x1) const override;
   vector_t interpolate(const vector_t& x0, const vector_t& x1, scalar_t alpha) const override;
+  void differenceInto(const vector_t& x0, const vector_t& x1, vector_t& dx) const override;
+  void interpolateInto(const vector_t& x0, const vector_t& x1, scalar_t alpha, vector_t& x) const override;
   void project(vector_t& x) const override;
   scalar_t getMaximumRotationAngle(const vector_t& dx) const override;
   void pullBackStateColumns(const vector_t& x, matrix_t& J) const override;

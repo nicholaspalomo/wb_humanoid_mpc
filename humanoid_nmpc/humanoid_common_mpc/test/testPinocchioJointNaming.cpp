@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc/pinocchio_model/pinocchioUtils.h"
@@ -171,6 +172,26 @@ TEST_F(PinocchioJointNamingTest, anUnreadableUrdfIsAStatusNamingTheFile) {
   ASSERT_FALSE(pinocchioInterface.ok());
   EXPECT_EQ(pinocchioInterface.status().code(), absl::StatusCode::kInvalidArgument);
   EXPECT_TRUE(absl::StrContains(pinocchioInterface.status().message(), notUrdf)) << pinocchioInterface.status();
+}
+
+TEST_F(PinocchioJointNamingTest, theRootIsTheQuaternionCompositeAndEachJointsLimitIsReadAtItsOwnCoordinate) {
+  // Composite(Translation, Spherical): q = [p_W, xi = (x, y, z, w), q_j] has one entry more than v = [v_W, w_B, dq_j], so
+  // the joints' coordinates start at kJointConfigurationOffset and their velocities at kJointVelocityOffset.
+  const absl::StatusOr<PinocchioInterface> pinocchioInterface = loadCustomPinocchioInterface(task_, urdfFile_, *settings_);
+  ASSERT_TRUE(pinocchioInterface.ok()) << pinocchioInterface.status();
+  const pinocchio::Model& model = pinocchioInterface->getModel();
+  const size_t jointDim = settings_->mpcModelJointNames.size();
+  ASSERT_EQ(static_cast<size_t>(model.nq), kBaseConfigurationDim + jointDim);
+  ASSERT_EQ(static_cast<size_t>(model.nv), kBaseVelocityDim + jointDim);
+  const std::pair<vector_t, vector_t> limits = readPinocchioJointLimits(*pinocchioInterface, *settings_, /*verbose=*/false);
+  for (size_t joint = 0; joint < jointDim; ++joint) {
+    const std::string& name = settings_->mpcModelJointNames[joint];
+    const pinocchio::JointModel& jointModel = model.joints[model.getJointId(name)];
+    EXPECT_EQ(static_cast<size_t>(jointModel.idx_q()), kJointConfigurationOffset + joint) << name;
+    EXPECT_EQ(static_cast<size_t>(jointModel.idx_v()), kJointVelocityOffset + joint) << name;
+    EXPECT_EQ(limits.first(static_cast<Eigen::Index>(joint)), model.lowerPositionLimit(jointModel.idx_q())) << name;
+    EXPECT_EQ(limits.second(static_cast<Eigen::Index>(joint)), model.upperPositionLimit(jointModel.idx_q())) << name;
+  }
 }
 
 using PinocchioJointNamingDeathTest = PinocchioJointNamingTest;

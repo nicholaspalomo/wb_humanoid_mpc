@@ -61,13 +61,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 
 /**
- * HumanoidCostConstraintFactory::makeContactWrenchConeConstraint() range-checks the barrier it wraps the cone in. `mu`
- * and `delta` of the task file's contacts.contact_wrench_cone_soft_constraint used to be read with
- * loadData::loadPtreeValue and used as they came: a negative mu made the penalty a REWARD for leaving the cone, and a value
- * that was not a number threw out of a function that returns a Status. A barrier that is not a finite positive number is
- * now an InvalidArgument naming its field, as the ground's fields of the same block are, and a word where the number
- * goes is refused by the strict parser with a Status. Built on the G1 whole-body model, whose task file has no such
- * block: each case gives it one. Builds no CppAD model.
+ * HumanoidCostConstraintFactory::makeContactWrenchConeConstraint() range-checks the barrier it wraps the cone in, `mu`
+ * and `delta` of the task file's contacts.contact_wrench_cone_soft_constraint: a negative mu would make the penalty a
+ * REWARD for leaving the cone. A barrier that is not a finite positive number is an InvalidArgument naming its field, as
+ * the ground's fields of the same block are, and a word where the number goes is refused by the strict parser with a
+ * Status. Built on the G1 whole-body model, whose task file has no such block: each case gives it one. Builds no CppAD
+ * model.
  */
 namespace ocs2::humanoid {
 namespace {

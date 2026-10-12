@@ -188,12 +188,6 @@ MALFORMED_FILES = [
         1,
         "",
     ),
-    (
-        "the old YAML network file",
-        "nodes:\n  robot: {host: 127.0.0.1, port: 5600}",
-        2,
-        "",
-    ),
 ]
 # LINT.ThenChange(//robot_runtime/robot_ipc/test/testNetworkConfig.cpp:malformed_files)
 

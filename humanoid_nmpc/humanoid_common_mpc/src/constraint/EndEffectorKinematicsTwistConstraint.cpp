@@ -181,8 +181,10 @@ VectorFunctionLinearApproximation EndEffectorKinematicsTwistConstraint::getLinea
     const VectorFunctionLinearApproximation twistApprox = endEffectorKinematicsPtr_->getTwistLinearApproximation(state, input).front();
     matrix_t Av = config_.Av.topRows(numConstraints_);
     if (!Av.rightCols(3).isZero(0.0)) {
-      // The mapping is treated as constant at the linearization point: it depends on the state, but that dependence
-      // enters the residual multiplied by the angular velocity and is therefore second order.
+      // The map is held at its value at the linearization point, so the state Jacobian lacks Av_ang (dM/dx) omega - exactly
+      // that, which testQuaternionRootTermDerivatives checks - and is exact only where the foot does not turn: at rest, or
+      // flat at a solution whose rows also hold the yaw rate (tilt rows alone leave the pivot rate about the normal free).
+      // The input Jacobian is exact: M reads no input (qdoc 2.8.5).
       const matrix_t mappedAngularGains = Av.rightCols(3) * getAngularVelocityToOrientationErrorRateMap(state);
       Av.rightCols(3) = mappedAngularGains;
     }

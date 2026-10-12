@@ -69,22 +69,6 @@ class RolloutBase {
   const rollout::Settings& settings() const { return rolloutSettings_; }
 
   /**
-   * The kills the integrator inside the rollout.
-   */
-  virtual void abortRollout() {}
-
-  /**
-   * The enables the integrator inside the rollout to start again.
-   */
-  virtual void reactivateRollout() {}
-
-  /**
-   * Resets the simulator state to the initial state in the next runImpl.
-   * @note This is relevant if a physics engine (e.g. RaiSim) is used.
-   */
-  virtual void resetRollout() {}
-
-  /**
    * Returns pointer to the class.
    *
    * @return A raw pointer to the class.
@@ -92,19 +76,11 @@ class RolloutBase {
   virtual RolloutBase* absl_nonnull clone() const = 0;
 
   /**
-   * Sets the manifold the state lives on (nullptr, the default, for a flat state). A rollout that supports it projects
-   * every state it outputs onto the manifold (TimeTriggeredRollout normalizes every quaternion block), so a simulated or
-   * fed-back state stays a valid configuration however long it is integrated, and its clones keep the manifold. A
-   * rollout that does not support it (supportsStateManifold() is false) fails a CHECK on a non-null manifold rather than
-   * ignoring it.
+   * Sets the manifold the state lives on (nullptr, the default, for a flat state). The rollout projects every state it
+   * outputs onto the manifold (TimeTriggeredRollout normalizes every quaternion block), so a simulated or fed-back state
+   * stays a valid configuration however long it is integrated, and its clones keep the manifold.
    */
-  void setStateManifold(std::shared_ptr<const StateManifold> stateManifold);
-
-  /**
-   * Whether run() honors a manifold set with setStateManifold() and clone() keeps it. Only TimeTriggeredRollout does;
-   * StateTriggeredRollout and InitializerRollout integrate in the flat ambient coordinates only.
-   */
-  virtual bool supportsStateManifold() const { return false; }
+  void setStateManifold(std::shared_ptr<const StateManifold> stateManifold) { stateManifoldPtr_ = std::move(stateManifold); }
 
   /** The manifold the state lives on, or nullptr. */
   const std::shared_ptr<const StateManifold>& getStateManifold() const { return stateManifoldPtr_; }
@@ -117,8 +93,7 @@ class RolloutBase {
    * @param [in] initState: The initial state.
    * @param [in] finalTime: The final time.
    * @param [in] controller: control policy.
-   * @param [in, out] modeSchedule: Defines the sequence of modes and the associated event times. For TimeTriggeredRollout
-   *                                this is an input argument while for StateTriggeredRollout this is an output argument.
+   * @param [in] modeSchedule: Defines the sequence of modes and the associated event times.
    * @param [out] timeTrajectory: The time trajectory stamp.
    * @param [out] postEventIndices: Indices containing past-the-end index of events trigger.
    * @param [out] stateTrajectory: The state trajectory.
@@ -130,7 +105,7 @@ class RolloutBase {
                        const vector_t& initState,
                        scalar_t finalTime,
                        ControllerBase* absl_nullable controller,
-                       ModeSchedule& modeSchedule,
+                       const ModeSchedule& modeSchedule,
                        scalar_array_t& timeTrajectory,
                        size_array_t& postEventIndices,
                        vector_array_t& stateTrajectory,

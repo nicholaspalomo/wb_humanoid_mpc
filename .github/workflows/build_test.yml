@@ -37,8 +37,8 @@ jobs:
       - name: Install Base Dependencies & Tools
         run: |
           apt-get update && apt-get install -y --no-install-recommends \
-          ca-certificates curl gnupg lsb-release \
-          locales git gettext-base sudo wget build-essential python3-pip python3-venv
+          ca-certificates curl gnupg \
+          git sudo build-essential python3-pip python3-venv
       # LINT.ThenChange(//dependencies.txt:system_dependencies, //docker/Dockerfile:system_dependencies, //tools/ci_local.sh:ci_base_dependencies)
 
       - name: Checkout repository
@@ -67,7 +67,7 @@ jobs:
 
       - name: Install Project Dependencies
         run: |
-          grep -v '^\s*#' dependencies.txt | envsubst | xargs apt-get install -y --no-install-recommends
+          grep -v '^\s*#' dependencies.txt | xargs apt-get install -y --no-install-recommends
 
       - name: Configure Git Safe Directory
         run: |

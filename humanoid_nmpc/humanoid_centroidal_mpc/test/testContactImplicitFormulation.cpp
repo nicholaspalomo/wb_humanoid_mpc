@@ -359,14 +359,14 @@ TEST_F(ContactImplicitFormulationTest, basisVectorInputsBoundTheScalingsWhicheve
     StateInputSoftConstraint& frictionCone =
         problem.softConstraintPtr->get<StateInputSoftConstraint>(absl::StrCat(footName, "_frictionForceCone"));
     EXPECT_FALSE(frictionCone.get<FrictionForceConeConstraint>().isScheduleGated());
-    for (const std::unique_ptr<augmented::AugmentedPenaltyBase>& penalty : frictionCone.getPenalty().getPenaltyPtrArray()) {
+    for (const std::unique_ptr<PenaltyBase>& penalty : frictionCone.getPenalty().getPenaltyPtrArray()) {
       EXPECT_EQ(penalty->name(), "SquaredHingePenalty");
       vector_t parameters;
       penalty->getParameters(parameters);
       ASSERT_EQ(parameters.size(), 2);
       EXPECT_DOUBLE_EQ(parameters(1), 0.0) << "the hinge's zero must sit on the cone";
-      EXPECT_DOUBLE_EQ(penalty->getValue(0.0, 0.0, 0.0), 0.0);
-      EXPECT_DOUBLE_EQ(penalty->getDerivative(0.0, 0.0, 0.0), 0.0);
+      EXPECT_DOUBLE_EQ(penalty->getValue(/*t=*/0.0, /*h=*/0.0), 0.0);
+      EXPECT_DOUBLE_EQ(penalty->getDerivative(/*t=*/0.0, /*h=*/0.0), 0.0);
     }
   }
 }
@@ -519,15 +519,15 @@ TEST_F(ContactImplicitProblemTest, groundPenetrationIsAHingeAndNotALogBarrier) {
   for (const std::string& footName : contactNames()) {
     StateSoftConstraint& softConstraint =
         problem().stateSoftConstraintPtr->get<StateSoftConstraint>(absl::StrCat(footName, "_groundPenetration"));
-    for (const std::unique_ptr<augmented::AugmentedPenaltyBase>& penalty : softConstraint.getPenalty().getPenaltyPtrArray()) {
+    for (const std::unique_ptr<PenaltyBase>& penalty : softConstraint.getPenalty().getPenaltyPtrArray()) {
       ASSERT_NE(penalty, nullptr);
       // Zero cost AND zero gradient for a foot resting exactly on the ground, and for one above it.
-      EXPECT_DOUBLE_EQ(penalty->getValue(0.0, 0.0, 0.0), 0.0) << footName;
-      EXPECT_DOUBLE_EQ(penalty->getDerivative(0.0, 0.0, 0.0), 0.0) << footName;
-      EXPECT_DOUBLE_EQ(penalty->getValue(0.0, 0.0, 0.05), 0.0) << footName;
+      EXPECT_DOUBLE_EQ(penalty->getValue(/*t=*/0.0, /*h=*/0.0), 0.0) << footName;
+      EXPECT_DOUBLE_EQ(penalty->getDerivative(/*t=*/0.0, /*h=*/0.0), 0.0) << footName;
+      EXPECT_DOUBLE_EQ(penalty->getValue(/*t=*/0.0, /*h=*/0.05), 0.0) << footName;
       // And a real cost below it.
-      EXPECT_GT(penalty->getValue(0.0, 0.0, -0.01), 0.0) << footName;
-      EXPECT_LT(penalty->getDerivative(0.0, 0.0, -0.01), 0.0) << footName;
+      EXPECT_GT(penalty->getValue(/*t=*/0.0, /*h=*/-0.01), 0.0) << footName;
+      EXPECT_LT(penalty->getDerivative(/*t=*/0.0, /*h=*/-0.01), 0.0) << footName;
     }
   }
 }

@@ -41,9 +41,9 @@ namespace ocs2::humanoid {
 /**
  * Draws the viewer annotations in the MuJoCo viewer: the target contact patches ('g' toggles them) and the scaled
  * velocity arrow. On the communication thread of the robot process, from the annotations of the newest policy
- * (RemoteMpcLink::takeAnnotations()) or of the in-process MPC (node::fillViewerAnnotations(), as the MPC node fills
- * MpcPolicy.annotations); the simulator takes both under its own short locks. An
- * annotation without patches (no contact planner) leaves the viewer's patches as they are, as the ROS sim set none.
+ * (RemoteMpcLink::takeAnnotations(); the MPC node fills MpcPolicy.annotations with node::fillViewerAnnotations()); the
+ * simulator takes both under its own short locks. An annotation without patches (no contact planner) leaves the
+ * viewer's patches as they are.
  */
 class MujocoViewerAnnotator {
  public:

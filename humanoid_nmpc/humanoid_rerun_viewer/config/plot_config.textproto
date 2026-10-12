@@ -13,6 +13,14 @@
 # Configured 3D robot visualizations:
 # - robot_instances: "measured", "terminal_state" (default: all)
 # - draw_terminal_state: false (disables end-of-trajectory robot visualization)
+#
+# The MuJoCo viewer of the robot process, which reads it from its plot configuration unless a viewer is named
+# (make launch-<robot>-sim: PLOT_CONFIG=, default this directory's plot_config.textproto; VIEWER= names one):
+# LINT.IfChange(default_mujoco_viewer)
+# - mujoco_viewer: "web" (a browser tab at http://localhost:6090), "glfw" (a window on DISPLAY) or "none"; repeated, a
+#   preference list tried in order: mujoco_viewer: ["web", "none"] runs without a viewer where the web viewer cannot
+#   start (default: "web")
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/RobotAppOptions.h:default_viewer)
 
 signals: "Base Pose & Euler"
 signals: "contact_forces/*"
@@ -20,3 +28,4 @@ signals: "joints/position/measured"
 signals: "status/mpc/solve_time"
 custom_tab_title: "Signals"
 draw_terminal_state: false
+mujoco_viewer: "web"

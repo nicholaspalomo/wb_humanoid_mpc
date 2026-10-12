@@ -29,7 +29,8 @@
 
 A plot configuration selects which topics, signals, wildcards, contract tabs or panels to display on 2D line graphs in
 the Rerun viewer, either from a typed textproto file (humanoid_rerun_viewer_proto.PlotConfig) or a line-delimited text
-file.
+file. A textproto also names the MuJoCo viewer of the robot process (mujoco_viewer), which the robot reads from the same
+file (humanoid_nmpc/humanoid_common_mpc_app/robot/README.md, --plot_config); this module checks it as the robot does.
 """
 
 from collections.abc import Sequence
@@ -46,6 +47,14 @@ from humanoid_rerun_viewer import telemetry_contract
 DEFAULT_CUSTOM_TAB_TITLE = "Signals"
 STATUS_TAB_NAME = "Status"
 
+# The MuJoCo viewers of the robot process, by registry name: what mujoco_viewer may list.
+# LINT.IfChange(mujoco_viewer_names)
+GLFW_VIEWER = "glfw"
+WEB_VIEWER = "web"
+NO_VIEWER = "none"
+MUJOCO_VIEWER_NAMES = (GLFW_VIEWER, WEB_VIEWER, NO_VIEWER)
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/viewer/ViewerNames.h:viewer_names)
+
 
 class PlotConfigError(ValueError):
     """A plot configuration that cannot be read or parsed."""
@@ -60,16 +69,63 @@ class PlotConfig:
         custom_tab_title: The title of the tab that groups custom or unmatched signals (default: "Signals").
         robot_instances: The robot model instances to draw in the 3D scene (e.g. "measured", "terminal_state").
         draw_terminal_state: Whether to draw the end-of-trajectory robot visualization (None: default).
+        mujoco_viewer: The robot process's MuJoCo viewer by registry name, a preference list (empty: the robot
+            process's built-in default, which proto/plot_config.proto names).
     """
 
     signals: tuple[str, ...] = ()
     custom_tab_title: str = DEFAULT_CUSTOM_TAB_TITLE
     robot_instances: tuple[str, ...] = ()
     draw_terminal_state: bool | None = None
+    mujoco_viewer: tuple[str, ...] = ()
 
 
 def _clean_str(value: str) -> str:
     return value.strip().strip("\"'")
+
+
+# LINT.IfChange(viewer_list_rules)
+# The viewers nothing may follow in a preference list, since a later entry could never be used, and why.
+_LAST_VIEWERS = {NO_VIEWER: "always starts", GLFW_VIEWER: "cannot fail at start-up"}
+
+
+def check_mujoco_viewer(names: Sequence[str], source: str = "") -> tuple[str, ...]:
+    """Checks a mujoco_viewer preference list as the robot process checks it at start-up.
+
+    Every name is one of MUJOCO_VIEWER_NAMES, exactly as written, none repeats, and nothing follows "none", which always
+    starts, or "glfw", which cannot fail at start-up: a later entry could never be used. An empty list is the default.
+
+    Args:
+        names: The mujoco_viewer entries, in order.
+        source: Optional file path or source identifier for error messages.
+
+    Returns:
+        The names, as a tuple.
+
+    Raises:
+        PlotConfigError: A name is unknown or repeated, or another follows "none" or "glfw".
+    """
+    prefix = f"{source}: " if source else ""
+    listed = ",".join(names)
+    for index, name in enumerate(names):
+        if name not in MUJOCO_VIEWER_NAMES:
+            raise PlotConfigError(
+                f"{prefix}mujoco_viewer: unknown viewer {name!r} in {listed!r}; the viewers are "
+                f"{', '.join(MUJOCO_VIEWER_NAMES)}"
+            )
+        if name in names[:index]:
+            raise PlotConfigError(
+                f"{prefix}mujoco_viewer: the viewer {name!r} is listed twice in {listed!r}"
+            )
+        if index + 1 < len(names) and name in _LAST_VIEWERS:
+            raise PlotConfigError(
+                f"{prefix}mujoco_viewer: nothing may follow {name!r} in {listed!r}, as it "
+                f"{_LAST_VIEWERS[name]}"
+            )
+    return tuple(names)
+
+
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/viewer/ViewerSettings.cpp:viewer_list_rules)
 
 
 def parse_plot_config(text: str, source: str = "") -> PlotConfig:
@@ -83,7 +139,8 @@ def parse_plot_config(text: str, source: str = "") -> PlotConfig:
         The parsed PlotConfig.
 
     Raises:
-        PlotConfigError: When protobuf parsing of a textproto fails.
+        PlotConfigError: When protobuf parsing of a textproto fails, or its mujoco_viewer is not a valid viewer list
+            (check_mujoco_viewer()).
     """
     trimmed = text.strip()
     is_declared_textproto = trimmed.startswith("# proto-")
@@ -121,6 +178,7 @@ def parse_plot_config(text: str, source: str = "") -> PlotConfig:
                 r.strip() for r in message.robot_instances if r.strip()
             ),
             draw_terminal_state=draw_terminal,
+            mujoco_viewer=check_mujoco_viewer(tuple(message.mujoco_viewer), source),
         )
 
     signals: list[str] = []
@@ -359,7 +417,6 @@ def resolve_allowed_instances(
     config: PlotConfig | None,
     cli_robot_instances: Sequence[str] | None = None,
     cli_terminal_state: bool | None = None,
-    cli_measured_only: bool = False,
 ) -> tuple[str, ...] | None:
     """Determines the robot instances to log based on CLI flags and plot config.
 
@@ -367,14 +424,13 @@ def resolve_allowed_instances(
         config: The parsed PlotConfig, if any.
         cli_robot_instances: Explicit list of robot instance names from CLI, if given.
         cli_terminal_state: Explicit CLI flag for drawing the terminal state (True/False/None).
-        cli_measured_only: Legacy CLI flag for logging measured instance only.
 
     Returns:
         A tuple of instance names to log, or None to log all default contract instances.
     """
     if cli_robot_instances:
         return tuple(cli_robot_instances)
-    if cli_measured_only or cli_terminal_state is False:
+    if cli_terminal_state is False:
         return (scene_contract.MEASURED,)
     if cli_terminal_state is True:
         return None

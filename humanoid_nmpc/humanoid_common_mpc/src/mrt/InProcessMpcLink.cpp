@@ -58,6 +58,10 @@ InProcessMpcLink::InProcessMpcLink(MPC_BASE& mpc, ResetTargetFunction resetTarge
       solveObserver_(std::move(config.solveObserver)),
       execution_(config.execution) {
   ABSL_CHECK(resetTarget_ != nullptr) << "[InProcessMpcLink] a reset target function is required.";
+  mpcMrtInterface_.setSolverObservationObserver(std::move(config.solverObservationObserver));
+  // The MRT interpolates the planned state on the manifold the MPC solves on (null for a flat state), as the policy's
+  // ManifoldLinearController evaluates its law on it.
+  mpcMrtInterface_.setStateManifold(mpc.getSolverPtr()->getOptimalControlProblem().stateManifoldPtr);
 }
 
 InProcessMpcLink::~InProcessMpcLink() {

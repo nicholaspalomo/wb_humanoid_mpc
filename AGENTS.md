@@ -35,6 +35,11 @@ to be power-cycled. Two guards exist, and changes must not weaken them:
   afterwards, one at a time, each under a `ulimit -v` of a few GB.
 <!-- LINT.ThenChange(//.bazelrc:bazel_memory_bound) -->
 
+<!-- LINT.IfChange(clangd_memory) -->
+The editor's clangd is a compiler front end outside that budget too: `tools/ide/clangd_in_dev_container.sh` runs its
+background index with two workers at low priority, and changes must not raise them (`tools/ide/README.md`).
+<!-- LINT.ThenChange(//tools/ide/clangd_in_dev_container.sh:clangd_flags) -->
+
 Separate containers each size their builds to the whole machine, so `tools/bazel` (which Bazelisk runs in place of
 Bazel in the dev container, in CI and in `make ci-local`) makes the `build`, `test` and `coverage` commands of every
 container take turns through a lock file in the shared checkout. A second build waits and says why. Do not bypass it
@@ -175,6 +180,22 @@ Protocol Buffers and dependencies are enforced by the checks in `tools/hooks` to
   (`proto-next-id`);
 - every `.textproto` names its schema in its leading comment block, `# proto-file: <path>` and
   `# proto-message: <package>.<Message>`, and the schema exists (`textproto-header`).
+<!-- LINT.ThenChange(//tools/hooks/checks.py:registry) -->
+
+The base orientation is a unit quaternion (humanoid_nmpc/docs/quaternion_base_orientation/README.md), and the checks in
+`tools/hooks` keep its Euler parameterization at the boundary of the formulation:
+<!-- LINT.IfChange(orientation_rules) -->
+- no `SphericalZYX` root joint in the C++ of `humanoid_nmpc/`, `robot_runtime/` and
+  `lib/ocs2/pinocchio/centroidal_model/` (`spherical-zyx`);
+- no Euler API - an identifier containing `EulerZyx`, `EulerAnglesZyx` or `ZyxEulerAngles` in any capitalization, or an
+  `#include` of `RotationDerivativesTransforms.h` or `orientation/EulerBoundary.h` - in the formulation directories of
+  `humanoid_nmpc/` (`dynamics`, `cost`, `constraint`, `end_effector`, `acom` and `parameter_update` below `src/` and
+  `include/<package>/`) and in the robot-model headers, whose Euler boundary accessors carry
+  `NOLINT(euler-boundary): Euler boundary accessor (design section 4.2)` (`euler-boundary`);
+- no linear interpolation of a state trajectory under `humanoid_nmpc/` outside the robot models: no one-argument
+  `getDesiredState(t)` and no `LinearInterpolation::interpolate` of anything but inputs (`state-interpolation`);
+- no quaternion built from four scalars under `humanoid_nmpc/` outside `orientation/`, since Eigen's constructor takes
+  `(w, x, y, z)` and the state stores `(x, y, z, w)` (`quaternion-scalar-constructor`).
 <!-- LINT.ThenChange(//tools/hooks/checks.py:registry) -->
 
 Agent rules (no tool checks these):

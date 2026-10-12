@@ -178,7 +178,8 @@ TEST(CoverageTest, EveryProtoFileOfThePackageIsTested) {
 }
 
 TEST(EnumTest, ControllerTypeConvertsBothWaysAndRejectsUndefinedNumbers) {
-  for (const ControllerType type : {ControllerType::kUnknown, ControllerType::kFeedforward, ControllerType::kLinear}) {
+  for (const ControllerType type :
+       {ControllerType::kUnknown, ControllerType::kFeedforward, ControllerType::kLinear, ControllerType::kManifoldLinear}) {
     humanoid_mpc_msgs::ControllerType proto = humanoid_mpc_msgs::CONTROLLER_TYPE_UNKNOWN;
     ToProto(type, &proto);
     ControllerType back = ControllerType::kUnknown;
@@ -188,6 +189,13 @@ TEST(EnumTest, ControllerTypeConvertsBothWaysAndRejectsUndefinedNumbers) {
   humanoid_mpc_msgs::ControllerType linear = humanoid_mpc_msgs::CONTROLLER_TYPE_UNKNOWN;
   ToProto(ControllerType::kLinear, &linear);
   EXPECT_EQ(linear, humanoid_mpc_msgs::CONTROLLER_TYPE_LINEAR);
+  // The wire codes are fixed: a robot and an MPC node built from other commits still agree on them.
+  humanoid_mpc_msgs::ControllerType manifoldLinear = humanoid_mpc_msgs::CONTROLLER_TYPE_UNKNOWN;
+  ToProto(ControllerType::kManifoldLinear, &manifoldLinear);
+  EXPECT_EQ(manifoldLinear, humanoid_mpc_msgs::CONTROLLER_TYPE_MANIFOLD_LINEAR);
+  EXPECT_EQ(static_cast<int>(humanoid_mpc_msgs::CONTROLLER_TYPE_FEEDFORWARD), 1);
+  EXPECT_EQ(static_cast<int>(humanoid_mpc_msgs::CONTROLLER_TYPE_LINEAR), 2);
+  EXPECT_EQ(static_cast<int>(humanoid_mpc_msgs::CONTROLLER_TYPE_MANIFOLD_LINEAR), 3);
 
   ControllerType value = ControllerType::kUnknown;
   const absl::Status status = FromProto(static_cast<humanoid_mpc_msgs::ControllerType>(17), &value);

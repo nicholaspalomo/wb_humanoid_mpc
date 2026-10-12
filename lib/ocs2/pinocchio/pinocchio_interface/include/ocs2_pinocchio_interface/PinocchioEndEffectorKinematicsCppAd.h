@@ -48,8 +48,6 @@ namespace ocs2 {
  * is required. The class has two constructors. The constructor with an additional argument, "updateCallback", is meant
  * for cases where PinocchioStateInputMapping requires some extra update calls on PinocchioInterface, such as the
  * centroidal model mapping (refer to CentroidalModelPinocchioMapping).
- *
- * See also PinocchioEndEffectorKinematics, which uses analytical computation and caching.
  */
 class PinocchioEndEffectorKinematicsCppAd final : public EndEffectorKinematics<scalar_t> {
  public:

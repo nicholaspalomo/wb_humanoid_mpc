@@ -48,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/ContactInputParameterization.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/StateLayout.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
@@ -309,7 +310,7 @@ TEST_F(ContactWrenchConeBasesTest, AnUnknownSetOrAMissingConeFieldIsRefusedByNam
 TEST_F(ContactWrenchConeBasesTest, TheCppAdFolderIsDerivedAndTheDeadFolderKeyIsRefused) {
   // Finding A81: model_settings.modelFolderCppAd was carried by every task file and read by nothing. The folder is
   // derived from the MPC and robot names, and a file that still carries the key is refused, saying so.
-  EXPECT_EQ(modelSettings_->modelFolderCppAd, "cppad_code_gen/cppad_centroidal_mpc_atlas");
+  EXPECT_EQ(modelSettings_->modelFolderCppAd, absl::StrCat("cppad_code_gen/cppad_centroidal_mpc_atlas/", kStateLayoutTag));
   const absl::StatusOr<humanoid_mpc_config::TaskFile> withKey = nproto::ParseTextproto<humanoid_mpc_config::TaskFile>(
       "model_settings {\n  model_folder_cpp_ad: \"build/somewhere_else\"\n}\n", "task.textproto");
   expectInvalidArgumentNaming(withKey.status(), {"task.textproto:2:", "'model_folder_cpp_ad' is retired", "derived from the robot"});

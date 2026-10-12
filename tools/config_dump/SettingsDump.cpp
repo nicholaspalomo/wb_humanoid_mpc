@@ -121,11 +121,9 @@ void dumpSqpSettings(ValueDump& dump, absl::string_view path, const sqp::Setting
   dump.addDouble(joinPath(path, "armijoFactor"), settings.armijoFactor);
   dump.addDouble(joinPath(path, "gamma_c"), settings.gamma_c);
   dump.addBool(joinPath(path, "useFeedbackPolicy"), settings.useFeedbackPolicy);
-  dump.addBool(joinPath(path, "createValueFunction"), settings.createValueFunction);
   dump.addDouble(joinPath(path, "dt"), settings.dt);
   dump.addString(joinPath(path, "integratorType"), sensitivity_integrator::toString(settings.integratorType));
   dump.addBool(joinPath(path, "projectStateInputEqualityConstraints"), settings.projectStateInputEqualityConstraints);
-  dump.addBool(joinPath(path, "extractProjectionMultiplier"), settings.extractProjectionMultiplier);
   dump.addBool(joinPath(path, "printSolverStatus"), settings.printSolverStatus);
   dump.addBool(joinPath(path, "printSolverStatistics"), settings.printSolverStatistics);
   dump.addBool(joinPath(path, "printLinesearch"), settings.printLinesearch);
@@ -158,9 +156,6 @@ void dumpRolloutSettings(ValueDump& dump, absl::string_view path, const rollout:
   dump.addString(joinPath(path, "integratorType"), integrator_type::toString(settings.integratorType));
   dump.addBool(joinPath(path, "checkNumericalStability"), settings.checkNumericalStability);
   dump.addBool(joinPath(path, "reconstructInputTrajectory"), settings.reconstructInputTrajectory);
-  dump.addInteger(joinPath(path, "rootFindingAlgorithm"), static_cast<int64_t>(settings.rootFindingAlgorithm));
-  dump.addInteger(joinPath(path, "maxSingleEventIterations"), settings.maxSingleEventIterations);
-  dump.addBool(joinPath(path, "useTrajectorySpreadingController"), settings.useTrajectorySpreadingController);
 }
 
 void dumpMpcSettings(ValueDump& dump, absl::string_view path, const mpc::Settings& settings) {

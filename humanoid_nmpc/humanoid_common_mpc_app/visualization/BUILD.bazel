@@ -14,7 +14,6 @@ package(default_visibility = ["//visibility:public"])
 cc_library(
     name = "visualization",
     srcs = [
-        "src/EulerAngles.cpp",
         "src/PolicySnapshot.cpp",
         "src/RobotStateDecoder.cpp",
         "src/SceneBuilder.cpp",
@@ -25,7 +24,6 @@ cc_library(
         "src/config/robot/VisualizationConfigFromConfig.cpp",
     ],
     hdrs = [
-        "include/humanoid_common_mpc_app/visualization/EulerAngles.h",
         "include/humanoid_common_mpc_app/visualization/PolicySnapshot.h",
         "include/humanoid_common_mpc_app/visualization/RobotStateDecoder.h",
         "include/humanoid_common_mpc_app/visualization/SceneBuilder.h",
@@ -41,6 +39,7 @@ cc_library(
     deps = [
         "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
         "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//humanoid_nmpc/humanoid_mpc_ipc",
@@ -54,6 +53,8 @@ cc_library(
         "//robot_runtime/robot_core",
         "//robot_runtime/robot_ipc",
         "//robot_runtime/robot_realtime",
+        # ViewerThreadPriority alone, without the web viewer's HTTP server and JPEG libraries.
+        "//robot_runtime/web_viewer:viewer_thread_priority",
         "//tools/nproto:nproto_runtime",
         "@abseil-cpp//absl/base:core_headers",
         "@abseil-cpp//absl/base:nullability",
@@ -90,13 +91,15 @@ _ROBOT_DATA = [
     "//robot_models/unitree_r1/unitree_r1_description",
 ]
 
-# A robot's MPC model in each formulation, and synthetic observations, policies and robot/state samples for it.
+# A robot's MPC model in each formulation, and synthetic observations, policies and robot/state samples for it. It
+# carries the shipped configurations it loads (shippedConfigurations()), so a test that depends on it has their files.
 cc_library(
     name = "test_robot",
     testonly = True,
     srcs = ["test/VisualizationTestRobot.cpp"],
     hdrs = ["test/VisualizationTestRobot.h"],
     copts = FIRST_PARTY_COPTS,
+    data = _ROBOT_DATA,
     deps = [
         ":visualization",
         "//humanoid_nmpc/humanoid_centroidal_mpc",
@@ -122,6 +125,7 @@ _TEST_DEPS = [
     ":test_robot",
     ":visualization",
     "//humanoid_nmpc/humanoid_common_mpc",
+    "//humanoid_nmpc/humanoid_common_mpc:orientation",
     "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
     "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
     "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto",
@@ -150,7 +154,25 @@ cc_test(
     deps = _TEST_DEPS,
 )
 
-# The robot/state sample in the MPC's terms: base, joints by name, actions, refusals; and the Euler angles.
+# The plan's and the target's sampling: the states along the state manifold's geodesic, the inputs linear, at events and
+# outside the horizon.
+cc_test(
+    name = "test_policy_snapshot",
+    size = "small",
+    srcs = ["test/testPolicySnapshot.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    deps = [
+        ":visualization",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The robot/state sample in the MPC's terms: base, joints by name, actions, refusals; the base through the robot model's
+# measurement helpers in every formulation; and the Euler angles.
 cc_test(
     name = "test_robot_state_decoder",
     size = "small",
@@ -182,7 +204,7 @@ cc_test(
 )
 
 # The thread contract: feeding never blocks, a slow publisher drops samples instead of queuing them, one series per
-# sample, the scene's rate, start and stop; and robot/state to viz/telemetry over a loopback bus.
+# sample, the scene's rate, start and stop, the thread's SCHED_IDLE; and robot/state to viz/telemetry over a loopback bus.
 cc_test(
     name = "test_visualization_publisher",
     size = "small",
@@ -192,6 +214,7 @@ cc_test(
     deps = _TEST_DEPS + [
         "//humanoid_nmpc/humanoid_mpc_ipc",
         "//robot_runtime/robot_ipc",
+        "//robot_runtime/web_viewer:viewer_thread_priority",
         "@abseil-cpp//absl/synchronization",
         "@abseil-cpp//absl/time",
     ],
@@ -212,6 +235,7 @@ cc_binary(
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_oc",
         "//robot_runtime/robot_ipc",
+        "//robot_runtime/web_viewer:viewer_thread_priority",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/flags:flag",
         "@abseil-cpp//absl/flags:parse",

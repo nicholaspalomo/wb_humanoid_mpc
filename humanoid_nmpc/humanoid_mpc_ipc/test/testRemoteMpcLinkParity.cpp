@@ -32,10 +32,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // solverWorker()) and once through the network link (RemoteMpcLink and MpcServer over loopback). After every control
 // cycle the controller must see the same thing: the same policy in use, bit for bit, evaluating to the same input, and
 // the same answers from the predicates it decides on. Transport timing is taken out by waiting, in each cycle, for the
-// policy solved from that cycle's observation.
+// policy solved from that cycle's observation. The script runs on a flat state with a feedforward policy, and on a state
+// manifold with the ManifoldLinearController of an SQP with an event, the MRT of either side given the manifold; there
+// the robot's RealtimePolicyEvaluator on the policy it received computes what the in-process MRT_BASE::evaluatePolicy()
+// does, on both sides of the event.
 
 #include <chrono>
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -49,19 +53,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/time/time.h"
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
+#include "ocs2_core/control/ControllerType.h"
+#include "ocs2_core/manifold/StateManifold.h"
+#include "ocs2_mpc/MPC_BASE.h"
 #include "ocs2_mpc/MPC_MRT_Interface.h"
 #include "ocs2_mpc/MRT_BASE.h"
 
 #include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
 #include "humanoid_mpc_ipc/MpcServer.h"
+#include "humanoid_mpc_ipc/RealtimePolicyEvaluator.h"
 #include "humanoid_mpc_ipc/RemoteMpcLink.h"
 #include "humanoid_nmpc/humanoid_mpc_ipc/test/MpcLinkTestSupport.h"
+#include "humanoid_nmpc/humanoid_mpc_ipc/test/PolicyTestData.h"
 #include "robot_ipc/Bus.h"
 
 namespace ocs2::humanoid::ipc {
 namespace {
 
-using test_support::observationAt;
 using test_support::resetTargetsFor;
 using test_support::waitFor;
 using ResetKind = MpcResetSupervisor::ResetKind;
@@ -93,6 +101,25 @@ std::vector<Step> script() {
   };
 }
 
+/** The model a script runs on, the same in process and over the network. */
+struct ParityModel {
+  ModelDimensions dimensions;
+  /** Null for a flat state; else given to both MRTs, and to the realtime evaluator. */
+  std::shared_ptr<const StateManifold> stateManifold;
+  /** The observation of a step at `time` with state `value`. */
+  std::function<SystemObservation(scalar_t time, scalar_t value)> observationAt;
+};
+
+ParityModel flatModel() {
+  return {.dimensions = test_support::modelDimensions(), .stateManifold = nullptr, .observationAt = test_support::observationAt};
+}
+
+ParityModel manifoldModel() {
+  return {.dimensions = test_support::manifoldModelDimensions(),
+          .stateManifold = test_data::toyStateManifold(),
+          .observationAt = test_support::manifoldObservationAt};
+}
+
 /** What the controller sees after a control cycle. */
 struct Seen {
   /** isActivePolicyCurrent() && !hasOutstandingReset() right after the cycle's reset requests, before its policy. */
@@ -108,13 +135,13 @@ struct Seen {
   vector_array_t states;
   vector_array_t inputs;
   size_array_t postEventIndices;
-  /** evaluatePolicy() a control cycle ahead and half a horizon ahead. */
+  /** evaluatePolicy() a control cycle ahead, and half a horizon ahead and just around it (the manifold policy's event). */
   vector_array_t evaluatedStates;
   vector_array_t evaluatedInputs;
   std::vector<size_t> evaluatedModes;
 };
 
-Seen see(MRT_BASE& mrt, const MpcResetSupervisor& supervisor, const SystemObservation& observation) {
+Seen see(MRT_BASE& mrt, const MpcResetSupervisor& supervisor, const ParityModel& model, const SystemObservation& observation) {
   Seen seen;
   seen.initialPolicyReceived = mrt.initialPolicyReceived();
   seen.activePolicyCurrent = mrt.isActivePolicyCurrent();
@@ -127,14 +154,26 @@ Seen see(MRT_BASE& mrt, const MpcResetSupervisor& supervisor, const SystemObserv
   seen.states = mrt.getPolicy().stateTrajectory_;
   seen.inputs = mrt.getPolicy().inputTrajectory_;
   seen.postEventIndices = mrt.getPolicy().postEventIndices_;
-  for (const scalar_t lookahead : {0.001, 0.5}) {
+  // The robot's realtime evaluation of the same policy: the doubles of evaluatePolicy(), on either side.
+  RealtimePolicyEvaluator evaluator(model.dimensions, model.stateManifold.get());
+  for (const scalar_t lookahead : {0.001, 0.499, 0.5, 0.501}) {
     vector_t state;
     vector_t input;
     size_t mode = 0;
-    mrt.evaluatePolicy(observation.time + lookahead, observation.state, state, input, mode);
+    const scalar_t time = observation.time + lookahead;
+    mrt.evaluatePolicy(time, observation.state, state, input, mode);
     seen.evaluatedStates.push_back(state);
     seen.evaluatedInputs.push_back(input);
     seen.evaluatedModes.push_back(mode);
+    vector_t realtimeState;
+    vector_t realtimeInput;
+    size_t realtimeMode = 0;
+    EXPECT_EQ(evaluator.evaluate(mrt.getPolicy(), time, observation.state, realtimeState, realtimeInput, realtimeMode),
+              RealtimePolicyEvaluator::Outcome::kEvaluated)
+        << "t = " << time;
+    EXPECT_EQ(realtimeState, state) << "t = " << time;
+    EXPECT_EQ(realtimeInput, input) << "t = " << time;
+    EXPECT_EQ(realtimeMode, mode) << "t = " << time;
   }
   return seen;
 }
@@ -162,23 +201,29 @@ void expectSame(const Seen& inProcess, const Seen& remote, size_t step) {
   EXPECT_EQ(remote.evaluatedModes, inProcess.evaluatedModes);
 }
 
-/** The controller with the solver in process: MPC_MRT_Interface, served as solverWorker() serves it. */
-std::vector<Seen> runInProcess(const std::vector<Step>& steps, size_t* absl_nonnull solverResets) {
-  std::unique_ptr<mpc_test::ScriptedMpc> mpc = test_support::makeScriptedMpc();
-  MPC_MRT_Interface mrt(*mpc);
+/**
+ * The controller with the solver in process: MPC_MRT_Interface on `mpc`, served as solverWorker() serves it.
+ * `failNextSolve` makes the next solve of `mpc` fail; the script asks for it only of an MPC that can fail.
+ */
+std::vector<Seen> runInProcess(const std::vector<Step>& steps,
+                               const ParityModel& model,
+                               MPC_BASE& mpc,
+                               const std::function<void()>& failNextSolve) {
+  MPC_MRT_Interface mrt(mpc);
+  mrt.setStateManifold(model.stateManifold);
   MpcResetSupervisor supervisor;
   std::vector<Seen> seen;
   for (size_t index = 0; index < steps.size(); ++index) {
     const Step& step = steps[index];
     for (const ResetKind kind : step.resets) supervisor.requestReset(kind);
     const bool afterRequests = mrt.isActivePolicyCurrent() && !supervisor.hasOutstandingReset();
-    const SystemObservation observation = observationAt(step.time, step.value);
+    const SystemObservation observation = model.observationAt(step.time, step.value);
     mrt.setCurrentObservation(observation);
     if (index == 0) {
       // solverWorker()'s start-up reset, from the first observation.
       mrt.resetMpcNode(resetTargetsFor(mrt.getCurrentObservation()));
     }
-    if (step.failNextSolve) mpc->solver().failNextSolves(1);
+    if (step.failNextSolve) failNextSolve();
     // The iterations of the solve loop until one succeeds: a failed solve is retried at once.
     for (int iteration = 0; iteration < 5; ++iteration) {
       if (const std::optional<MpcResetSupervisor::ResetTicket> ticket = supervisor.takeResetRequest()) {
@@ -196,27 +241,29 @@ std::vector<Seen> runInProcess(const std::vector<Step>& steps, size_t* absl_nonn
       if (status.ok()) break;
     }
     mrt.updatePolicy();
-    seen.push_back(see(mrt, supervisor, observation));
+    seen.push_back(see(mrt, supervisor, model, observation));
     seen.back().postResetPolicyActiveAfterRequests = afterRequests;
   }
-  *solverResets = mpc->solver().numResets();
   return seen;
 }
 
-/** The controller with the solver behind the network link. */
-std::vector<Seen> runRemote(const std::vector<Step>& steps, size_t* absl_nonnull solverResets) {
-  std::unique_ptr<mpc_test::ScriptedMpc> mpc = test_support::makeScriptedMpc();
+/** The controller with the solver behind the network link: `mpc` served by an MpcServer, as in runInProcess(). */
+std::vector<Seen> runRemote(const std::vector<Step>& steps,
+                            const ParityModel& model,
+                            MPC_BASE& mpc,
+                            const std::function<void()>& failNextSolve) {
   std::unique_ptr<robot::ipc::Bus> robotBus = test_support::createNodeBus("robot");
   std::unique_ptr<robot::ipc::Bus> mpcBus = test_support::createNodeBus("mpc");
   test_support::connectBoth(*robotBus, *mpcBus);
   MpcResetSupervisor supervisor;
   RemoteMpcLink::Config linkConfig;
-  linkConfig.dimensions = test_support::modelDimensions();
+  linkConfig.dimensions = model.dimensions;
+  linkConfig.stateManifold = model.stateManifold;
   absl::StatusOr<std::unique_ptr<RemoteMpcLink>> link = RemoteMpcLink::Create(*robotBus, supervisor, linkConfig);
   CHECK_OK(link.status());
   MpcServer::Config serverConfig;
-  serverConfig.dimensions = test_support::modelDimensions();
-  absl::StatusOr<std::unique_ptr<MpcServer>> server = MpcServer::Create(*mpcBus, *mpc, resetTargetsFor, serverConfig);
+  serverConfig.dimensions = model.dimensions;
+  absl::StatusOr<std::unique_ptr<MpcServer>> server = MpcServer::Create(*mpcBus, mpc, resetTargetsFor, serverConfig);
   CHECK_OK(server.status());
   CHECK_OK(robotBus->start());
   CHECK_OK(mpcBus->start());
@@ -227,8 +274,8 @@ std::vector<Seen> runRemote(const std::vector<Step>& steps, size_t* absl_nonnull
     const Step& step = steps[index];
     for (const ResetKind kind : step.resets) supervisor.requestReset(kind);
     const bool afterRequests = (*link)->isActivePolicyCurrent() && !supervisor.hasOutstandingReset();
-    const SystemObservation observation = observationAt(step.time, step.value);
-    if (step.failNextSolve) mpc->solver().failNextSolves(1);
+    const SystemObservation observation = model.observationAt(step.time, step.value);
+    if (step.failNextSolve) failNextSolve();
     if (index == 0) {
       // The first observations may go out before the subscriptions have reached the publishers ("slow joiner"): the
       // same observation, until a policy solved from it arrives. Every one of them plans the same policy.
@@ -252,20 +299,22 @@ std::vector<Seen> runRemote(const std::vector<Step>& steps, size_t* absl_nonnull
           << step.time;
     }
     (*link)->updatePolicy();
-    seen.push_back(see(**link, supervisor, observation));
+    seen.push_back(see(**link, supervisor, model, observation));
     seen.back().postResetPolicyActiveAfterRequests = afterRequests;
   }
   (*server)->stop();
-  *solverResets = mpc->solver().numResets();
   return seen;
 }
 
 TEST(RemoteMpcLinkParityTest, TheControllerSeesTheSameSequenceOfPoliciesInProcessAndOverTheNetwork) {
   const std::vector<Step> steps = script();
-  size_t inProcessResets = 0;
-  size_t remoteResets = 0;
-  const std::vector<Seen> inProcess = runInProcess(steps, &inProcessResets);
-  const std::vector<Seen> remote = runRemote(steps, &remoteResets);
+  const ParityModel model = flatModel();
+  std::unique_ptr<mpc_test::ScriptedMpc> inProcessMpc = test_support::makeScriptedMpc();
+  std::unique_ptr<mpc_test::ScriptedMpc> remoteMpc = test_support::makeScriptedMpc();
+  const std::vector<Seen> inProcess = runInProcess(steps, model, *inProcessMpc, [&]() { inProcessMpc->solver().failNextSolves(1); });
+  const std::vector<Seen> remote = runRemote(steps, model, *remoteMpc, [&]() { remoteMpc->solver().failNextSolves(1); });
+  const size_t inProcessResets = inProcessMpc->solver().numResets();
+  const size_t remoteResets = remoteMpc->solver().numResets();
   ASSERT_EQ(inProcess.size(), steps.size());
   ASSERT_EQ(remote.size(), steps.size());
   for (size_t step = 0; step < steps.size(); ++step) expectSame(inProcess[step], remote[step], step);
@@ -277,6 +326,33 @@ TEST(RemoteMpcLinkParityTest, TheControllerSeesTheSameSequenceOfPoliciesInProces
     EXPECT_EQ(inProcess[step].postResetPolicyActiveAfterRequests, steps[step].resets.empty()) << "control cycle " << step;
   }
   for (const Seen& seen : inProcess) EXPECT_TRUE(seen.postResetPolicyActive);
+}
+
+TEST(RemoteMpcLinkParityTest, AManifoldPolicyWithAnEventIsTheSameInProcessAndOverTheNetwork) {
+  // The script without its solver failures: the stand-in SQP never fails.
+  std::vector<Step> steps = script();
+  for (Step& step : steps) step.failNextSolve = false;
+  const ParityModel model = manifoldModel();
+  std::unique_ptr<test_support::ManifoldScriptedMpc> inProcessMpc = test_support::makeManifoldScriptedMpc(model.stateManifold);
+  std::unique_ptr<test_support::ManifoldScriptedMpc> remoteMpc = test_support::makeManifoldScriptedMpc(model.stateManifold);
+  const std::function<void()> neverFails = []() { ADD_FAILURE() << "the manifold script has no solver failures"; };
+  const std::vector<Seen> inProcess = runInProcess(steps, model, *inProcessMpc, neverFails);
+  const std::vector<Seen> remote = runRemote(steps, model, *remoteMpc, neverFails);
+  ASSERT_EQ(inProcess.size(), steps.size());
+  ASSERT_EQ(remote.size(), steps.size());
+  for (size_t step = 0; step < steps.size(); ++step) expectSame(inProcess[step], remote[step], step);
+  EXPECT_EQ(remoteMpc->solver().numResets(), inProcessMpc->solver().numResets()) << "the solver was reset a different number of times";
+
+  // Positive controls: the policy in use is a manifold-linear one with an event, which changes the input across it,
+  // and every cycle has a policy of its own.
+  for (size_t step = 0; step < steps.size(); ++step) {
+    ASSERT_EQ(inProcess[step].postEventIndices.size(), size_t{1}) << "control cycle " << step;
+    EXPECT_NE(inProcess[step].evaluatedInputs[1], inProcess[step].evaluatedInputs[3]) << "control cycle " << step;
+    EXPECT_TRUE(inProcess[step].postResetPolicyActive) << "control cycle " << step;
+    if (step > 0) {
+      EXPECT_NE(inProcess[step].states, inProcess[step - 1].states) << "control cycle " << step;
+    }
+  }
 }
 
 }  // namespace

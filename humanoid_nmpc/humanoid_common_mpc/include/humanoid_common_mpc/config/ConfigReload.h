@@ -63,7 +63,6 @@ inline constexpr char kWholeBodyFormulation[] = "whole_body";
 // LINT.IfChange(consumer_names)
 inline constexpr char kMpcConsumer[] = "mpc";
 inline constexpr char kRobotConsumer[] = "robot";
-inline constexpr char kGuiConsumer[] = "gui";
 // LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_config/tuning_options.proto:consumer)
 
 /** Whether the MPC reads a field whose tuning options name `consumer`: an empty one, or kMpcConsumer. */

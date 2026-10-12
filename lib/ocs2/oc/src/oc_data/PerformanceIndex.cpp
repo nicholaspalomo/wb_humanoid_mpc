@@ -89,8 +89,7 @@ PerformanceIndex toPerformanceIndex(const Metrics& m) {
   performanceIndex.equalityConstraintsSSE = getEqConstraintsSSE(m.stateEqConstraint) + getEqConstraintsSSE(m.stateInputEqConstraint);
   performanceIndex.inequalityConstraintsSSE =
       getIneqConstraintsSSE(m.stateIneqConstraint) + getIneqConstraintsSSE(m.stateInputIneqConstraint);
-  performanceIndex.equalityLagrangian = sumPenalties(m.stateEqLagrangian) + sumPenalties(m.stateInputEqLagrangian);
-  performanceIndex.inequalityLagrangian = sumPenalties(m.stateIneqLagrangian) + sumPenalties(m.stateInputIneqLagrangian);
+  // equalityLagrangian and inequalityLagrangian keep their 0: this fork has no augmented Lagrangian terms.
   return performanceIndex;
 }
 

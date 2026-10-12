@@ -78,12 +78,17 @@ class ProductStateManifold final : public StateManifold {
   void retract(const vector_t& x, const vector_t& dx, scalar_t alpha, vector_t& xNew) const override;
   vector_t difference(const vector_t& x0, const vector_t& x1) const override;
   vector_t interpolate(const vector_t& x0, const vector_t& x1, scalar_t alpha) const override;
+  /** Block by block, a quaternion block in fixed-size Eigen types: no temporary is allocated. */
+  void differenceInto(const vector_t& x0, const vector_t& x1, vector_t& dx) const override;
+  /** Block by block, a quaternion block in fixed-size Eigen types: no temporary is allocated. */
+  void interpolateInto(const vector_t& x0, const vector_t& x1, scalar_t alpha, vector_t& x) const override;
   void project(vector_t& x) const override;
   scalar_t getMaximumRotationAngle(const vector_t& dx) const override;
   void pullBackStateColumns(const vector_t& x, matrix_t& J) const override;
   void pullBackStateRows(const vector_t& x, matrix_t& M) const override;
   void pullBackGradient(const vector_t& x, vector_t& g) const override;
   void liftStateColumns(const vector_t& x, matrix_t& J) const override;
+  /** StateManifold's, with its precondition: every quaternion block of Phi longer than kQuaternionNormalizationEpsilon. */
   void pushForwardDynamics(const vector_t& x, const vector_t& xNext, VectorFunctionLinearApproximation& dynamics) const override;
 
  private:

@@ -54,9 +54,9 @@ namespace ocs2::humanoid {
 std::string atlasRunfilePath(absl::string_view relativePath);
 
 /**
- * The DRC Atlas references of the centroidal MPC, wired as CentroidalMpcRobotSim wires them - reference manager, gait
- * schedule, swing trajectories, target calculator, procedural motion manager, and under contact planning the planner
- * module - around an ocs2::mpc_test::ScriptedMpc instead of the SQP solver. Every run() of that MPC goes through
+ * The DRC Atlas references of the centroidal MPC, wired as the MPC node (CentroidalMpcNode) wires them - reference
+ * manager, gait schedule, swing trajectories, target calculator, procedural motion manager, and under contact planning
+ * the planner module - around an ocs2::mpc_test::ScriptedMpc instead of the SQP solver. Every run() of that MPC goes through
  * SolverBase::run(), so the reference manager and the modules run exactly as they do before a real solve, and a reset of
  * the MPC resets them exactly as MPC_BASE::reset() does in the robot's controller. No CppAD model is built.
  */

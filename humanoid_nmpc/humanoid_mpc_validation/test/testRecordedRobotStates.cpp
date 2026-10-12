@@ -42,9 +42,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_model/RobotState.h"
 
 /*
- * A recording of robot states is the input of the solve benchmark, recorded once (B0) and replayed again after the
- * quaternion switch (B3): it must come back from its file as the very states that were recorded, and it must refuse a
- * robot whose joints are not the ones it was recorded on.
+ * A recording of robot states is the input of the solve benchmark, recorded once by a walking run and replayed by every
+ * later benchmark: it must come back from its file as the very states that were recorded, and it must refuse a robot
+ * whose joints are not the ones it was recorded on.
  */
 
 namespace ocs2::humanoid::validation {

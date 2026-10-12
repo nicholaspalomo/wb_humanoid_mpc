@@ -54,7 +54,7 @@ namespace ocs2::humanoid::node {
  * MPC's own model, rolled out under the policy in use (the formulation's RolloutBase, MRT_BASE::rolloutPolicy()), and
  * the MPC is the MPC node, reached over the bus through an ipc::RemoteMpcLink exactly as the robot process reaches it.
  * It plays the robot (it publishes robot/mpc_observation as the bus node "robot"), so that it runs against the same MPC
- * node as the robot would. This is OCS2's MRT_ROS_Dummy_Loop without ROS:
+ * node as the robot would. The loop:
  *
  *   1. it requests a full reset (the MPC node's first reset is a full one anyway) and sends the initial observation
  *      every step until the first policy has arrived;
@@ -62,13 +62,13 @@ namespace ocs2::humanoid::node {
  *      max(1, simulationFrequency / mpcDesiredFrequency) steps it waits for the policy solved from the observation it
  *      sent the step before (a policy that starts within 0.1 MPC periods of the plant's time), and it sends only the
  *      observation of the step before an MPC update. The plant's time therefore advances by exactly one MPC period per
- *      solve however long a solve takes, as the ROS dummy did;
+ *      solve however long a solve takes;
  *   3. with mpcDesiredFrequency <= 0 it runs in real time: every step takes the newest policy, if one has arrived, and
  *      sends its observation;
  *   4. each step rolls the plant forward by 1 / simulationFrequency under the policy in use; the steps are paced on
  *      absolute deadlines (robot::realtime::PeriodicTimer, missed periods skipped).
  *
- * The RemoteMpcLink's health is not acted on: the plant keeps rolling the policy in use out, as the ROS dummy did.
+ * The RemoteMpcLink's health is not acted on: the plant keeps rolling the policy in use out.
  *
  * THREADS. run() runs the loop on the caller's thread; the bus's IO thread runs the link. latestObservation() and
  * statistics() may be called from any thread.
@@ -76,11 +76,15 @@ namespace ocs2::humanoid::node {
 class DummySimLoop {
  public:
   struct Config {
-    /** [Hz] The plant's step rate (the ROS dummy's mrtDesiredFrequency, 100 Hz). Positive. */
+    /** [Hz] The plant's step rate. Positive. */
     scalar_t simulationFrequency = 100.0;
     /** [Hz] The MPC's rate (mpc.mpc_desired_frequency): positive runs the loop synchronized with it, <= 0 in real time. */
     scalar_t mpcDesiredFrequency = -1.0;
-    /** The link to the MPC node: the model's dimensions, the policy timeout. */
+    /**
+     * The link to the MPC node: the model's dimensions, the policy timeout, and the MPC's state manifold
+     * (interface.getStateManifold()), on which the link decodes the node's manifold-linear policies and interpolates
+     * their states; the plant rolls them out on the rollout's own manifold.
+     */
     ipc::RemoteMpcLink::Config link;
     /** How often a synchronized wait for a policy that does not come logs that it is still waiting. */
     absl::Duration waitLogPeriod = absl::Seconds(5);

@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/orientation/EulerBoundary.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -39,8 +40,8 @@ namespace {
 // LINT.IfChange(state_input_dimensions)
 // The wrench of a contact in the input: its force, then its moment.
 constexpr size_t kWrenchDimension = 6;
-// The base pose and the base velocity in the state: three positions or velocities, then three Euler angles or rates.
-constexpr size_t kBaseDimension = 6;
+// A position, a linear velocity, an orientation's three ZYX Euler angles or an angular velocity's three components.
+constexpr size_t kVector3Dimension = 3;
 
 }  // namespace
 
@@ -53,22 +54,47 @@ StateInputLayout stateInputLayout(const ModelSettings& settings, StateInputLayou
   return layout;
 }
 
-size_t stateDimension(const StateInputLayout& layout) {
+TuningLayout tuningLayoutOf(const StateInputLayout& layout) {
   const size_t joints = layout.jointNames.size();
   switch (layout.mpc) {
     case StateInputLayout::Mpc::kCentroidal:
       // The normalized centroidal momentum, the base pose, the joint positions.
-      return kBaseDimension + kBaseDimension + joints;
+      return TuningLayout{
+          .name = "centroidal",
+          .segments =
+              {
+                  {.name = "normalized_linear_momentum", .kind = TuningSegmentKind::kEuclidean, .tuningDim = kVector3Dimension},
+                  {.name = "normalized_angular_momentum", .kind = TuningSegmentKind::kEuclidean, .tuningDim = kVector3Dimension},
+                  {.name = "base_position", .kind = TuningSegmentKind::kEuclidean, .tuningDim = kVector3Dimension},
+                  {.name = "base_orientation", .kind = TuningSegmentKind::kEulerZyxOrientation, .tuningDim = kVector3Dimension},
+                  {.name = "joint_positions", .kind = TuningSegmentKind::kEuclidean, .tuningDim = joints},
+              },
+      };
     case StateInputLayout::Mpc::kWholeBody:
       // The generalized coordinates and their velocities.
-      return 2 * (kBaseDimension + joints);
+      return TuningLayout{
+          .name = "whole-body",
+          .segments =
+              {
+                  {.name = "base_position", .kind = TuningSegmentKind::kEuclidean, .tuningDim = kVector3Dimension},
+                  {.name = "base_orientation", .kind = TuningSegmentKind::kEulerZyxOrientation, .tuningDim = kVector3Dimension},
+                  {.name = "joint_positions", .kind = TuningSegmentKind::kEuclidean, .tuningDim = joints},
+                  {.name = "base_linear_velocity", .kind = TuningSegmentKind::kEuclidean, .tuningDim = kVector3Dimension},
+                  {.name = "base_angular_velocity", .kind = TuningSegmentKind::kZyxOrderedAngularVelocity, .tuningDim = kVector3Dimension},
+                  {.name = "joint_velocities", .kind = TuningSegmentKind::kEuclidean, .tuningDim = joints},
+              },
+      };
   }
-  return 0;
+  return TuningLayout{};
+}
+
+size_t tuningDimension(const StateInputLayout& layout) {
+  return getTuningLayoutDim(tuningLayoutOf(layout));
 }
 
 size_t inputDimension(const StateInputLayout& layout) {
   return kWrenchDimension * layout.contactNames.size() + layout.jointNames.size();
 }
-// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/weights/StateInputWeightsFromConfig.cpp:state_input_offsets)
+// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/config/weights/StateInputWeightsFromConfig.cpp:input_offsets)
 
 }  // namespace ocs2::humanoid

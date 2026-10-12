@@ -4,7 +4,7 @@ load("//bazel:copts.bzl", "FIRST_PARTY_COPTS")
 
 # robot_realtime - Building blocks of the robot process's realtime thread: a lock-free SPSC ring, thread setup
 # (SCHED_FIFO, mlockall, stack prefault, affinity, name), absolute-deadline pacing and loop timing statistics.
-# Free of ROS, protobuf and humanoid_nmpc. See README.md.
+# Free of protobuf and humanoid_nmpc. See README.md.
 
 package(default_visibility = ["//visibility:public"])
 

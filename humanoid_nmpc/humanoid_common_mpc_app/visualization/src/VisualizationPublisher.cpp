@@ -29,13 +29,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/visualization/VisualizationPublisher.h"
 
-#include <sys/resource.h>
-#include <sys/syscall.h>
-#include <unistd.h>
+#include <pthread.h>
+#include <sched.h>
 
-#include <cerrno>
 #include <chrono>
-#include <cstring>
 #include <exception>
 #include <memory>
 #include <string>
@@ -56,23 +53,33 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_ipc/Delivery.h"
 #include "robot_realtime/PeriodicTimer.h"
 #include "robot_realtime/RealtimeThread.h"
+#include "web_viewer/ViewerThreadPriority.h"
 
 namespace ocs2::humanoid::visualization {
 
 namespace {
 
-/** Raises the calling thread's nice value by `increment` (the thread alone: Linux applies setpriority() to a TID). */
-absl::Status raiseCurrentThreadNiceValue(int increment) {
-  const id_t threadId = static_cast<id_t>(::syscall(SYS_gettid));
-  errno = 0;
-  const int current = ::getpriority(PRIO_PROCESS, threadId);
-  if (current == -1 && errno != 0) {
-    return absl::ErrnoToStatus(errno, "getpriority()");
+/**
+ * Gives the calling thread the scheduling `priority` names: kIdle switches it to SCHED_IDLE, whose only priority is 0
+ * (lowering a thread's policy needs no privilege); kInherited leaves it. InvalidArgument for a value that is neither.
+ */
+absl::Status applyThreadPriority(robot::web_viewer::ViewerThreadPriority priority) {
+  // The web viewer's threads take the same policy (placeCurrentThread(), which this target does not link: it comes with
+  // the viewer's HTTP server and JPEG encoder).
+  // LINT.IfChange
+  switch (priority) {
+    case robot::web_viewer::ViewerThreadPriority::kIdle: {
+      const sched_param parameters = {.sched_priority = 0};
+      const int error = pthread_setschedparam(pthread_self(), SCHED_IDLE, &parameters);
+      if (error == 0) return absl::OkStatus();
+      return absl::ErrnoToStatus(error, "pthread_setschedparam(this thread, SCHED_IDLE)");
+    }
+    case robot::web_viewer::ViewerThreadPriority::kInherited:
+      return absl::OkStatus();
   }
-  if (::setpriority(PRIO_PROCESS, threadId, current + increment) != 0) {
-    return absl::ErrnoToStatus(errno, absl::StrCat("setpriority() to the nice value ", current + increment));
-  }
-  return absl::OkStatus();
+  // LINT.ThenChange(//robot_runtime/web_viewer/src/ThreadPlacement.cpp)
+  return absl::InvalidArgumentError(
+      absl::StrCat("thread priority ", static_cast<int>(priority), " is none of ViewerThreadPriority's (kIdle, kInherited)"));
 }
 
 }  // namespace
@@ -134,7 +141,7 @@ VisualizationPublisher::VisualizationPublisher(const VisualizationModel& model,
       robotStateQueue_(options_.robotStateQueueCapacity),
       sceneBuilder_(std::move(sceneBuilder)),
       telemetryBuilder_(std::move(telemetryBuilder)),
-      decoder_(model.mpcRobotModel->modelSettings) {
+      decoder_(*model.mpcRobotModel) {
   absl::MutexLock lock(&guard_->mutex);
   guard_->publisher = this;
 }
@@ -229,10 +236,8 @@ void VisualizationPublisher::run() {
   if (const absl::Status configured = robot::realtime::configureCurrentThread(threadConfig); !configured.ok()) {
     LOG(WARNING) << "[VisualizationPublisher] the visualization thread runs without part of its configuration: " << configured;
   }
-  if (options_.niceIncrement != 0) {
-    if (const absl::Status niced = raiseCurrentThreadNiceValue(options_.niceIncrement); !niced.ok()) {
-      LOG(WARNING) << "[VisualizationPublisher] the visualization thread keeps its priority: " << niced;
-    }
+  if (const absl::Status scheduled = applyThreadPriority(options_.threadPriority); !scheduled.ok()) {
+    LOG(WARNING) << "[VisualizationPublisher] the visualization thread keeps its scheduling: " << scheduled;
   }
   robot::realtime::PeriodicTimer timer(absl::ToChronoNanoseconds(options_.pollPeriod), robot::realtime::OverrunPolicy::kSkipMissedPeriods);
   timer.start();

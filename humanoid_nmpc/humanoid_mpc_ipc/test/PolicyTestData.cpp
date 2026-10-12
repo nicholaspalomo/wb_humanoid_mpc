@@ -36,9 +36,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <random>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
+#include "absl/log/check.h"
+#include "absl/status/statusor.h"
 #include "ocs2_core/control/FeedforwardController.h"
 #include "ocs2_core/control/LinearController.h"
+#include "ocs2_core/manifold/ProductStateManifold.h"
+#include "ocs2_core/manifold/StateManifoldSegment.h"
+#include "ocs2_oc/multiple_shooting/Helpers.h"
+#include "ocs2_oc/oc_data/TimeDiscretization.h"
 
 namespace ocs2::humanoid::ipc::test_data {
 namespace {
@@ -54,7 +61,54 @@ matrix_t randomMatrix(std::mt19937& generator, size_t rows, size_t cols) {
   return matrix;
 }
 
+// The annotated time trajectory of a multiple-shooting solver with these post-event nodes: the node before each is its
+// pre-event node, at the same time.
+std::vector<AnnotatedTime> annotatedTimes(const scalar_array_t& times, const size_array_t& postEventIndices) {
+  std::vector<AnnotatedTime> annotated;
+  for (size_t k = 0; k < times.size(); ++k) {
+    AnnotatedTime::Event event = AnnotatedTime::Event::None;
+    for (const size_t postEventIndex : postEventIndices) {
+      if (postEventIndex == k) {
+        event = AnnotatedTime::Event::PostEvent;
+      } else if (postEventIndex == k + 1) {
+        event = AnnotatedTime::Event::PreEvent;
+      }
+    }
+    annotated.emplace_back(times[k], event);
+  }
+  return annotated;
+}
+
+// The solution of the SQP on `shape.stateManifold`, from its time trajectory, states and mode schedule: random inputs
+// and tangent gains for every node but the last, as the QP gives them.
+PrimalSolution manifoldLinearSolution(std::mt19937& generator, const PolicyShape& shape, PrimalSolution solution) {
+  CHECK(shape.stateManifold != nullptr) << "a MANIFOLD_LINEAR policy needs PolicyShape::stateManifold";
+  CHECK_GE(shape.nodes, size_t{2}) << "a MANIFOLD_LINEAR policy has an input and a gain on every node but the last";
+  vector_array_t inputs;
+  matrix_array_t gains;
+  for (size_t k = 0; k + 1 < shape.nodes; ++k) {
+    inputs.push_back(randomVector(generator, shape.inputDim));
+    gains.push_back(randomMatrix(generator, shape.inputDim, shape.stateManifold->getTangentDim()));
+  }
+  return multiple_shooting::toPrimalSolution(annotatedTimes(solution.timeTrajectory_, solution.postEventIndices_),
+                                             std::move(solution.modeSchedule_), std::move(solution.stateTrajectory_), std::move(inputs),
+                                             std::move(gains), shape.stateManifold);
+}
+
 }  // namespace
+
+std::shared_ptr<const StateManifold> toyStateManifold() {
+  absl::StatusOr<std::shared_ptr<const ProductStateManifold>> manifold = ProductStateManifold::create(
+      {StateManifoldSegment::euclidean(3), StateManifoldSegment::unitQuaternion(), StateManifoldSegment::euclidean(5)});
+  CHECK_OK(manifold.status());
+  return *std::move(manifold);
+}
+
+vector_t randomManifoldState(std::mt19937& generator, const StateManifold& manifold) {
+  vector_t state = randomVector(generator, manifold.getAmbientDim());
+  manifold.project(state);
+  return state;
+}
 
 vector_t randomVector(std::mt19937& generator, size_t size) {
   std::normal_distribution<scalar_t> value(/*mean=*/0.0, /*stddev=*/10.0);
@@ -153,7 +207,8 @@ PrimalSolution randomPrimalSolution(std::mt19937& generator, const PolicyShape& 
       time += step(generator);
     }
     solution.timeTrajectory_.push_back(time);
-    solution.stateTrajectory_.push_back(randomVector(generator, shape.stateDim));
+    solution.stateTrajectory_.push_back(shape.stateManifold == nullptr ? randomVector(generator, shape.stateDim)
+                                                                       : randomManifoldState(generator, *shape.stateManifold));
     solution.inputTrajectory_.push_back(randomVector(generator, shape.inputDim));
   }
 
@@ -168,6 +223,9 @@ PrimalSolution randomPrimalSolution(std::mt19937& generator, const PolicyShape& 
   solution.postEventIndices_ = std::move(postEventIndices);
   solution.modeSchedule_ = ModeSchedule(std::move(eventTimes), std::move(modeSequence));
 
+  if (shape.controllerType == ControllerType::MANIFOLD_LINEAR) {
+    return manifoldLinearSolution(generator, shape, std::move(solution));
+  }
   if (shape.controllerType == ControllerType::LINEAR) {
     vector_array_t bias;
     matrix_array_t gain;

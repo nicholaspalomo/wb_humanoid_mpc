@@ -99,6 +99,18 @@ def _header_joint_names(content: str) -> list:
     return re.findall(r'"([^"]+)"', match.group(1)) if match else []
 
 
+def _quaternion_rate_matrix(xi: jnp.ndarray) -> jnp.ndarray:
+    """G(xi), with xi (x) (omega, 0) = G(xi) omega for quaternion coefficients (x, y, z, w)."""
+    return jnp.array(
+        [
+            [xi[3], -xi[2], xi[1]],
+            [xi[2], xi[3], -xi[0]],
+            [-xi[1], xi[0], xi[3]],
+            [-xi[0], -xi[1], -xi[2]],
+        ]
+    )
+
+
 def _run_notebook(path: str, overrides: dict) -> dict:
     """Executes a notebook's code cells in order in one namespace, the way Run All would.
 
@@ -164,16 +176,95 @@ class TestAcomPipeline(unittest.TestCase):
         jac = self.model.jacobian_qj(self.params, q_j)
         self.assertEqual(jac.shape, (3, self.in_dim))
 
-        # Full aCOM pose: [pos(3), rpy(3), q_j(6)]
-        q_full = jnp.zeros((3 + 3 + self.in_dim,))
-        acom_pose = self.model.full_acom_pose(self.params, q_full)
-        self.assertEqual(acom_pose.shape, (3,))
+        # The ACoM attitude: a unit quaternion (x, y, z, w).
+        xi = models.quaternion_exp(jnp.array([0.2, -0.4, 1.1]))
+        attitude = self.model.acom_attitude(self.params, xi, q_j)
+        self.assertEqual(attitude.shape, (4,))
+        np.testing.assert_allclose(jnp.linalg.norm(attitude), 1.0, atol=1e-6)
 
-        acom_jac = self.model.full_acom_jacobian(self.params, q_full)
-        self.assertEqual(acom_jac.shape, (3, 6 + self.in_dim))
-        # Check base linear velocity block is zero and angular velocity block is identity
-        np.testing.assert_allclose(acom_jac[:, :3], np.zeros((3, 3)))
-        np.testing.assert_allclose(acom_jac[:, 3:6], np.eye(3))
+        # Its tangent Jacobian: columns (body rotation of the base, joints).
+        tangent = self.model.acom_attitude_tangent_jacobian(self.params, q_j)
+        self.assertEqual(tangent.shape, (3, 3 + self.in_dim))
+
+    def test_acom_attitude_composes_the_base_with_the_joint_rotation(self):
+        """xi_a = xi_hat (x) Exp(Delta_theta), so a rotation of the whole robot rotates the ACoM one for one."""
+        q_j = jnp.linspace(-0.8, 0.9, self.in_dim)
+        delta_theta = self.model.forward(self.params, q_j)
+        identity = jnp.array([0.0, 0.0, 0.0, 1.0])
+        np.testing.assert_allclose(
+            self.model.acom_attitude(self.params, identity, q_j),
+            models.quaternion_exp(delta_theta),
+            atol=1e-6,
+        )
+        xi = models.quaternion_exp(jnp.array([0.3, 0.1, -0.7]))
+        turn = models.quaternion_exp(jnp.array([-0.5, 0.2, 2.4]))
+        np.testing.assert_allclose(
+            self.model.acom_attitude(
+                self.params, models.quaternion_product(turn, xi), q_j
+            ),
+            models.quaternion_product(
+                turn, self.model.acom_attitude(self.params, xi, q_j)
+            ),
+            atol=1e-6,
+        )
+        # The scale of xi does not matter.
+        np.testing.assert_allclose(
+            self.model.acom_attitude(self.params, 3.0 * xi, q_j),
+            self.model.acom_attitude(self.params, xi, q_j),
+            atol=1e-6,
+        )
+
+    def test_acom_attitude_tangent_jacobian_is_the_derivative_of_the_attitude(self):
+        """The two blocks are R(Delta_theta)^T and J_r(Delta_theta) J_Delta_theta, the derivative of the attitude.
+
+        A body perturbation dphi_a of the attitude moves its coefficients by
+        1/2 G(xi_a) dphi_a, so jax.jacobian of the attitude with respect to a
+        body rotation of the base, and with respect to the joints, is
+        1/2 G(xi_a) times each block. The base block is a rotation, not the
+        identity of the additive Euler rule.
+        """
+        q_j = jnp.linspace(-0.8, 0.9, self.in_dim)
+        xi = models.quaternion_exp(jnp.array([0.3, 0.1, -0.7]))
+        attitude = self.model.acom_attitude(self.params, xi, q_j)
+        tangent = self.model.acom_attitude_tangent_jacobian(self.params, q_j)
+        rate_matrix = 0.5 * _quaternion_rate_matrix(attitude)
+
+        def attitude_of_rotated_base(dphi: jnp.ndarray) -> jnp.ndarray:
+            rotated = models.quaternion_product(xi, models.quaternion_exp(dphi))
+            return self.model.acom_attitude(self.params, rotated, q_j)
+
+        base_derivative = jax.jacobian(attitude_of_rotated_base)(jnp.zeros((3,)))
+        np.testing.assert_allclose(
+            base_derivative, jnp.dot(rate_matrix, tangent[:, :3]), atol=1e-5
+        )
+        joint_derivative = jax.jacobian(
+            lambda joints: self.model.acom_attitude(self.params, xi, joints)
+        )(q_j)
+        np.testing.assert_allclose(
+            joint_derivative, jnp.dot(rate_matrix, tangent[:, 3:]), atol=1e-4
+        )
+
+        delta_theta = self.model.forward(self.params, q_j)
+        np.testing.assert_allclose(
+            tangent[:, :3],
+            models.quaternion_rotation_matrix(models.quaternion_exp(delta_theta)).T,
+            atol=1e-6,
+        )
+        np.testing.assert_allclose(
+            jnp.dot(tangent[:, :3].T, tangent[:, :3]), np.eye(3), atol=1e-5
+        )
+        self.assertGreater(float(jnp.max(jnp.abs(tangent[:, :3] - jnp.eye(3)))), 1e-4)
+
+    def test_so3_right_jacobian_matches_the_exponential(self):
+        """Exp(phi + d) = Exp(phi) (x) Exp(J_r(phi) d) to first order, on both sides of the series threshold."""
+        for phi in (jnp.array([0.02, -0.03, 0.01]), jnp.array([0.4, -1.1, 0.7])):
+            rate_matrix = 0.5 * _quaternion_rate_matrix(models.quaternion_exp(phi))
+            derivative = jax.jacobian(models.quaternion_exp)(phi)
+            np.testing.assert_allclose(
+                derivative,
+                jnp.dot(rate_matrix, models.so3_right_jacobian(phi)),
+                atol=1e-5,
+            )
 
     def test_training_convergence_on_synthetic_data(self):
         """Verifies that JAX training converges on a synthetic linear/sinusoidal CMM."""

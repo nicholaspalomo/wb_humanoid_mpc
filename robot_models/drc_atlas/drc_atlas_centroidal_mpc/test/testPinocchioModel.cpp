@@ -50,6 +50,7 @@ Contact:  manuel.galliker@1x.tech
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_robotic_tools/common/RotationTransforms.h"
 #include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
 #include "pinocchio/multibody/data.hpp"
 #include "pinocchio/multibody/model.hpp"
@@ -72,8 +73,18 @@ namespace {
 // Relative to the repository root.
 constexpr absl::string_view kUrdfFile = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
 constexpr absl::string_view kTaskFile = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.textproto";
-constexpr int kStateDim = 34;
 constexpr double kNominalBaseHeight = 0.8415;
+
+/**
+ * The neutral configuration of `model` (pinocchio::neutral(): the base at the origin, upright, with the identity
+ * quaternion of the Composite(Translation, Spherical) root, and every joint at zero) with the base raised to `baseHeight`.
+ */
+Eigen::VectorXd neutralConfigurationAtHeight(const pinocchio::Model& model, double baseHeight) {
+  Eigen::VectorXd q = pinocchio::neutral(model);
+  // The root joint (joint 1, after the universe) starts its configuration with the base position (x, y, z).
+  q[model.joints[1].idx_q() + 2] = baseHeight;
+  return q;
+}
 
 /** The entries of `values`, each with `precision` decimals. */
 std::string formatFixed(const Eigen::Ref<const Eigen::VectorXd>& values, int precision) {
@@ -157,8 +168,7 @@ int printModels() {
   printModelDimensionality(pinocchioInterface);
   printJointNames(pinocchioInterface);
 
-  Eigen::VectorXd q = Eigen::VectorXd::Zero(kStateDim);
-  q[2] = kNominalBaseHeight;
+  const Eigen::VectorXd q = neutralConfigurationAtHeight(pinocchioInterface.getModel(), kNominalBaseHeight);
   computeForwardKinematics(pinocchioInterface, q);
   printFrameRotation(pinocchioInterface, q, /*frameName=*/"foot_l_contact");
   printFrameRotation(pinocchioInterface, q, /*frameName=*/"foot_r_contact");

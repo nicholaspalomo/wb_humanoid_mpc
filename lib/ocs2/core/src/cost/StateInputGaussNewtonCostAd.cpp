@@ -94,4 +94,22 @@ ScalarFunctionQuadraticApproximation StateInputCostGaussNewtonAd::getQuadraticAp
   return L;
 }
 
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+VectorFunctionLinearApproximation StateInputCostGaussNewtonAd::getCostVectorLinearApproximation(
+    scalar_t time, const vector_t& state, const vector_t& input, const TargetTrajectories& targetTrajectories,
+    const PreComputation& preComputation) const {
+  vector_t timeStateInput(1 + state.rows() + input.rows());
+  timeStateInput << time, state, input;
+  const vector_t parameters = getParameters(time, targetTrajectories, preComputation);
+  // The Jacobian's first column is the time's.
+  const matrix_t jacobian = adInterfacePtr_->getJacobian(timeStateInput, parameters);
+  VectorFunctionLinearApproximation costVector;
+  costVector.f = adInterfacePtr_->getFunctionValue(timeStateInput, parameters);
+  costVector.dfdx = jacobian.middleCols(1, state.rows());
+  costVector.dfdu = jacobian.rightCols(input.rows());
+  return costVector;
+}
+
 }  // namespace ocs2

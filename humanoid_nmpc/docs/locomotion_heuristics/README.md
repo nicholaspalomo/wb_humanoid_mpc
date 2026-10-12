@@ -130,13 +130,13 @@ consequences follow, and the whole design leans on them:
 
 **(A) is the one definition of the shaped base pose,** `SwitchedModelReferenceManager::shapeBasePose()`, and every
 cost that regularizes the base pose calls it: `StateQuadraticCost` and `StateInputQuadraticCost` through
-`getDesiredState()`, the terminal cost (`BasePoseShapedQuadraticStateCost`, a `QuadraticStateCost` whose deviation is
-taken from the shaped pose) and the torso task-space cost (`EndEffectorKinematicsQuadraticCost`, handed the reference
+`getDesiredState()`, the terminal cost (`BasePoseShapedQuadraticStateCost`, a `TuningQuadraticStateCost` whose
+`TuningLayoutDeviation` is taken against the shaped pose) and the torso task-space cost (`EndEffectorKinematicsQuadraticCost`, handed the reference
 manager). A term left on the unshaped pose would pull against the others: `final_state_weights`, scaled by `terminal_cost_scaling`
 on one node, outweighs a whole horizon of running base-pose weight, and the torso's orientation weights of 100 against
 `state_weights`' 5 would cancel most of a lean on R1, whose torso has no pitch joint of its own. The context is built from the
 operator's COMMANDED velocity, `getCommandedVelocity()`, not from the target's momentum channel, which the contact
-planner's `planned_com_override` rewrites with the plan's swaying CoM velocity. Shaping the `TargetTrajectories` instead would fail three ways: it has three knots over the whole horizon, so
+planner's `planned_com_override` rewrites with the plan's swaying CoM velocity. Shaping the `TargetTrajectories` instead would fail three ways: its knots over the whole horizon are placed by the command (three on a straight walk, a few more on a turning one), so
 a limit cycle at gait frequency (`periodic_orientation`, roughly 2 Hz over a 1 s horizon) is unrepresentable; it is
 published one solve ahead of the solver that consumes it; and it is also what the operator's own delta-pose commands
 are measured against, so shaping it would make the commanded pose drift away from what was asked for. There is a
@@ -149,7 +149,14 @@ foot task-space cost. That cost switches its $x,y$ position weights **on** preci
 re-evaluated at every solve with the latest measurement, so it has to be a **landmark**: the anchor is the base
 *predicted at touch-down* — measured at the solve and carried forward by the command — so the target the foot is
 steered towards does not move while it swings. (An anchor carried forward only over the time *remaining* until
-touch-down shrinks to nothing as the swing ends, and slid the target backwards through every swing.) One
+touch-down shrinks to nothing as the swing ends, and slid the target backwards through every swing.) The command
+carries it along the arc of a constant body twist, $\Delta p = \Delta t\,\mathrm{sinc}(\theta/2)\,R_z(\theta/2)\,\bar v$
+with $\theta = \bar\omega\Delta t$ and $\bar v = (v_0 + R_z(-\theta)v_1)/2$ the mean of the target's command at the
+solve and at touch-down seen from the frame that turns with it (`SwitchedModelReferenceManager::commandedPoseChange()`):
+exact for a turning velocity command, whose knots lie on that arc, and the trapezoid where the command does not turn;
+the trapezoid of the two world velocities it was fell short of a turn's arc by
+$|v|\Delta t\,(\mathrm{sinc}(\theta/2) - \cos(\theta/2)) \approx |v|\Delta t\,\theta^2/12$, 5.6 cm at 0.41 m/s and
+0.8 rad/s over 1.38 s. One
 addition inside `nominalFoothold()` therefore reaches the position reference, the velocity reference (the cubic's
 analytic rate falls out) and the swing-plane heading query, with no other edit anywhere.
 
@@ -335,7 +342,9 @@ The clamp is not defensive trimming. The command this reads is filtered but not 
 applied to it has no bound of its own; a reference tilt the legs cannot reach is worse than no reference at all,
 because the state cost pulls towards it at every node and the solver spends iterations on a target it cannot have.
 
-Sign note: the base pose is Euler ZYX about a z-up world, in which a **positive** pitch rotates the body's $+x$ axis
+Sign note: the seam edits the base pose as Euler ZYX angles about a z-up world (the robot model's Euler boundary
+accessors; the state holds a unit quaternion, humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 2.9),
+in which a **positive** pitch rotates the body's $+x$ axis
 towards $-z$ — it puts the nose **down**. Leaning into a forward command is therefore a *positive*
 `pitch_per_forward_velocity`, which is also the sign of Bledt's own fitted $+0.0725$ rad per m/s.
 
@@ -355,8 +364,8 @@ The value of the fit is not its accuracy but that its four numbers *mean* someth
 amplitude, a frequency and a phase. Bledt's own $c_1 \approx 12.566 \approx 4\pi$ recovers the trot's two
 complementary diagonal pairs per gait cycle, which is a check that the fit found the physics rather than the data.
 
-**This is the heuristic that could not be expressed by shaping the target trajectory**, whose three knots over a
-one-second horizon would sample two or three whole periods and interpolate linearly between them. It only works at the
+**This is the heuristic that could not be expressed by shaping the target trajectory**, whose knots over a
+one-second horizon, placed by the command (three on a straight walk), would sample two or three whole periods and interpolate linearly between them. It only works at the
 per-node seam. $\Phi$ comes from `getPhaseVariable(t)` and runs over $[0,1)$ for one left–right cycle, so
 $c_1 = 2\pi$ is one period per cycle and $c_1 = 4\pi$ one per step; it **freezes** at 0 or 0.5 through double support
 rather than advancing, so the offset is held constant there instead of continuing its cycle. Phase $[0, 0.5)$ is the
@@ -434,7 +443,8 @@ heuristic exists to remove. The lateral rate term is unsigned because it transla
 is what a turn with a radius does; the lateral *constant* is signed, and that is the one that opens or closes the
 stance.
 
-$\dot\psi$ is the **commanded** yaw rate, recovered by inverting the angular channel of the target's momentum,
+$\dot\psi$ is the **commanded** yaw rate, read from the target knot through the robot model
+(`getTargetPlanarCommand()`): on the centroidal model by inverting the angular channel of the target's momentum,
 $h_z = I_{zz}\dot\psi / m$, with the composite yaw inertia latched per solve. The target's base *yaw* is not usable:
 it blends the measured heading over its first stretch and the planned-heading override rewrites it, so differentiating
 it would recover the reference's own smoothing rather than the operator's command.
@@ -606,7 +616,7 @@ SA01 is the easier robot of the two to start on, and the contrast is instructive
 | Foothold heuristic with `contact_schedule_source: "contact_planner"` | **Error** — the planner supplies footholds itself and never consults these, so it would be silently inert; they are the analytic *alternative* to it |
 | `hip_centered_stepping` listed alone, or omitted while others are listed | **Warning** — neither half of Bledt's sum is a configuration he validates |
 | `centripetal_acceleration` with `contact_input_parameterization: "basis_vectors"` | **Warning** — the reference moves onto the forward-kinematics path; watch the solve time |
-| A list entry that is not a string, a list written as a block, or a value that is not a number | **Error** from the strict parser, naming the file, the line and the column — the YAML loader once read such a typo as an empty list, a silently inert configuration |
+| A list entry that is not a string, a list written as a block, or a value that is not a number | **Error** from the strict parser, naming the file, the line and the column — read as an empty list, such a typo would leave the configuration silently inert |
 | A foothold heuristic without `hip_centered_stepping` on a robot whose `nominal_foothold.step_width` is 0 | **Error** — nothing would keep the feet apart, and the swing foot would be aimed at the stance foot |
 | A base-pose heuristic with `com_and_acom_tracking_cost` in `costs` | **Warning** — the factory zeroes the base-pose block of `state_weights` and `final_state_weights`; it would do nothing |
 | A foothold heuristic with `task_space_foot_cost.weights.pos_x` and `pos_y` both 0, or the foot cost unlisted | **Warning** — nothing tracks the landing target; it would not move the feet |
@@ -649,9 +659,10 @@ controller exactly as it was.
 
 The layer is built and installed by `CentroidalMpcInterface::setupLocomotionHeuristics()`, and `WBMpcInterface` has no
 counterpart — nothing in the **whole-body** path reads a `locomotion_heuristics` block. The whole-body task file
-therefore carries a comment saying so rather than a block that would be silently inert. Two things stand between here
-and supporting it: the commanded yaw rate the foothold and wrench heuristics read is recovered by inverting the
-*centroidal* state's angular-momentum channel, and the whole-body state has no such channel. The parameter updater
+therefore carries a comment saying so rather than a block that would be silently inert. The commanded yaw rate and
+velocity the foothold and wrench heuristics read no longer stand in the way: the reference manager reads them through
+the robot model's `getTargetPlanarCommand()`, which a whole-body knot answers from its base twist (the defect fix D3 of
+humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 4.7). The parameter updater
 that hot-reloads the coefficients is shared by both formulations; only the centroidal one registers the
 `LocomotionHeuristicsApplier` (the schema marks the block `formulations: "centroidal"`, so the tuning GUI labels it not
 applicable on a whole-body file). The base-pose seam itself is in the shared reference manager and would work

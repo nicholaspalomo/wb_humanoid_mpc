@@ -111,7 +111,7 @@ class MpcParameterUpdaterModuleTest : public ::testing::Test {
                                      error);
     ASSERT_FALSE(error) << error.message();
     ReferenceManager referenceManager;
-    const vector_t state = vector_t::Zero(testingModelInterface_.getMpcRobotModel().getStateDim());
+    const vector_t state = testingModelInterface_.getMpcRobotModel().getNeutralState();
     // The file is polled once every hundred pre-solve hooks.
     for (int i = 0; i < 150; ++i) updater.preSolverRun(/*initTime=*/0.0, /*finalTime=*/0.01, state, referenceManager);
   }
@@ -127,7 +127,7 @@ TEST_F(MpcParameterUpdaterModuleTest, testFileWatcher) {
   ASSERT_NE(updater, nullptr);
 
   ReferenceManager referenceManager;
-  vector_t state = vector_t::Zero(testingModelInterface_.getMpcRobotModel().getStateDim());
+  vector_t state = testingModelInterface_.getMpcRobotModel().getNeutralState();
 
   // Call it a few times, it shouldn't trigger anything since file hasn't changed.
   for (int i = 0; i < 150; ++i) {

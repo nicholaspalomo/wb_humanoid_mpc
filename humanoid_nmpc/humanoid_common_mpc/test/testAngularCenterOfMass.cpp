@@ -27,6 +27,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdlib>
 #include <iterator>
@@ -42,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/acom/AcomSirenWeightsAtlas.h"
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
+#include "humanoid_common_mpc/orientation/BaseOrientation.h"
 
 namespace ocs2::humanoid {
 
@@ -50,6 +53,16 @@ namespace {
 /// Seed for Eigen's Random, so a marginal finite-difference failure is
 /// reproducible instead of flaky.
 constexpr unsigned int kRandomSeed = 0;
+
+/** A unit quaternion of the rotation by `angle` about the unit axis `axis`, as coefficients (x, y, z, w). */
+vector4_t rotationAbout(const vector3_t& axis, scalar_t angle) {
+  return quaternionExp(vector3_t(angle * axis.normalized()));
+}
+
+/** The body rotation vector Log(a^-1 (x) b) that takes the unit quaternion a to b. */
+vector3_t bodyRotationBetween(const vector4_t& a, const vector4_t& b) {
+  return quaternionLog(quaternionProduct(quaternionConjugate(a), b));
+}
 
 }  // namespace
 
@@ -133,50 +146,87 @@ TEST_F(AngularCenterOfMassTest, AnalyticalJacobianMatchesFiniteDifference) {
 }
 
 /**
- * Verifies the full ACoM orientation has the correct equivariance property in the
- * centroidal state's ZYX Euler convention:
- * theta_aCOM(q) = euler_zyx_base + P * Delta_theta(q_joints).
+ * The ACoM attitude is the base orientation composed with the network's rotation, xi_a = xi_hat (x) Exp(Delta_theta):
+ * a unit quaternion, read through the safe normalization of xi (any positive scale gives the same attitude), in the
+ * hemisphere of xi.
  */
-TEST_F(AngularCenterOfMassTest, FullAcomOrientationEquivariance) {
-  const size_t inputDim = acomPtr_->getInputDim();
-  // q = [pos_base(3), euler_zyx_base(3), q_joints(n_j)]
-  vector_t q = vector_t::Random(6 + inputDim);
+TEST_F(AngularCenterOfMassTest, AcomAttitudeIsTheBaseComposedWithTheJointRotation) {
+  const vector_t qJoints = vector_t::Random(static_cast<Eigen::Index>(acomPtr_->getInputDim()));
+  const vector4_t xi = rotationAbout(vector3_t(0.3, -0.5, 0.8), /*angle=*/1.1);
+  const vector3_t offset = acomPtr_->computeJointOrientationOffset(qJoints);
+  ASSERT_GT(offset.norm(), 1.0e-3) << "the joints must rotate the ACoM for this to tell it from the base";
 
-  const vector3_t eulerZyxBase = q.segment<3>(3);
-  const vector3_t deltaThetaZyx = acomXyzToZyx(acomPtr_->computeJointOrientationOffset(q.tail(inputDim)));
-
-  EXPECT_TRUE(acomPtr_->computeAcomOrientation(q).isApprox(eulerZyxBase + deltaThetaZyx, 1.0e-12))
-      << "ACoM orientation does not satisfy theta_aCOM = euler_zyx_base + P * Delta_theta(q_j).";
-
-  // Translating the base must leave the orientation untouched.
-  vector_t qTranslated = q;
-  qTranslated.head<3>() += vector3_t(1.0, -2.0, 0.5);
-  EXPECT_TRUE(acomPtr_->computeAcomOrientation(qTranslated).isApprox(acomPtr_->computeAcomOrientation(q), 1.0e-15));
+  const vector4_t attitude = acomPtr_->acomAttitude(xi, qJoints);
+  EXPECT_LT((attitude - quaternionProduct(xi, quaternionExp(offset))).norm(), 1.0e-15);
+  EXPECT_NEAR(attitude.norm(), 1.0, 1.0e-15);
+  EXPECT_LT((acomPtr_->acomAttitude(2.5 * xi, qJoints) - attitude).norm(), 1.0e-15) << "the scale of xi must not matter";
+  EXPECT_EQ(acomPtr_->acomAttitude(-xi, qJoints), -attitude) << "-xi is the same rotation, in the other hemisphere";
+  // At the identity base the ACoM is the network's rotation itself.
+  EXPECT_LT((acomPtr_->acomAttitude(vector4_t(0.0, 0.0, 0.0, 1.0), qJoints) - quaternionExp(offset)).norm(), 1.0e-15);
 }
 
 /**
- * Verifies the full ACoM Jacobian structure:
- * J_aCOM = [0_(3x3), I_(3x3), J_Delta_theta_(3xn_j)].
+ * A rotation of the whole robot rotates the ACoM one for one, whatever the joints: xi_a(q (x) xi) = q (x) xi_a(xi). This
+ * is the floating-base equivariance the additive Euler rule only had to first order away from a level base.
  */
-TEST_F(AngularCenterOfMassTest, FullAcomJacobianStructure) {
-  const size_t inputDim = acomPtr_->getInputDim();
-  vector_t q = vector_t::Random(6 + inputDim);
+TEST_F(AngularCenterOfMassTest, AWholeBodyRotationRotatesTheAcomOneForOne) {
+  const vector_t qJoints = vector_t::Random(static_cast<Eigen::Index>(acomPtr_->getInputDim()));
+  const vector4_t xi = rotationAbout(vector3_t(0.1, 0.9, -0.2), /*angle=*/0.7);
+  const std::array<vector4_t, 2> rotations = {rotationAbout(vector3_t::UnitZ(), /*angle=*/2.9),
+                                              rotationAbout(vector3_t(1.0, -1.0, 0.5), /*angle=*/1.3)};
+  for (const vector4_t& rotation : rotations) {
+    EXPECT_LT((acomPtr_->acomAttitude(quaternionProduct(rotation, xi), qJoints) -
+               quaternionProduct(rotation, acomPtr_->acomAttitude(xi, qJoints)))
+                  .norm(),
+              1.0e-14);
+  }
+}
 
-  matrix_t J_acom = acomPtr_->computeAcomJacobian(q);
-  EXPECT_EQ(J_acom.rows(), 3);
-  EXPECT_EQ(J_acom.cols(), static_cast<int>(6 + inputDim));
+/**
+ * The two blocks of the tangent Jacobian are the adjoint R(Delta_theta)^T on the base and the right Jacobian of SO(3)
+ * times the network's joint Jacobian on the joints.
+ */
+TEST_F(AngularCenterOfMassTest, TangentJacobianBlocksAreTheAdjointAndTheRightJacobian) {
+  const vector_t qJoints = vector_t::Random(static_cast<Eigen::Index>(acomPtr_->getInputDim()));
+  const vector3_t offset = acomPtr_->computeJointOrientationOffset(qJoints);
+  const AcomAttitudeTangentJacobian jacobian = acomPtr_->acomAttitudeTangentJacobian(qJoints);
+  // Bit for bit: the one-pass evaluation reproduces computeJointOrientationOffset()'s operations.
+  EXPECT_EQ(jacobian.baseOrientation, matrix3_t(quaternionRotationMatrix(quaternionExp(offset)).transpose()));
+  ASSERT_EQ(jacobian.jointAngles.rows(), 3);
+  ASSERT_EQ(jacobian.jointAngles.cols(), static_cast<Eigen::Index>(acomPtr_->getInputDim()));
+  EXPECT_LT((jacobian.jointAngles - so3RightJacobian(offset) * acomPtr_->computeJointOffsetJacobian(qJoints)).norm(), 1.0e-14);
+}
 
-  // Base position block must be zero: translating the base does not rotate it.
-  EXPECT_TRUE((J_acom.block<3, 3>(0, 0).isZero(1.0e-15))) << "Base position block is not zero.";
+/**
+ * The tangent Jacobian is the derivative of the attitude: a body rotation dphi of the base moves the ACoM by
+ * R(Delta_theta)^T dphi in its own frame, exactly, and a joint step by J_r J_Delta_theta dq to first order. Checked by
+ * central differences of the body rotation between the perturbed and the unperturbed attitude.
+ */
+TEST_F(AngularCenterOfMassTest, TangentJacobianMatchesFiniteDifferencesOfTheAttitude) {
+  const Eigen::Index inputDim = static_cast<Eigen::Index>(acomPtr_->getInputDim());
+  const vector_t qJoints = vector_t::Random(inputDim);
+  const vector4_t xi = rotationAbout(vector3_t(-0.4, 0.2, 0.9), /*angle=*/2.2);
+  const vector4_t attitude = acomPtr_->acomAttitude(xi, qJoints);
+  const AcomAttitudeTangentJacobian jacobian = acomPtr_->acomAttitudeTangentJacobian(qJoints);
+  constexpr scalar_t kStep = 1.0e-6;
 
-  // Base orientation block must be identity, since theta_aCOM is the base Euler
-  // triple plus a joint-only offset.
-  EXPECT_TRUE((J_acom.block<3, 3>(0, 3).isApprox(matrix_t::Identity(3, 3), 1.0e-15))) << "Base orientation block is not identity.";
-
-  // Joint block must equal the standalone joint Jacobian, reordered to ZYX.
-  const matrix_t J_delta_zyx = acomJacobianXyzToZyx(acomPtr_->computeJointOffsetJacobian(q.tail(inputDim)));
-  EXPECT_TRUE(J_acom.block(0, 6, 3, inputDim).isApprox(J_delta_zyx, 1.0e-15))
-      << "Joint block of full Jacobian does not match the reordered standalone Jacobian.";
+  for (Eigen::Index axis = 0; axis < 3; ++axis) {
+    const vector3_t step = kStep * vector3_t::Unit(axis);
+    const vector3_t plus = bodyRotationBetween(attitude, acomPtr_->acomAttitude(quaternionProduct(xi, quaternionExp(step)), qJoints));
+    const vector3_t minus =
+        bodyRotationBetween(attitude, acomPtr_->acomAttitude(quaternionProduct(xi, quaternionExp(vector3_t(-step))), qJoints));
+    EXPECT_LT(((plus - minus) / (2.0 * kStep) - jacobian.baseOrientation.col(axis)).norm(), 1.0e-8) << "base axis " << axis;
+  }
+  const scalar_t scale = std::max(1.0, jacobian.jointAngles.cwiseAbs().maxCoeff());
+  for (Eigen::Index joint = 0; joint < inputDim; ++joint) {
+    vector_t plusJoints = qJoints;
+    vector_t minusJoints = qJoints;
+    plusJoints(joint) += kStep;
+    minusJoints(joint) -= kStep;
+    const vector3_t plus = bodyRotationBetween(attitude, acomPtr_->acomAttitude(xi, plusJoints));
+    const vector3_t minus = bodyRotationBetween(attitude, acomPtr_->acomAttitude(xi, minusJoints));
+    EXPECT_LT(((plus - minus) / (2.0 * kStep) - jacobian.jointAngles.col(joint)).norm(), 1.0e-5 * scale) << "joint " << joint;
+  }
 }
 
 /** Verifies that loadWeights rejects an incorrect number of layers and leaves the loaded network as it was. */
@@ -212,6 +262,13 @@ TEST_F(AngularCenterOfMassDeathTest, RejectsWrongJointVectorSize) {
   EXPECT_DEATH(acomPtr_->computeJointOrientationOffset(tooLong), "wrong number of joint positions");
   EXPECT_DEATH(acomPtr_->computeJointOffsetJacobian(tooShort), "wrong number of joint positions");
   EXPECT_DEATH(acomPtr_->computeJointOffsetJacobian(tooLong), "wrong number of joint positions");
+}
+
+/** The attitude and its tangent Jacobian go through the same joint-vector guard as the network. */
+TEST_F(AngularCenterOfMassDeathTest, TheAttitudeRejectsAWrongJointVectorSize) {
+  const vector_t tooShort = vector_t::Zero(static_cast<Eigen::Index>(acomPtr_->getInputDim() - 1));
+  EXPECT_DEATH(acomPtr_->acomAttitude(vector4_t(0.0, 0.0, 0.0, 1.0), tooShort), "wrong number of joint positions");
+  EXPECT_DEATH(acomPtr_->acomAttitudeTangentJacobian(tooShort), "wrong number of joint positions");
 }
 
 /**

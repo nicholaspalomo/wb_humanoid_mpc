@@ -79,7 +79,6 @@ inline constexpr Rgba kOrange{.r = 0.8500f, .g = 0.3250f, .b = 0.0980f, .a = 1.0
 inline constexpr Rgba kYellow{.r = 0.9290f, .g = 0.6940f, .b = 0.1250f, .a = 1.0f};
 inline constexpr Rgba kPurple{.r = 0.4940f, .g = 0.1840f, .b = 0.5560f, .a = 1.0f};
 inline constexpr Rgba kGreen{.r = 0.4660f, .g = 0.6740f, .b = 0.1880f, .a = 1.0f};
-inline constexpr Rgba kRed{.r = 0.6350f, .g = 0.0780f, .b = 0.1840f, .a = 1.0f};
 /** Contact i (and plan frame i) is drawn in kContactColors[i % 5]: left foot purple, right foot orange. */
 inline constexpr std::array<Rgba, 5> kContactColors = {kPurple, kOrange, kBlue, kGreen, kYellow};
 // clang-format off

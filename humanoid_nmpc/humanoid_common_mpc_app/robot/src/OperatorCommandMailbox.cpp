@@ -65,7 +65,7 @@ using DodgeballThrow = robot::mujoco_sim_interface::MujocoSimInterface::Dodgebal
 
 constexpr double kLogPeriodSeconds = 5.0;
 // LINT.IfChange(gantry_height_limits)
-/// [m] The gantry heights the walking command's desired_pelvis_height is clamped to, as the ROS FSM bridge did.
+/// [m] The gantry heights the walking command's desired_pelvis_height is clamped to.
 constexpr double kMinGantryHeight = 0.2;
 constexpr double kMaxGantryHeight = 1.5;
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:operator_mailbox)
@@ -176,7 +176,7 @@ std::optional<double> OperatorCommandMailbox::desiredGantryHeight() const {
 
 void OperatorCommandMailbox::onFsmCommand(const humanoid_mpc_msgs::FsmCommand& message) {
   if (message.command().empty()) {
-    return;  // no command, as the ROS FSM bridge treated an empty string
+    return;  // an empty string is no command
   }
   if (message.sequence() != 0 && haveFsmSequence_ && message.sequence() == lastFsmSequence_) {
     fsmCommandsRepeated_.fetch_add(1);
@@ -206,7 +206,7 @@ void OperatorCommandMailbox::onJointTargets(const humanoid_mpc_msgs::JointTarget
   for (const google::protobuf::Map<std::string, double>::value_type& entry : message.positions()) {
     const absl::flat_hash_map<std::string, size_t>::const_iterator joint = jointIndexByName_.find(entry.first);
     if (joint == jointIndexByName_.end()) {
-      continue;  // a joint of another robot, as the ROS subscriber skipped it
+      continue;  // a joint of another robot
     }
     if (!std::isfinite(entry.second)) {
       jointTargetsRejected_.fetch_add(1);

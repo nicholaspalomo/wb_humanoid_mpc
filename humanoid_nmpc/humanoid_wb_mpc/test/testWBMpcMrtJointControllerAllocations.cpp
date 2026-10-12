@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
+#include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/algorithm/rnea.hpp"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -94,7 +95,7 @@ void runModes(WBMpcMrtJointController& controller,
   for (const char* absl_nonnull mode : kModes) {
     const size_t before = robot::realtime::heapAllocationCountOnThisThread();
     for (int cycle = 0; cycle < kCyclesPerMode; ++cycle) {
-      // The whole-body controller takes the posture before the mode, as its sim did (CycleInputOrder).
+      // The whole-body controller takes the posture before the mode, as the robot process hands them (CycleInputOrder).
       controller.setNominalJointPositions(nominal);
       controller.setControlMode(mode);
       time += 0.002;
@@ -125,14 +126,17 @@ TEST(WBMpcMrtJointControllerAllocations, TheObservationThePassiveModesAndTheHold
   const std::vector<scalar_t> nominal(description.getNumJoints(), 0.1);
   scalar_t time = 0.0;
 
-  // Pinocchio's own allocations in one pass of the nonlinear effects, on a copy of the controller's model.
+  // Pinocchio's own allocations in one pass of the nonlinear effects, on a copy of the controller's model, at its neutral
+  // configuration (the identity orientation of the Composite(Translation, Spherical) root).
   PinocchioInterface probe = pinocchioInterface;
-  const vector_t q = vector_t::Zero(probe.getModel().nq);
+  const vector_t q = pinocchio::neutral(probe.getModel());
   const vector_t v = vector_t::Zero(probe.getModel().nv);
   pinocchio::nonLinearEffects(probe.getModel(), probe.getData(), q, v);
   const size_t before = robot::realtime::heapAllocationCountOnThisThread();
   pinocchio::nonLinearEffects(probe.getModel(), probe.getData(), q, v);
   const size_t perNonlinearEffects = robot::realtime::heapAllocationCountOnThisThread() - before;
+  // Re-measured with the root joint: reported, so that a change of Pinocchio's temporaries shows in the test's record.
+  RecordProperty("pinocchio_allocations_per_nonlinear_effects", static_cast<int>(perNonlinearEffects));
 
   runModes(controller, nominal, state, action, time);  // the first time through, sizing what sizes itself on first use
   const int eventsBefore = sink.posted.load();

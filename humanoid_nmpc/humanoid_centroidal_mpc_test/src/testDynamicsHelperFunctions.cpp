@@ -53,10 +53,12 @@ TEST(TestDynamicsHelperFunctions, computeContactCoP) {
   CentroidalTestingModelInterface testingModelInterface = CentroidalTestingModelInterface();
 
   PinocchioInterface pinocchioInterface = testingModelInterface.getPinocchioInterface();
-  size_t joint_dim = testingModelInterface.getMpcRobotModel().getJointDim();
-  vector_t q = vector_t::Zero(6 + joint_dim);
-  q[2] = 0.86566;
-  q.tail(joint_dim) = vector_t::Random(joint_dim);
+  const CentroidalMpcRobotModel<scalar_t>& model = testingModelInterface.getMpcRobotModel();
+  // q = [p_W, xi, q_j] of a level base (the identity quaternion) at standing height, the joints bent at random.
+  vector_t state = model.getNeutralState();
+  model.setBasePosition(state, vector3_t(0.0, 0.0, 0.86566));
+  model.setJointAngles(state, vector_t::Random(static_cast<Eigen::Index>(model.getJointDim())));
+  const vector_t q = model.getGeneralizedCoordinates(state);
 
   vector_t input = vector_t::Zero(testingModelInterface.getMpcRobotModel().getInputDim());
   testingModelInterface.getMpcRobotModel().setContactForce(input, vector3_t(0, 0, 100), /*contactIndex=*/0);
@@ -77,15 +79,12 @@ TEST(TestDynamicsHelperFunctions, computeContactCoPStateAwareOverloadMatchesInpu
   CentroidalMpcRobotModel<scalar_t>& model = testingModelInterface.getMpcRobotModel();
 
   PinocchioInterface pinocchioInterface = testingModelInterface.getPinocchioInterface();
-  const size_t joint_dim = model.getJointDim();
-  vector_t q = vector_t::Zero(6 + joint_dim);
-  q[2] = 0.86566;
-  q[3] = M_PI / 2.0;  // yawed base
-  q.tail(joint_dim) = vector_t::Random(joint_dim);
+  // A base yawed by 90 degrees at standing height, the joints bent at random.
+  vector_t state = model.getNeutralState();
+  model.setBasePoseEulerZyx(state, (vector6_t() << 0.0, 0.0, 0.86566, M_PI / 2.0, 0.0, 0.0).finished());
+  model.setJointAngles(state, vector_t::Random(static_cast<Eigen::Index>(model.getJointDim())));
+  const vector_t q = model.getGeneralizedCoordinates(state);
   updateFramePlacements<scalar_t>(q, pinocchioInterface);
-
-  vector_t state = vector_t::Zero(model.getStateDim());
-  model.setGeneralizedCoordinates(state, q);
 
   // Off-center wrenches so that the CoPs are not trivially the contact frame origins.
   vector_t input = vector_t::Zero(model.getInputDim());
@@ -148,9 +147,9 @@ TEST(TestDynamicsHelperFunctions, weightCompensatingInputStateAwareOverloadMatch
 
   // Fixture state: standing height, a yawed and slightly tilted base, and random joint angles. For the wrench-space
   // model the input stores world-frame wrenches directly, so none of this may influence the weight-compensating input.
-  vector_t state = vector_t::Zero(model.getStateDim());
+  vector_t state = model.getNeutralState();
   model.setBasePosition(state, vector3_t(0.3, -0.2, 0.86566));
-  model.setBaseOrientationEulerZYX(state, vector3_t(M_PI / 2.0, 0.1, -0.05));
+  model.setBaseOrientationEulerZyx(state, vector3_t(M_PI / 2.0, 0.1, -0.05));
   model.setJointAngles(state, vector_t::Random(model.getJointDim()));
 
   const scalar_t totalGravitationalForce = centroidalModelInfo.robotMass * 9.81;
@@ -200,8 +199,8 @@ TEST(TestDynamicsHelperFunctions, weightCompensatingInputCarriesTheWeightOfTheMo
       const CentroidalModelInfo info = robot->getCentroidalModelInfo();
       const scalar_t weight = 9.81 * pinocchio::computeTotalMass(robot->getPinocchioInterface().getModel());
       EXPECT_NEAR(info.robotMass * 9.81, weight, 1.0e-9 * weight);
-      vector_t state = vector_t::Zero(model.getStateDim());
-      model.setBaseOrientationEulerZYX(state, vector3_t(0.3, 0.0, 0.0));
+      vector_t state = model.getNeutralState();
+      model.setBaseOrientationEulerZyx(state, vector3_t(0.3, 0.0, 0.0));
 
       for (const contact_flag_t& flags : {contact_flag_t{true, true}, contact_flag_t{true, false}, contact_flag_t{false, true}}) {
         SCOPED_TRACE(absl::StrCat(robot->taskFile, ", round ", round, ", contacts {", flags[0], ", ", flags[1], "}"));

@@ -27,6 +27,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <sched.h>
+
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -64,6 +66,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "robot_ipc/BusOptions.h"
 #include "robot_ipc/Delivery.h"
 #include "robot_ipc/NodeEndpoint.h"
+#include "web_viewer/ViewerThreadPriority.h"
 
 namespace ocs2::humanoid::visualization {
 namespace {
@@ -138,6 +141,16 @@ class RecordingSink {
   std::vector<humanoid_mpc_msgs::VisualizationScene> scenes_ ABSL_GUARDED_BY(mutex_);
 };
 
+/**
+ * The publisher's options of these tests: its thread keeps the scheduling of the test (kInherited), whose rate checks
+ * share the machine with other tests. TheThreadRunsUnderSchedIdleByDefault checks the default, SCHED_IDLE.
+ */
+VisualizationPublisher::Options testOptions() {
+  VisualizationPublisher::Options options;
+  options.threadPriority = robot::web_viewer::ViewerThreadPriority::kInherited;
+  return options;
+}
+
 class VisualizationPublisherTest : public ::testing::Test {
  protected:
   static void SetUpTestSuite() { robot_ = test::TestRobot::load(test::g1CentroidalFiles(), test::Formulation::kCentroidal).release(); }
@@ -146,8 +159,7 @@ class VisualizationPublisherTest : public ::testing::Test {
     robot_ = nullptr;
   }
 
-  std::unique_ptr<VisualizationPublisher> create(VisualizationPublisher::Options options = VisualizationPublisher::Options(),
-                                                 const std::string& taskFile = "") {
+  std::unique_ptr<VisualizationPublisher> create(VisualizationPublisher::Options options, const std::string& taskFile = "") {
     VisualizationModel model = robot_->model();
     if (!taskFile.empty()) {
       model.taskFile = taskFile;
@@ -177,6 +189,28 @@ class VisualizationPublisherTest : public ::testing::Test {
     return robot_->robotState(time, vector3_t(0.0, 0.0, 0.75), vector3_t::Zero());
   }
 
+  /**
+   * Returns the scheduling policy of the thread of a publisher with `options`, as sched_getscheduler() reads it on that
+   * thread when it publishes its first message (the series of one sample); -1 when it published nothing.
+   */
+  static int publishingThreadPolicy(VisualizationPublisher::Options options) {
+    std::atomic<int> policy = -1;
+    absl::StatusOr<std::unique_ptr<VisualizationPublisher>> publisher = VisualizationPublisher::Create(
+        robot_->model(),
+        [&policy](absl::string_view /*topic*/, const google::protobuf::Message& /*message*/) {
+          policy = sched_getscheduler(/*pid=*/0);
+          return absl::OkStatus();
+        },
+        std::move(options));
+    EXPECT_TRUE(publisher.ok()) << publisher.status();
+    if (!publisher.ok()) return -1;
+    EXPECT_TRUE((*publisher)->start().ok());
+    EXPECT_TRUE((*publisher)->pushRobotState(sampleAt(/*time=*/0.0)));
+    EXPECT_TRUE(waitFor([&policy] { return policy != -1; }));
+    (*publisher)->stop();
+    return policy;
+  }
+
   static test::TestRobot* absl_nullable robot_;
   RecordingSink sink_;
 };
@@ -184,7 +218,7 @@ class VisualizationPublisherTest : public ::testing::Test {
 test::TestRobot* absl_nullable VisualizationPublisherTest::robot_ = nullptr;
 
 TEST_F(VisualizationPublisherTest, EverySampleBecomesOneSeriesInOrder) {
-  std::unique_ptr<VisualizationPublisher> publisher = create();
+  std::unique_ptr<VisualizationPublisher> publisher = create(testOptions());
   ASSERT_NE(publisher, nullptr);
   ASSERT_TRUE(publisher->start().ok());
   std::vector<double> times;
@@ -203,7 +237,7 @@ TEST_F(VisualizationPublisherTest, EverySampleBecomesOneSeriesInOrder) {
 }
 
 TEST_F(VisualizationPublisherTest, ASlowPublisherMakesTheQueueDropSamplesAndNeverBlocksTheFeeders) {
-  VisualizationPublisher::Options options;
+  VisualizationPublisher::Options options = testOptions();
   options.robotStateQueueCapacity = 8;
   std::unique_ptr<VisualizationPublisher> publisher = create(options);
   ASSERT_NE(publisher, nullptr);
@@ -243,7 +277,7 @@ TEST_F(VisualizationPublisherTest, ASlowPublisherMakesTheQueueDropSamplesAndNeve
 
 TEST_F(VisualizationPublisherTest, TheSceneIsPublishedAtMostAtItsFrequency) {
   const double frequency = 20.0;
-  std::unique_ptr<VisualizationPublisher> publisher = create(VisualizationPublisher::Options(), taskFileWithSceneFrequency(frequency));
+  std::unique_ptr<VisualizationPublisher> publisher = create(testOptions(), taskFileWithSceneFrequency(frequency));
   ASSERT_NE(publisher, nullptr);
   EXPECT_EQ(publisher->config().sceneFrequency, frequency);
   ASSERT_TRUE(publisher->start().ok());
@@ -268,7 +302,7 @@ TEST_F(VisualizationPublisherTest, TheSceneIsPublishedAtMostAtItsFrequency) {
 }
 
 TEST_F(VisualizationPublisherTest, NothingNewPublishesNoScene) {
-  std::unique_ptr<VisualizationPublisher> publisher = create();
+  std::unique_ptr<VisualizationPublisher> publisher = create(testOptions());
   ASSERT_NE(publisher, nullptr);
   ASSERT_TRUE(publisher->start().ok());
   absl::SleepFor(absl::Milliseconds(100));
@@ -284,7 +318,7 @@ TEST_F(VisualizationPublisherTest, NothingNewPublishesNoScene) {
 }
 
 TEST_F(VisualizationPublisherTest, TheSceneDrawsTheLatestPolicyAndSample) {
-  std::unique_ptr<VisualizationPublisher> publisher = create();
+  std::unique_ptr<VisualizationPublisher> publisher = create(testOptions());
   ASSERT_NE(publisher, nullptr);
   ASSERT_TRUE(publisher->start().ok());
   CommandData command;
@@ -307,7 +341,7 @@ TEST_F(VisualizationPublisherTest, TheSceneDrawsTheLatestPolicyAndSample) {
 }
 
 TEST_F(VisualizationPublisherTest, ASampleThatDoesNotDecodeIsCountedAndNotPlotted) {
-  std::unique_ptr<VisualizationPublisher> publisher = create();
+  std::unique_ptr<VisualizationPublisher> publisher = create(testOptions());
   ASSERT_NE(publisher, nullptr);
   ASSERT_TRUE(publisher->start().ok());
   humanoid_mpc_msgs::RobotStateSample sample = sampleAt(0.0);
@@ -321,7 +355,7 @@ TEST_F(VisualizationPublisherTest, ASampleThatDoesNotDecodeIsCountedAndNotPlotte
 }
 
 TEST_F(VisualizationPublisherTest, AClockThatGoesBackIsPlottedToo) {
-  std::unique_ptr<VisualizationPublisher> publisher = create();
+  std::unique_ptr<VisualizationPublisher> publisher = create(testOptions());
   ASSERT_NE(publisher, nullptr);
   ASSERT_TRUE(publisher->start().ok());
   for (const double time : {5.0, 5.01, 0.0, 0.01}) {
@@ -335,11 +369,11 @@ TEST_F(VisualizationPublisherTest, AClockThatGoesBackIsPlottedToo) {
 }
 
 TEST_F(VisualizationPublisherTest, StartAndStopFollowTheirContract) {
-  std::unique_ptr<VisualizationPublisher> neverStarted = create();
+  std::unique_ptr<VisualizationPublisher> neverStarted = create(testOptions());
   ASSERT_NE(neverStarted, nullptr);
   neverStarted.reset();
 
-  std::unique_ptr<VisualizationPublisher> publisher = create();
+  std::unique_ptr<VisualizationPublisher> publisher = create(testOptions());
   ASSERT_NE(publisher, nullptr);
   ASSERT_TRUE(publisher->start().ok());
   EXPECT_EQ(publisher->start().code(), absl::StatusCode::kFailedPrecondition);
@@ -347,6 +381,15 @@ TEST_F(VisualizationPublisherTest, StartAndStopFollowTheirContract) {
   publisher->stop();
   EXPECT_LT(absl::Now() - before, absl::Seconds(1));
   publisher->stop();
+}
+
+// SCHED_IDLE by default, so that a solver thread that wakes on the publisher's core takes it at once; kInherited keeps
+// the scheduling of the thread that starts the publisher.
+TEST_F(VisualizationPublisherTest, TheThreadRunsUnderSchedIdleByDefault) {
+  EXPECT_EQ(VisualizationPublisher::Options().threadPriority, robot::web_viewer::ViewerThreadPriority::kIdle);
+  EXPECT_EQ(publishingThreadPolicy(VisualizationPublisher::Options()), SCHED_IDLE);
+  EXPECT_EQ(publishingThreadPolicy(testOptions()), sched_getscheduler(/*pid=*/0));
+  EXPECT_NE(sched_getscheduler(/*pid=*/0), SCHED_IDLE) << "the test's own thread is not idled";
 }
 
 TEST_F(VisualizationPublisherTest, InvalidOptionsAreRefused) {
@@ -379,7 +422,8 @@ TEST_F(VisualizationPublisherTest, RobotStateOnTheBusBecomesTelemetryOnTheBus) {
   ASSERT_TRUE(mpcBus->connect(robotBus->boundEndpoint()).ok());
   ASSERT_TRUE(bridgeBus->connect(mpcBus->boundEndpoint()).ok());
 
-  absl::StatusOr<std::unique_ptr<VisualizationPublisher>> publisher = VisualizationPublisher::Create(robot_->model(), *mpcBus);
+  absl::StatusOr<std::unique_ptr<VisualizationPublisher>> publisher =
+      VisualizationPublisher::Create(robot_->model(), *mpcBus, testOptions());
   ASSERT_TRUE(publisher.ok()) << publisher.status();
   ASSERT_TRUE((*publisher)->subscribeRobotState(*mpcBus).ok());
   absl::Mutex mutex;
@@ -426,8 +470,7 @@ TEST_F(VisualizationPublisherTest, TheBusAttacherPublishesOnTheNodesBusFromTheRo
   ASSERT_TRUE(bridgeBus->connect(mpcBus->boundEndpoint()).ok());
 
   std::unique_ptr<VisualizationPublisher> publisher;
-  const VisualizationPublisher::BusAttacher attacher =
-      VisualizationPublisher::MakeBusAttacher(robot_->model(), VisualizationPublisher::Options(), &publisher);
+  const VisualizationPublisher::BusAttacher attacher = VisualizationPublisher::MakeBusAttacher(robot_->model(), testOptions(), &publisher);
   absl::StatusOr<VisualizationPublisher::PostSolveObserver> observer = attacher(*mpcBus);
   ASSERT_TRUE(observer.ok()) << observer.status();
   ASSERT_NE(publisher, nullptr);

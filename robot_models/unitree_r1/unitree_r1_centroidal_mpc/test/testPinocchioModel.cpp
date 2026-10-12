@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/Types.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/algorithm/kinematics.hpp"
 #include "pinocchio/multibody/data.hpp"
 #include "pinocchio/multibody/model.hpp"
@@ -66,6 +67,17 @@ namespace {
 // Relative to the repository root.
 constexpr absl::string_view kUrdfFile = "robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf";
 constexpr absl::string_view kTaskFile = "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto";
+
+/**
+ * The neutral configuration of `model` (pinocchio::neutral(): the base at the origin, upright, with the identity
+ * quaternion of the Composite(Translation, Spherical) root, and every joint at zero) with the base raised to `baseHeight`.
+ */
+Eigen::VectorXd neutralConfigurationAtHeight(const pinocchio::Model& model, double baseHeight) {
+  Eigen::VectorXd q = pinocchio::neutral(model);
+  // The root joint (joint 1, after the universe) starts its configuration with the base position (x, y, z).
+  q[model.joints[1].idx_q() + 2] = baseHeight;
+  return q;
+}
 
 /** The entries of `values`, each with `precision` decimals. */
 std::string formatFixed(const Eigen::Ref<const Eigen::VectorXd>& values, int precision) {
@@ -151,8 +163,7 @@ int printModels() {
   printModelDimensionality(customInterface);
   printJointNames(customInterface);
 
-  Eigen::VectorXd q = Eigen::VectorXd::Zero(customInterface.getModel().nq);
-  q[2] = 0.68;
+  const Eigen::VectorXd q = neutralConfigurationAtHeight(customInterface.getModel(), /*baseHeight=*/0.68);
   computeForwardKinematics(customInterface, q);
 
   LOG(INFO) << "\n✅ Unitree R1 Pinocchio Interface test completed successfully.";

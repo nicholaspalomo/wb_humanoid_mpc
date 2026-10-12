@@ -29,20 +29,31 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_app/robot/RobotAppFlags.h"
 
+#include <cstdlib>
+#include <optional>
 #include <string>
-#include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/flags/flag.h"
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
+#include "humanoid_common_mpc/common/ThreadAffinity.h"
+#include "humanoid_common_mpc_app/robot/RobotAppOptions.h"
 #include "humanoid_common_mpc_app/robot/RobotBackendRegistry.h"
 #include "humanoid_common_mpc_app/robot/RobotConfigDirectory.h"
 
-// The defaults of the flags below that are numbers or booleans.
+// The defaults of the flags below that are numbers.
 constexpr int kNotRealtime = 0;
-constexpr bool kHeadlessByDefault = false;
+// LINT.IfChange(web_viewer_port)
+constexpr int kDefaultWebViewerPort = 6090;
+// clang-format off
+// LINT.ThenChange(//tools/deploy/session.sh:web_viewer_port, //humanoid_nmpc/humanoid_common_mpc_app/robot/README.md:robot_flags, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/launch/robot.textproto:robot_variables, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/launch/robot.textproto:robot_variables, //robot_models/unitree_g1/g1_centroidal_mpc/launch/robot.textproto:robot_variables, //robot_models/unitree_g1/g1_wb_mpc/launch/robot.textproto:robot_variables, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/launch/robot.textproto:robot_variables, //Makefile:viewer_variable, //.devcontainer/devcontainer.json:web_viewer_port, //docker-compose.bridge.yaml:web_viewer_port, //.devcontainer/README.md:web_viewer_port, //robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/viewer/WebViewerOptions.h:web_viewer_port, //robot_runtime/web_viewer/include/web_viewer/WebViewerServerOptions.h:web_viewer_port)
+// clang-format on
+// The environment variable that picks the EGL device the web viewer renders on (WebViewerOptions::eglDeviceId).
+constexpr char kEglDeviceVariable[] = "MUJOCO_EGL_DEVICE_ID";
 
 // LINT.IfChange(robot_flags)
 ABSL_FLAG(std::string, mjcf_file, "", "The robot's MuJoCo scene (urdf/*.xml); required by --backend=mujoco.");
@@ -63,10 +74,32 @@ ABSL_FLAG(std::string,
           "default",
           "Cores of the backend's threads (the MuJoCo physics): default (ThreadAffinity.h's simulation cores), none, or a list.");
 ABSL_FLAG(std::string,
-          mpc_link,
+          viewer,
           "",
-          "Retired: the robot reaches its MPC over the bus only (the MPC node). Any value is refused at start-up.");
-ABSL_FLAG(bool, headless, kHeadlessByDefault, "Run the MuJoCo backend without its viewer window (no display, the robot-runtime image).");
+          "The MuJoCo backend's viewer by name, or a comma-separated list tried in order: glfw (a window on DISPLAY), web (a page "
+          "at http://<--web_viewer_address>:<--web_viewer_port>, rendered offscreen with EGL), none. web,none falls back to none "
+          "when the web viewer cannot start; web alone refuses to start then. Empty: the mujoco_viewer of --plot_config, else web.");
+ABSL_FLAG(std::string,
+          plot_config,
+          "",
+          "A plot configuration (a humanoid_rerun_viewer_proto.PlotConfig textproto, the Rerun bridge's --plot_config) whose "
+          "mujoco_viewer names the MuJoCo viewer when --viewer is empty; one that lists none gives web. Read strictly at start-up, "
+          "and only then: a file that does not parse or names an unknown viewer is refused. Empty: none.");
+ABSL_FLAG(std::string,
+          web_viewer_address,
+          "127.0.0.1",
+          "The address the web viewer binds: 127.0.0.1 serves this machine only (another reaches it through an SSH tunnel); "
+          "0.0.0.0 or an interface's address serves anyone who can reach it, without authentication.");
+ABSL_FLAG(int, web_viewer_port, kDefaultWebViewerPort, "The web viewer's TCP port; 0 binds any free one, which the log names.");
+ABSL_FLAG(std::string,
+          web_viewer_allowed_hosts,
+          "",
+          "Comma-separated host names the web viewer answers besides localhost, 127.0.0.1, ::1 and its bound address (a "
+          "machine's LAN name with --web_viewer_address=0.0.0.0), without ports; other Host headers are refused.");
+ABSL_FLAG(std::string,
+          viewer_cores,
+          "default",
+          "Cores of the web viewer's threads: default (ThreadAffinity.h's viewer cores, never the MPC's), none, or a list.");
 ABSL_FLAG(std::string,
           config_store_dir,
           "",
@@ -82,8 +115,36 @@ ABSL_FLAG(std::string,
 
 namespace ocs2::humanoid {
 
-absl::StatusOr<RobotAppOptions> robotAppOptionsFromFlags(const std::vector<int>& defaultRealtimeCores,
-                                                         const std::vector<int>& defaultBackendCores) {
+namespace {
+
+/** The viewer flags as given, with MUJOCO_EGL_DEVICE_ID. */
+ViewerFlagValues viewerFlagValues() {
+  ViewerFlagValues values;
+  values.viewer = absl::GetFlag(FLAGS_viewer);
+  values.plotConfig = absl::GetFlag(FLAGS_plot_config);
+  values.webViewerAddress = absl::GetFlag(FLAGS_web_viewer_address);
+  values.webViewerPort = absl::GetFlag(FLAGS_web_viewer_port);
+  values.webViewerAllowedHosts = absl::GetFlag(FLAGS_web_viewer_allowed_hosts);
+  values.viewerCores = absl::GetFlag(FLAGS_viewer_cores);
+  // Read once, on the main thread before the process starts its threads (getenv races with a setenv elsewhere).
+  const char* absl_nullable eglDevice = std::getenv(kEglDeviceVariable);
+  if (eglDevice != nullptr) values.eglDeviceId = std::string(eglDevice);
+  return values;
+}
+
+}  // namespace
+
+void exportSoftwareRasterizerThreads(const robot::mujoco_sim_interface::ViewerSettings& viewer) {
+  const std::optional<std::string> threads = softwareRasterizerThreadsToSet(viewer, std::getenv(kSoftwareRasterizerThreadsVariable));
+  if (!threads.has_value()) return;
+  if (setenv(kSoftwareRasterizerThreadsVariable, threads->c_str(), /*replace=*/1) != 0) {
+    LOG(WARNING) << "[robot] " << kSoftwareRasterizerThreadsVariable << " could not be set; llvmpipe starts a rasterizer thread per CPU.";
+    return;
+  }
+  LOG(INFO) << "[robot] " << describeSoftwareRasterizerThreads(viewer, *threads);
+}
+
+absl::StatusOr<RobotAppOptions> robotAppOptionsFromFlags(const SystemCoreAllocation& cores) {
   RobotAppOptions options;
   options.robotName = absl::GetFlag(FLAGS_robot_name);
   options.files = node::mpcFilesFromFlags();
@@ -92,12 +153,11 @@ absl::StatusOr<RobotAppOptions> robotAppOptionsFromFlags(const std::vector<int>&
   options.ipcNode = absl::GetFlag(FLAGS_ipc_node);
   options.backend = absl::GetFlag(FLAGS_backend);
   options.realtimePriority = absl::GetFlag(FLAGS_realtime_priority);
-  options.headless = absl::GetFlag(FLAGS_headless);
   options.configStoreDirectory = absl::GetFlag(FLAGS_config_store_dir);
   ASSIGN_OR_RETURN(options.configSeedPolicy, configSeedPolicyFromName(absl::GetFlag(FLAGS_config_seed)));
-  RETURN_IF_ERROR(checkRetiredMpcLinkFlag(absl::GetFlag(FLAGS_mpc_link)));
-  ASSIGN_OR_RETURN(options.realtimeCores, parseCoreList(absl::GetFlag(FLAGS_realtime_cores), defaultRealtimeCores));
-  ASSIGN_OR_RETURN(options.backendCores, parseCoreList(absl::GetFlag(FLAGS_backend_cores), defaultBackendCores));
+  ASSIGN_OR_RETURN(options.realtimeCores, parseCoreList(absl::GetFlag(FLAGS_realtime_cores), cores.mrtCores));
+  ASSIGN_OR_RETURN(options.backendCores, parseCoreList(absl::GetFlag(FLAGS_backend_cores), cores.simCores));
+  ASSIGN_OR_RETURN(options.viewer, viewerSettingsFromFlags(viewerFlagValues(), cores.viewerCores));
 
   RETURN_IF_ERROR(node::validateFileFlag("--task_file", options.files.taskFile));
   RETURN_IF_ERROR(node::validateFileFlag("--reference_file", options.files.referenceFile));

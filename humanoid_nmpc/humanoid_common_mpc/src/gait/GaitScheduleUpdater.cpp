@@ -39,7 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-void updateGaitSchedule(GaitSchedule& gaitSchedule, const ModeSequenceTemplate& updatedGait, scalar_t initTime, scalar_t finalTime) {
+scalar_t updateGaitSchedule(GaitSchedule& gaitSchedule, const ModeSequenceTemplate& updatedGait, scalar_t initTime, scalar_t finalTime) {
   LOG(INFO) << updatedGait;
   const scalar_t timeHorizon = finalTime - initTime;
   const scalar_t earliestSwitchingTime = (0.7 * finalTime + 0.3 * initTime);  // This is a heuristic
@@ -68,6 +68,7 @@ void updateGaitSchedule(GaitSchedule& gaitSchedule, const ModeSequenceTemplate& 
   // getModeSchedule() tiles from its last event again, so every solve still saw the new gait; only a reader of the
   // schedule in between did not (testGaitScheduleUpdaterHorizon).
   gaitSchedule.insertModeSequenceTemplate(updatedGait, nextEventTime, /*finalTime=*/initTime + 1.5 * timeHorizon);
+  return nextEventTime;
 }
 
 }  // namespace ocs2::humanoid

@@ -1,14 +1,13 @@
 # Golden printout of testSqpFlatParity.cpp. Lines starting with '#' are provenance and are not compared.
 # Recorded: 2026-10-02 on the main line (wb_humanoid_mpc at HEAD c331ddd with the ROS removal and the merged quaternion
 #   phase A, uncommitted) in the container wbmpc-noros-dev, with HPIPM and BLASFEO built by bazel/system_libs.bzl for
-#   TARGET=GENERIC. A re-record for the HPIPM build only: rk4_projected_feedback and rk4_unconstrained_feedforward are
-#   the original recording (sqp_flat_parity_golden_colcon_hpipm.txt, made before the manifold support against the colcon
-#   HPIPM built for TARGET=AVX) line for line, and rk2_hpipm_constrained_feedback agrees with it to 1e-9 relative but
-#   for its feedback policy (TheRecordingIsTheOriginalOneButForTheHpipmBuildSensitiveGains).
+#   TARGET=GENERIC. A re-record for the HPIPM build only: against the first recording (made before the manifold support
+#   against an HPIPM built for TARGET=AVX) rk4_projected_feedback and rk4_unconstrained_feedforward were the same line
+#   for line, and rk2_hpipm_constrained_feedback agreed to 1e-9 relative but for its feedback policy.
 # Reproduced before the manifold support: on 2026-10-02 the solver of the pre-merge main line (HEAD c331ddd with the ROS
 #   removal, before quaternion phase A was merged: SqpSolver, the multiple-shooting helpers, OptimalControlProblem and
-#   the other ocs2 sources without the Step 4 edits, the manifold sources removed), built in a copy of the checkout in
-#   wbmpc-noros-dev with the same TARGET=GENERIC HPIPM, printed this data line for line
+#   the other ocs2 sources without the state-manifold edits, the manifold sources removed), built in a copy of the
+#   checkout in wbmpc-noros-dev with the same TARGET=GENERIC HPIPM, printed this data line for line
 #   (SolveWithoutManifoldIsBitwiseIdenticalToTheRecordedSolve passed against it). The data is therefore the printout
 #   of the solver before the manifold support on this toolchain, and the comparison is one before and after it.
 # Data hash (FNV-1a 64 of the non-comment lines): 0x131bb9bff9606ddf

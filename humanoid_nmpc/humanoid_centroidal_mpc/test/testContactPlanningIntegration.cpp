@@ -175,7 +175,7 @@ TEST_F(ContactPlanningIntegrationTest, PlansStandingAndWalkingSchedules) {
 
   // 2. Standing command: the plan is all double support.
   vector_t standingTarget = vector_t::Zero(state.size());
-  standingTarget.segment(6, 6) = state.segment(6, 6);
+  interface_->getMpcRobotModel().setBasePoseEulerZyx(standingTarget, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
   referenceManager->setTargetTrajectories(TargetTrajectories({t}, {standingTarget}, {vector_t::Zero(inputDim)}));
   module->preSolverRun(t, t + horizon, state, *referenceManager);
   const ContactPlannerModule::Statistics standingStats = module->getStatistics();
@@ -370,7 +370,7 @@ TEST_F(ContactPlanningIntegrationTest, DefaultConfigurationStepsInTheCommandedDi
   // Command a forward walk.
   const scalar_t commandedVelocityX = 0.4;
   vector_t walkingTarget = vector_t::Zero(state.size());
-  walkingTarget.segment(6, 6) = state.segment(6, 6);
+  interface_->getMpcRobotModel().setBasePoseEulerZyx(walkingTarget, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
   walkingTarget(0) = commandedVelocityX;
 
   scalar_t t = 0.0;
@@ -460,7 +460,7 @@ TEST_F(ContactPlanningIntegrationTest, AdaptsScheduleToContactEventsAndDcmError)
 
   // Walk: a plan with a swing phase.
   vector_t walkingTarget = vector_t::Zero(state.size());
-  walkingTarget.segment(6, 6) = state.segment(6, 6);
+  interface_->getMpcRobotModel().setBasePoseEulerZyx(walkingTarget, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
   walkingTarget(0) = 0.4;
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
@@ -764,7 +764,7 @@ TEST_F(ContactPlanningIntegrationTest, TheResampledTargetStillCoversTheSolverHor
   // A target that RAMPS, so that a frozen tail is distinguishable from a correct one. Held constant, the truncated
   // and the extended target would agree everywhere and the test would prove nothing.
   vector_t start = vector_t::Zero(state.size());
-  start.segment(6, 6) = state.segment(6, 6);
+  interface_->getMpcRobotModel().setBasePoseEulerZyx(start, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
   vector_t far = start;
   far(0) = 1.5;
   const scalar_t rampEnd = 3.0;
@@ -794,7 +794,7 @@ TEST_F(ContactPlanningIntegrationTest, TheResampledTargetStillCoversTheSolverHor
   const scalar_t expected = 1.5 * (t + horizon) / rampEnd;
   const scalar_t frozen = 1.5 * planEnd / rampEnd;
   ASSERT_GT(std::abs(expected - frozen), 0.05) << "the two readings must differ for this test to discriminate";
-  EXPECT_NEAR(live.getDesiredState(t + horizon)(0), expected, 1.0e-3)
+  EXPECT_NEAR(interface_->getEffectiveMpcRobotModel().getDesiredState(live, t + horizon)(0), expected, 1.0e-3)
       << "the reference tail froze at the plan-end sample instead of following the command";
 }
 
@@ -809,7 +809,7 @@ TEST_F(ContactPlanningIntegrationTest, AnExpiredPlanStopsDrivingTheReferences) {
   const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
   const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
   vector_t walkingTarget = vector_t::Zero(state.size());
-  walkingTarget.segment(6, 6) = state.segment(6, 6);
+  interface_->getMpcRobotModel().setBasePoseEulerZyx(walkingTarget, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
   walkingTarget(0) = 0.4;
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
@@ -866,7 +866,7 @@ TEST_F(ContactPlanningIntegrationTest, LaterSwingOfTheSameFootStartsFromItsPlann
   const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
   const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
   vector_t walkingTarget = vector_t::Zero(state.size());
-  walkingTarget.segment(6, 6) = state.segment(6, 6);
+  interface_->getMpcRobotModel().setBasePoseEulerZyx(walkingTarget, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
   walkingTarget(0) = 0.4;
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
@@ -1135,7 +1135,7 @@ TEST_F(ContactPlanningIntegrationTest, BackgroundPlannerThreadCanBeToggledAtRunt
   const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
   const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
   vector_t walkingTarget = vector_t::Zero(state.size());
-  walkingTarget.segment(6, 6) = state.segment(6, 6);
+  interface_->getMpcRobotModel().setBasePoseEulerZyx(walkingTarget, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
   walkingTarget(0) = 0.4;
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
@@ -1223,16 +1223,16 @@ TEST_F(ContactPlanningIntegrationTest, PlannedHeadingOverrideDoesNotFeedBackInto
     vector_t start = state;
     start.segment<3>(3) = lockedInertia.col(2) * (yawRate / mass);
     vector_t end = start;
-    vector3_t euler = robotModel.getBaseOrientationEulerZYX(state);
+    vector3_t euler = robotModel.getBaseOrientationEulerZyx(state);
     euler(0) += yawRate * horizon;
-    robotModel.setBaseOrientationEulerZYX(end, euler);
+    robotModel.setBaseOrientationEulerZyx(end, euler);
     return TargetTrajectories({t0, t0 + horizon}, {start, end}, {vector_t::Zero(inputDim), vector_t::Zero(inputDim)});
   };
   // Yaw rate of whatever target the reference manager currently holds, differentiated the way the planner used to read it.
   const std::function<scalar_t(scalar_t)> storedTargetYawRate = [&](scalar_t t0) {
     const TargetTrajectories& target = referenceManager->getTargetTrajectories();
-    const scalar_t yaw0 = robotModel.getBaseOrientationEulerZYX(target.getDesiredState(t0))(0);
-    const scalar_t yaw1 = robotModel.getBaseOrientationEulerZYX(target.getDesiredState(t0 + 0.2))(0);
+    const scalar_t yaw0 = robotModel.getBaseOrientationEulerZyx(robotModel.getDesiredState(target, t0))(0);
+    const scalar_t yaw1 = robotModel.getBaseOrientationEulerZyx(robotModel.getDesiredState(target, t0 + 0.2))(0);
     return (yaw1 - yaw0) / 0.2;
   };
 
@@ -1346,7 +1346,7 @@ TEST_F(ContactPlanningIntegrationTest, DcmStepAdjustmentAppliesOnlyToTheSwingInF
   const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
   const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
   vector_t walkingTarget = vector_t::Zero(state.size());
-  walkingTarget.segment(6, 6) = state.segment(6, 6);
+  interface_->getMpcRobotModel().setBasePoseEulerZyx(walkingTarget, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
   walkingTarget(0) = 0.4;
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
@@ -1424,7 +1424,7 @@ TEST_F(ContactPlanningIntegrationTest, CadenceAndDcmCorrectionsMatchTheirClosedF
   const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
   const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
   vector_t walkingTarget = vector_t::Zero(state.size());
-  walkingTarget.segment(6, 6) = state.segment(6, 6);
+  interface_->getMpcRobotModel().setBasePoseEulerZyx(walkingTarget, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
   walkingTarget(0) = 0.4;
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
@@ -1611,7 +1611,7 @@ TEST_F(ContactPlanningIntegrationTest, SnapshotIsNotPostedWhileAPlanAwaitsActiva
   const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
   const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
   vector_t walkingTarget = vector_t::Zero(state.size());
-  walkingTarget.segment(6, 6) = state.segment(6, 6);
+  interface_->getMpcRobotModel().setBasePoseEulerZyx(walkingTarget, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
   walkingTarget(0) = 0.4;
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
@@ -1667,7 +1667,7 @@ TEST_F(ContactPlanningIntegrationTest, StalePlanIsDroppedAndCounted) {
   const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
   const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
   vector_t walkingTarget = vector_t::Zero(state.size());
-  walkingTarget.segment(6, 6) = state.segment(6, 6);
+  interface_->getMpcRobotModel().setBasePoseEulerZyx(walkingTarget, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
   walkingTarget(0) = 0.4;
   scalar_t t = 0.0;
   referenceManager->setTargetTrajectories(TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));

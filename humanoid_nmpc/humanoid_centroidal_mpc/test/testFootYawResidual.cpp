@@ -153,7 +153,7 @@ TEST(FootYawResidual, TheSwingFootCostIsDifferentiableAtTheSimulatorsResetPose) 
             "testFootYawResidual_foot_l", atlas.modelSettings());
   const scalar_t time = DrcAtlasContactTestModel::kQueryTime;
   ASSERT_TRUE(cost.isActive(time)) << "the swing foot cost is not active, so nothing was checked";
-  ASSERT_EQ(atlas.wrenchModel().getBaseOrientationEulerZYX(state)(0), 0.0) << "the case under test: a base yaw of exactly zero";
+  ASSERT_EQ(atlas.wrenchModel().getBaseOrientationEulerZyx(state)(0), 0.0) << "the case under test: a base yaw of exactly zero";
   // The foot's own yaw is what the residual sees: R10 exactly zero is where the legacy residual has no derivative
   // (TheLegacyResidualHadNoFiniteDerivativeThere), so this pose is one the old cost failed at.
   PinocchioInterface pinocchioInterface = atlas.pinocchioInterface();

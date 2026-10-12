@@ -32,8 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <urdf_parser/urdf_parser.h>
-
 #include <ocs2_core/Types.h>
 #include <ocs2_core/automatic_differentiation/Types.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
@@ -42,19 +40,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2 {
 namespace centroidal_model {
-
-/**
- * Create a CentroidalModel PinocchioInterface from a URDF.
- * @param [in] urdfFilePath: The absolute path to the URDF file for the robot.
- */
-PinocchioInterface createPinocchioInterface(const std::string& urdfFilePath);
-
-/**
- * Create a CentroidalModel PinocchioInterface from a URDF.
- * @param [in] urdfFilePath: The absolute path to the URDF file for the robot.
- * @param [in] jointNames: Any joint that is not listed in jointNames (a.k.a the extraneous joints) will be removed from the urdf.
- */
-PinocchioInterface createPinocchioInterface(const std::string& urdfFilePath, const std::vector<std::string>& jointNames);
 
 /**
  * Create a scalar-typed CentroidalModelInfo.

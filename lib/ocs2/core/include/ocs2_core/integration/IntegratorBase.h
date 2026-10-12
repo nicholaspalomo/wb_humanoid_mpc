@@ -36,7 +36,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/Types.h>
 #include <ocs2_core/integration/Observer.h>
 #include <ocs2_core/integration/OdeBase.h>
-#include <ocs2_core/integration/SystemEventHandler.h>
 
 namespace ocs2 {
 
@@ -48,11 +47,8 @@ class IntegratorBase {
   using system_func_t = std::function<void(const vector_t& x, vector_t& dxdt, scalar_t t)>;
   using observer_func_t = std::function<void(const vector_t& x, scalar_t t)>;
 
-  /**
-   * Default constructor
-   * @param [in] eventHandler
-   */
-  explicit IntegratorBase(std::shared_ptr<SystemEventHandler> eventHandlerPtr = nullptr);
+  /** Default constructor */
+  IntegratorBase() = default;
 
   /**
    * Default destructor
@@ -120,9 +116,6 @@ class IntegratorBase {
   virtual void runIntegrateTimes(system_func_t system, observer_func_t observer, const vector_t& initialState,
                                  typename scalar_array_t::const_iterator beginTimeItr, typename scalar_array_t::const_iterator endTimeItr,
                                  scalar_t dtInitial, scalar_t AbsTol, scalar_t RelTol) = 0;
-
- private:
-  std::shared_ptr<SystemEventHandler> eventHandlerPtr_;
 };
 
 }  // namespace ocs2

@@ -35,6 +35,9 @@ cc_library(
     deps = [
         "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_common_mpc:mrt_control_thread",
+        # The Euler boundary of the robot model (include/humanoid_wb_mpc/common/WBAccelMpcRobotModel.h).
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "//lib/ocs2:ocs2_robotic_tools",
         "//humanoid_nmpc/humanoid_mpc_ipc:realtime_policy_evaluator",
         "//robot_runtime/robot_model",
         "//lib/ocs2:ocs2_core",
@@ -267,6 +270,35 @@ cc_test(
     ],
 )
 
+# What the controller does with the policy in use on the quaternion layout: a policy its realtime evaluator refuses is
+# held without MRT_BASE (no allocation, one report), and a manifold-linear policy at gimbal lock gives the same action
+# for either sign of the measured quaternion.
+cc_test(
+    name = "testWBMpcMrtPolicyExecution",
+    size = "small",
+    srcs = ["test/testWBMpcMrtPolicyExecution.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    linkstatic = True,
+    deps = [
+        ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:scripted_policy_mpc_link",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_oc",
+        "//robot_runtime/robot_model",
+        "//robot_runtime/robot_realtime:allocation_counter",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
 cc_test(
     name = "testWBMpcMrtJointController",
     size = "medium",
@@ -287,6 +319,7 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
+        "@eigen",
         "@googletest//:gtest_main",
         "@pinocchio",
     ],
@@ -322,9 +355,143 @@ cc_test(
     ],
 )
 
-# The reset target of the whole-body MPC (WBMpcResetTarget.h): its properties, and that it is what the MRT joint
-# controller hands its MPC link and what the in-process link resets the MPC to, so that the MPC node, which calls it
-# itself, resets to the same target. Builds no CppAD model.
+# The layout-agnostic API of the whole-body robot model on its quaternion layout (MpcRobotModelBase): the sizes and the
+# state manifold, the tuning layout through the Euler boundary, the Euler accessors modulo 2 pi and the rotation of any
+# stored quaternion, the slerped interpolation, the twist heading, the stored body rate, the base twist and a knot's
+# command, the tangent maps (Pinocchio's included) and the allocation-free measurement helpers, on the G1. Builds no
+# CppAD library. Linked statically: the allocation counter replaces malloc for the whole binary.
+cc_test(
+    name = "testWBRobotModelBoundary",
+    size = "small",
+    srcs = ["test/testWBRobotModelBoundary.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    linkstatic = True,
+    deps = [
+        ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//robot_runtime/robot_core:resource_paths",
+        "//robot_runtime/robot_realtime:allocation_counter",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The whole-body flow map on the quaternion layout (design section 2.5): the compiled CppAD tape is the double flow map
+# and its Jacobians are its derivatives in every ambient slot and input, homogeneity in the quaternion, a negated
+# quaternion flips the quaternion rate alone, a pitch of 90 degrees is regular, and RK4 keeps the norm to 1e-8 over the
+# horizon. Large: it tapes and compiles the flow map's CppAD library once.
+cc_test(
+    name = "testWBQuaternionDynamics",
+    size = "large",
+    srcs = ["test/testWBQuaternionDynamics.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    # LINT.IfChange(quaternion_dynamics_test_data)
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/testWBQuaternionDynamics.cpp:robot_files)
+    deps = [
+        ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# Every registered term of the shipped G1 whole-body MPC and its dynamics on the quaternion layout: Jacobians along the
+# state manifold, the orientation read as a rotation (radially, and under -xi), finite at a pitch of 90 degrees with one
+# SQP iteration, and equivariant under a turn of the world about its vertical across +-pi. Large, with the longest
+# timeout Bazel has, as test_wb_live_tuning: it tapes and compiles every CppAD library of the MPC.
+cc_test(
+    name = "testWBQuaternionInvariances",
+    size = "large",
+    timeout = "eternal",
+    srcs = ["test/testWBQuaternionInvariances.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    # LINT.IfChange(quaternion_invariances_test_data)
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/testWBQuaternionInvariances.cpp:robot_files)
+    deps = [
+        ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_sqp",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The whole-body MRT joint controller under the double cover of the unit quaternion (design decision D12): a robot
+# measured at -xi gives the solver the same observation up to the quaternion's sign and every joint the same command,
+# and a stream canonicalized to w >= 0 across a heading of pi commands what the continuous stream does. Around a
+# scripted solver; builds no CppAD model.
+cc_test(
+    name = "testWBMrtObservationDoubleCover",
+    size = "small",
+    srcs = ["test/testWBMrtObservationDoubleCover.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    # LINT.IfChange(double_cover_test_data)
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/testWBMrtObservationDoubleCover.cpp:robot_files)
+    deps = [
+        ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_mpc_test_support",
+        "//robot_runtime/robot_core:resource_paths",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/base:nullability",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The reset target of the whole-body MPC (WBMpcResetTarget.h): its properties, upright at the twist heading of the
+# observed attitude among them, and that it is what the MRT joint controller hands its MPC link and what the in-process
+# link resets the MPC to, so that the MPC node, which calls it itself, resets to the same target. Builds no CppAD model.
 cc_test(
     name = "testWBMpcResetTarget",
     size = "small",
@@ -336,6 +503,7 @@ cc_test(
     ],
     deps = [
         ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_mpc",
@@ -468,9 +636,10 @@ cc_test(
 )
 
 # The speed setters of the target calculator base, through the G1 whole-body calculator: a pose command reaches its
-# target in the time the distance takes at the speed set, and a reload of the reference file restores the file's speeds;
-# and the calculator's Create() on the typed file, its path and a reference file that does not parse or convert. Builds
-# no Pinocchio or CppAD model.
+# target in the time the distance takes at the speed set, through knots at most a quarter turn apart that the slerped
+# reference turns the commanded way, starting level at the twist heading of the measured attitude, and a reload of the
+# reference file restores the file's speeds; and the calculator's Create() on the typed file, its path and a reference
+# file that does not parse or convert. Builds no Pinocchio or CppAD model.
 cc_test(
     name = "testTargetTrajectoriesCalculatorSetters",
     size = "small",
@@ -484,6 +653,7 @@ cc_test(
     # LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/testTargetTrajectoriesCalculatorSetters.cpp:robot_files)
     deps = [
         ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//lib/ocs2:ocs2_core",
         "@abseil-cpp//absl/base:nullability",
@@ -491,6 +661,91 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The intermediate knot of the whole-body velocity command (design defect D1): it moves at the mean of the measured and
+# the commanded planar motion, the measured turn being the world yaw rate of the base velocity, not the ZYX roll rate.
+# Builds no Pinocchio or CppAD model.
+cc_test(
+    name = "testWBIntermediateKnotMeasuredRate",
+    size = "small",
+    srcs = ["test/testWBIntermediateKnotMeasuredRate.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    # LINT.IfChange(intermediate_knot_test_data)
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/testWBIntermediateKnotMeasuredRate.cpp:robot_files)
+    deps = [
+        ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_robotic_tools",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The operator's command as the whole-body reference manager reads it back from the target (design defect D3): the
+# base velocity and the world yaw rate of the knots, not the centroidal slots (the base position, a roll rate). Builds
+# no CppAD model.
+cc_test(
+    name = "testWBReferenceManagerCommandedTwist",
+    size = "small",
+    srcs = ["test/testWBReferenceManagerCommandedTwist.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    # LINT.IfChange(commanded_twist_test_data)
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/testWBReferenceManagerCommandedTwist.cpp:robot_files)
+    deps = [
+        ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The knots of the whole-body target calculator, through the robot model's layout-agnostic accessors: a velocity
+# command's knots move and turn the base at the filtered command, consistently with how their poses advance, the joints
+# at the default posture and still; a pose command's knots hold everything still. Builds no Pinocchio or CppAD model.
+cc_test(
+    name = "testWBMpcTargetKnots",
+    size = "small",
+    srcs = ["test/testWBMpcTargetKnots.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    # LINT.IfChange(target_knots_test_data)
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/testWBMpcTargetKnots.cpp:robot_files)
+    deps = [
+        ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
         "@googletest//:gtest_main",
         "@pinocchio",
     ],
@@ -590,7 +845,8 @@ cc_test(
 )
 
 # WBMpcInterface::CreateControllerModels(), the models of a remote MPC's robot process: no optimal control problem; the
-# typed files build what their paths build, and the initial state is the file's by name. Builds no CppAD model.
+# typed files build what their paths build, and the initial state is the file's by name, mapped onto the state by the
+# robot model (stateFromTuning()). Builds no CppAD model.
 cc_test(
     name = "testWBMpcInterfaceControllerModels",
     size = "small",
@@ -602,6 +858,7 @@ cc_test(
     ],
     deps = [
         ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "@abseil-cpp//absl/base:nullability",
         "@abseil-cpp//absl/status",
@@ -613,7 +870,8 @@ cc_test(
 
 # Live tuning of the whole-body MPC (humanoid_nmpc/humanoid_mpc_config/README.md, "Live updates"): the setters the
 # parameter updater writes the running problem with leave each term as a term built with the new values; a live update
-# of each hot block solves as a fresh start on the edited file, every applied field changes what it writes, an updater
+# of each hot block, and of every orientation row weighted (the yaw included), solves as a fresh start on the edited
+# file with bitwise-equal running weights, every applied field changes what it writes, an updater
 # fed nothing changes nothing, and a reload of the file the MPC started from reproduces it. The one binary of the
 # package that generates CppAD libraries for live tuning: every case shares one generation per library, the terms
 # loading them by the MPC's own model names. Large, with the longest timeout Bazel has, as test_wb_mpc_node: it tapes
@@ -635,6 +893,8 @@ cc_test(
         ":affine_end_effector_dynamics",
         ":humanoid_wb_mpc",
         "//humanoid_nmpc/humanoid_common_mpc",
+        # The tuning layout of the robot model (orientation/EulerBoundary.h), which the orientation-row case reads Q by.
+        "//humanoid_nmpc/humanoid_common_mpc:orientation",
         "//humanoid_nmpc/humanoid_mpc_config:config_cc_proto",
         "//humanoid_nmpc/humanoid_mpc_config:config_nproto",
         "//lib/ocs2:ocs2_core",
@@ -648,6 +908,8 @@ cc_test(
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@eigen",
         "@googletest//:gtest_main",
         "@pinocchio",
         "@protobuf",

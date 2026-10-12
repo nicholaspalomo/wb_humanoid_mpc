@@ -29,13 +29,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_oc/oc_data/TimeDiscretization.h"
 
+#include <ocs2_core/NumericTraits.h>
 #include <ocs2_core/misc/Lookup.h>
 
 namespace ocs2 {
-
-scalar_t getInterpolationTime(const AnnotatedTime& annotatedTime) {
-  return annotatedTime.time + numeric_traits::limitEpsilon<scalar_t>();
-}
 
 scalar_t getIntervalStart(const AnnotatedTime& start) {
   scalar_t adaptedStart = start.time;
@@ -119,24 +116,6 @@ scalar_array_t toTime(const std::vector<AnnotatedTime>& annotatedTime) {
   for (size_t i = 0; i < annotatedTime.size(); i++) {
     timeTrajectory.push_back(annotatedTime[i].time);
   }
-  return timeTrajectory;
-}
-
-scalar_array_t toInterpolationTime(const std::vector<AnnotatedTime>& annotatedTime) {
-  if (annotatedTime.empty()) {
-    return scalar_array_t();
-  }
-  scalar_array_t timeTrajectory;
-  timeTrajectory.reserve(annotatedTime.size());
-  timeTrajectory.push_back(annotatedTime.back().time - numeric_traits::limitEpsilon<scalar_t>());
-  for (int i = 1; i < annotatedTime.size() - 1; i++) {
-    if (annotatedTime[i].event == AnnotatedTime::Event::PostEvent) {
-      timeTrajectory.push_back(getInterpolationTime(annotatedTime[i]));
-    } else {
-      timeTrajectory.push_back(annotatedTime[i].time);
-    }
-  }
-  timeTrajectory.push_back(annotatedTime.back().time - numeric_traits::limitEpsilon<scalar_t>());
   return timeTrajectory;
 }
 

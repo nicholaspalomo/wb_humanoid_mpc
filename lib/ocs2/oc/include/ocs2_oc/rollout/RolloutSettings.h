@@ -29,12 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <iostream>
-#include <string>
-
 #include <ocs2_core/Types.h>
 #include <ocs2_core/integration/Integrator.h>
-#include "ocs2_oc/rollout/RootFinderType.h"
 
 namespace ocs2 {
 namespace rollout {
@@ -58,19 +54,6 @@ struct Settings {
   bool checkNumericalStability = false;
   /** Whether to run controller again after integration to construct input trajectory */
   bool reconstructInputTrajectory = true;
-
-  /** Which of the RootFinding algorithms to use in StateRollout
-   * 		0:		Anderson & Björck		(default)
-   * 		1:		Pegasus
-   * 		2:		Illinois
-   * 		3:		Regula Falsi
-   */
-  RootFinderType rootFindingAlgorithm = RootFinderType::ANDERSON_BJORCK;
-  /** This value determines the maximum number of iterations, per event, allowed in state triggered rollout to find
-   *  the guard surface zero crossing.  */
-  int maxSingleEventIterations = 10;
-  /** Whether to use the trajectory spreading controller in state triggered rollout */
-  bool useTrajectorySpreadingController = false;
 };
 
 }  // namespace rollout

@@ -192,8 +192,7 @@ INSTANTIATE_TEST_SUITE_P(
                       MalformedFile{"a host given twice", "nodes {\n  name: \"robot\"\n  host: \"a\"\n  host: \"b\"\n}", 4, "host"},
                       MalformedFile{"an unquoted host", "nodes {\n  name: \"robot\"\n  host: 127.0.0.1\n}", 3, ""},
                       MalformedFile{"a missing colon", "nodes { name: \"robot\" }\nnodes { name \"mpc\" }", 2, ""},
-                      MalformedFile{"an unclosed node", "nodes { name: \"robot\" host: \"127.0.0.1\" port: 5600", 1, ""},
-                      MalformedFile{"the old YAML network file", "nodes:\n  robot: {host: 127.0.0.1, port: 5600}", 2, ""}));
+                      MalformedFile{"an unclosed node", "nodes { name: \"robot\" host: \"127.0.0.1\" port: 5600", 1, ""}));
 // LINT.ThenChange(//robot_runtime/robot_ipc/test/test_network_config.py:malformed_files)
 
 // A valid textproto whose nodes the bus cannot use, and the key the error must name.

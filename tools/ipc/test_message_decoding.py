@@ -191,6 +191,36 @@ class MessageToPythonTest(unittest.TestCase):
         self.assertEqual(value["state_trajectory"][1], {"data": [1.0, 1.5]})
         self.assertEqual(value["time_trajectory"], [0.0, 0.01, 0.02])
 
+    def test_every_controller_type_prints_by_name_and_an_unknown_one_by_number(
+        self,
+    ) -> None:
+        # The policy of a solver on a state manifold (ocs2::ManifoldLinearController) included, which the MPC node
+        # sends as code 3; a code this build does not know, from a newer sender, prints as its number.
+        self.assertEqual(controller_type_pb2.CONTROLLER_TYPE_MANIFOLD_LINEAR, 3)
+        for name, number in controller_type_pb2.ControllerType.items():
+            with self.subTest(controller_type=name):
+                policy = make_policy()
+                policy.controller_type = number
+                decoded = message_decoding.decode(
+                    "humanoid_mpc_msgs.MpcPolicy", policy.SerializeToString()
+                )
+                self.assertEqual(
+                    message_decoding.message_to_python(decoded)["controller_type"],
+                    name,
+                )
+                self.assertIn(
+                    f"controller_type: {name}",
+                    message_decoding.message_to_text(decoded).splitlines(),
+                )
+        policy = make_policy()
+        policy.controller_type = 7  # An open enum: a newer sender's code.
+        decoded = message_decoding.decode(
+            "humanoid_mpc_msgs.MpcPolicy", policy.SerializeToString()
+        )
+        self.assertEqual(
+            message_decoding.message_to_python(decoded)["controller_type"], 7
+        )
+
 
 class SelectFieldTest(unittest.TestCase):
 

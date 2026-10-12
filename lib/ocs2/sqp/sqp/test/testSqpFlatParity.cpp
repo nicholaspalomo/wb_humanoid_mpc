@@ -37,26 +37,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * warm start, warm start across the event), and prints everything the solver produces at 17 significant digits: the
  * iteration log, the primal solution, the per-node metrics and the policy evaluated on and off the nominal trajectory.
  *
- * The printout was first recorded from the solver BEFORE the manifold support was added, against the colcon build of
- * HPIPM (sqp_flat_parity_golden_colcon_hpipm.txt). Since the ROS removal bazel/system_libs.bzl builds the same HPIPM and
- * BLASFEO commits for TARGET=GENERIC (the colcon HPIPM was built for TARGET=AVX), so that the robot image also builds
- * for aarch64. Two configurations do not notice; rk2_hpipm_constrained_feedback, which hands its equality constraint
- * to HPIPM's interior point method, does: its primal solution, metrics and performance agree to 1e-9 relative (its
- * cost to 1e-12), but its feedback gains, which grow with the barrier terms of the IPM's last iterate, do not (its
- * policy outputs differ by up to 2 %). The golden the solver is compared with bit for bit (sqp_flat_parity_golden.txt)
- * is therefore the printout of this toolchain. It was recorded on the main line after the merge of the manifold
- * support, and the solver of the main line before that merge, without the manifold support, reproduces it line for line
- * on the same toolchain, so the comparison is one before and after the manifold support for every configuration, the
- * HPIPM-sensitive gains included. TheRecordingIsTheOriginalOneButForTheHpipmBuildSensitiveGains pins that it differs
- * from the original recording only there, which the HPIPM build alone explains. Each file's '#' header states where and
- * when it was recorded. The comparison is line by line, so a difference in any bit fails the test and names the first
- * line that differs. Printing at 17 significant digits round-trips every double, and also tells -0 from +0.
+ * The golden (sqp_flat_parity_golden.txt) is the printout of the solver before the manifold support, on this
+ * toolchain: it was recorded on the main line after the merge of the manifold support, with HPIPM and BLASFEO built by
+ * bazel/system_libs.bzl for TARGET=GENERIC, and the solver of the main line before that merge reproduces it line for
+ * line on the same toolchain, so the comparison is one before and after the manifold support for every configuration.
+ * One configuration depends on how HPIPM is built: rk2_hpipm_constrained_feedback hands its equality constraint to
+ * HPIPM's interior point method, whose feedback gains grow with the barrier terms of its last iterate, so another HPIPM
+ * target moves its policy outputs. That was measured once, when the golden was re-recorded for TARGET=GENERIC: against
+ * TARGET=AVX the policy outputs moved by up to 2 % while the primal solution, metrics and performance stayed within 1e-9
+ * relative (the golden's header records the 1e-9 agreement but for the feedback policy, not the 2 %). The file's '#'
+ * header states where and when it was recorded. The comparison is line by line, so a difference in any bit fails the
+ * test and names the first line that differs. Printing at 17 significant digits round-trips every double, and also
+ * tells -0 from +0.
  *
  * The hash of the golden's data is pinned below (kGoldenDataHash). A re-record rewrites the file, so it cannot pass
  * by accident: the test fails until the new hash is written into this source file, a change a reviewer sees. Re-record
  * only when the toy problem itself changes or HPIPM is built differently (bazel/system_libs.bzl), never to absorb a
- * solver difference, and from a solver without the manifold support where one can be built (as this one was verified);
- * after a re-record for the HPIPM build, the comparison with the original recording must still pass:
+ * solver difference, and from a solver without the manifold support where one can be built (as this one was verified):
  *   OCS2_RECORD_SQP_FLAT_PARITY="<solver state, e.g. commit and worktree>" bazel run //lib/ocs2:test_sqp_flat_parity
  * which writes the golden file into the source tree through BUILD_WORKSPACE_DIRECTORY, with that provenance in its
  * header, and then fails, printing the hash to pin.
@@ -71,7 +68,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <fstream>
 #include <memory>
-#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -98,23 +94,15 @@ namespace {
 
 // LINT.IfChange(golden_path)
 constexpr char kGoldenRelativePath[] = "lib/ocs2/sqp/sqp/test/data/sqp_flat_parity_golden.txt";
-constexpr char kOriginalGoldenRelativePath[] = "lib/ocs2/sqp/sqp/test/data/sqp_flat_parity_golden_colcon_hpipm.txt";
 // LINT.ThenChange(//lib/ocs2/BUILD.bazel:sqp_flat_parity_data)
 
+// LINT.IfChange(golden_hash)
 // FNV-1a (64 bit) of the golden's data lines, each followed by '\n'; the '#' provenance lines are not hashed. The value
 // of the printout recorded on 2026-10-02 on the main line, with HPIPM built for TARGET=GENERIC, which the solver before
-// the manifold support reproduces on that build.
+// the manifold support reproduces on that build. Another HPIPM build moves the feedback policy of
+// rk2_hpipm_constrained_feedback (the file comment): re-record then.
 constexpr uint64_t kGoldenDataHash = 0x131bb9bff9606ddfULL;
-// The same of the printout recorded on 2026-10-01 before the manifold support, against the colcon HPIPM.
-constexpr uint64_t kOriginalGoldenDataHash = 0xdc834eb10ee062c7ULL;
-
-// LINT.IfChange(hpipm_build_sensitive)
-/** The configuration whose feedback gains depend on how HPIPM is built (see the file comment). */
-constexpr char kHpipmBuildSensitiveConfiguration[] = "rk2_hpipm_constrained_feedback";
 // LINT.ThenChange(//bazel/system_libs.bzl:hpipm_target)
-/** How closely that configuration's primal solution, metrics and performance agree across the two HPIPM builds. */
-constexpr double kHpipmBuildRelativeTolerance = 1e-9;
-constexpr double kHpipmBuildAbsoluteTolerance = 1e-15;  ///< below this a difference is rounding (violations are ~1e-25)
 
 /** FNV-1a (64 bit) of the lines, each followed by '\n'. */
 uint64_t hashLines(const std::vector<std::string>& lines) {
@@ -282,7 +270,6 @@ sqp::Settings makeSettings(const ParityConfiguration& configuration) {
   settings.integratorType = configuration.integratorType;
   settings.projectStateInputEqualityConstraints = configuration.projectStateInputEqualityConstraints;
   settings.useFeedbackPolicy = configuration.useFeedbackPolicy;
-  settings.createValueFunction = false;
   settings.printSolverStatus = false;
   settings.printSolverStatistics = false;
   settings.printLinesearch = false;
@@ -306,11 +293,6 @@ void printScalar(std::ostringstream& out, const std::string& label, scalar_t val
   vector_t values(1);
   values << value;
   printLine(out, label, values);
-}
-
-void printMatrix(std::ostringstream& out, const std::string& label, const matrix_t& matrix) {
-  const vector_t values = Eigen::Map<const vector_t>(matrix.data(), matrix.size());
-  printLine(out, label + " [" + std::to_string(matrix.rows()) + "x" + std::to_string(matrix.cols()) + "]", values);
 }
 
 void printPerformance(std::ostringstream& out, const std::string& label, const PerformanceIndex& performance) {
@@ -440,41 +422,6 @@ std::vector<std::string> readGoldenDataLines(const std::string& relativePath) {
   return dataLines(splitLines(golden.str()));
 }
 
-/** The whitespace-separated tokens of a line. */
-std::vector<std::string> splitTokens(const std::string& line) {
-  std::vector<std::string> tokens;
-  std::istringstream stream(line);
-  std::string token;
-  while (stream >> token) {
-    tokens.push_back(token);
-  }
-  return tokens;
-}
-
-/** `token` as a double when it is one in full; nothing otherwise. */
-std::optional<double> parseNumber(const std::string& token) {
-  char* absl_nullable end = nullptr;
-  const double value = std::strtod(token.c_str(), &end);
-  if (end == token.c_str() || *end != '\0') return std::nullopt;
-  return value;
-}
-
-/** Whether `a` and `b` have the same words and numbers that agree within the HPIPM build tolerance. */
-bool agreesWithinHpipmBuildTolerance(const std::string& a, const std::string& b) {
-  const std::vector<std::string> tokensA = splitTokens(a);
-  const std::vector<std::string> tokensB = splitTokens(b);
-  if (tokensA.size() != tokensB.size()) return false;
-  for (size_t k = 0; k < tokensA.size(); ++k) {
-    if (tokensA[k] == tokensB[k]) continue;
-    const std::optional<double> x = parseNumber(tokensA[k]);
-    const std::optional<double> y = parseNumber(tokensB[k]);
-    if (!x.has_value() || !y.has_value() || !std::isfinite(*x) || !std::isfinite(*y)) return false;
-    const double scale = std::max(std::abs(*x), std::abs(*y));
-    if (std::abs(*x - *y) > kHpipmBuildRelativeTolerance * scale + kHpipmBuildAbsoluteTolerance) return false;
-  }
-  return true;
-}
-
 TEST(SqpFlatParity, SolveWithoutManifoldIsBitwiseIdenticalToTheRecordedSolve) {
   const std::string printout = solveAllConfigurations();
 
@@ -505,43 +452,6 @@ TEST(SqpFlatParity, SolveWithoutManifoldIsBitwiseIdenticalToTheRecordedSolve) {
     ASSERT_EQ(actual[i], expected[i]) << "First difference at line " << i + 1 << " of " << kGoldenRelativePath;
   }
   ASSERT_EQ(actual.size(), expected.size());
-}
-
-// The golden of this toolchain against the recording made before the manifold support: the same line for line, but for
-// the feedback policy of the configuration whose gains depend on the HPIPM build, and that configuration's other lines
-// within rounding. So the re-recording absorbed the HPIPM build and nothing else.
-TEST(SqpFlatParity, TheRecordingIsTheOriginalOneButForTheHpipmBuildSensitiveGains) {
-  const std::vector<std::string> golden = readGoldenDataLines(kGoldenRelativePath);
-  const std::vector<std::string> original = readGoldenDataLines(kOriginalGoldenRelativePath);
-  ASSERT_GT(original.size(), 100u) << "Missing or truncated " << kOriginalGoldenRelativePath;
-  ASSERT_EQ(hexHash(hashLines(golden)), hexHash(kGoldenDataHash)) << kGoldenRelativePath << " is not the pinned recording.";
-  ASSERT_EQ(hexHash(hashLines(original)), hexHash(kOriginalGoldenDataHash)) << kOriginalGoldenRelativePath << " is not the original.";
-  ASSERT_EQ(golden.size(), original.size());
-
-  const std::string sensitivePrefix = std::string(kHpipmBuildSensitiveConfiguration) + " ";
-  size_t policyLines = 0;
-  size_t toleratedLines = 0;
-  for (size_t i = 0; i < golden.size(); ++i) {
-    const std::vector<std::string> tokens = splitTokens(original[i]);
-    const bool sensitive = original[i].rfind(sensitivePrefix, 0) == 0;
-    if (!sensitive) {
-      ASSERT_EQ(golden[i], original[i]) << "line " << i + 1 << " of a configuration HPIPM's build does not reach";
-    } else if (tokens.size() > 2 && tokens[2].rfind("policy", 0) == 0) {
-      // The gains: compared nowhere across the builds, only the labels.
-      const std::vector<std::string> goldenTokens = splitTokens(golden[i]);
-      ASSERT_GE(goldenTokens.size(), 4u) << "line " << i + 1;
-      ASSERT_EQ(std::vector<std::string>(goldenTokens.begin(), goldenTokens.begin() + 4),
-                std::vector<std::string>(tokens.begin(), tokens.begin() + 4))
-          << "line " << i + 1;
-      ++policyLines;
-    } else {
-      ASSERT_TRUE(agreesWithinHpipmBuildTolerance(golden[i], original[i])) << "line " << i + 1 << ":\n  golden:   " << golden[i]
-                                                                           << "\n  original: " << original[i];
-      ++toleratedLines;
-    }
-  }
-  EXPECT_GT(policyLines, 0u);
-  EXPECT_GT(toleratedLines, policyLines) << "the primal solution of the HPIPM-build-sensitive configuration was not compared";
 }
 
 // getInitialStateGap() is the delta_x0 of the first iteration: zero for a cold start, the observation against the warm

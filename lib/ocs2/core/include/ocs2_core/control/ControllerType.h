@@ -38,9 +38,9 @@ namespace ocs2 {
  * manifold returns: its gains act on the tangent of the state, not on the stored state.
  */
 // LINT.IfChange(controller_types)
-enum class ControllerType { UNKNOWN, FEEDFORWARD, LINEAR, ONNX, BEHAVIORAL, MANIFOLD_LINEAR };
-// The values are not a wire format: humanoid_mpc_msgs/controller_type.proto has its own codes, and the policy encoder
-// maps the two (MANIFOLD_LINEAR gets its wire code with the encoder that sends it).
-// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_msgs/controller_type.proto)
+enum class ControllerType { UNKNOWN, FEEDFORWARD, LINEAR, MANIFOLD_LINEAR };
+// The values are not a wire format: humanoid_mpc_msgs/controller_type.proto has its own codes (MANIFOLD_LINEAR is
+// CONTROLLER_TYPE_MANIFOLD_LINEAR = 3 there), and humanoid_mpc_ipc's policy conversions map the two.
+// LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_msgs/controller_type.proto:controller_types)
 
 }  // namespace ocs2

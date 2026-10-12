@@ -192,7 +192,7 @@ std::unique_ptr<ChildProcess> startRobot(const std::string& networkFile, const s
   return std::make_unique<ChildProcess>(std::vector<std::string>{
       kRobotBinary, "--robot_name=drc_atlas", absl::StrCat("--task_file=", kAtlasTask), absl::StrCat("--reference_file=", kAtlasReference),
       absl::StrCat("--urdf_file=", kAtlasUrdf), absl::StrCat("--mjcf_file=", kAtlasScene), absl::StrCat("--network_config=", networkFile),
-      "--headless", "--realtime_cores=none", "--backend_cores=none", absl::StrCat("--config_store_dir=", storeDirectory),
+      "--viewer=none", "--realtime_cores=none", "--backend_cores=none", absl::StrCat("--config_store_dir=", storeDirectory),
       "--config_seed=when_bundle_changes"});
 }
 

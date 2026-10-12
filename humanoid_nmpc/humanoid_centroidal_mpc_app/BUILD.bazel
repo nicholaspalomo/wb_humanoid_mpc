@@ -125,6 +125,7 @@ cc_test(
         "//humanoid_nmpc/humanoid_common_mpc_app/visualization",
         "//humanoid_nmpc/humanoid_mpc_ipc",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//lib/ocs2:ocs2_centroidal_model",
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_mpc_test_support",
@@ -136,6 +137,45 @@ cc_test(
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/time",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The shipped DRC Atlas MPC's feedback policy over the network link: an MpcServer serves its ManifoldLinearController to
+# a RemoteMpcLink on the robot's own state manifold, and the robot's RealtimePolicyEvaluator on the decoded policy
+# computes what MPC_MRT_Interface's MRT_BASE::evaluatePolicy() computes in process, on both sides of a contact event, bit
+# for bit. Exclusive and large: it builds the Atlas MPC's CppAD libraries on a cold cache, as the node test does.
+cc_test(
+    name = "test_centroidal_mpc_manifold_policy_over_bus",
+    size = "large",
+    timeout = "eternal",
+    srcs = ["test/testCentroidalMpcManifoldPolicyOverBus.cpp"],
+    copts = FIRST_PARTY_COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    tags = ["exclusive"],
+    deps = [
+        "//humanoid_nmpc/humanoid_centroidal_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:mpc_reset_supervisor",
+        "//humanoid_nmpc/humanoid_mpc_ipc",
+        "//humanoid_nmpc/humanoid_mpc_ipc:mpc_link_test_support",
+        "//humanoid_nmpc/humanoid_mpc_ipc:mpc_server",
+        "//humanoid_nmpc/humanoid_mpc_ipc:realtime_policy_evaluator",
+        "//humanoid_nmpc/humanoid_mpc_ipc:remote_mpc_link",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_sqp",
+        "//robot_runtime/robot_core:resource_paths",
+        "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/time",
         "@googletest//:gtest_main",
         "@pinocchio",

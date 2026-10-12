@@ -29,21 +29,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_nmpc/humanoid_mpc_ipc/test/MpcLinkTestSupport.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/time/clock.h"
 #include "ocs2_core/control/FeedforwardController.h"
+#include "ocs2_core/manifold/UnitQuaternionMath.h"
 #include "ocs2_mpc/CommandData.h"
+#include "ocs2_oc/multiple_shooting/Helpers.h"
 #include "ocs2_oc/oc_data/PerformanceIndex.h"
 #include "ocs2_oc/oc_data/PrimalSolution.h"
+#include "ocs2_oc/oc_data/TimeDiscretization.h"
 
+#include "humanoid_nmpc/humanoid_mpc_ipc/test/PolicyTestData.h"
 #include "robot_ipc/BusOptions.h"
 #include "robot_ipc/NodeEndpoint.h"
 
@@ -78,6 +85,102 @@ std::unique_ptr<mpc_test::ScriptedMpc> makeScriptedMpc(const mpc::Settings& sett
     return vector_t(initState + vector_t::Constant(initState.size(), time - initTime));
   });
   return mpc;
+}
+
+ModelDimensions manifoldModelDimensions() {
+  return ModelDimensions{.stateDim = test_data::toyStateManifold()->getAmbientDim(), .inputDim = kInputDim, .numModes = kNumModes};
+}
+
+SystemObservation manifoldObservationAt(scalar_t time, scalar_t value) {
+  // [E(3), Q, E(5)]: the quaternion (x, y, z, w) at offset 3.
+  SystemObservation observation;
+  observation.time = time;
+  observation.state = vector_t::Constant(static_cast<Eigen::Index>(manifoldModelDimensions().stateDim), value);
+  rotation_vector_t<scalar_t> rotation;
+  rotation << 0.6 * value, -0.48 * value, 0.64 * value;
+  observation.state.segment<4>(3) = quaternionExp(rotation);
+  observation.input = vector_t::Zero(kInputDim);
+  return observation;
+}
+
+ManifoldScriptedSolver::ManifoldScriptedSolver(std::shared_ptr<const StateManifold> stateManifold, size_t inputDim)
+    : stateManifold_(std::move(stateManifold)), inputDim_(inputDim) {}
+
+void ManifoldScriptedSolver::reset() {
+  numResets_.fetch_add(1);
+  finalTime_ = 0.0;
+}
+
+void ManifoldScriptedSolver::getPrimalSolution(scalar_t finalTime, PrimalSolution* absl_nonnull primalSolutionPtr) const {
+  // Ten intervals, the pre- and post-event nodes of the event halfway sharing its time, as SqpSolver discretizes.
+  constexpr size_t kIntervals = 10;
+  const scalar_t endTime = std::max(finalTime, initTime_);
+  const scalar_t eventTime = initTime_ + 0.5 * (endTime - initTime_);
+  std::vector<AnnotatedTime> times;
+  for (size_t k = 0; k <= kIntervals; ++k) {
+    if (k == kIntervals / 2) {
+      times.emplace_back(eventTime, AnnotatedTime::Event::PreEvent);
+      times.emplace_back(eventTime, AnnotatedTime::Event::PostEvent);
+    } else {
+      times.emplace_back(initTime_ + (endTime - initTime_) * static_cast<scalar_t>(k) / static_cast<scalar_t>(kIntervals));
+    }
+  }
+
+  const Eigen::Index tangentDim = static_cast<Eigen::Index>(stateManifold_->getTangentDim());
+  const vector_t velocity = vector_t::LinSpaced(tangentDim, /*low=*/-0.5, /*high=*/0.5);
+  const vector_t jump = vector_t::Constant(tangentDim, 0.05);
+  vector_array_t states;
+  bool afterEvent = false;
+  for (const AnnotatedTime& time : times) {
+    afterEvent = afterEvent || time.event == AnnotatedTime::Event::PostEvent;
+    vector_t step = (time.time - initTime_) * velocity;
+    if (afterEvent) step += jump;
+    vector_t state;
+    stateManifold_->retract(initState_, step, /*alpha=*/1.0, state);
+    states.push_back(std::move(state));
+  }
+  // An input and a gain for every node but the last, as the QP gives them.
+  vector_array_t inputs;
+  matrix_array_t gains;
+  for (size_t k = 0; k + 1 < times.size(); ++k) {
+    const scalar_t node = static_cast<scalar_t>(k);
+    inputs.push_back(vector_t::LinSpaced(static_cast<Eigen::Index>(inputDim_), initState_(0), initState_(0) + node));
+    matrix_t gain(static_cast<Eigen::Index>(inputDim_), tangentDim);
+    for (Eigen::Index column = 0; column < gain.cols(); ++column) {
+      for (Eigen::Index row = 0; row < gain.rows(); ++row) {
+        gain(row, column) =
+            0.01 * static_cast<scalar_t>(row + 1) - 0.02 * static_cast<scalar_t>(column) + 0.1 * initState_(0) + 0.003 * node;
+      }
+    }
+    gains.push_back(std::move(gain));
+  }
+  ModeSchedule modeSchedule(/*eventTimesInput=*/{eventTime}, /*modeSequenceInput=*/{0, 1});
+  *primalSolutionPtr = multiple_shooting::toPrimalSolution(times, std::move(modeSchedule), std::move(states), std::move(inputs),
+                                                           std::move(gains), stateManifold_);
+}
+
+void ManifoldScriptedSolver::runImpl(scalar_t initTime, const vector_t& initState, scalar_t finalTime) {
+  initTime_ = initTime;
+  initState_ = initState;
+  finalTime_ = finalTime;
+}
+
+void ManifoldScriptedSolver::runImpl(scalar_t initTime,
+                                     const vector_t& initState,
+                                     scalar_t finalTime,
+                                     const ControllerBase* absl_nullable /*externalControllerPtr*/) {
+  runImpl(initTime, initState, finalTime);
+}
+
+void ManifoldScriptedSolver::runImpl(scalar_t initTime,
+                                     const vector_t& initState,
+                                     scalar_t finalTime,
+                                     const PrimalSolution& /*primalSolution*/) {
+  runImpl(initTime, initState, finalTime);
+}
+
+std::unique_ptr<ManifoldScriptedMpc> makeManifoldScriptedMpc(std::shared_ptr<const StateManifold> stateManifold) {
+  return std::make_unique<ManifoldScriptedMpc>(mpcSettings(), std::move(stateManifold), kInputDim);
 }
 
 bool waitFor(const std::function<bool()>& condition, absl::Duration timeout) {

@@ -43,8 +43,8 @@
 
 **/__pycache__/**
 
-# MuJoCo log
-*/MUJOCO_LOG.TXT
+# MuJoCo log, wherever a process starts MuJoCo
+MUJOCO_LOG.TXT
 *mjData.bin
 
 # python
@@ -61,6 +61,13 @@ bazel-*
 .bazel-cache/
 MODULE.bazel.lock
 
+# clangd's compilation database, written in the dev container (tools/ide/README.md), and the temporary file a refresh
+# renames over it; the index is in .cache/clangd/.
+# LINT.IfChange(compile_commands_file)
+/compile_commands.json
+/.compile_commands.*.tmp
+# LINT.ThenChange(//tools/ide/compile_commands.py:compile_commands_file)
+
 # CppAD generated code (runtime)
 cppad_code_gen/
 .env
@@ -69,11 +76,8 @@ cartpole_renders/
 # Jupyter notebook checkpoints, wherever a notebook is opened
 .ipynb_checkpoints/
 
-MUJOCO_LOG.TXT
-
 # LINT.IfChange(robot_file_excludes)
 *.bak
-*.live*
 # LINT.ThenChange(//bazel/robot_files.bzl:robot_file_excludes)
 
 # Local Bazel overrides (see .bazelrc, e.g. a higher --jobs on a machine with more RAM)

@@ -75,7 +75,6 @@ struct PlanarEndEffectorDynamicsReference {
   VECTOR3_T<SCALAR_T> getAngularAcceleration() const { return costElementVector.segment(15, 3); }
 
   void setPosition(const VECTOR3_T<SCALAR_T>& position) { costElementVector.head(3) = position; }
-  void setPlaneNormal(const VECTOR3_T<SCALAR_T>& planeNormal) { costElementVector.segment(3, 3) = planeNormal; }
   void setLinearVelocity(const VECTOR3_T<SCALAR_T>& linearVelocity) { costElementVector.segment(6, 3) = linearVelocity; }
   void setAngularVelocity(const VECTOR3_T<SCALAR_T>& angularVelocity) { costElementVector.segment(9, 3) = angularVelocity; }
 };

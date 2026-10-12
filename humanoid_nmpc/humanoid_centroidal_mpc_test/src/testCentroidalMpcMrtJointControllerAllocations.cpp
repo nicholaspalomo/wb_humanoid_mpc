@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
 #include "pinocchio/algorithm/centroidal.hpp"
+#include "pinocchio/algorithm/joint-configuration.hpp"
 #include "pinocchio/algorithm/rnea.hpp"
 
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
@@ -57,11 +58,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * of the robot state, the contact flags, the gravity compensation's workspace, a std::function), and SAFETY's first
  * cycle resized its posture.
  *
- * What remains is Pinocchio's: a pass over the model's composite base joint (the Euler-angle floating base) makes a
- * temporary of the joint's dynamic-size motion subspace - the centroidal map of the observation, the nonlinear effects
- * of the gravity compensation. The test measures those passes on the same model and expects exactly them, so that the
- * controller's own code is pinned at zero whatever Pinocchio does. The policy's execution in WB_MPC is not covered: it
- * still allocates in the model's accessors and the inverse dynamics (the package README).
+ * What remains is Pinocchio's: a pass over the model's composite base joint, Composite(Translation, Spherical) since
+ * the quaternion base orientation, makes temporaries of the joint's dynamic-size motion subspace - the centroidal map of
+ * the observation, the nonlinear effects of the gravity compensation. The test measures those passes on the same model,
+ * at its neutral configuration (the identity quaternion), records them as the test's properties and expects exactly
+ * them, so that the controller's own code is pinned at zero whatever Pinocchio does. The policy's execution in WB_MPC is
+ * not covered: it still allocates in the model's accessors and the inverse dynamics (the package README).
  */
 
 namespace ocs2::humanoid {
@@ -122,7 +124,7 @@ TEST(CentroidalMpcMrtJointControllerAllocations, TheObservationThePassiveModesAn
 
   // Pinocchio's own allocations, one pass each on a copy of the controller's model.
   PinocchioInterface probe = model.getPinocchioInterface();
-  const vector_t q = vector_t::Zero(probe.getModel().nq);
+  const vector_t q = pinocchio::neutral(probe.getModel());
   const vector_t v = vector_t::Zero(probe.getModel().nv);
   pinocchio::computeCentroidalMap(probe.getModel(), probe.getData(), q);
   pinocchio::nonLinearEffects(probe.getModel(), probe.getData(), q, v);
@@ -132,6 +134,8 @@ TEST(CentroidalMpcMrtJointControllerAllocations, TheObservationThePassiveModesAn
   before = robot::realtime::heapAllocationCountOnThisThread();
   pinocchio::nonLinearEffects(probe.getModel(), probe.getData(), q, v);
   const size_t perNonlinearEffects = robot::realtime::heapAllocationCountOnThisThread() - before;
+  ::testing::Test::RecordProperty("pinocchio_allocations_per_centroidal_map", static_cast<int>(perCentroidalMap));
+  ::testing::Test::RecordProperty("pinocchio_allocations_per_nonlinear_effects", static_cast<int>(perNonlinearEffects));
 
   runModes(controller, nominal, state, action, time);  // the first time through, sizing what sizes itself on first use
   const int eventsBefore = sink.posted.load();

@@ -287,8 +287,10 @@ bool isReadByFormulation(absl::Span<const std::string> formulations, absl::strin
 std::vector<ConfigChange> changedStartUpFields(const google::protobuf::Message& running, const google::protobuf::Message& reloaded) {
   std::vector<ConfigChange> changed;
   if (running.GetDescriptor() != reloaded.GetDescriptor()) {
-    // Not two versions of one file: every field differs, which the file message's name says best.
-    changed.push_back(ConfigChange{.path = std::string(running.GetDescriptor()->full_name()), .reload = ConfigReload::kStartUp});
+    // Not two versions of one file: every field differs, which the file message's name says best. No one consumer and no
+    // formulation reads the whole file.
+    changed.push_back(ConfigChange{
+        .path = std::string(running.GetDescriptor()->full_name()), .reload = ConfigReload::kStartUp, .consumer = "", .formulations = {}});
     return changed;
   }
   walkChanges(running, reloaded, /*prefix=*/"", FieldTuning{}, changed);

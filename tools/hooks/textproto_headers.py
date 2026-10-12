@@ -60,7 +60,7 @@ TEXTPROTO_EXTENSION = ".textproto"
 # LINT.IfChange(header_lines)
 _PROTO_FILE = re.compile(r"#\s*proto-file:\s*(\S+)")
 _PROTO_MESSAGE = re.compile(r"#\s*proto-message:\s*(\S+)")
-# LINT.ThenChange(//tools/nproto/src/Textproto.cpp:header_lines, //tools/nproto/nproto_textproto.py:header_lines)
+# LINT.ThenChange(//tools/nproto/src/Textproto.cpp:header_lines, //tools/nproto/nproto_textproto.py:header_lines, //tools/deploy/session.sh:plot_config_header)
 _PACKAGE = re.compile(r"^\s*package\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;", re.MULTILINE)
 
 # The repository root, against which the proto-file paths are resolved; the tests pass another one.

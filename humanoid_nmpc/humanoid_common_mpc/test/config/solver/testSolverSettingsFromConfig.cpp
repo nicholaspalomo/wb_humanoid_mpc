@@ -31,11 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // field reaches its setting, integrators are named as OCS2 names them, and what the settings cannot hold is refused
 // naming the field. The schema refuses the keys it retired, naming what to do.
 
-#include <array>
-#include <cstddef>
 #include <string>
 
-#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -46,7 +43,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/integration/SensitivityIntegrator.h"
 #include "ocs2_mpc/MPC_Settings.h"
 #include "ocs2_oc/rollout/RolloutSettings.h"
-#include "ocs2_oc/rollout/RootFinderType.h"
 #include "ocs2_sqp/SqpSettings.h"
 
 #include "humanoid_common_mpc/common/StatusMacros.h"
@@ -84,11 +80,9 @@ void expectSameSqpSettings(const sqp::Settings& actual, const sqp::Settings& exp
   EXPECT_EQ(actual.armijoFactor, expected.armijoFactor);
   EXPECT_EQ(actual.gamma_c, expected.gamma_c);
   EXPECT_EQ(actual.useFeedbackPolicy, expected.useFeedbackPolicy);
-  EXPECT_EQ(actual.createValueFunction, expected.createValueFunction);
   EXPECT_EQ(actual.dt, expected.dt);
   EXPECT_EQ(actual.integratorType, expected.integratorType);
   EXPECT_EQ(actual.projectStateInputEqualityConstraints, expected.projectStateInputEqualityConstraints);
-  EXPECT_EQ(actual.extractProjectionMultiplier, expected.extractProjectionMultiplier);
   EXPECT_EQ(actual.printSolverStatus, expected.printSolverStatus);
   EXPECT_EQ(actual.printSolverStatistics, expected.printSolverStatistics);
   EXPECT_EQ(actual.printLinesearch, expected.printLinesearch);
@@ -110,9 +104,6 @@ void expectSameRolloutSettings(const rollout::Settings& actual, const rollout::S
   EXPECT_EQ(actual.integratorType, expected.integratorType);
   EXPECT_EQ(actual.checkNumericalStability, expected.checkNumericalStability);
   EXPECT_EQ(actual.reconstructInputTrajectory, expected.reconstructInputTrajectory);
-  EXPECT_EQ(actual.rootFindingAlgorithm, expected.rootFindingAlgorithm);
-  EXPECT_EQ(actual.maxSingleEventIterations, expected.maxSingleEventIterations);
-  EXPECT_EQ(actual.useTrajectorySpreadingController, expected.useTrajectorySpreadingController);
 }
 
 void expectSameMpcSettings(const mpc::Settings& actual, const mpc::Settings& expected) {
@@ -165,11 +156,9 @@ TEST(SolverSettingsFromConfigTest, EveryFieldReachesItsSetting) {
       armijo_factor: 2e-4
       gamma_c: 2e-6
       use_feedback_policy: false
-      create_value_function: true
       dt: 0.025
       integrator_type: "RK4"
       project_state_input_equality_constraints: false
-      extract_projection_multiplier: true
       print_solver_status: true
       print_solver_statistics: true
       print_linesearch: true
@@ -187,9 +176,6 @@ TEST(SolverSettingsFromConfigTest, EveryFieldReachesItsSetting) {
       integrator_type: "RK4"
       check_numerical_stability: true
       reconstruct_input_trajectory: false
-      root_finder_type: "ILLINOIS"
-      max_single_event_iterations: 7
-      use_trajectory_spreading_controller: true
     }
     mpc {
       time_horizon: 1.25
@@ -215,11 +201,9 @@ TEST(SolverSettingsFromConfigTest, EveryFieldReachesItsSetting) {
   sqpSettings.armijoFactor = 2.0e-4;
   sqpSettings.gamma_c = 2.0e-6;
   sqpSettings.useFeedbackPolicy = false;
-  sqpSettings.createValueFunction = true;
   sqpSettings.dt = 0.025;
   sqpSettings.integratorType = SensitivityIntegratorType::RK4;
   sqpSettings.projectStateInputEqualityConstraints = false;
-  sqpSettings.extractProjectionMultiplier = true;
   sqpSettings.printSolverStatus = true;
   sqpSettings.printSolverStatistics = true;
   sqpSettings.printLinesearch = true;
@@ -238,9 +222,6 @@ TEST(SolverSettingsFromConfigTest, EveryFieldReachesItsSetting) {
   rolloutSettings.integratorType = IntegratorType::RK4;
   rolloutSettings.checkNumericalStability = true;
   rolloutSettings.reconstructInputTrajectory = false;
-  rolloutSettings.rootFindingAlgorithm = RootFinderType::ILLINOIS;
-  rolloutSettings.maxSingleEventIterations = 7;
-  rolloutSettings.useTrajectorySpreadingController = true;
   expectSameRolloutSettings(settings->rolloutSettings, rolloutSettings);
 
   mpc::Settings mpcSettings;
@@ -305,37 +286,6 @@ TEST(SolverSettingsFromConfigTest, ANegativeCountIsRefusedNamingTheField) {
   EXPECT_TRUE(toSqpSettings(none).ok());
 }
 
-/** A root finder of OCS2 and the name a rollout block gives it. */
-struct NamedRootFinder {
-  const char* absl_nonnull name;
-  RootFinderType type;
-};
-
-TEST(SolverSettingsFromConfigTest, TheRootFindersAreNamedAsTheirEnumerators) {
-  // Each name is the RootFinderType enumerator of the same spelling; the int code it replaced was the enumerator's
-  // number (0 ANDERSON_BJORCK, 1 PEGASUS, 2 ILLINOIS, 3 REGULA_FALSI), which the order below pins.
-  const std::array<NamedRootFinder, 4> kNames = {{{.name = "ANDERSON_BJORCK", .type = RootFinderType::ANDERSON_BJORCK},
-                                                  {.name = "PEGASUS", .type = RootFinderType::PEGASUS},
-                                                  {.name = "ILLINOIS", .type = RootFinderType::ILLINOIS},
-                                                  {.name = "REGULA_FALSI", .type = RootFinderType::REGULA_FALSI}}};
-  for (size_t code = 0; code < kNames.size(); ++code) {
-    mpc_config::RolloutSettingsConfig config;
-    config.root_finder_type = kNames[code].name;
-    const absl::StatusOr<rollout::Settings> settings = toRolloutSettings(config);
-    ASSERT_TRUE(settings.ok()) << settings.status();
-    EXPECT_EQ(settings->rootFindingAlgorithm, kNames[code].type);
-    EXPECT_EQ(static_cast<size_t>(settings->rootFindingAlgorithm), code);
-  }
-  EXPECT_EQ(mpc_config::RolloutSettingsConfig{}.root_finder_type, "ANDERSON_BJORCK") << "the default of rollout::Settings";
-  for (const absl::string_view name : {"0", "anderson_bjorck", "BRENT"}) {
-    mpc_config::RolloutSettingsConfig config;
-    config.root_finder_type = std::string(name);
-    const absl::Status status = toRolloutSettings(config).status();
-    expectRefused(status, absl::StrCat("rollout.root_finder_type: '", name, "' is not a root-finding algorithm"));
-    expectRefused(status, "ANDERSON_BJORCK, PEGASUS, ILLINOIS, REGULA_FALSI");
-  }
-}
-
 TEST(SolverSettingsFromConfigTest, AnErrorOfABlockIsTheErrorOfTheTaskFile) {
   const absl::StatusOr<mpc_config::TaskFile> task = parseTaskFile(R"pb(rollout { integrator_type: "RK45" })pb");
   ASSERT_TRUE(task.ok()) << task.status();
@@ -352,9 +302,17 @@ TEST(SolverSettingsSchemaTest, TheRetiredKeysAreRefusedSayingWhatToDo) {
   const absl::Status ddp = parseTaskFile("ddp { }").status();
   expectRefused(ddp, "'ddp' is retired");
   expectRefused(ddp, "multiple_shooting");
-  const absl::Status rootFinder = parseTaskFile("rollout {\n  rootFindingAlgorithm: 1\n}\n").status();
-  expectRefused(rootFinder, "task.textproto:2:3: 'rootFindingAlgorithm' is retired");
-  expectRefused(rootFinder, R"(root_finder_type: "ANDERSON_BJORCK" where it was 0, "PEGASUS" where it was 1)");
+  // The settings of the state-triggered rollout, which the fork no longer has.
+  for (const absl::string_view key : {"rootFindingAlgorithm: 1", "root_finder_type: \"ILLINOIS\"", "max_single_event_iterations: 7",
+                                      "useTrajectorySpreadingController: true"}) {
+    const absl::Status status = parseTaskFile(absl::StrCat("rollout {\n  ", key, "\n}\n")).status();
+    expectRefused(status, "task.textproto:2:3: '");
+    expectRefused(status, "' is retired: it tuned OCS2's state-triggered rollout");
+    expectRefused(status, "delete the line");
+  }
+  const absl::Status valueFunction = parseTaskFile("multiple_shooting {\n  createValueFunction: true\n}\n").status();
+  expectRefused(valueFunction, "task.textproto:2:3: 'createValueFunction' is retired");
+  expectRefused(valueFunction, "delete the line");
 }
 
 TEST(SolverSettingsSchemaTest, AnOldKeyOfALiveFieldIsRefusedNamingTheField) {

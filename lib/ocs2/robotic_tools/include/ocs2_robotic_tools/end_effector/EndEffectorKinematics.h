@@ -169,8 +169,7 @@ class EndEffectorKinematics {
   /**
    * Get end-effector orintation error linear approximation in world frame
    *
-   * @note: To calculate the error and Jacobian use quaternionDistance() and quaternionDistanceJacobian() from
-   *        ocs2_robotic_tools/common/RotationTransforms.h
+   * @note: To calculate the error use quaternionDistance() from ocs2_robotic_tools/common/RotationTransforms.h
    *
    * @param [in] state: state vector
    * @param [in] referenceOrientation: reference quaternion
@@ -182,8 +181,7 @@ class EndEffectorKinematics {
   /**
    * Get end-effector orintation error with respect to plane linear approximation in world frame
    *
-   * @note: To calculate the error and Jacobian use quaternionDistance() and quaternionDistanceJacobian() from
-   *        ocs2_robotic_tools/common/RotationTransforms.h
+   * @note: To calculate the error use rotationMatrixDistanceToPlane() from ocs2_robotic_tools/common/RotationTransforms.h
    *
    * @param [in] state: state vector
    * @param [in] planeNormals: plane normals in world frame

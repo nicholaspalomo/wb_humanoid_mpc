@@ -44,6 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
+#include "Eigen/Core"
+#include "Eigen/Geometry"
 #include "absl/base/nullability.h"
 #include "absl/log/log.h"
 #include "absl/status/status.h"
@@ -53,7 +55,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 #include "ocs2_mpc/MPC_Settings.h"
 #include "ocs2_mpc_test/ScriptedMpc.h"
-#include "ocs2_robotic_tools/common/RotationTransforms.h"
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/rnea.hpp"
 
@@ -126,9 +127,12 @@ class WholeBodyHarness {
         description_(robot::model::RobotDescription::Create(urdfFile_).value()),
         robotState_(description_),
         action_(description_),
-        initialState_(
-            stateValuesFromConfig(task_.initial_state, stateInputLayout(modelSettings_, StateInputLayout::Mpc::kWholeBody), "initial_state")
-                .value()) {
+        initialState_(model_
+                          .stateFromTuning(stateValuesFromConfig(task_.initial_state,
+                                                                 stateInputLayout(modelSettings_, StateInputLayout::Mpc::kWholeBody),
+                                                                 "initial_state")
+                                               .value())
+                          .value()) {
     mpcJointIndices_ = description_.getJointIndices(modelSettings_.mpcModelJointNames);
     setState(initialState_);
     absl::StatusOr<std::unique_ptr<WBMpcMrtJointController>> created = absl::UnknownError("not created");
@@ -138,7 +142,8 @@ class WholeBodyHarness {
       created = WBMpcMrtJointController::Create(description_, modelSettings_, InProcessMpcLink::factory(mpc_, std::move(config), &link_),
                                                 pinocchioInterface_);
     } else {
-      created = WBMpcMrtJointController::Create(description_, modelSettings_, mpc_, pinocchioInterface_, /*mpcDesiredFrequency=*/1000.0);
+      created = WBMpcMrtJointController::Create(description_, modelSettings_, mpc_, /*solverObservationObserver=*/nullptr,
+                                                pinocchioInterface_, /*mpcDesiredFrequency=*/1000.0);
     }
     EXPECT_TRUE(created.ok()) << created.status();
     if (created.ok()) controller_ = *std::move(created);
@@ -162,12 +167,14 @@ class WholeBodyHarness {
   const robot::model::RobotDescription& description() const { return description_; }
   const ModelSettings& modelSettings() const { return modelSettings_; }
   const PinocchioInterface& pinocchioInterface() const { return pinocchioInterface_; }
+  /** The robot state every cycle() hands the controller, for a test to measure another robot than setState()'s. */
+  robot::model::RobotState& robotState() { return robotState_; }
   scalar_t time() const { return time_; }
 
   void setState(const vector_t& state) {
     robotState_.setConfigurationToZero();
     robotState_.setRootPositionInWorldFrame(model_.getBasePosition(state));
-    robotState_.setRootRotationLocalToWorldFrame(getQuaternionFromEulerAnglesZyx(vector3_t(model_.getBaseOrientationEulerZYX(state))));
+    robotState_.setRootRotationLocalToWorldFrame(quaternion_t(model_.getBaseOrientation(state)));
     const vector_t joints = model_.getJointAngles(state);
     for (size_t i = 0; i < mpcJointIndices_.size(); ++i) robotState_.setJointPosition(mpcJointIndices_[i], joints[i]);
     robotState_.setContactFlag(/*index=*/0, /*contactFlag=*/true);
@@ -307,6 +314,55 @@ TEST(WBMpcMrtJointController, JointPdHoldsTheNominalPostureWithGravityCompensati
     EXPECT_EQ(actionOf(limp, index).kp, 0.0);
     EXPECT_EQ(actionOf(limp, index).kd, 0.0);
     EXPECT_EQ(actionOf(limp, index).feed_forward_effort, 0.0);
+  }
+}
+
+TEST(WBMpcMrtJointController, TheObservationAndTheGravityCompensationAreOfTheMeasuredRobot) {
+  // A turned, tilted and moving robot: the observation the MPC is handed holds what the robot measured, read back through
+  // the robot model's layout-agnostic accessors (the base velocities are measured in the base frame), and GRAVITY_COMP
+  // compensates gravity at the configuration the observation holds.
+  WholeBodyHarness harness;
+  const WBAccelMpcRobotModel<scalar_t>& model = harness.model();
+  const vector3_t position(0.3, -0.2, 0.75);
+  const quaternion_t orientation(Eigen::AngleAxisd(2.5, vector3_t::UnitZ()) * Eigen::AngleAxisd(0.2, vector3_t::UnitY()) *
+                                 Eigen::AngleAxisd(-0.1, vector3_t::UnitX()));
+  const vector3_t linearVelocityLocal(0.4, -0.1, 0.05);
+  const vector3_t angularVelocityLocal(0.3, -0.2, 0.6);
+  robot::model::RobotState& robotState = harness.robotState();
+  robotState.setRootPositionInWorldFrame(position);
+  robotState.setRootRotationLocalToWorldFrame(orientation);
+  robotState.setRootLinearVelocityInLocalFrame(linearVelocityLocal);
+  robotState.setRootAngularVelocityInLocalFrame(angularVelocityLocal);
+  const std::vector<size_t>& jointIndices = harness.mpcJointIndices();
+  vector_t jointPositions(static_cast<Eigen::Index>(jointIndices.size()));
+  vector_t jointVelocities(static_cast<Eigen::Index>(jointIndices.size()));
+  for (size_t i = 0; i < jointIndices.size(); ++i) {
+    const Eigen::Index row = static_cast<Eigen::Index>(i);
+    jointPositions(row) = 0.05 * static_cast<scalar_t>(i % 4) - 0.1;
+    jointVelocities(row) = 0.2 - 0.03 * static_cast<scalar_t>(i % 5);
+    robotState.setJointPosition(jointIndices[i], jointPositions(row));
+    robotState.setJointVelocity(jointIndices[i], jointVelocities(row));
+  }
+
+  harness.controller().setControlMode("GRAVITY_COMP");
+  const robot::model::RobotJointAction& action = harness.cycle();
+
+  const vector_t& state = harness.controller().getCurrentObservation().state;
+  ASSERT_EQ(static_cast<size_t>(state.size()), model.getStateDim());
+  EXPECT_TRUE(model.getBasePosition(state) == position);
+  EXPECT_LT(quaternion_t(model.getBaseOrientation(state)).angularDistance(orientation), 1.0e-12);
+  EXPECT_LT((model.getBaseComLinearVelocity(state) - orientation * linearVelocityLocal).norm(), 1.0e-12) << "in the world frame";
+  EXPECT_LT((model.getBaseAngularVelocityLocal(state) - angularVelocityLocal).norm(), 1.0e-12) << "in the base frame";
+  EXPECT_TRUE(model.getJointAngles(state) == jointPositions);
+  EXPECT_TRUE(model.getJointVelocities(state, vector_t::Zero(model.getInputDim())) == jointVelocities);
+
+  // The gravity torques of the MPC joints at the observed configuration, the base held.
+  PinocchioInterface pinocchioInterface = harness.pinocchioInterface();
+  pinocchio::nonLinearEffects(pinocchioInterface.getModel(), pinocchioInterface.getData(), model.getGeneralizedCoordinates(state),
+                              vector_t::Zero(pinocchioInterface.getModel().nv));
+  const vector_t gravity = pinocchioInterface.getData().nle.tail(model.getJointDim());
+  for (size_t i = 0; i < jointIndices.size(); ++i) {
+    EXPECT_NEAR(actionOf(action, jointIndices[i]).feed_forward_effort, gravity[static_cast<Eigen::Index>(i)], 1.0e-9) << "joint " << i;
   }
 }
 

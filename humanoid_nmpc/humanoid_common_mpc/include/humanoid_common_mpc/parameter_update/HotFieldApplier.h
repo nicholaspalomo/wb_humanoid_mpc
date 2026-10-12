@@ -48,9 +48,9 @@ namespace ocs2::humanoid {
  * An applier finds the terms it writes by name in the running problem (CostTermNames.h, ContactTermNames.h) and skips the
  * ones the problem does not carry, which is the normal case; a block whose conversion refuses it is reported by its
  * field and the running values are kept. Appliers write disjoint parts of the problem, so that their order cannot change
- * the result: where two share a term, each reads it, replaces its own part and writes back the other's (the
- * stateInputQuadraticCost of a centroidal MPC with basis-vector contact inputs, whose Q is QuadraticCostWeightsApplier's
- * and whose R is BasisInputsCostApplier's).
+ * the result: where two share a term, each writes only its own part, through that part's setter (the
+ * stateInputQuadraticCost of a centroidal MPC with basis-vector contact inputs, whose Q QuadraticCostWeightsApplier sets
+ * with setStateWeights() and whose R BasisInputsCostApplier sets with setInputWeights()).
  *
  * Every applier class defines `static absl::Span<const absl::string_view> staticFields()` over a constexpr array in its
  * .cpp, inside a LINT.IfChange block whose ThenChange names the protos of the fields it lists, and implements fields() as

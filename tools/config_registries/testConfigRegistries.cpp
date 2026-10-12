@@ -133,13 +133,6 @@ bool isRolloutIntegrator(const std::string& name) {
   return toRolloutSettings(config).ok();
 }
 
-/** Whether the rollout settings read a rollout block whose root_finder_type is `name`. */
-bool isRootFinder(const std::string& name) {
-  mpc_config::RolloutSettingsConfig config;
-  config.root_finder_type = name;
-  return toRolloutSettings(config).ok();
-}
-
 /** What each registry accepts, by its own resolver: a name it offers must be a name it reads. */
 absl::flat_hash_map<std::string, Accepts> acceptors() {
   return {
@@ -163,7 +156,6 @@ absl::flat_hash_map<std::string, Accepts> acceptors() {
       {"mpc_cost", [](const std::string& name) { return stringToMpcCostType(name).ok(); }},
       {"projectile", [](const std::string& name) { return robot::mujoco_sim_interface::projectileFromName(name).ok(); }},
       {"rollout_integrator", &isRolloutIntegrator},
-      {"root_finder", &isRootFinder},
       {"sensitivity_integrator", &isSensitivityIntegrator},
       {"soft_constraint", [](const std::string& name) { return stringToMpcSoftConstraintType(name).ok(); }},
       {"stance_constraint", &isStanceConstraint},

@@ -17,11 +17,9 @@ clang-format
 make
 build-essential
 cmake
-ninja-build
 pkg-config
 patch
 xz-utils
-ccache
 
 # The libraries bazel/system_libs.bzl wraps.
 libeigen3-dev

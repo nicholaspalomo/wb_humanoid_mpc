@@ -145,6 +145,7 @@ SceneBuilder::SceneBuilder(const VisualizationModel& model, const VisualizationC
     : pinocchioInterface_(*model.pinocchioInterface),
       robotModel_(model.mpcRobotModel->clone()),
       modelSettings_(robotModel_->modelSettings),
+      stateManifold_(model.stateManifold),
       groundHeight_(robotModel_->modelSettings.terrainHeight) {}
 
 absl::StatusOr<std::unique_ptr<SceneBuilder>> SceneBuilder::Create(const VisualizationModel& model, const VisualizationConfig& config) {
@@ -251,8 +252,8 @@ void SceneBuilder::writeMeasuredFromSample(const msgs::RobotStateSample& sample,
   }
 
   // The free flyer's configuration is the position and the quaternion (x, y, z, w).
-  quaternion_t orientation(sample.base_orientation_world.w, sample.base_orientation_world.x, sample.base_orientation_world.y,
-                           sample.base_orientation_world.z);
+  quaternion_t orientation(vector4_t(sample.base_orientation_world.x, sample.base_orientation_world.y, sample.base_orientation_world.z,
+                                     sample.base_orientation_world.w));
   if (orientation.norm() > 0.0) {
     orientation.normalize();
   } else {
@@ -320,7 +321,7 @@ void SceneBuilder::writeObservationMarkers(const SystemObservation& observation,
   }
   vector_t planState;
   vector_t planInput;
-  samplePlan(*policy, observation.time, &planState, &planInput);
+  samplePlan(*policy, stateManifold_, observation.time, &planState, &planInput);
   const contact_flag_t stance = modeNumber2StanceLeg(observation.mode);
   vector3_t weightedCop = vector3_t::Zero();
   scalar_t normalForceSum = 0.0;
@@ -404,7 +405,7 @@ void SceneBuilder::computePlan(const PolicySnapshot& policy) {
         continue;
       }
       if (!kinematicsDone) {
-        samplePlan(policy, eventTime, &eventState, &eventInput);
+        samplePlan(policy, stateManifold_, eventTime, &eventState, &eventInput);
         pinocchio::forwardKinematics(model, data, robotModel_->getGeneralizedCoordinates(eventState));
         kinematicsDone = true;
       }
@@ -420,8 +421,8 @@ void SceneBuilder::computePlan(const PolicySnapshot& policy) {
 
   vector_t targetState;
   vector_t targetInput;
-  if (sampleTarget(policy.target, finalTime, robotModel_->getStateDim(), robotModel_->getInputDim(), &targetState, &targetInput) !=
-      TargetSample::kNone) {
+  if (sampleTarget(policy.target, stateManifold_, finalTime, robotModel_->getStateDim(), robotModel_->getInputDim(), &targetState,
+                   &targetInput) != TargetSample::kNone) {
     pinocchio::forwardKinematics(model, data, robotModel_->getGeneralizedCoordinates(targetState));
     pinocchio::updateFramePlacements(model, data);
     writeLinkPoses(data, mpcLinkFrames_, mpcLinkNames_, scene::kTerminalTargetInstance, &terminalTarget_);

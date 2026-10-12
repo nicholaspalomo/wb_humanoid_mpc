@@ -27,9 +27,8 @@
 
 """The colors of the viewer: OCS2's MATLAB-like marker palette and matplotlib's "tab10" curve colors.
 
-The marker palette is OCS2's (`ocs2::Color`), which its visualization helpers drew the markers with before the Rerun
-viewer, so a marker keeps the color it always had. The curve colors keep those of the ROS-era plots: measured blue
-against a red reference for positions, measured green against an orange reference for angles and rates.
+The marker palette is OCS2's (`ocs2::Color`). The curve colors pair measured blue against a red reference for
+positions, and measured green against an orange reference for angles and rates.
 """
 
 from collections.abc import Sequence

@@ -38,7 +38,6 @@ next to it stays in charge of the robot.
 import argparse
 import logging
 import signal
-import sys
 import threading
 
 from remote_control import operator_bus
@@ -104,7 +103,3 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         publisher.bus.close()
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

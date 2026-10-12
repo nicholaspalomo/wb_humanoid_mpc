@@ -15,7 +15,6 @@ bazel_dep(name = "rules_foreign_cc", version = "0.14.0")
 bazel_dep(name = "rules_python", version = "1.7.0")
 bazel_dep(name = "googletest", version = "1.17.0")
 bazel_dep(name = "platforms", version = "1.0.0")
-bazel_dep(name = "magic_enum", version = "0.9.7")
 bazel_dep(name = "abseil-cpp", version = "20250814.1")
 
 # ==============================================================================
@@ -33,6 +32,26 @@ bazel_dep(name = "protobuf", version = "36.0.bcr.1")
 
 bazel_dep(name = "libzmq", version = "4.3.5.bcr.7")
 bazel_dep(name = "cppzmq", version = "4.10.0.bcr.3")
+
+# ==============================================================================
+# MuJoCo web viewer: offscreen EGL rendering streamed over HTTP (robot_runtime/web_viewer)
+# ==============================================================================
+# cpp-httplib is the viewer's HTTP server, a single header. Its BCR overlay links boringssl and zlib, and boringssl
+# would bring google_benchmark and a newer googletest into the module graph, so the patch builds it without both: the
+# viewer serves plain HTTP and defines neither CPPHTTPLIB_OPENSSL_SUPPORT nor CPPHTTPLIB_ZLIB_SUPPORT.
+# LINT.IfChange(cpp_httplib_version)
+bazel_dep(name = "cpp-httplib", version = "0.46.0")
+single_version_override(
+    module_name = "cpp-httplib",
+    patch_strip = 1,
+    patches = ["//bazel/patches:cpp_httplib_without_tls.patch"],
+)
+# LINT.ThenChange(//bazel/patches/cpp_httplib_without_tls.patch:cpp_httplib_patch)
+
+# libjpeg-turbo encodes the frames (and decodes them in the tests); it links statically. egl-registry is the Khronos
+# EGL headers only: the viewer loads libEGL.so.1 at run time, so no target links against EGL.
+bazel_dep(name = "libjpeg_turbo", version = "3.1.3.bcr.6")
+bazel_dep(name = "egl-registry", version = "0.0.0-20250527")
 
 # ==============================================================================
 # Python Toolchain & MuJoCo RL Dependencies (rules_python)

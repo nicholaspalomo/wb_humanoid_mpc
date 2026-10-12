@@ -130,6 +130,7 @@ ModelSettings::FootConstraintConfig retunedFootGains(const WBMpcInterface& inter
 TEST(WholeBodyTermSetters, TheFootCostsSetWeightsEqualsAFootCostBuiltWithThem) {
   WBMpcInterface* absl_nullable const interface = shippedWholeBodyMpc();
   ASSERT_NE(interface, nullptr);
+  expectQuaternionLayout(*interface);
   const std::vector<EvaluationPoint> points = evaluationPoints(*interface, kNumPoints);
   // The cost keeps a clone of the end-effector dynamics and never evaluates it: a stand-in does.
   const test_support::AffineEndEffectorDynamics footDynamics;
@@ -164,6 +165,7 @@ TEST(WholeBodyTermSetters, TheJointTorqueCostsSetWeightsEqualsAJointTorqueCostBu
   // The variant's MPC tapes the cost's library; the terms below load it.
   WBMpcInterface* absl_nullable const interface = variantWholeBodyMpc();
   ASSERT_NE(interface, nullptr);
+  expectQuaternionLayout(*interface);
   const std::vector<EvaluationPoint> points = evaluationPoints(*interface, kNumPoints);
   const Eigen::Index numJoints = static_cast<Eigen::Index>(interface->getMpcRobotModel().getJointDim());
   vector_t weights(numJoints);
@@ -181,6 +183,7 @@ TEST(WholeBodyTermSetters, TheJointTorqueCostsSetWeightsEqualsAJointTorqueCostBu
 TEST(WholeBodyTermSetters, AJointTorqueWeightCountThatIsNotOnePerJointIsRefusedAndChangesNothing) {
   WBMpcInterface* absl_nullable const interface = variantWholeBodyMpc();
   ASSERT_NE(interface, nullptr);
+  expectQuaternionLayout(*interface);
   const std::vector<EvaluationPoint> points = evaluationPoints(*interface, /*count=*/2);
   const Eigen::Index numJoints = static_cast<Eigen::Index>(interface->getMpcRobotModel().getJointDim());
   JointTorqueCostCppAd cost(vector_t::Ones(numJoints), interface->getPinocchioInterface(), interface->getMpcRobotModelAD(),
@@ -253,6 +256,7 @@ void expectSameConstraint(const StateInputConstraint& expected,
 TEST(WholeBodyTermSetters, TheStanceConstraintsConfigureEqualsAStanceConstraintCreatedWithIt) {
   WBMpcInterface* absl_nullable const interface = shippedWholeBodyMpc();
   ASSERT_NE(interface, nullptr);
+  expectQuaternionLayout(*interface);
   const std::vector<EvaluationPoint> points = evaluationPoints(*interface, kNumPoints);
   const SwitchedModelReferenceManager& referenceManager = *interface->getSwitchedModelReferenceManagerPtr();
   const OptimalControlProblem& problem = interface->getOptimalControlProblem();
@@ -297,6 +301,7 @@ void expectSameSwingConfigs(const WBMpcPreComputation& expected, const WBMpcPreC
 TEST(WholeBodyTermSetters, ThePrecomputationsSwingGainsEqualAPrecomputationSeededWithThem) {
   WBMpcInterface* absl_nullable const interface = shippedWholeBodyMpc();
   ASSERT_NE(interface, nullptr);
+  expectQuaternionLayout(*interface);
   scheduleOneSwing(*interface, /*swingFoot=*/0);
   const std::vector<EvaluationPoint> points = evaluationPoints(*interface, kNumPoints);
   const SwingTrajectoryPlanner& planner = *interface->getSwitchedModelReferenceManagerPtr()->getSwingTrajectoryPlanner();

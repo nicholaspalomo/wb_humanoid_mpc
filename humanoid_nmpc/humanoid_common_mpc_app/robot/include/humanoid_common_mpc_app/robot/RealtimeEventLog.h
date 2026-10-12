@@ -48,8 +48,7 @@ namespace ocs2::humanoid {
 /**
  * What the realtime thread of the robot process reports, for the communication thread to log. The realtime thread
  * never logs: a log line formats into a string and writes to a file descriptor, either of which can allocate or block.
- * It posts one of these instead, a few plain values, and formatRealtimeEvent() turns it into the line the old ROS sims
- * logged from their control loops.
+ * It posts one of these instead, a few plain values, and formatRealtimeEvent() turns it into a log line.
  */
 enum class RealtimeEventCode : uint8_t {
   kTorquesDisabled,         ///< an FSM command switched the torques off; text: the command
@@ -88,7 +87,7 @@ struct RealtimeEvent {
   const char* absl_nonnull source = "";
 };
 
-/** The line the communication thread logs for `event`; the wording of the lines the ROS sims logged. */
+/** The line the communication thread logs for `event`. */
 std::string formatRealtimeEvent(const RealtimeEvent& event);
 
 /** Whether formatRealtimeEvent(event) is logged as a warning (otherwise as information). */

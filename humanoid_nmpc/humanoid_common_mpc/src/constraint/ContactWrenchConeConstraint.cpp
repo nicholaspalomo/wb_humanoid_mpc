@@ -76,21 +76,6 @@ matrix3_t skewSymmetric(const vector3_t& v) {
   return skew;
 }
 
-/**
- * d(getGeneralizedCoordinates(state)) / d(state), read off the model by probing it with unit states. Every model in
- * this repository selects the generalized coordinates out of the state, so this is a constant selection matrix and one
- * probe per state entry, at construction, is all it costs.
- */
-matrix_t generalizedCoordinatesStateJacobian(const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
-  const Eigen::Index stateDim = static_cast<Eigen::Index>(mpcRobotModel.getStateDim());
-  const vector_t atZero = mpcRobotModel.getGeneralizedCoordinates(vector_t::Zero(stateDim));
-  matrix_t jacobian(atZero.size(), stateDim);
-  for (Eigen::Index index = 0; index < stateDim; ++index) {
-    jacobian.col(index) = mpcRobotModel.getGeneralizedCoordinates(vector_t::Unit(stateDim, index)) - atZero;
-  }
-  return jacobian;
-}
-
 }  // namespace
 
 absl::Status ContactWrenchConeConstraint::checkWrenchSpaceInput(const MpcRobotModelBase<scalar_t>& mpcRobotModel,
@@ -112,6 +97,17 @@ absl::Status ContactWrenchConeConstraint::checkWrenchSpaceInput(const MpcRobotMo
   return absl::OkStatus();
 }
 
+absl::Status ContactWrenchConeConstraint::checkPinocchioVelocityDim(const PinocchioInterface& pinocchioInterface,
+                                                                    const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
+  const int pinocchioVelocityDim = pinocchioInterface.getModel().nv;
+  if (static_cast<int64_t>(mpcRobotModel.getVelocityDim()) != static_cast<int64_t>(pinocchioVelocityDim)) {
+    return absl::InvalidArgumentError(absl::StrCat("[ContactWrenchConeConstraint] the robot model's Pinocchio velocity has ",
+                                                   mpcRobotModel.getVelocityDim(), " entries, but the Pinocchio model's has ",
+                                                   pinocchioVelocityDim, ": the frame Jacobian cannot be taken to the state."));
+  }
+  return absl::OkStatus();
+}
+
 absl::StatusOr<std::unique_ptr<ContactWrenchConeConstraint>> ContactWrenchConeConstraint::Create(
     const SwitchedModelReferenceManager& referenceManager,
     const ContactRectangle& contactRectangle,
@@ -121,6 +117,7 @@ absl::StatusOr<std::unique_ptr<ContactWrenchConeConstraint>> ContactWrenchConeCo
     Config config,
     bool scheduleGated) {
   RETURN_IF_ERROR(checkWrenchSpaceInput(mpcRobotModel, contactPointIndex));
+  RETURN_IF_ERROR(checkPinocchioVelocityDim(pinocchioInterface, mpcRobotModel));
   RETURN_IF_ERROR(validateConfig(config));
   return std::make_unique<ContactWrenchConeConstraint>(referenceManager, contactRectangle, contactPointIndex, pinocchioInterface,
                                                        mpcRobotModel, std::move(config), scheduleGated);
@@ -140,19 +137,14 @@ ContactWrenchConeConstraint::ContactWrenchConeConstraint(const SwitchedModelRefe
       contactRectangle_(contactRectangle),
       contactPointIndex_(contactPointIndex),
       config_(scheduleGated ? std::move(config) : withoutLoadedFootOffsets(std::move(config))),
-      scheduleGated_(scheduleGated),
-      generalizedCoordinatesStateJacobian_(generalizedCoordinatesStateJacobian(mpcRobotModel)) {
-  // The documented guard for the callers that construct directly; Create() returns the same refusal as a Status.
+      scheduleGated_(scheduleGated) {
+  // The documented guards for the callers that construct directly; Create() returns the same refusals as a Status.
   const absl::Status wrenchSpace = checkWrenchSpaceInput(mpcRobotModel, contactPointIndex);
   CHECK(wrenchSpace.ok()) << wrenchSpace.message();
+  const absl::Status velocityDim = checkPinocchioVelocityDim(pinocchioInterface, mpcRobotModel);
+  CHECK(velocityDim.ok()) << velocityDim.message();
   const absl::Status validConfig = validateConfig(config_);
   CHECK(validConfig.ok()) << validConfig.message();
-  // The state derivative takes the frame Jacobian, a derivative in the generalized VELOCITY, as the derivative in the
-  // generalized coordinates; that is exact only when the two have the same dimension and every rate is a coordinate's.
-  CHECK_EQ(pinocchioInterface.getModel().nq, pinocchioInterface.getModel().nv)
-      << "[ContactWrenchConeConstraint] expects a Pinocchio model whose configuration and velocity spaces coincide";
-  CHECK_EQ(generalizedCoordinatesStateJacobian_.rows(), pinocchioInterface.getModel().nq)
-      << "[ContactWrenchConeConstraint] the robot model's generalized coordinates do not match the Pinocchio model";
   initializeLocalConstraintMatrix();
 }
 
@@ -360,9 +352,9 @@ VectorFunctionLinearApproximation ContactWrenchConeConstraint::getLinearApproxim
 
   // THE STATE DERIVATIVE, through the rotation. With w_R_l' = w_R_l [omega_local]x, the local image of a fixed world
   // vector moves as d(l_R_w v)/dt = -[omega_local]x (l_R_w v) = [v_local]x omega_local, and omega_local is the angular
-  // half of the contact frame's LOCAL Jacobian times the generalized velocity. Every generalized coordinate of this
-  // repository's models is a configuration variable whose rate is its velocity (a translation, ZYX Euler angles and
-  // revolute joints), so the same Jacobian is d/dq.
+  // half of the contact frame's LOCAL Jacobian times the Pinocchio velocity v. That gives the derivative in a step of q
+  // in v's coordinates (Pinocchio's tangent), which the robot model's getPinocchioTangentJacobian() takes to the state:
+  // the identity on the position and joint slots, E^+(xi) on the quaternion's.
   matrix_t frameJacobian = matrix_t::Zero(6, model.nv);
   pinocchio::computeFrameJacobian(model, data, q, frameID, pinocchio::LOCAL, frameJacobian);
   const matrix_t angularJacobian = frameJacobian.bottomRows<3>();
@@ -371,7 +363,7 @@ VectorFunctionLinearApproximation ContactWrenchConeConstraint::getLinearApproxim
 
   VectorFunctionLinearApproximation linearApproximation;
   linearApproximation.f = A_f_local_ * forceInLocal + A_tau_local_ * momentInLocal + b_local_;
-  linearApproximation.dfdx = dfdq * generalizedCoordinatesStateJacobian_;
+  linearApproximation.dfdx = dfdq * mpcRobotModelPtr_->getPinocchioTangentJacobian(state);
   linearApproximation.dfdu = matrix_t::Zero(numConstraints_, mpcRobotModelPtr_->getInputDim());
 
   const size_t forceStartIdx = mpcRobotModelPtr_->getContactForceStartIndices(contactPointIndex_);

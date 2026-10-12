@@ -7,7 +7,7 @@
   "remoteUser": "ubuntu",
   "containerUser": "ubuntu",
   "updateRemoteUserUID": false,
-  "workspaceFolder": "/wb_humanoid_mpc_ws/src/wb_humanoid_mpc",
+  "workspaceFolder": "/wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc",
   "customizations": {
     "vscode": {
       "settings": {
@@ -26,11 +26,13 @@
         "[c]": {
           "editor.defaultFormatter": "xaver.clang-format"
         },
-        "python.defaultInterpreterPath": "/usr/bin/python3"
+        "python.defaultInterpreterPath": "/usr/bin/python3",
+        // clangd reads compile_commands.json, which the build keeps current (tools/ide/README.md).
+        "clangd.path": "${workspaceFolder}/tools/ide/clangd_in_dev_container.sh"
       },
       "extensions": [
-        "ms-vscode.cpptools",
-        "ms-vscode.cmake-tools",
+        "llvm-vs-code-extensions.vscode-clangd",
+        "bazelbuild.vscode-bazel",
         "ms-vscode-remote.remote-containers",
         "ms-azuretools.vscode-docker",
         "ms-python.python",
@@ -42,15 +44,11 @@
         "eamodio.gitlens",
         "GitHub.copilot",
         "GitHub.copilot-chat",
-        "twxs.cmake",
-        "cheshirekow.cmake-format",
-        "ms-toolsai.jupyter-keymap",
         "ms-vscode-remote.remote-ssh",
         "ms-vscode-remote.remote-ssh-edit",
         "ms-vscode.remote-explorer",
         "sankethdev.vscode-proto",
         "Continue.continue",
-        "ms-vscode.cpptools-extension-pack",
         "ms-vscode.makefile-tools",
         "Google.geminicodeassist",
         "google.gemini-cli-vscode-ide-companion"
@@ -77,6 +75,9 @@
     9090,
     9876,
     // LINT.ThenChange(//docker-compose.bridge.yaml:rerun_ports, //.devcontainer/README.md:rerun_ports)
+    // LINT.IfChange(web_viewer_port)
+    6090,
+    // LINT.ThenChange(//docker-compose.bridge.yaml:web_viewer_port, //.devcontainer/README.md:web_viewer_port, //humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotAppFlags.cpp:web_viewer_port)
     8888
   ],
   // On Linux the container runs on the host's network (docker-compose.yaml), where these ports already answer on the
@@ -91,6 +92,10 @@
     "5901": {
       "label": "VNC",
       "onAutoForward": "silent"
+    },
+    "6090": {
+      "label": "MuJoCo web viewer",
+      "onAutoForward": "notify"
     },
     "9090": {
       "label": "Rerun web viewer",

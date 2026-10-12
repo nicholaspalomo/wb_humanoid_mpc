@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/Projectile.h"
+#include "mujoco_sim_interface/viewer/ViewerNames.h"
 
 /*
  * The dodgeball through the real simulator, headless, on the shipped Atlas scene: the glue between Projectile's pure
@@ -59,7 +60,7 @@ constexpr double kGravity = 9.81;
 std::unique_ptr<MujocoSimInterface> makeSim(bool gantryLocked) {
   MujocoSimConfig config;
   config.scenePath = kAtlasScene;
-  config.headless = true;
+  config.viewer.names = {kNoViewerName};
   config.projectile = "dodgeball";
   config.isGantryLocked = gantryLocked;
   config.gantryHold = "weld_constraint";

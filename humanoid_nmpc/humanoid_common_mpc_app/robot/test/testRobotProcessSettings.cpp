@@ -50,8 +50,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /*
  * The robot process's settings of the task file through loadRobotProcessSettings(), which reads the typed task file
- * strictly and names the file in its errors: a file that says nothing gets the defaults of the ROS sims, except the
- * lists; every field is read; a value of the wrong type is refused
+ * strictly and names the file in its errors: a file that says nothing gets the defaults of RobotProcessSettings, except
+ * the lists; every field is read; a value of the wrong type is refused
  * where it is written and a value the robot process cannot run with by its field; the retired booleans are refused with
  * the name that replaced them; and every shipped task file reads with names the registries know.
  */
@@ -111,7 +111,7 @@ TEST(RobotProcessSettings, ATaskFileIsReadStrictlyAndItsErrorsNameIt) {
 }
 
 TEST(RobotProcessSettings, AYamlTaskFileIsRefusedNamingTheFile) {
-  // The task files are textprotos read strictly; a file in the YAML of the old task files does not parse.
+  // The task files are textprotos read strictly; a YAML file does not parse.
   const std::string yaml = writeTemporaryFile("robot_settings_task.yaml", "contactEstimator: robot_state\ntelemetrySinks: []\n");
   const absl::StatusOr<RobotProcessSettings> settings = loadRobotProcessSettings(yaml);
   EXPECT_EQ(settings.status().code(), absl::StatusCode::kInvalidArgument) << settings.status();

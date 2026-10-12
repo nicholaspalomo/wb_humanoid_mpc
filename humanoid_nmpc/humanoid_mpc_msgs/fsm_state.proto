@@ -5,7 +5,7 @@ package humanoid_mpc_msgs;
 import "nproto/options.proto";
 
 // Topic robot/fsm_state. Published on every change and periodically, so an operator that connects late learns the
-// current state (the ROS version relied on a latched topic for this).
+// current state.
 // Next ID: 5
 message FsmState {
   option (nproto.generate_struct) = "ocs2::humanoid::msgs::FsmState";

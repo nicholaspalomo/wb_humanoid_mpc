@@ -145,7 +145,7 @@ class NominalPendulum : public ::testing::TestWithParam<CentroidalRobot> {
         loadCustomPinocchioInterface(config_.task, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false).value());
     info_ = centroidalModelInfoOf(config_, *pinocchioInterface_, *modelSettings_).value();
     robotModel_ = std::make_unique<CentroidalMpcRobotModel<scalar_t>>(*modelSettings_, *pinocchioInterface_, info_);
-    initialState_ = initialStateOf(config_.task, *modelSettings_).value();
+    initialState_ = initialStateOnModel(config_.task, *robotModel_).value();
   }
 
   /** [m] The planner's shared.com_height; absent (the model's pendulum) for a robot that ships no planner's file. */

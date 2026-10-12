@@ -33,10 +33,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // (robot::realtime::heapAllocationCountOnThisThread()), since the other threads allocate as they serialize and decode.
 //
 // The realtime thread evaluates the policy in use with RealtimePolicyEvaluator, which allocates nothing either, for a
-// feedforward and a linear controller of the README's size, inside the plan and past both of its ends. OCS2's own
-// MRT_BASE::evaluatePolicy() does allocate - ControllerBase::computeInput() and LinearInterpolation::interpolate()
-// return by value - which is why the realtime thread does not call it; its count is measured and printed, not
-// asserted, so that a fix in OCS2 does not fail this test.
+// feedforward and a linear controller of the README's size, inside the plan and past both of its ends, and on a state
+// manifold for a feedforward and a manifold-linear controller, through the manifold's differenceInto() and
+// interpolateInto(), which allocate nothing themselves. OCS2's own MRT_BASE::evaluatePolicy() does allocate -
+// ControllerBase::computeInput() and LinearInterpolation::interpolate() return by value - which is why the realtime
+// thread does not call it; its count is measured and printed, not asserted, so that a fix in OCS2 does not fail this
+// test.
 //
 // A binary of its own, because the allocation counter replaces malloc for the whole process.
 
@@ -47,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <random>
 #include <utility>
 
+#include "absl/base/nullability.h"
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
 #include "absl/time/clock.h"
@@ -54,6 +57,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 #include "ocs2_core/Types.h"
 #include "ocs2_core/control/ControllerType.h"
+#include "ocs2_core/manifold/EuclideanStateManifold.h"
+#include "ocs2_core/manifold/ProductStateManifold.h"
+#include "ocs2_core/manifold/StateManifold.h"
+#include "ocs2_core/manifold/StateManifoldSegment.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_mpc/CommandData.h"
 #include "ocs2_mpc/MRT_BASE.h"
@@ -201,11 +208,19 @@ size_t allocationsPerEvaluation(MRT_BASE& mrt, scalar_t startTime, scalar_t endT
   return (heapAllocationCountOnThisThread() - before) / kCycles;
 }
 
-/** Heap allocations per evaluate() of `policy` at times across [startTime, endTime], after one that sizes the outputs. */
-size_t allocationsPerRealtimeEvaluation(const PrimalSolution& policy, scalar_t startTime, scalar_t endTime, const vector_t& state) {
+/**
+ * Heap allocations per evaluate() of `policy` at times across [startTime, endTime], after one that sizes the outputs,
+ * by an evaluator on `stateManifold` (null: a flat state).
+ */
+size_t allocationsPerRealtimeEvaluation(const PrimalSolution& policy,
+                                        scalar_t startTime,
+                                        scalar_t endTime,
+                                        const vector_t& state,
+                                        const StateManifold* absl_nullable stateManifold = nullptr) {
   RealtimePolicyEvaluator evaluator(ModelDimensions{.stateDim = static_cast<size_t>(state.size()),
                                                     .inputDim = static_cast<size_t>(policy.inputTrajectory_.front().size()),
-                                                    .numModes = 1});
+                                                    .numModes = 1},
+                                    stateManifold);
   vector_t mpcState = state;
   vector_t mpcInput = policy.inputTrajectory_.front();
   size_t mode = 0;
@@ -231,12 +246,61 @@ TEST_F(RemoteMpcLinkAllocationTest, TheRealtimeEvaluationOfThePolicyInUseDoesNot
   // The README's bandwidth example, nx = nu = 30 over 60 nodes, with either controller.
   std::mt19937 generator(/*sd=*/17);
   for (const ControllerType type : {ControllerType::FEEDFORWARD, ControllerType::LINEAR}) {
-    const test_data::PolicyShape shape{.nodes = 60, .stateDim = 30, .inputDim = 30, .events = 4, .controllerType = type};
+    const test_data::PolicyShape shape{
+        .nodes = 60, .stateDim = 30, .inputDim = 30, .events = 4, .controllerType = type, .stateManifold = nullptr};
     const PrimalSolution policy = test_data::randomPrimalSolution(generator, shape);
     EXPECT_EQ(allocationsPerRealtimeEvaluation(policy, policy.timeTrajectory_.front() - 0.1, policy.timeTrajectory_.back() + 0.1,
                                                policy.stateTrajectory_.front()),
               0u)
         << (type == ControllerType::LINEAR ? "LinearController" : "FeedforwardController");
+  }
+}
+
+/** The bandwidth example on a state manifold: a quaternion in a state of nx = 31, ndx = 30. */
+std::shared_ptr<const StateManifold> readmeSizeManifold() {
+  absl::StatusOr<std::shared_ptr<const ProductStateManifold>> manifold = ProductStateManifold::create(
+      {StateManifoldSegment::euclidean(12), StateManifoldSegment::unitQuaternion(), StateManifoldSegment::euclidean(15)});
+  CHECK_OK(manifold.status());
+  return *std::move(manifold);
+}
+
+TEST(RealtimePolicyEvaluationOnAManifoldTest, DoesNotAllocate) {
+  // The SQP's manifold-linear policy, nx = 31, ndx = nu = 30 over 60 nodes with four events, and a feedforward one, whose
+  // planned state is interpolated along the manifold too; across the events, before the plan and past it.
+  const std::shared_ptr<const StateManifold> manifold = readmeSizeManifold();
+  std::mt19937 generator(/*sd=*/19);
+  for (const ControllerType type : {ControllerType::FEEDFORWARD, ControllerType::MANIFOLD_LINEAR}) {
+    const test_data::PolicyShape shape{
+        .nodes = 60, .stateDim = 31, .inputDim = 30, .events = 4, .controllerType = type, .stateManifold = manifold};
+    const PrimalSolution policy = test_data::randomPrimalSolution(generator, shape);
+    EXPECT_EQ(allocationsPerRealtimeEvaluation(policy, policy.timeTrajectory_.front() - 0.1, policy.timeTrajectory_.back() + 0.1,
+                                               test_data::randomManifoldState(generator, *manifold), manifold.get()),
+              0u)
+        << (type == ControllerType::MANIFOLD_LINEAR ? "ManifoldLinearController" : "FeedforwardController");
+  }
+}
+
+TEST(StateManifoldIntoTest, DifferenceIntoAndInterpolateIntoDoNotAllocate) {
+  // What the evaluator calls on the realtime thread, on a product manifold and on the flat one, into presized outputs.
+  const std::shared_ptr<const StateManifold> product = readmeSizeManifold();
+  const std::shared_ptr<const StateManifold> flat = std::make_shared<EuclideanStateManifold>(/*dimension=*/31);
+  std::mt19937 generator(/*sd=*/20);
+  for (const std::shared_ptr<const StateManifold>& manifold : {product, flat}) {
+    const vector_t x0 = test_data::randomManifoldState(generator, *manifold);
+    const vector_t x1 = test_data::randomManifoldState(generator, *manifold);
+    vector_t dx = vector_t::Zero(static_cast<Eigen::Index>(manifold->getTangentDim()));
+    vector_t x = vector_t::Zero(static_cast<Eigen::Index>(manifold->getAmbientDim()));
+    const size_t before = heapAllocationCountOnThisThread();
+    for (int cycle = 0; cycle < kCycles; ++cycle) {
+      manifold->differenceInto(x0, x1, dx);
+      manifold->interpolateInto(x0, x1, static_cast<scalar_t>(cycle) / kCycles, x);
+    }
+    EXPECT_EQ(heapAllocationCountOnThisThread() - before, 0u) << manifold->getTangentDim() << " tangent dimensions";
+    // Positive control: the by-value versions do allocate their results.
+    const size_t beforeByValue = heapAllocationCountOnThisThread();
+    const vector_t byValue = manifold->difference(x0, x1);
+    EXPECT_GE(heapAllocationCountOnThisThread() - beforeByValue, 1u);
+    EXPECT_TRUE(byValue == dx);
   }
 }
 
@@ -249,7 +313,8 @@ TEST_F(RemoteMpcLinkAllocationTest, MeasuresTheAllocationsOfOcs2sEvaluatePolicy)
   std::array<size_t, 2> perController = {0, 0};
   const std::array<ControllerType, 2> types = {ControllerType::FEEDFORWARD, ControllerType::LINEAR};
   for (size_t type = 0; type < types.size(); ++type) {
-    const test_data::PolicyShape shape{.nodes = 60, .stateDim = 30, .inputDim = 30, .events = 4, .controllerType = types[type]};
+    const test_data::PolicyShape shape{
+        .nodes = 60, .stateDim = 30, .inputDim = 30, .events = 4, .controllerType = types[type], .stateManifold = nullptr};
     const PrimalSolution solution = test_data::randomPrimalSolution(generator, shape);
     BufferedMrt mrt;
     mrt.fill(solution);

@@ -50,12 +50,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_oc/synchronized_module/SolverSynchronizedModule.h"
 
+#include "humanoid_common_mpc/command/BasePlanarMotion.h"
 #include "humanoid_common_mpc/command/WalkingVelocityCommand.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/config/reference/ReferenceSettings.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
 #include "humanoid_common_mpc/reference_manager/BreakFrequencyAlphaFilter.h"
+#include "humanoid_common_mpc/reference_manager/StrideMotionHistory.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_mpc_config/gait_file.nproto.h"
 
@@ -63,16 +65,58 @@ namespace ocs2::humanoid {
 
 /**
  * Turns the operator's walking velocity command into the gait and the target trajectories of each solve: it selects the
- * gait from the commanded and the measured velocity, inserts it into the gait schedule and builds the targets with the
+ * gait from the commanded and the measured motion, inserts it into the gait schedule and builds the targets with the
  * VelocityTargetToTargetTrajectories it is given.
  *
- * Added to the MPC as a SolverSynchronizedModule, whose preSolverRun() runs on the solver thread. The velocity command is
- * set from the command thread under a lock, and the command limits are atomics, so the setters are thread-safe.
+ * The measured motion. Every solve appends the measured base pose of its initial state to a StrideMotionHistory and
+ * averages it over the cycle of the gait the schedule runs (the stride): the mean velocity of the base in its heading
+ * frame and the mean rate of its twist heading (getMeasuredPlanarMotion()). The targets start from that motion (design
+ * defects D1, D1b), and the gait switches compare the command with it, its velocity and its turn alike (D2): the base's
+ * instantaneous twist reads the gait's sway as motion (on the recorded straight walks of the G1, the SA01, the R1 and
+ * the whole-body G1 the pelvis moves sideways faster than the 0.1 m/s below which slow_walk gives way to stance in 48
+ * to 57 % of the samples, and turns faster than the 0.15 rad/s that raises slow_walk), and on the centroidal state a
+ * twist without the joint velocities is not the base's at all (StrideMotionHistory says
+ * why the mean over exactly one cycle). The velocity is that of the base origin, whose pose the velocity commands'
+ * knots move. The CoM's mean velocity over a stride (on the centroidal state the switches read the CoM's instantaneous
+ * velocity before) differs from it by the mean of psi_dot J r_h, J = R_z(pi / 2) and r_h the CoM's offset from the base
+ * origin in the heading frame: about |omega| |r_h| on a turn, |omega| its rate.
+ *
+ * Measured windows. A gait switch reads the mean only when its window is measured throughout
+ * (measuredOverTheWholeWindow(), StrideMotionHistory::isMeasuredOver(): no restart and no stall within it). A window that
+ * reaches back before a restarted history reads its seed, one instant's twist, sway and all: the sway's rate, up to
+ * 0.53 rad/s on the G1's recorded walk. Until the window is measured the switches wait, except one that reads no
+ * measurement (stance's, on the command alone); the targets read the mean as it is, the seed being the exact base
+ * twist of the observation the solve starts from, which the runner hands over with observe().
+ *
+ * The first cycle of a gait. A window that reaches back into the stride of the gait before reads the heading's sway
+ * sigma (the heading about its mean slope) as the turn (sigma(t) - sigma(t - W)) / W, which cancels only when t - W and
+ * t are a whole cycle of one gait apart: up to sigma's peak-to-peak over W (0.12 and 0.14 rad/s on the G1's and R1's
+ * recorded walks, against the 0.15 rad/s that raises slow_walk), and likewise the sideways sway's displacement over W.
+ * It is the sway's displacement, bounded, where a seed carries its rate. The switches read it as it is: waiting for a
+ * whole stride of each new gait would hold every switch for one more cycle, after the 0.7 of a horizon the schedule
+ * takes to start it (from stance to trot at least 8 s, whatever the robot's own acceleration).
+ *
+ * The stride under the contact planner. The window is the cycle of the gait template the schedule runs. The contact
+ * planner (ContactPlanningReferenceManager) retimes the steps, so under it the robot's stride can differ from the
+ * template's cycle, and a sway of period P' leaks into the mean by |sinc(pi W / P')| of its rate's amplitude
+ * (StrideMotionHistory). No shipped robot runs the planner.
+ *
+ * Added to the MPC as a SolverSynchronizedModule, whose preSolverRun() runs on the solver thread, as observe() does. The
+ * velocity command is set from the command thread under a lock, and the command limits are atomics, so the setters are
+ * thread-safe.
  */
 class ProceduralMpcMotionManager : public SolverSynchronizedModule {
  public:
-  using VelocityTargetToTargetTrajectories =
-      std::function<TargetTrajectories(const vector4_t& velocityTarget, scalar_t initTime, scalar_t finalTime, const vector_t& initState)>;
+  /**
+   * Builds the target trajectories of the filtered velocity command `velocityTarget` ([v_x, v_y, pelvis height, yaw
+   * rate]) for the solve over [initTime, finalTime] from `initState`, the robot moving at `measuredMotion` (its stride
+   * mean, getMeasuredPlanarMotion()).
+   */
+  using VelocityTargetToTargetTrajectories = std::function<TargetTrajectories(const vector4_t& velocityTarget,
+                                                                              scalar_t initTime,
+                                                                              scalar_t finalTime,
+                                                                              const vector_t& initState,
+                                                                              const BasePlanarMotion& measuredMotion)>;
 
   struct GaitModeStateConfig {
     std::string gaitCommand = "stance";
@@ -145,6 +189,31 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
   void postSolverRun(const PrimalSolution& /*primalSolution*/) override {};
 
   /**
+   * Hands over the observation `observation` the next solve starts from, on the solver thread right before it: its input
+   * carries the measured joint velocities (getJointVelocities() of its state and input; the centroidal MRT writes them
+   * into the input), which the exact base twist of a centroidal state needs (MpcRobotModelBase::getBaseTwistInWorldFrame()).
+   * The runners call it for every solve: ipc::MpcServer through Hooks::preSolveObserver (MpcNodeRuntime wires it), and
+   * InProcessMpcLink through Config::solverObservationObserver. preSolverRun() uses it when its time and state are the
+   * solve's own, exactly; otherwise the motion before a (re)started history is taken as rest, with a warning.
+   */
+  void observe(const SystemObservation& observation);
+
+  /**
+   * The measured planar motion of the last solve: the mean over the stride (the cycle of the gait the schedule ran) of
+   * the base's velocity in its heading frame and of its heading rate (StrideMotionHistory). Solver thread.
+   */
+  const BasePlanarMotion& getMeasuredPlanarMotion() const { return measuredMotion_; }
+
+  /** [s] The window of the last solve's measured motion: the cycle of the gait the schedule ran at its initial time. */
+  scalar_t getMeasuredMotionWindow() const { return measuredMotionWindow_; }
+
+  /**
+   * Whether the last solve's measured motion is measured over its whole window (StrideMotionHistory::isMeasuredOver():
+   * no seed and no stall in it). Only then do the gait switches read it (the class comment). Solver thread.
+   */
+  bool measuredOverTheWholeWindow() const { return measuredOverTheWholeWindow_; }
+
+  /**
    * Returns the gait logic and the command state to their state after construction: the gait is "stance" again (the
    * reference manager's reset restarts the gait schedule in stance) and the gait-change hold-off, the command filter
    * and the acceleration ramp start afresh. The operator's current command is kept - it is an input,
@@ -178,9 +247,25 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
    */
   virtual WalkingVelocityCommand getScaledWalkingVelocityCommand();
 
-  static bool transitionToFasterGait(const vector4_t& velCommandVec, const vector6_t& baseVelocity, const GaitModeStateConfig& cfg);
+  /**
+   * Whether the gait `cfg` gives way to the next faster one: the filtered command `velCommandVec` ([v_x, v_y, pelvis
+   * height, yaw rate]) is beyond the gait's command limits and the robot already moves near them by its stride-mean
+   * motion `strideMeanMotion` (its velocity in the heading frame, the frame of the command limits, and its heading rate;
+   * getMeasuredPlanarMotion()). Null while its window is not measured throughout (measuredOverTheWholeWindow()): then
+   * only a gait whose thresholds every motion passes, one below zero as stance's, gives way, on the command alone.
+   */
+  static bool transitionToFasterGait(const vector4_t& velCommandVec,
+                                     const BasePlanarMotion* absl_nullable strideMeanMotion,
+                                     const GaitModeStateConfig& cfg);
 
-  static bool transitionToSlowerGait(const vector4_t& velCommandVec, const vector6_t& baseVelocity, const GaitModeStateConfig& cfg);
+  /**
+   * Whether the gait `cfg` gives way to the next slower one: the command is below the gait's lower limits and the robot's
+   * stride-mean motion `strideMeanMotion` (as for transitionToFasterGait()), its velocity and its turn, is near them. Null
+   * while its window is not measured throughout: no gait gives way, since no threshold holds for every motion.
+   */
+  static bool transitionToSlowerGait(const vector4_t& velCommandVec,
+                                     const BasePlanarMotion* absl_nullable strideMeanMotion,
+                                     const GaitModeStateConfig& cfg);
 
   /**
    * Acceleration limits of the velocity reference (reference.textproto `max_linear_acceleration` [m/s^2] and
@@ -284,10 +369,43 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
   std::function<void()> resetHook_;
 
  private:
+  /** A gait the schedule runs from `startTime` on, with the cycle `cycleDuration` [s]. Passive data. */
+  struct ScheduledGait {
+    scalar_t startTime = 0.0;
+    scalar_t cycleDuration = 0.0;
+  };
+
   /** The manager of Create(), before its files are read. */
   ProceduralMpcMotionManager(std::shared_ptr<SwitchedModelReferenceManager> switchedModelReferenceManagerPtr,
                              const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                              VelocityTargetToTargetTrajectories velocityTargetToTargetTrajectories);
+
+  /** [s] The cycle of the gait `gaitCommand` of the gait map (loaded by Create()): its template's duration. */
+  scalar_t cycleDurationOf(const std::string& gaitCommand) const;
+
+  /** [s] The cycle of the gait the schedule runs at `time` (scheduledGaits_), the stride the measured motion is averaged over. */
+  scalar_t strideAt(scalar_t time) const;
+
+  /** Appends the base pose of `initState` at `initTime` to the history and returns its mean over the stride at initTime. */
+  BasePlanarMotion updateMeasuredMotion(scalar_t initTime, const vector_t& initState);
+
+  /** The exact instantaneous planar motion of `initState`, with the joint velocities of the observation when it is the solve's. */
+  BasePlanarMotion instantaneousMotionOf(scalar_t initTime, const vector_t& initState) const;
+
+  // The measured base poses of the solves; its retention, the longest cycle of the gaits the manager selects, is set by Create().
+  StrideMotionHistory strideMotion_{/*retention=*/1.0};
+  // The gaits the schedule runs, in increasing start time, the first one running now: the reference file's initial
+  // STANCE (the gait file's "stance" cycle) until the first switch, then each gait updateGaitSchedule() inserted.
+  std::vector<ScheduledGait> scheduledGaits_;
+  // The last observe(): what the next solve starts from, if its time and state are the solve's. hasObservation_ false: none.
+  bool hasObservation_ = false;
+  scalar_t observedTime_ = 0.0;
+  vector_t observedState_;
+  vector_t observedInput_;
+  // The last solve's (getMeasuredPlanarMotion(), getMeasuredMotionWindow(), measuredOverTheWholeWindow()).
+  BasePlanarMotion measuredMotion_;
+  scalar_t measuredMotionWindow_ = 0.0;
+  bool measuredOverTheWholeWindow_ = false;
 };
 
 }  // namespace ocs2::humanoid

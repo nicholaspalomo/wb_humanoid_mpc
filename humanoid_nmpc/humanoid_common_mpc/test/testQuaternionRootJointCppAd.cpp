@@ -77,12 +77,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_mpc_config/task_file.nproto.h"
 
 /*
- * Step 0 of the quaternion base orientation design (humanoid_nmpc/docs/quaternion_base_orientation/README.md): the
- * go/no-go for its decision D1, the root joint JointModelComposite{JointModelTranslation, JointModelSpherical}.
+ * The root joint of the quaternion base orientation design (humanoid_nmpc/docs/quaternion_base_orientation/README.md,
+ * decision D1), JointModelComposite{JointModelTranslation, JointModelSpherical}, under CppAD.
  *
  * The G1 model is built here exactly as createPinocchioModel.cpp builds the MPC model - the URDF with every joint the
- * task file does not name fixed, plus the contact center frames - with only the root joint changed, and nothing in the
- * production code is touched. The kinds of Pinocchio computation the MPCs tape are then taped and code-generated with
+ * task file does not name fixed, plus the contact center frames - on that root joint, independently of the production
+ * code, which builds every MPC model on it. The kinds of Pinocchio computation the MPCs tape are then taped and
+ * code-generated with
  * CppAD / CppADCodeGen through CppAdInterface itself (tape point x = ones, fun.optimize(), gcc with -ffast-math),
  * reading the quaternion only through the safe normalization of design section 2.6, and compared with double-precision
  * Pinocchio:
@@ -100,9 +101,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * at random attitudes and at a pitch of 89.9, 90 and 90.1 degrees, for xi, -xi, xi / 2, 2 xi and a zero quaternion.
  * Each tape is also checked to record no comparison between variables - the reason the repository never calls
  * Eigen's normalized() on an AD scalar (DynamicsHelperFunctions.cpp, computeBaseAcceleration): CppADCodeGen cannot
- * generate code for one. The model itself is checked against the production SphericalZYX model (same joints, mass,
- * contact frames and centroidal momentum for the same physical motion), and for the premises of decision D1:
- * v_base = [pd_W, w_B], A_b = [m I, *; 0, I_G R], and 1/2 G(xi) w_B as pinocchio::integrate moves the quaternion.
+ * generate code for one. The model itself is checked against the production model, loadCustomPinocchioInterface's (the
+ * same root joint, joints, mass, contact frames and centroidal momentum at the same q and v), and for the premises of
+ * decision D1: v_base = [pd_W, w_B], A_b = [m I, *; 0, I_G R], and 1/2 G(xi) w_B as pinocchio::integrate moves the
+ * quaternion. The "[tape]" lines below keep the tape sizes of this root; the comparisons with the SphericalZYX root are
+ * the equivalence suites' (humanoid_common_mpc/test/equivalence).
  *
  * Outcome, recorded when this test was written (Pinocchio 4.1.0, CppAD 20190200.5, the vendored CppADCodeGen):
  *   - `-c opt` (the repository default): PASS, all 11 tests of the spike as first written.
@@ -119,10 +122,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *     answer to a review, and were run under `-c opt` only.
  * Tape sizes are logged by TapesRecordNoComparisonBetweenVariables ("[tape]" lines).
  *
- * What this spike does NOT verify, for Step 8 to cover with the production terms: the whole-body terms as taped (with
- * their state-input mappings and the Schur-complement base acceleration), second-order libraries over all of their
- * inputs, rnea with external forces on a tape (production calls it in double precision only), and the derivatives of
- * the value-only libraries above (centroidal map and frames, crba, nonLinearEffects, ccrba).
+ * What this test does not verify, and where it is covered: the whole-body terms as taped (with their state-input
+ * mappings and the Schur-complement base acceleration) and the derivatives of every production library, by
+ * testQuaternionRootTermDerivatives_<robot> and testMpcEquivalence_<robot> (humanoid_common_mpc/test/equivalence:
+ * every term and the flow map against finite differences, the flow maps against the Euler-root oracle); rnea with
+ * external forces, which production calls in double precision only (testRootJointDynamicsEquivalence); second-order
+ * libraries over all of their inputs, which no MPC generates (every CppAD library is first order, but the constraints of
+ * ConstraintOrder::Quadratic, whose input Hessians testQuaternionRootTermDerivatives checks).
  */
 
 namespace ocs2::humanoid {
@@ -145,6 +151,8 @@ constexpr Eigen::Index kQuaternionStart = 3;
 constexpr pinocchio::JointIndex kRootJoint = 1;
 /// The normalized centroidal momentum that leads the input of the momentum path, h = [cd, L / m].
 constexpr Eigen::Index kMomentumDim = 6;
+// The momentum inverse path's outputs: [v_b (6), xi_dot (4)].
+constexpr Eigen::Index kMomentumInversePathOutputDim = 10;
 
 /// epsilon of design section 2.6: a quaternion shorter than this is read as the zero quaternion.
 constexpr scalar_t kNormGuard = 1.0e-6;
@@ -359,7 +367,7 @@ struct PinocchioFunction {
   ReferenceFunction reference;
 };
 
-/** The G1 MPC model on the composite quaternion root, beside the production model on today's SphericalZYX root. */
+/** The G1 MPC model on the composite quaternion root, built here, beside the production model of the same files. */
 class G1Models {
  public:
   G1Models() {
@@ -389,16 +397,15 @@ class G1Models {
           pinocchio::SE3(matrix3_t::Identity(), center.translationFromParent), pinocchio::FIXED_JOINT));
       contactFrames_.push_back(quaternionModel.getFrameId(center.frameName));
     }
-    quaternionRoot_ = std::make_unique<PinocchioInterface>(quaternionModel, urdfTree);
+    quaternionRoot_ = std::make_unique<PinocchioInterface>(quaternionModel);
     quaternionRootAd_ = std::make_shared<const PinocchioInterfaceCppAd>(quaternionRoot_->toCppAd());
 
-    eulerRoot_ = std::make_unique<PinocchioInterface>(loadCustomPinocchioInterface(task_, urdfFile_, *settings_).value());
-    eulerRootAd_ = std::make_shared<const PinocchioInterfaceCppAd>(eulerRoot_->toCppAd());
+    productionRoot_ = std::make_unique<PinocchioInterface>(loadCustomPinocchioInterface(task_, urdfFile_, *settings_).value());
     mass_ = pinocchio::computeTotalMass(quaternionRoot_->getModel());
   }
 
   const pinocchio::Model& model() const { return quaternionRoot_->getModel(); }
-  const pinocchio::Model& eulerModel() const { return eulerRoot_->getModel(); }
+  const pinocchio::Model& productionModel() const { return productionRoot_->getModel(); }
   const std::vector<pinocchio::FrameIndex>& contactFrames() const { return contactFrames_; }
   Eigen::Index numJoints() const { return static_cast<Eigen::Index>(settings_->mpc_joint_dim); }
   scalar_t mass() const { return mass_; }
@@ -409,15 +416,7 @@ class G1Models {
       return safelyNormalizedConfiguration(ambient, guard);
     };
     const ReferenceFunction toReferenceConfiguration = [](const vector_t& ambient) { return safelyNormalizedConfiguration(ambient); };
-    return functions(quaternionRootAd_, quaternionRoot_->getModel(), toConfiguration, toReferenceConfiguration,
-                     /*appendQuaternionRate=*/true);
-  }
-
-  /** The same functions on the production SphericalZYX root, taped for their sizes only. */
-  std::vector<PinocchioFunction> eulerRootFunctions() const {
-    const AdConfigurationMap toConfiguration = [](const ad_vector_t& ambient) { return ambient; };
-    const ReferenceFunction toReferenceConfiguration = [](const vector_t& ambient) { return ambient; };
-    return functions(eulerRootAd_, eulerRoot_->getModel(), toConfiguration, toReferenceConfiguration, /*appendQuaternionRate=*/false);
+    return functions(quaternionRootAd_, quaternionRoot_->getModel(), toConfiguration, toReferenceConfiguration);
   }
 
   /** The function of the quaternion root called `name`, reading the quaternion through `guard`. */
@@ -433,8 +432,7 @@ class G1Models {
   std::vector<PinocchioFunction> functions(std::shared_ptr<const PinocchioInterfaceCppAd> adInterface,
                                            const pinocchio::Model& model,
                                            const AdConfigurationMap& toConfiguration,
-                                           const ReferenceFunction& toReferenceConfiguration,
-                                           bool appendQuaternionRate) const {
+                                           const ReferenceFunction& toReferenceConfiguration) const {
     const Eigen::Index nq = model.nq;
     const Eigen::Index nv = model.nv;
     const Eigen::Index nj = numJoints();
@@ -527,13 +525,12 @@ class G1Models {
 
     // x = [h(6), q_ambient(nq), qd_j(nj)] -> [v_b, 1/2 G(xi) w_B]: the closed-form inverse of design section 2.5, against
     // a pivoting solve in double precision. The quaternion row uses the raw xi (design decision D5).
-    const Eigen::Index outputDim = appendQuaternionRate ? 10 : 6;
     result.push_back(PinocchioFunction{
         .name = "momentum_inverse_path",
         .variableDim = kMomentumDim + nq + nj,
         .quaternionStart = kMomentumDim + kQuaternionStart,
         .taped =
-            [adInterface, toConfiguration, nq, nj, mass, outputDim](const ad_vector_t& x, ad_vector_t& y) {
+            [adInterface, toConfiguration, nq, nj, mass](const ad_vector_t& x, ad_vector_t& y) {
               const AdModel& adModel = adInterface->getModel();
               AdData data(adModel);
               const ad_vector_t q = toConfiguration(x.segment(kMomentumDim, nq));
@@ -542,27 +539,23 @@ class G1Models {
               const ad_matrix6_t baseBlockInverse = computeFloatingBaseCentroidalMomentumMatrixInverse<ad_scalar_t>(baseBlock);
               const ad_vector6_t baseVelocity =
                   baseBlockInverse * (ad_scalar_t(mass) * x.head<kMomentumDim>() - centroidalMap.rightCols(nj) * x.tail(nj));
-              y.resize(outputDim);
+              y.resize(kMomentumInversePathOutputDim);
               y.head<6>() = baseVelocity;
-              if (outputDim > 6) {
-                const ad_vector4_t rawQuaternion = x.segment<4>(kMomentumDim + kQuaternionStart);
-                y.tail<4>() = ad_scalar_t(0.5) * quaternionRateMatrix<ad_scalar_t>(rawQuaternion) * baseVelocity.tail<3>();
-              }
+              const ad_vector4_t rawQuaternion = x.segment<4>(kMomentumDim + kQuaternionStart);
+              y.tail<4>() = ad_scalar_t(0.5) * quaternionRateMatrix<ad_scalar_t>(rawQuaternion) * baseVelocity.tail<3>();
             },
         .reference =
-            [&model, toReferenceConfiguration, nq, nj, mass, outputDim](const vector_t& x) {
+            [&model, toReferenceConfiguration, nq, nj, mass](const vector_t& x) {
               pinocchio::Data data(model);
               const vector_t q = toReferenceConfiguration(x.segment(kMomentumDim, nq));
               const pinocchio::Data::Matrix6x& centroidalMap = pinocchio::computeCentroidalMap(model, data, q);
               const matrix6_t baseBlock = centroidalMap.leftCols<6>();
               const vector6_t baseVelocity =
                   baseBlock.partialPivLu().solve(mass * x.head<kMomentumDim>() - centroidalMap.rightCols(nj) * x.tail(nj));
-              vector_t y(outputDim);
+              vector_t y(kMomentumInversePathOutputDim);
               y.head<6>() = baseVelocity;
-              if (outputDim > 6) {
-                const vector4_t rawQuaternion = x.segment<4>(kMomentumDim + kQuaternionStart);
-                y.tail<4>() = 0.5 * quaternionRateMatrix<scalar_t>(rawQuaternion) * baseVelocity.tail<3>();
-              }
+              const vector4_t rawQuaternion = x.segment<4>(kMomentumDim + kQuaternionStart);
+              y.tail<4>() = 0.5 * quaternionRateMatrix<scalar_t>(rawQuaternion) * baseVelocity.tail<3>();
               return y;
             },
     });
@@ -575,8 +568,8 @@ class G1Models {
   std::vector<pinocchio::FrameIndex> contactFrames_;
   std::unique_ptr<PinocchioInterface> quaternionRoot_;
   std::shared_ptr<const PinocchioInterfaceCppAd> quaternionRootAd_;
-  std::unique_ptr<PinocchioInterface> eulerRoot_;
-  std::shared_ptr<const PinocchioInterfaceCppAd> eulerRootAd_;
+  // loadCustomPinocchioInterface()'s model of the same files.
+  std::unique_ptr<PinocchioInterface> productionRoot_;
   scalar_t mass_ = 0.0;
 };
 
@@ -772,43 +765,43 @@ const CppAdInterface& momentumPathLibrary(NormGuard guard) {
 
 TEST(QuaternionRootJointModel, IsTheProductionRobotWithAQuaternionRoot) {
   const pinocchio::Model& model = g1().model();
-  const pinocchio::Model& eulerModel = g1().eulerModel();
+  const pinocchio::Model& productionModel = g1().productionModel();
   const Eigen::Index nj = g1().numJoints();
   ASSERT_EQ(model.nq, 7 + nj);
   ASSERT_EQ(model.nv, 6 + nj);
-  ASSERT_EQ(eulerModel.nq, 6 + nj);
-  ASSERT_EQ(eulerModel.njoints, model.njoints);
+  ASSERT_EQ(productionModel.nq, model.nq);
+  ASSERT_EQ(productionModel.nv, model.nv);
+  ASSERT_EQ(productionModel.njoints, model.njoints);
+  EXPECT_EQ(productionModel.joints[kRootJoint].shortname(), model.joints[kRootJoint].shortname());
   for (pinocchio::JointIndex joint = kRootJoint + 1; joint < static_cast<pinocchio::JointIndex>(model.njoints); ++joint) {
-    EXPECT_EQ(model.names[joint], eulerModel.names[joint]);
+    EXPECT_EQ(model.names[joint], productionModel.names[joint]);
+    EXPECT_EQ(model.joints[joint].idx_q(), productionModel.joints[joint].idx_q()) << model.names[joint];
+    EXPECT_EQ(model.joints[joint].idx_v(), productionModel.joints[joint].idx_v()) << model.names[joint];
   }
-  EXPECT_NEAR(pinocchio::computeTotalMass(model), pinocchio::computeTotalMass(eulerModel), 1.0e-12);
+  EXPECT_NEAR(pinocchio::computeTotalMass(model), pinocchio::computeTotalMass(productionModel), 1.0e-12);
 
-  // The same physical pose and motion: q = [p, quaternion(yaw, pitch, roll), q_j] against [p, (yaw, pitch, roll), q_j],
-  // and v = [pd, w_B, qd_j] against [pd, Euler rates, qd_j], where w_B is the body angular velocity of those rates.
+  // The same q and v give the same contact frames and centroidal momentum, at every test attitude.
   std::mt19937 generator(3);
   pinocchio::Data data(model);
-  pinocchio::Data eulerData(eulerModel);
-  for (const scalar_t pitch : {0.3, M_PI / 2.0 - 0.01}) {
-    const vector3_t eulerZyx(0.7, pitch, -0.4);
-    vector_t eulerQ = uniformVector(eulerModel.nq, /*halfWidth=*/0.6, generator);
-    eulerQ.segment<3>(3) = eulerZyx;
-    const vector_t eulerV = uniformVector(eulerModel.nv, /*halfWidth=*/1.0, generator);
-    pinocchio::forwardKinematics(eulerModel, eulerData, eulerQ, eulerV);
-    pinocchio::updateFramePlacements(eulerModel, eulerData);
-    vector_t q(model.nq);
-    q << eulerQ.head<3>(), eulerZyxQuaternion(eulerZyx(0), eulerZyx(1), eulerZyx(2)), eulerQ.tail(nj);
-    vector_t v = eulerV;
-    v.segment<3>(3) = eulerData.v[kRootJoint].angular();
+  pinocchio::Data productionData(productionModel);
+  for (const Attitude& attitude : testAttitudes()) {
+    vector_t q = uniformVector(model.nq, /*halfWidth=*/0.6, generator);
+    q.segment<4>(kQuaternionStart) = attitude.coefficients;
+    const vector_t v = uniformVector(model.nv, /*halfWidth=*/1.0, generator);
     pinocchio::forwardKinematics(model, data, q, v);
     pinocchio::updateFramePlacements(model, data);
+    pinocchio::forwardKinematics(productionModel, productionData, q, v);
+    pinocchio::updateFramePlacements(productionModel, productionData);
     for (const pinocchio::FrameIndex frame : g1().contactFrames()) {
-      const pinocchio::FrameIndex eulerFrame = eulerModel.getFrameId(model.frames[frame].name);
-      EXPECT_LE((data.oMf[frame].translation() - eulerData.oMf[eulerFrame].translation()).norm(), 1.0e-12) << model.frames[frame].name;
-      EXPECT_LE((data.oMf[frame].rotation() - eulerData.oMf[eulerFrame].rotation()).norm(), 1.0e-12) << model.frames[frame].name;
+      const pinocchio::FrameIndex productionFrame = productionModel.getFrameId(model.frames[frame].name);
+      EXPECT_LE((data.oMf[frame].translation() - productionData.oMf[productionFrame].translation()).norm(), 1.0e-12)
+          << model.frames[frame].name << ", " << attitude.label;
+      EXPECT_LE((data.oMf[frame].rotation() - productionData.oMf[productionFrame].rotation()).norm(), 1.0e-12)
+          << model.frames[frame].name << ", " << attitude.label;
     }
     const vector6_t momentum = pinocchio::computeCentroidalMap(model, data, q) * v;
-    const vector6_t eulerMomentum = pinocchio::computeCentroidalMap(eulerModel, eulerData, eulerQ) * eulerV;
-    EXPECT_LE((momentum - eulerMomentum).norm(), 1.0e-9 * std::max(1.0, eulerMomentum.norm())) << "pitch " << pitch;
+    const vector6_t productionMomentum = pinocchio::computeCentroidalMap(productionModel, productionData, q) * v;
+    EXPECT_LE((momentum - productionMomentum).norm(), 1.0e-12 * std::max(1.0, productionMomentum.norm())) << attitude.label;
   }
 }
 
@@ -858,14 +851,6 @@ TEST(QuaternionRootJointModel, MomentumMatrixKeepsTheStructureOfTheClosedFormInv
     const vector3_t inertiaSingularValues = Eigen::JacobiSVD<matrix3_t>(data.Ig.inertia().matrix()).singularValues();
     EXPECT_LE((singularValues - inertiaSingularValues).norm(), 1.0e-9 * inertiaSingularValues.norm()) << attitude.label;
   }
-
-  // Positive control: on today's SphericalZYX root the rotational block is singular at a pitch of 90 degrees.
-  const pinocchio::Model& eulerModel = g1().eulerModel();
-  pinocchio::Data eulerData(eulerModel);
-  vector_t eulerQ = uniformVector(eulerModel.nq, /*halfWidth=*/0.6, generator);
-  eulerQ.segment<3>(3) = vector3_t(0.7, M_PI / 2.0, -0.4);
-  const matrix3_t eulerRotationalBlock = pinocchio::computeCentroidalMap(eulerModel, eulerData, eulerQ).block<3, 3>(3, 3);
-  EXPECT_LT(Eigen::JacobiSVD<matrix3_t>(eulerRotationalBlock).singularValues()(2), 1.0e-9);
 }
 
 TEST(QuaternionRootJointCppAd, TapesRecordNoComparisonBetweenVariables) {
@@ -884,18 +869,11 @@ TEST(QuaternionRootJointCppAd, TapesRecordNoComparisonBetweenVariables) {
     }
   }
 
-  // The tape sizes, against today's SphericalZYX root, for the real-time budget of the switch (design risk R12).
-  const std::vector<PinocchioFunction> quaternionFunctions = g1().quaternionRootFunctions(NormGuard::kOnTheNorm);
-  const std::vector<PinocchioFunction> eulerFunctions = g1().eulerRootFunctions();
-  ASSERT_EQ(quaternionFunctions.size(), eulerFunctions.size());
-  for (size_t i = 0; i < quaternionFunctions.size(); ++i) {
-    const TapeSize quaternionSize = tape(quaternionFunctions[i].taped, quaternionFunctions[i].variableDim, /*recordCompare=*/true);
-    const TapeSize eulerSize = tape(eulerFunctions[i].taped, eulerFunctions[i].variableDim, /*recordCompare=*/true);
-    EXPECT_EQ(recordedComparisons(eulerFunctions[i].taped, eulerFunctions[i].variableDim), 0u) << eulerFunctions[i].name;
-    LOG(INFO) << "[tape] " << quaternionFunctions[i].name << ": Translation+Spherical " << quaternionSize.operations << " ops ("
-              << quaternionSize.optimizedOperations << " optimized, " << quaternionSize.optimizedVariables << " variables), SphericalZYX "
-              << eulerSize.operations << " ops (" << eulerSize.optimizedOperations << " optimized, " << eulerSize.optimizedVariables
-              << " variables)";
+  // The tape sizes, for the real-time budget (design risk R12).
+  for (const PinocchioFunction& function : g1().quaternionRootFunctions(NormGuard::kOnTheNorm)) {
+    const TapeSize size = tape(function.taped, function.variableDim, /*recordCompare=*/true);
+    LOG(INFO) << "[tape] " << function.name << ": Translation+Spherical " << size.operations << " ops (" << size.optimizedOperations
+              << " optimized, " << size.optimizedVariables << " variables)";
   }
 }
 

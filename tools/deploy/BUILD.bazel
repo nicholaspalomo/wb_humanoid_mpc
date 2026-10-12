@@ -48,6 +48,12 @@ filegroup(
     srcs = [":launch_script_" + robot for robot in _ROBOT_CONFIGURATIONS],
 )
 
+# The scripts whose builds refresh the editor's compilation database; //tools/ide:test_ide_setup checks them.
+exports_files([
+    "deploy_robot.sh",
+    "session.sh",
+])
+
 filegroup(
     name = "image_scripts",
     srcs = [
@@ -71,7 +77,8 @@ py_binary(
 )
 
 # The bundle of the robot images: both robot binaries with their runfiles under bin/, every robot model, the network
-# files and the entry scripts, as one deterministic tar (robot_bundle.bzl).
+# files, the plot configurations (the launch files' plot_config, whose mujoco_viewer names the viewer of robot-sim) and
+# the entry scripts, as one deterministic tar (robot_bundle.bzl).
 robot_bundle(
     name = "robot_bundle",
     binaries = [
@@ -82,6 +89,7 @@ robot_bundle(
         "//config/ipc:network.textproto",
         "//config/ipc:two_machine.example.textproto",
         "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        "//humanoid_nmpc/humanoid_rerun_viewer:plot_config",
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_description",
         "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",

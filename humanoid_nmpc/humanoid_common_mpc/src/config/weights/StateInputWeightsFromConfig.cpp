@@ -48,7 +48,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/config/weights/StateInputLayout.h"
+#include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
+#include "humanoid_common_mpc/orientation/EulerBoundary.h"
 #include "humanoid_mpc_config/acom_weights.nproto.h"
 #include "humanoid_mpc_config/com_weights.nproto.h"
 #include "humanoid_mpc_config/input_weights.nproto.h"
@@ -257,38 +259,60 @@ class LayoutConversion {
   std::vector<std::string> problems_;
 };
 
-// The offsets of the blocks of the state and the input in their vectors, as the MPCs' robot models index them
-// (StateInputLayout).
-// LINT.IfChange(state_input_offsets)
-// The base pose (position, then orientation) and, in the whole-body state, the base velocity.
-constexpr Eigen::Index kBaseDimension = 6;
-// The wrench of a contact in the input: its force at 0, its moment at 3.
-constexpr Eigen::Index kWrenchDimension = 6;
-constexpr Eigen::Index kMomentOffset = 3;
+/** The first row of the block `name` in `tuningLayout`, or nullopt when the MPC's state has no such block. */
+std::optional<Eigen::Index> tuningRowOf(const TuningLayout& tuningLayout, absl::string_view name) {
+  const absl::StatusOr<size_t> row = tuningSegmentStart(tuningLayout, name);
+  if (!row.ok()) return std::nullopt;
+  return static_cast<Eigen::Index>(*row);
+}
+
+/** Places the block `name` of a state at its row of `tuningLayout`, or refuses it when the layout has no such block. */
+template <typename Block>
+void placeStateBlock(std::optional<Block> block, absl::string_view name, const TuningLayout& tuningLayout, LayoutConversion& conversion) {
+  if (const std::optional<Eigen::Index> row = tuningRowOf(tuningLayout, name); row.has_value()) {
+    conversion.placeBlock(std::move(block), InThisMpc::kPresent, name, *row);
+  } else {
+    conversion.placeBlock(std::move(block), InThisMpc::kAbsent, name, /*start=*/0);
+  }
+}
+
+/** Places the joint list `name` of a state at its row of `tuningLayout`, or refuses it when the layout has no such block. */
+void placeStateJoints(const std::vector<mpc_config::JointValue>& entries,
+                      absl::string_view name,
+                      const TuningLayout& tuningLayout,
+                      LayoutConversion& conversion) {
+  if (const std::optional<Eigen::Index> row = tuningRowOf(tuningLayout, name); row.has_value()) {
+    conversion.placeJoints(entries, InThisMpc::kPresent, name, *row);
+  } else {
+    conversion.placeJoints(entries, InThisMpc::kAbsent, name, /*start=*/0);
+  }
+}
 
 /**
  * Places the blocks of a state (a StateWeights or a StateValues, which share their fields) in the vector of
- * `conversion`, on the offsets of StateInputLayout.
+ * `conversion`, each at the first row of its block of the same name in tuningLayoutOf() of the conversion's layout: the
+ * centroidal momenta, base pose and joint positions, or the whole-body base pose, joint positions, base velocity and
+ * joint velocities. A block the MPC's tuning layout does not have is refused.
  */
 template <typename State>
 void placeState(const State& state, LayoutConversion& conversion) {
-  const bool centroidal = conversion.layout().mpc == StateInputLayout::Mpc::kCentroidal;
-  const Eigen::Index joints = static_cast<Eigen::Index>(conversion.layout().jointNames.size());
-  // The centroidal state: the momenta, the base pose, the joint positions.
-  // The whole-body state: the base pose, the joint positions, the base velocity, the joint velocities.
-  const Eigen::Index basePoseStart = centroidal ? kBaseDimension : 0;
-  const Eigen::Index jointPositionsStart = basePoseStart + kBaseDimension;
-  const Eigen::Index baseVelocityStart = jointPositionsStart + joints;
-  const Eigen::Index jointVelocitiesStart = baseVelocityStart + kBaseDimension;
-  conversion.placeBlock(state.normalized_linear_momentum, inThisMpcIf(centroidal), "normalized_linear_momentum", /*start=*/0);
-  conversion.placeBlock(state.normalized_angular_momentum, inThisMpcIf(centroidal), "normalized_angular_momentum", /*start=*/3);
-  conversion.placeBlock(state.base_position, InThisMpc::kPresent, "base_position", basePoseStart);
-  conversion.placeBlock(state.base_orientation, InThisMpc::kPresent, "base_orientation", basePoseStart + 3);
-  conversion.placeJoints(state.joint_positions, InThisMpc::kPresent, "joint_positions", jointPositionsStart);
-  conversion.placeBlock(state.base_linear_velocity, inThisMpcIf(!centroidal), "base_linear_velocity", baseVelocityStart);
-  conversion.placeBlock(state.base_angular_velocity, inThisMpcIf(!centroidal), "base_angular_velocity", baseVelocityStart + 3);
-  conversion.placeJoints(state.joint_velocities, inThisMpcIf(!centroidal), "joint_velocities", jointVelocitiesStart);
+  const TuningLayout tuningLayout = tuningLayoutOf(conversion.layout());
+  placeStateBlock(state.normalized_linear_momentum, "normalized_linear_momentum", tuningLayout, conversion);
+  placeStateBlock(state.normalized_angular_momentum, "normalized_angular_momentum", tuningLayout, conversion);
+  placeStateBlock(state.base_position, "base_position", tuningLayout, conversion);
+  placeStateBlock(state.base_orientation, "base_orientation", tuningLayout, conversion);
+  placeStateJoints(state.joint_positions, "joint_positions", tuningLayout, conversion);
+  placeStateBlock(state.base_linear_velocity, "base_linear_velocity", tuningLayout, conversion);
+  placeStateBlock(state.base_angular_velocity, "base_angular_velocity", tuningLayout, conversion);
+  placeStateJoints(state.joint_velocities, "joint_velocities", tuningLayout, conversion);
 }
+
+// The offsets of the blocks of the input in its vector, as the MPCs' robot models index them (StateInputLayout). The
+// state's blocks need none: placeState() puts each at its row of the tuning layout.
+// LINT.IfChange(input_offsets)
+// The wrench of a contact in the input: its force at 0, its moment at 3.
+constexpr Eigen::Index kWrenchDimension = 6;
+constexpr Eigen::Index kMomentOffset = 3;
 
 /**
  * Places the blocks of an input weight in the vector of `conversion` (the wrench of each contact, then the joints'), on
@@ -336,7 +360,7 @@ void placeInput(const mpc_config::InputWeights& weights, LayoutConversion& conve
   conversion.placeJoints(weights.joint_accelerations, inThisMpcIf(!centroidal), "joint_accelerations", jointsStart);
 }
 // clang-format off
-// LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/include/humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h:state_input_indices, //humanoid_nmpc/humanoid_wb_mpc/include/humanoid_wb_mpc/common/WBAccelMpcRobotModel.h:state_input_indices, //humanoid_nmpc/humanoid_common_mpc/src/config/weights/StateInputLayout.cpp:state_input_dimensions, //humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/weights/StateInputLayout.h)
+// LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/include/humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h:input_indices, //humanoid_nmpc/humanoid_wb_mpc/include/humanoid_wb_mpc/common/WBAccelMpcRobotModel.h:input_indices, //humanoid_nmpc/humanoid_common_mpc/src/config/weights/StateInputLayout.cpp:state_input_dimensions, //humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/weights/StateInputLayout.h)
 // clang-format on
 
 /**
@@ -377,17 +401,36 @@ absl::StatusOr<matrix_t> threeWeights(scalar_t scaling,
 absl::StatusOr<matrix_t> stateWeightsFromConfig(const mpc_config::StateWeights& weights,
                                                 const StateInputLayout& layout,
                                                 absl::string_view fieldPath) {
-  LayoutConversion conversion(layout, fieldPath, "state", static_cast<Eigen::Index>(stateDimension(layout)));
+  LayoutConversion conversion(layout, fieldPath, "state", static_cast<Eigen::Index>(tuningDimension(layout)));
   conversion.checkFinite(weights.scaling, conversion.path("scaling"));
   placeState(weights, conversion);
   ASSIGN_OR_RETURN(const vector_t diagonal, conversion.values());
   return scaledDiagonal(weights.scaling, diagonal);
 }
 
+absl::StatusOr<matrix_t> trackingStateWeightsFromConfig(const mpc_config::StateWeights& weights,
+                                                        const StateInputLayout& layout,
+                                                        absl::string_view fieldPath,
+                                                        BasePoseWeights basePose) {
+  ASSIGN_OR_RETURN(matrix_t Q, stateWeightsFromConfig(weights, layout, fieldPath));
+  if (basePose == BasePoseWeights::kZeroedForComAndAcomTracking) ComAndAcomTrackingCost::zeroBasePoseWeights(Q);
+  return Q;
+}
+
+absl::StatusOr<matrix_t> terminalStateWeightsFromConfig(const mpc_config::StateWeights& finalStateWeights,
+                                                        scalar_t terminalCostScaling,
+                                                        const StateInputLayout& layout,
+                                                        absl::string_view fieldPath,
+                                                        BasePoseWeights basePose) {
+  ASSIGN_OR_RETURN(matrix_t Q_final, trackingStateWeightsFromConfig(finalStateWeights, layout, fieldPath, basePose));
+  Q_final *= terminalCostScaling;
+  return Q_final;
+}
+
 absl::StatusOr<vector_t> stateValuesFromConfig(const mpc_config::StateValues& values,
                                                const StateInputLayout& layout,
                                                absl::string_view fieldPath) {
-  LayoutConversion conversion(layout, fieldPath, "state", static_cast<Eigen::Index>(stateDimension(layout)));
+  LayoutConversion conversion(layout, fieldPath, "state", static_cast<Eigen::Index>(tuningDimension(layout)));
   placeState(values, conversion);
   return conversion.values();
 }

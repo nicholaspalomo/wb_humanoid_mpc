@@ -28,8 +28,7 @@
 """Exports recorded MPC rollout trajectories to HDF5 demonstration datasets for RL warmstarting.
 
 The input is the CSV files of mpc_observation_logger.py (mpc_observation_*.csv): by default the observations are the
-MPC state columns x0, x1, ... and the actions the MPC input columns u0, u1, .... Logs of the ROS-era logger, which named
-the DRC Atlas' components (h_x, ..., q_j_*, then qd_j_*, F_*, M_*), are read too. --obs_cols and --act_cols pick other
+MPC state columns x0, x1, ... and the actions the MPC input columns u0, u1, .... --obs_cols and --act_cols pick other
 columns. The dataset is HDF5 when h5py is installed, and an .npz file otherwise.
 """
 
@@ -46,11 +45,6 @@ import numpy as np
 _STATE_COLUMN = re.compile(r"^x\d+$")
 _INPUT_COLUMN = re.compile(r"^u\d+$")
 TIME_COLUMN = "time"
-# The columns of the ROS-era logger, and the positions it fell back to.
-_LEGACY_OBSERVATION_PREFIXES = ("h_", "L_", "p_", "euler_", "q_j_")
-_LEGACY_ACTION_PREFIXES = ("qd_j_", "F_", "M_")
-_LEGACY_OBSERVATION_SLICE = slice(0, 25)
-_LEGACY_ACTION_SLICE = slice(25, 37)
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -88,21 +82,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def default_columns(header: Sequence[str]) -> tuple[list[str], list[str]]:
-    """The observation and action columns of a log whose header is `header`."""
+    """The MPC state and input columns of a log whose header is `header`; either list is empty when it has none."""
     state = [column for column in header if _STATE_COLUMN.match(column)]
     inputs = [column for column in header if _INPUT_COLUMN.match(column)]
-    if state and inputs:
-        return state, inputs
-    observations = [
-        column for column in header if column.startswith(_LEGACY_OBSERVATION_PREFIXES)
-    ]
-    actions = [
-        column for column in header if column.startswith(_LEGACY_ACTION_PREFIXES)
-    ]
-    return (
-        observations or list(header[_LEGACY_OBSERVATION_SLICE]),
-        actions or list(header[_LEGACY_ACTION_SLICE]),
-    )
+    return state, inputs
 
 
 def read_csv(file_path: str) -> tuple[list[str], np.ndarray]:
@@ -115,7 +98,13 @@ def read_csv(file_path: str) -> tuple[list[str], np.ndarray]:
     return header, values
 
 
-def _columns(header: Sequence[str], names: Sequence[str], file_path: str) -> list[int]:
+def _columns(
+    header: Sequence[str], names: Sequence[str], file_path: str, what: str
+) -> list[int]:
+    if not names:
+        raise ValueError(
+            f"{file_path} has no {what} columns: name them with --obs_cols and --act_cols"
+        )
     missing = [name for name in names if name not in header]
     if missing:
         raise ValueError(f"{file_path} has no column {', '.join(missing)}")
@@ -147,8 +136,12 @@ def export_csv_to_h5(
         if values.shape[0] == 0:
             continue
         default_obs, default_acts = default_columns(header)
-        obs_indices = _columns(header, obs_cols or default_obs, file_path)
-        act_indices = _columns(header, act_cols or default_acts, file_path)
+        obs_indices = _columns(
+            header, obs_cols or default_obs, file_path, "MPC state (x0, x1, ...)"
+        )
+        act_indices = _columns(
+            header, act_cols or default_acts, file_path, "MPC input (u0, u1, ...)"
+        )
         all_obs.append(values[:, obs_indices].astype(np.float32))
         all_acts.append(values[:, act_indices].astype(np.float32))
         if TIME_COLUMN in header:

@@ -42,6 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "ocs2_core/Types.h"
+#include "ocs2_core/manifold/StateManifold.h"
 #include "ocs2_mpc/SystemObservation.h"
 #include "ocs2_pinocchio_interface/PinocchioInterface.h"
 #include "ocs2_sqp/SqpMpc.h"
@@ -95,6 +97,22 @@ struct InitialStateGap {
   double rotation = 0.0;  ///< [rad] of its base orientation part
   double norm = 0.0;      ///< of the whole state difference
 };
+
+/**
+ * Returns the gap of the SQP step `delta` (SqpSolver::getInitialStateGap(), a tangent vector of the problem's state on
+ * `stateManifold`): its rotation part is the largest rotation angle the manifold's rotation blocks describe
+ * (StateManifold::getMaximumRotationAngle(), 0 without a rotation block), its norm the whole step's. `stateManifold` is
+ * not retained; `delta` has its tangent size.
+ */
+InitialStateGap initialStateGapOf(const vector_t& delta, const StateManifold& stateManifold);
+
+/**
+ * max_k | |xi_k| - 1 | over `states`, where xi_k is the stored quaternion (4 coefficients at `orientationStartIndex`,
+ * MpcRobotModelBase::getBaseOrientationStartIndex()) of states[k], unnormalized: how far the solver's nodes have left
+ * the unit sphere their retraction keeps them on. Empty for no states. Every state has at least orientationStartIndex + 4
+ * entries.
+ */
+std::optional<double> maxQuaternionNormDeviationOf(const vector_array_t& states, size_t orientationStartIndex);
 
 /**
  * A formulation's two processes in one, for the lockstep closed loop, without the bus and without threads:
@@ -183,8 +201,11 @@ class ClosedLoopDriver {
    */
   std::optional<InitialStateGap> lastSolveInitialStateGap() const;
 
-  /** max | |xi_k| - 1 | over the nodes of the last solution; empty for the Euler formulation, which has no quaternion. */
-  virtual std::optional<double> maxQuaternionNormDeviation() const { return std::nullopt; }
+  /**
+   * max | |xi_k| - 1 | over the nodes of the solver's last solution, the stored quaternions of every node before the
+   * solution window trims it (maxQuaternionNormDeviationOf()); empty before the first solve. Copies the solution.
+   */
+  std::optional<double> maxQuaternionNormDeviation() const;
 
   /** The world positions of the MPC's contact frames at the configuration of `observation`. */
   std::array<Eigen::Vector3d, 2> contactPositions(const SystemObservation& observation);
@@ -233,6 +254,7 @@ class ClosedLoopDriver {
   /**
    * Fills the members below that every formulation shares, after the derived driver has built its interface: the MPC
    * on `problem`, the command path and the measurement model. `robotModel` is the model the controller observes with.
+   * InvalidArgument for a problem without a state manifold.
    */
   absl::Status initializeShared(const RobotConfiguration& configuration,
                                 const ClosedLoopDriverOptions& options,

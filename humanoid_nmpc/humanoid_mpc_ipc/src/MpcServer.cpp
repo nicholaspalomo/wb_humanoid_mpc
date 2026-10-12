@@ -377,6 +377,7 @@ absl::Status MpcServer::serveResets() {
 
 absl::Status MpcServer::solve() {
   const SystemObservation& observation = snapshot_.observation;
+  if (hooks_.preSolveObserver) hooks_.preSolveObserver(observation);
   bool controllerIsUpdated = false;
   const absl::Status ran =
       runCatchingExceptions([&]() { controllerIsUpdated = mpc_.run(observation.time, observation.state, observation.mode); });

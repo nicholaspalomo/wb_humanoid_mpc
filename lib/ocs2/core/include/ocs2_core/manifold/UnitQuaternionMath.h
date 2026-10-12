@@ -43,14 +43,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *  - R(xi) maps the body frame to the world frame, and a tangent vector delta is a body (right) perturbation:
  *    xi (+) delta = xi (x) Exp(delta).
  *  - Exp and Log map between rotation vectors and unit quaternions. Log takes the shortest path (it returns a rotation
- *    vector of norm at most pi), so every function here is invariant under xi -> -xi (the double cover).
+ *    vector of norm at most pi), so the functions of a rotation here - R(xi), Log(xi) and slerp up to the sign of its
+ *    result - are invariant under xi -> -xi (the double cover), except Log on its cut locus, an exact half turn, where
+ *    it returns the other of the two logarithms (quaternionLog()), and with it slerp where the relative rotation of its
+ *    ends is one (quaternionSlerp()). The linear maps G, E and E+ change sign with xi.
  *
  * Every function is a template on the scalar, so the same code runs in double and on a CppAD tape. On a tape, no branch
  * may be a plain `if` (the tape would record only the branch taken at the taping point): branches go through
  * ifGreaterThan(), which is a CppAD conditional expression for AD scalars, and both of its branches are kept finite at
- * every input, so neither a forward nor a reverse sweep can produce 0 * inf. In particular a norm is never taken as
- * sqrt of a quantity that can be 0 inside a selected-away branch: the squared quantity is guarded before the square root
- * (the reverse sweep of sqrt at 0 is 0 * inf, which gives a NaN Jacobian even when the branch is not selected).
+ * every input whose squared norms are normal doubles - for a quaternion 1e-150 <= |xi| <= 1e150, for a rotation vector
+ * |phi| <= 1e150 - so that neither a forward nor a reverse sweep can produce 0 * inf there. Outside that range a squared
+ * norm under- or overflows, and quaternionLog()'s guards, which scale with |xi|^2, no longer select the branch they
+ * would at the same rotation: its value loses its precision and then its meaning (a rotation by 1 rad reads as 1.00004
+ * rad at |xi| = 1e-160, as 1e-165 rad at |xi| = 1e-165 and as -inf at 1e155) and its tape Jacobian can be NaN (at
+ * xi = (5e-164, 0, 0, 1e-154), for one). The solver's quaternions are near the unit sphere. In particular a norm is
+ * never taken as sqrt of a quantity that can be 0 inside a selected-away branch: the squared quantity is guarded before
+ * the square root (the reverse sweep of sqrt at 0 is 0 * inf, which gives a NaN Jacobian even when the branch is not
+ * selected).
  * For an AD scalar, include <cppad/cppad.hpp> (or <cppad/cg.hpp>) before instantiating these templates.
  */
 
@@ -62,7 +71,11 @@ using quaternion_coeffs_t = Eigen::Matrix<SCALAR_T, 4, 1>;  // (x, y, z, w)
 template <typename SCALAR_T>
 using rotation_vector_t = Eigen::Matrix<SCALAR_T, 3, 1>;
 
-/** Below this norm a quaternion is not normalized (it is treated as the identity by the rotation-matrix polynomial). */
+/**
+ * At or below this norm a quaternion is not normalized: quaternionSafeNormalize() returns it unchanged, and the
+ * rotation-matrix polynomial reads it as the identity, to within 2 |xi|^2 <= 2e-12 per entry (exactly at the zero
+ * quaternion). Log is the exception: it reads every nonzero quaternion as the rotation of xi / |xi| (quaternionLog()).
+ */
 constexpr double kQuaternionNormalizationEpsilon = 1e-6;
 
 namespace unit_quaternion_internal {
@@ -97,10 +110,10 @@ SCALAR_T guardedNorm(const SCALAR_T& squaredNorm, double threshold) {
 }
 
 // Thresholds below which a coefficient is evaluated from its Taylor series. For Exp and Log the closed form has no
-// cancellation and the series only avoids 0 / 0. The (alpha - sin alpha) / alpha^3 coefficient of Jr and the
-// 1 / alpha^2 - cot(alpha / 2) / (2 alpha) coefficient of Jr^-1 cancel in double precision as alpha -> 0, so they switch
-// to the series at alpha = 0.1, where the series, truncated after alpha^8 resp. alpha^6, is exact to round-off and the
-// closed form has lost fewer than four digits.
+// cancellation and the series only avoids 0 / 0; Log's threshold is relative, |v| <= 1e-6 |xi| (quaternionLog()). The
+// (alpha - sin alpha) / alpha^3 coefficient of Jr and the 1 / alpha^2 - cot(alpha / 2) / (2 alpha) coefficient of Jr^-1
+// cancel in double precision as alpha -> 0, so they switch to the series at alpha = 0.1, where the series, truncated
+// after alpha^8 resp. alpha^6, is exact to round-off and the closed form has lost fewer than four digits.
 constexpr double kExpLogSeriesThreshold = 1e-6;
 constexpr double kJacobianSeriesThreshold = 0.1;
 
@@ -170,8 +183,10 @@ Eigen::Matrix<SCALAR_T, 4, 3> quaternionTangentMap(const quaternion_coeffs_t<SCA
 }
 
 /**
- * E+(xi) = 2 G(xi)' / |xi|^2 (3 x 4), the left inverse of E(xi) (E+ E = I) whose rows are orthogonal to xi. On the
- * unit sphere it is 2 G(xi)'. A row vector J_t on the tangent lifts to the ambient row vector J_t E+.
+ * E+(xi) = 2 G(xi)' / |xi|^2 (3 x 4), the left inverse of E(xi) (E+ E = I) for |xi| > kQuaternionNormalizationEpsilon,
+ * whose rows are orthogonal to xi (E+ xi = 0 at every xi). On the unit sphere it is 2 G(xi)'. At or below the epsilon
+ * the divisor is the guarded 1, so E+ = 2 G(xi)' and E+ E = |xi|^2 I: the zero quaternion lifts to zero, not NaN. A row
+ * vector J_t on the tangent lifts to the ambient row vector J_t E+.
  */
 template <typename SCALAR_T>
 Eigen::Matrix<SCALAR_T, 3, 4> quaternionTangentMapPseudoInverse(const quaternion_coeffs_t<SCALAR_T>& xi) {
@@ -220,23 +235,47 @@ quaternion_coeffs_t<SCALAR_T> quaternionExp(const rotation_vector_t<SCALAR_T>& p
 }
 
 /**
- * Log(xi), the rotation vector of xi along the shortest path: xi is replaced by -xi when w < 0, so |Log(xi)| <= pi and
- * Log(-xi) = Log(xi). It is homogeneous of degree 0 (Log(c xi) = Log(xi) for c > 0), so xi need not be unit. The zero
- * quaternion maps to the zero vector.
+ * Log(xi), the rotation vector of xi along the shortest path: xi is replaced by -xi when w < 0, so |Log(xi)| <= pi.
+ *
+ * Log(xi) = 2 atan2(|v|, w) v / |v| (v the vector part) depends on xi only through xi / |xi|: it is homogeneous of
+ * degree 0, Log(c xi) = Log(xi) for every c > 0, so xi need not be unit. Every guard below is therefore relative to
+ * |xi|^2, never an absolute threshold (which would select the series for every short quaternion, whatever its angle), and
+ * the identity holds to round-off for 1e-150 <= |xi| <= 1e150, where |xi|^2 is a normal double. A nonzero xi is read as
+ * the rotation of xi / |xi| also at or below kQuaternionNormalizationEpsilon, where the safe normalization leaves it
+ * unchanged. The zero quaternion maps to the zero vector.
+ *
+ * The double cover: Log(-xi) = Log(xi) bit for bit for every xi with w != 0, subnormal w included, and
+ * Log(conj(xi)) = -Log(xi) bit for bit for every xi (conj(xi) is xi^-1 up to the positive scale |xi|^2). At an exact
+ * half turn, w = +0 or -0, both cannot hold: -xi and conj(xi) then have the same coefficients up to the sign of the zero
+ * w, so a rule on the coefficients' values that kept Log(-xi) = Log(xi) as well as the inversion would give
+ * Log = -Log = 0, which is no logarithm of a half turn. The rule here keeps the inversion: Log(xi) = pi v / |v| for
+ * w = +-0, so Log(-xi) = -Log(xi) there. Both are logarithms of the same rotation, and the linearization Jr^-1(Log(xi))
+ * is the derivative of the branch returned, that of the hemisphere w >= 0 (testStateManifold). A tie-break in the
+ * double overload alone would make the double path and the tape disagree.
  */
 template <typename SCALAR_T>
 rotation_vector_t<SCALAR_T> quaternionLog(const quaternion_coeffs_t<SCALAR_T>& xi) {
   using std::atan2;
+  using std::sqrt;
   using unit_quaternion_internal::ifGreaterThan;
   const SCALAR_T sign = ifGreaterThan(SCALAR_T(0.0), xi(3), SCALAR_T(-1.0), SCALAR_T(1.0));
   const rotation_vector_t<SCALAR_T> v = sign * xi.template head<3>();
   const SCALAR_T w = sign * xi(3);  // >= 0
   const SCALAR_T vectorNormSquared = v.squaredNorm();
-  const SCALAR_T vectorNorm = unit_quaternion_internal::guardedNorm(vectorNormSquared, unit_quaternion_internal::kExpLogSeriesThreshold);
-  const SCALAR_T threshold(unit_quaternion_internal::kExpLogSeriesThreshold * unit_quaternion_internal::kExpLogSeriesThreshold);
-  // 2 atan2(n, w) / n = (2 / w) (1 - n^2 / (3 w^2)) for n << w. The guarded w keeps that branch finite at the zero
-  // quaternion (where v = 0 and the result is 0 either way) and for a half-turn (w = 0), where it is not selected.
-  const SCALAR_T guardedW = ifGreaterThan(w, SCALAR_T(unit_quaternion_internal::kExpLogSeriesThreshold), w, SCALAR_T(1.0));
+  // th^2 |xi|^2: the series threshold th = kExpLogSeriesThreshold scaled with xi, so that no selection below changes when
+  // xi is multiplied by c > 0.
+  const SCALAR_T threshold =
+      SCALAR_T(unit_quaternion_internal::kExpLogSeriesThreshold * unit_quaternion_internal::kExpLogSeriesThreshold) * xi.squaredNorm();
+  // |v|, guarded to 1 where the series is selected (also at the zero quaternion), so the closed form stays finite there.
+  const SCALAR_T vectorNorm = sqrt(ifGreaterThan(vectorNormSquared, threshold, vectorNormSquared, SCALAR_T(1.0)));
+  // 2 atan2(n, w) / n = (2 / w) (1 - n^2 / (3 w^2)) + O(n^4 / w^5) for n = |v| << w. The series is selected where
+  // n^2 <= th^2 |xi|^2, i.e. n / w <= th / sqrt(1 - th^2), so its truncation error is below 1e-24 relative. There
+  // w^2 = |xi|^2 - n^2 > th^2 |xi|^2, so w is kept unless xi = 0; the guarded w is 1 only at the zero quaternion (where
+  // v = 0 and the result is 0 either way) and near a half turn, where the series is not selected, so both branches are
+  // finite at every xi with 1e-150 <= |xi| <= 1e150, as the tape requires, and at the zero quaternion. Below that range
+  // |xi|^2, n^2 and th^2 |xi|^2 are subnormal or zero, so the selection no longer follows the angle and a reverse sweep
+  // can divide by an underflowed w^3 (0 * inf, a NaN Jacobian); above it |xi|^2 overflows (the class comment).
+  const SCALAR_T guardedW = ifGreaterThan(w * w, threshold, w, SCALAR_T(1.0));
   const SCALAR_T scale =
       ifGreaterThan(vectorNormSquared, threshold, SCALAR_T(2.0) * atan2(vectorNorm, w) / vectorNorm,
                     (SCALAR_T(2.0) / guardedW) * (SCALAR_T(1.0) - vectorNormSquared / (SCALAR_T(3.0) * guardedW * guardedW)));
@@ -294,8 +333,11 @@ Eigen::Matrix<SCALAR_T, 3, 3> so3RightJacobianInverse(const rotation_vector_t<SC
 
 /**
  * Shortest-path spherical interpolation: xi0 at alpha = 0 and the rotation of xi1 at alpha = 1, through
- * xi0 (x) Exp(alpha Log(xi0^-1 (x) xi1)). The result is normalized. Rotations about one fixed axis interpolate linearly in
- * the angle. Invariant under xi0 -> -xi0 and xi1 -> -xi1 up to the sign of the result.
+ * xi0 (x) Exp(alpha Log(xi0^-1 (x) xi1)). The result is normalized (for |xi0| > kQuaternionNormalizationEpsilon).
+ * Rotations about one fixed axis interpolate linearly in the angle. Invariant under xi0 -> -xi0 and xi1 -> -xi1 up to the
+ * sign of the result, except where xi0^-1 (x) xi1 is an exact half turn (w = +-0): both geodesics are then shortest, of
+ * length pi, and xi1 and -xi1 take opposite ones (quaternionLog()), so slerp(xi0, xi1, 1/2) and slerp(xi0, -xi1, 1/2)
+ * are rotations pi apart.
  */
 template <typename SCALAR_T>
 quaternion_coeffs_t<SCALAR_T> quaternionSlerp(const quaternion_coeffs_t<SCALAR_T>& xi0,

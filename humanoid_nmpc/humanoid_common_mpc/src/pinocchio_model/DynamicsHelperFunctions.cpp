@@ -193,9 +193,10 @@ VECTOR6_T<SCALAR_T> computeBaseAcceleration(const MATRIX_T<SCALAR_T>& M,
   // entries of the matrix. A comparison between CppAD variables is recorded on the tape, and CppADCodeGen's code
   // generator cannot evaluate it: the whole-body dynamics then fail to compile with "GreaterThanZero cannot be called for
   // non-parameters". A is the translational block, the total mass times the identity, and S is the rotational inertia
-  // about the center of mass in the base's Euler-angle rates, so both are invertible wherever M_bb is. crba() fills
-  // both triangles of this 6x6 root block (it writes the root joint's rows over its whole subtree), so C is read, not
-  // assumed to be B^T.
+  // about the center of mass in the base's body axes (the Spherical root's velocity is the body angular velocity w_B),
+  // positive definite at every attitude: unlike the Euler-angle rates of a SphericalZYX root, it has no singularity at a
+  // pitch of +-90 degrees, so both are invertible everywhere. crba() fills both triangles of this 6x6 root block (it
+  // writes the root joint's rows over its whole subtree), so C is read, not assumed to be B^T.
   const MATRIX3_T<SCALAR_T> A = M.template block<3, 3>(0, 0);
   const MATRIX3_T<SCALAR_T> B = M.template block<3, 3>(0, 3);
   const MATRIX3_T<SCALAR_T> C = M.template block<3, 3>(3, 0);

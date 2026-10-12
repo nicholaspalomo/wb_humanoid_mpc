@@ -46,6 +46,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_core/control/ControllerBase.h"
 #include "ocs2_core/control/FeedforwardController.h"
 #include "ocs2_core/control/LinearController.h"
+#include "ocs2_core/control/ManifoldLinearController.h"
+#include "ocs2_core/manifold/StateManifold.h"
 
 #include "humanoid_mpc_ipc/PolicyControllers.h"
 #include "humanoid_mpc_msgs/controller_type.pb.h"
@@ -138,6 +140,26 @@ void writeLinearControllerNodes(const LinearController& controller, VectorField*
   }
 }
 
+// LINT.IfChange(manifold_node_writer)
+// The nodes of a ManifoldLinearController: [u*_k, xbar_k, vec K_k], K_k column-major, which its flattenSingle() writes
+// at a node time. The anchors are the controller's own, not the state trajectory.
+void writeManifoldLinearControllerNodes(const ManifoldLinearController& controller, VectorField* absl_nonnull field) {
+  const size_t nodes = controller.getTimeStamps().size();
+  resizeVectors(nodes, field);
+  for (size_t k = 0; k < nodes; ++k) {
+    const vector_t& nominalInput = controller.getNominalInputs()[k];
+    const vector_t& anchorState = controller.getAnchorStates()[k];
+    const matrix_t& gain = controller.getFeedbackGains()[k];
+    DoubleField* absl_nonnull data = field->Mutable(static_cast<int>(k))->mutable_data();
+    data->resize(static_cast<int>(nominalInput.size() + anchorState.size() + gain.size()));
+    double* absl_nullable out = data->mutable_data();
+    std::copy_n(nominalInput.data(), nominalInput.size(), out);
+    std::copy_n(anchorState.data(), anchorState.size(), out + nominalInput.size());
+    std::copy_n(gain.data(), gain.size(), out + nominalInput.size() + anchorState.size());
+  }
+}
+// LINT.ThenChange(:manifold_node_reader, //humanoid_nmpc/humanoid_mpc_msgs/mpc_policy.proto:controller_data)
+
 // The controller sampled at `timeTrajectory` with ControllerBase::flatten(), for a controller on other time stamps. The
 // flatten() interface writes std::vectors, so this allocates scratch arrays (and Eigen temporaries) on every call.
 void sampleController(const ControllerBase& controller, const scalar_array_t& timeTrajectory, VectorField* absl_nonnull field) {
@@ -152,6 +174,43 @@ void sampleController(const ControllerBase& controller, const scalar_array_t& ti
   for (size_t k = 0; k < samples.size(); ++k) {
     writeDoubles(samples[k].data(), samples[k].size(), field->Mutable(static_cast<int>(k))->mutable_data());
   }
+}
+
+// What policyToProto() needs of a ManifoldLinearController: consistent arrays, nodes of its manifold's dimensions, and
+// the time trajectory as its time stamps, since it travels only as its own nodes.
+absl::Status checkManifoldLinearController(const ManifoldLinearController& controller, const scalar_array_t& timeTrajectory) {
+  const size_t nodes = controller.getTimeStamps().size();
+  if (controller.getAnchorStates().size() != nodes || controller.getNominalInputs().size() != nodes ||
+      controller.getFeedbackGains().size() != nodes) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("the ManifoldLinearController has ", nodes, " time stamps, ", controller.getAnchorStates().size(), " anchor states, ",
+                     controller.getNominalInputs().size(), " nominal inputs and ", controller.getFeedbackGains().size(), " gains"));
+  }
+  if (nodes == 0) {
+    return absl::OkStatus();  // checkController() refuses an empty controller next to a non-empty time trajectory
+  }
+  if (controller.getTimeStamps() != timeTrajectory) {
+    return absl::InvalidArgumentError(
+        "the ManifoldLinearController's time stamps are not the time trajectory; it travels only as its own nodes, which "
+        "must be the policy's (the multiple-shooting solvers build it on the time trajectory)");
+  }
+  const StateManifold* absl_nullable manifold = controller.getStateManifold().get();
+  if (manifold == nullptr) {
+    return absl::InvalidArgumentError("the ManifoldLinearController has no state manifold");
+  }
+  const Eigen::Index ambientDim = static_cast<Eigen::Index>(manifold->getAmbientDim());
+  const Eigen::Index tangentDim = static_cast<Eigen::Index>(manifold->getTangentDim());
+  for (size_t k = 0; k < nodes; ++k) {
+    const vector_t& anchorState = controller.getAnchorStates()[k];
+    const matrix_t& gain = controller.getFeedbackGains()[k];
+    if (anchorState.size() != ambientDim || gain.rows() != controller.getNominalInputs()[k].size() || gain.cols() != tangentDim) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("node ", k, " of the ManifoldLinearController has an anchor state of ", anchorState.size(),
+                       " entries, a nominal input of ", controller.getNominalInputs()[k].size(), " and a gain of ", gain.rows(), "x",
+                       gain.cols(), "; its state manifold has ", ambientDim, " ambient and ", tangentDim, " tangent dimensions"));
+    }
+  }
+  return absl::OkStatus();
 }
 
 // What policyToProto() needs of the controller, checked before it writes anything.
@@ -176,10 +235,13 @@ absl::Status checkController(const PrimalSolution& primalSolution) {
                                                        " rows but a bias of ", linear->biasArray_[k].size(), " entries"));
       }
     }
+  } else if (const ManifoldLinearController* absl_nullable manifoldLinear = asManifoldLinearController(*controller);
+             manifoldLinear != nullptr) {
+    IPC_RETURN_IF_ERROR(checkManifoldLinearController(*manifoldLinear, primalSolution.timeTrajectory_));
   } else {
-    return absl::InvalidArgumentError(absl::StrCat("PrimalSolution.controllerPtr_ is an ocs2::ControllerType ",
-                                                   static_cast<int>(controller->getType()),
-                                                   " controller; only a FeedforwardController or a LinearController can be sent"));
+    return absl::InvalidArgumentError(
+        absl::StrCat("PrimalSolution.controllerPtr_ is an ocs2::ControllerType ", static_cast<int>(controller->getType()),
+                     " controller; only a FeedforwardController, a LinearController or a ManifoldLinearController can be sent"));
   }
   if (controller->empty() && !primalSolution.timeTrajectory_.empty()) {
     return absl::InvalidArgumentError(absl::StrCat("PrimalSolution.controllerPtr_ is empty but the time trajectory has ",
@@ -204,6 +266,12 @@ void writeController(const PrimalSolution& primalSolution, humanoid_mpc_msgs::Mp
       writeLinearControllerNodes(*linear, field);
       return;
     }
+  } else if (const ManifoldLinearController* absl_nullable manifoldLinear = asManifoldLinearController(controller);
+             manifoldLinear != nullptr) {
+    // On the time trajectory: checkManifoldLinearController() refuses any other time stamps.
+    message->set_controller_type(humanoid_mpc_msgs::CONTROLLER_TYPE_MANIFOLD_LINEAR);
+    writeManifoldLinearControllerNodes(*manifoldLinear, field);
+    return;
   }
   sampleController(controller, primalSolution.timeTrajectory_, field);
 }
@@ -347,14 +415,50 @@ absl::Status validatePostEventIndices(const IndexField& indices, int nodes) {
   return absl::OkStatus();
 }
 
-// The size of each node's controller data against the dimensions of its state and input. Requires the trajectories to
-// have the same number of nodes.
-absl::Status validateControllerData(const humanoid_mpc_msgs::MpcPolicy& message) {
-  const humanoid_mpc_msgs::ControllerType type = message.controller_type();
-  if (type != humanoid_mpc_msgs::CONTROLLER_TYPE_FEEDFORWARD && type != humanoid_mpc_msgs::CONTROLLER_TYPE_LINEAR) {
-    return absl::InvalidArgumentError(absl::StrCat(kPolicy, ".controller_type is ", static_cast<int>(type),
-                                                   "; only CONTROLLER_TYPE_FEEDFORWARD and CONTROLLER_TYPE_LINEAR can be evaluated"));
+// Whether a policy of `type` can be evaluated on the receiver's state: a flat one (no manifold) or one on a manifold.
+absl::Status validateControllerType(humanoid_mpc_msgs::ControllerType type, const StateManifold* absl_nullable stateManifold) {
+  if (type != humanoid_mpc_msgs::CONTROLLER_TYPE_FEEDFORWARD && type != humanoid_mpc_msgs::CONTROLLER_TYPE_LINEAR &&
+      type != humanoid_mpc_msgs::CONTROLLER_TYPE_MANIFOLD_LINEAR) {
+    return absl::InvalidArgumentError(
+        absl::StrCat(kPolicy, ".controller_type is ", static_cast<int>(type),
+                     "; only CONTROLLER_TYPE_FEEDFORWARD, CONTROLLER_TYPE_LINEAR and CONTROLLER_TYPE_MANIFOLD_LINEAR can be evaluated"));
   }
+  if (type == humanoid_mpc_msgs::CONTROLLER_TYPE_MANIFOLD_LINEAR && stateManifold == nullptr) {
+    return absl::InvalidArgumentError(absl::StrCat(kPolicy,
+                                                   ".controller_type is CONTROLLER_TYPE_MANIFOLD_LINEAR, but the receiver's state has "
+                                                   "no state manifold to evaluate its feedback on: the MPC and the robot disagree "
+                                                   "on the state"));
+  }
+  if (type == humanoid_mpc_msgs::CONTROLLER_TYPE_LINEAR && stateManifold != nullptr) {
+    return absl::InvalidArgumentError(absl::StrCat(kPolicy,
+                                                   ".controller_type is CONTROLLER_TYPE_LINEAR, whose gains act on the stored state, "
+                                                   "but the receiver's state lives on a state manifold, whose feedback policies are "
+                                                   "CONTROLLER_TYPE_MANIFOLD_LINEAR"));
+  }
+  return absl::OkStatus();
+}
+
+// The states of a policy decoded on a state manifold have its ambient dimension.
+absl::Status validateManifoldStates(const humanoid_mpc_msgs::MpcPolicy& message, const StateManifold* absl_nullable stateManifold) {
+  if (stateManifold == nullptr) {
+    return absl::OkStatus();
+  }
+  const size_t ambientDim = stateManifold->getAmbientDim();
+  for (int k = 0; k < message.state_trajectory_size(); ++k) {
+    if (static_cast<size_t>(message.state_trajectory(k).data_size()) != ambientDim) {
+      return absl::InvalidArgumentError(absl::StrCat(kPolicy, ".state_trajectory[", k, "] has ", message.state_trajectory(k).data_size(),
+                                                     " entries; the receiver's state manifold has ", ambientDim, " ambient dimensions"));
+    }
+  }
+  return absl::OkStatus();
+}
+
+// The size of each node's controller data against the dimensions of its state and input, and of the state manifold's
+// tangent for a ManifoldLinearController. Requires the trajectories to have the same number of nodes, a controller type
+// the receiver can evaluate (validateControllerType()), and for a ManifoldLinearController a manifold.
+absl::Status validateControllerData(const humanoid_mpc_msgs::MpcPolicy& message, const StateManifold* absl_nullable stateManifold) {
+  const humanoid_mpc_msgs::ControllerType type = message.controller_type();
+  const size_t tangentDim = stateManifold == nullptr ? 0 : stateManifold->getTangentDim();
   for (int k = 0; k < message.controller_data_size(); ++k) {
     const size_t inputDim = static_cast<size_t>(message.input_trajectory(k).data_size());
     const size_t stateDim = static_cast<size_t>(message.state_trajectory(k).data_size());
@@ -369,11 +473,17 @@ absl::Status validateControllerData(const humanoid_mpc_msgs::MpcPolicy& message)
                                                      " entries but a LinearController node with ", inputDim, " inputs and ", stateDim,
                                                      " states has ", inputDim * (stateDim + 1)));
     }
+    const size_t manifoldNodeSize = inputDim + stateDim + inputDim * tangentDim;
+    if (type == humanoid_mpc_msgs::CONTROLLER_TYPE_MANIFOLD_LINEAR && size != manifoldNodeSize) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          kPolicy, ".controller_data[", k, "] has ", size, " entries but a ManifoldLinearController node with ", inputDim, " inputs, ",
+          stateDim, " states and ", tangentDim, " tangent dimensions has ", manifoldNodeSize, " = inputs + states + inputs * tangent"));
+    }
   }
   return absl::OkStatus();
 }
 
-absl::Status validatePrimalSolution(const humanoid_mpc_msgs::MpcPolicy& message) {
+absl::Status validatePrimalSolution(const humanoid_mpc_msgs::MpcPolicy& message, const StateManifold* absl_nullable stateManifold) {
   const int nodes = message.time_trajectory_size();
   if (nodes == 0) {
     return absl::InvalidArgumentError(absl::StrCat(kPolicy, ".time_trajectory is empty; a policy has at least one node"));
@@ -388,7 +498,9 @@ absl::Status validatePrimalSolution(const humanoid_mpc_msgs::MpcPolicy& message)
   IPC_RETURN_IF_ERROR(checkFiniteVectors(message.controller_data(), kPolicy, "controller_data"));
   IPC_RETURN_IF_ERROR(validatePostEventIndices(message.post_event_indices(), nodes));
   IPC_RETURN_IF_ERROR(validateModeSchedule(message.mode_schedule(), kPolicyModeSchedule));
-  IPC_RETURN_IF_ERROR(validateControllerData(message));
+  IPC_RETURN_IF_ERROR(validateControllerType(message.controller_type(), stateManifold));
+  IPC_RETURN_IF_ERROR(validateManifoldStates(message, stateManifold));
+  IPC_RETURN_IF_ERROR(validateControllerData(message, stateManifold));
   return absl::OkStatus();
 }
 
@@ -438,11 +550,42 @@ void readPerformanceIndex(const humanoid_mpc_msgs::PerformanceIndex& message, Pe
   performanceIndex->inequalityLagrangian = message.inequality_lagrangian();
 }
 
+// LINT.IfChange(manifold_node_reader)
+// The ManifoldLinearController of a validated CONTROLLER_TYPE_MANIFOLD_LINEAR policy, on `timeTrajectory` and
+// `stateManifold`: the inverse of writeManifoldLinearControllerNodes(), as ManifoldLinearController::unFlatten() reads
+// the same layout.
+std::unique_ptr<ControllerBase> readManifoldLinearController(const humanoid_mpc_msgs::MpcPolicy& message,
+                                                             const scalar_array_t& timeTrajectory,
+                                                             std::shared_ptr<const StateManifold> stateManifold) {
+  const size_t nodes = static_cast<size_t>(message.controller_data_size());
+  const Eigen::Index tangentDim = static_cast<Eigen::Index>(stateManifold->getTangentDim());
+  vector_array_t anchorStates(nodes);
+  vector_array_t nominalInputs(nodes);
+  matrix_array_t gains(nodes);
+  for (size_t k = 0; k < nodes; ++k) {
+    const int node = static_cast<int>(k);
+    const Eigen::Index inputDim = message.input_trajectory(node).data_size();
+    const Eigen::Index stateDim = message.state_trajectory(node).data_size();
+    const double* absl_nullable data = message.controller_data(node).data().data();
+    nominalInputs[k] = Eigen::Map<const vector_t>(data, inputDim);
+    anchorStates[k] = Eigen::Map<const vector_t>(data + inputDim, stateDim);
+    gains[k] = Eigen::Map<const matrix_t>(data + inputDim + stateDim, inputDim, tangentDim);
+  }
+  return std::make_unique<ManifoldLinearController>(timeTrajectory, std::move(anchorStates), std::move(nominalInputs), std::move(gains),
+                                                    std::move(stateManifold));
+}
+// LINT.ThenChange(:manifold_node_writer)
+
 // The controller of a validated policy, on `timeTrajectory`: the inverse of FeedforwardController::flattenSingle() or
 // LinearController::flattenSingle() node by node, as their unFlatten() reads it, without the intermediate std::vector
-// copies unFlatten() would need.
-std::unique_ptr<ControllerBase> readController(const humanoid_mpc_msgs::MpcPolicy& message, const scalar_array_t& timeTrajectory) {
+// copies unFlatten() would need; a ManifoldLinearController on `stateManifold`.
+std::unique_ptr<ControllerBase> readController(const humanoid_mpc_msgs::MpcPolicy& message,
+                                               const scalar_array_t& timeTrajectory,
+                                               std::shared_ptr<const StateManifold> stateManifold) {
   const size_t nodes = static_cast<size_t>(message.controller_data_size());
+  if (message.controller_type() == humanoid_mpc_msgs::CONTROLLER_TYPE_MANIFOLD_LINEAR) {
+    return readManifoldLinearController(message, timeTrajectory, std::move(stateManifold));
+  }
   if (message.controller_type() == humanoid_mpc_msgs::CONTROLLER_TYPE_LINEAR) {
     vector_array_t bias(nodes);
     matrix_array_t gain(nodes);
@@ -466,13 +609,15 @@ std::unique_ptr<ControllerBase> readController(const humanoid_mpc_msgs::MpcPolic
   return std::make_unique<FeedforwardController>(timeTrajectory, std::move(feedforward));
 }
 
-void readPrimalSolution(const humanoid_mpc_msgs::MpcPolicy& message, PrimalSolution* absl_nonnull primalSolution) {
+void readPrimalSolution(const humanoid_mpc_msgs::MpcPolicy& message,
+                        std::shared_ptr<const StateManifold> stateManifold,
+                        PrimalSolution* absl_nonnull primalSolution) {
   primalSolution->timeTrajectory_.assign(message.time_trajectory().begin(), message.time_trajectory().end());
   readVectors(message.state_trajectory(), &primalSolution->stateTrajectory_);
   readVectors(message.input_trajectory(), &primalSolution->inputTrajectory_);
   primalSolution->postEventIndices_.assign(message.post_event_indices().begin(), message.post_event_indices().end());
   readModeSchedule(message.mode_schedule(), &primalSolution->modeSchedule_);
-  primalSolution->controllerPtr_ = readController(message, primalSolution->timeTrajectory_);
+  primalSolution->controllerPtr_ = readController(message, primalSolution->timeTrajectory_, std::move(stateManifold));
 }
 
 }  // namespace
@@ -571,15 +716,16 @@ absl::Status policyToProto(const CommandData& commandData,
 }
 
 absl::Status policyFromProto(const humanoid_mpc_msgs::MpcPolicy& message,
+                             std::shared_ptr<const StateManifold> stateManifold,
                              CommandData* absl_nonnull commandData,
                              PrimalSolution* absl_nonnull primalSolution,
                              PerformanceIndex* absl_nonnull performanceIndex) {
   IPC_RETURN_IF_ERROR(validateObservation(message.init_observation(), kPolicyInitObservation));
   IPC_RETURN_IF_ERROR(validateTargetTrajectories(message.target_trajectories(), kPolicyTargetTrajectories));
-  IPC_RETURN_IF_ERROR(validatePrimalSolution(message));
+  IPC_RETURN_IF_ERROR(validatePrimalSolution(message, stateManifold.get()));
   readObservation(message.init_observation(), &commandData->mpcInitObservation_);
   readTargetTrajectories(message.target_trajectories(), &commandData->mpcTargetTrajectories_);
-  readPrimalSolution(message, primalSolution);
+  readPrimalSolution(message, std::move(stateManifold), primalSolution);
   readPerformanceIndex(message.performance(), performanceIndex);
   return absl::OkStatus();
 }

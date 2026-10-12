@@ -55,6 +55,7 @@ FILE_FLAGS = (
     "--urdf_file",
     "--mjcf_file",
     "--network_config",
+    "--plot_config",
 )
 
 
@@ -106,9 +107,7 @@ class RobotBundleTest(unittest.TestCase):
 
     def test_no_side_file_of_the_tuning_gui_is_shipped(self) -> None:
         names = [member.name for member in self.members]
-        self.assertEqual(
-            [name for name in names if name.endswith(".bak") or ".live" in name], []
-        )
+        self.assertEqual([name for name in names if name.endswith(".bak")], [])
 
     def test_no_yaml_configuration_is_shipped(self) -> None:
         # The configuration files are textprotos; a YAML file in a robot's config/ would be one the robot ignores.
@@ -178,6 +177,14 @@ class RobotBundleTest(unittest.TestCase):
                     # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/config/ConfigFiles.h:config_layout)
                     self.assertTrue(os.path.isfile(os.path.join(copy, gains)), gains)
                     self.assertEqual(flags["--backend"], "mujoco")
+                    # The launch file names no viewer, so the plot configuration's mujoco_viewer (web) chooses unless
+                    # the image or the environment names one; the web viewer serves this machine only.
+                    self.assertEqual(flags["--viewer"], "")
+                    self.assertEqual(
+                        flags["--plot_config"],
+                        "humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto",
+                    )
+                    self.assertEqual(flags["--web_viewer_address"], "127.0.0.1")
                     # Without a store directory the robot reads the bundle's files in place; the images set one.
                     self.assertEqual(flags["--config_store_dir"], "")
                     self.assertEqual(flags["--config_seed"], "when_bundle_changes")
@@ -188,12 +195,13 @@ class RobotBundleTest(unittest.TestCase):
                     )
                     self.assertTrue(program.endswith(f"/{formulation}_robot"), program)
 
-            # The environment chooses: the network file, the headless viewer, the priority, the stored configuration.
+            # The environment chooses: the network file, the viewer, the priority, the stored configuration.
             lines = self.run_script(
                 os.path.join(copy, "launch", "drc_atlas.sh"),
                 {
                     "WB_ROBOT_NETWORK_FILE": "config/ipc/two_machine.example.textproto",
-                    "WB_ROBOT_HEADLESS": "true",
+                    "WB_ROBOT_VIEWER": "web,none",
+                    "WB_ROBOT_WEB_VIEWER_PORT": "16090",
                     "WB_ROBOT_REALTIME_PRIORITY": "0",
                     "WB_ROBOT_CONFIG_STORE_DIR": "/var/lib/wb-humanoid-robot/config/drc_atlas",
                     "WB_ROBOT_CONFIG_SEED": "every_start",
@@ -206,8 +214,32 @@ class RobotBundleTest(unittest.TestCase):
             self.assertIn(
                 "--network_config=config/ipc/two_machine.example.textproto", lines
             )
-            self.assertIn("--headless=true", lines)
+            self.assertIn("--viewer=web,none", lines)
+            self.assertIn("--web_viewer_port=16090", lines)
             self.assertIn("--realtime_priority=0", lines)
+
+            # The entry point gives the script the image's viewer when the environment names neither a viewer nor a
+            # plot configuration; one that names a plot configuration gets that file's viewer.
+            for default in ("none", "glfw"):
+                with self.subTest(default=default):
+                    lines = self.run_script(
+                        os.path.join(copy, "bin", "robot_entrypoint.sh"),
+                        {"ROBOT": "drc_atlas", "WB_ROBOT_DEFAULT_VIEWER": default},
+                    )
+                    self.assertIn(f"--viewer={default}", lines)
+                    lines = self.run_script(
+                        os.path.join(copy, "bin", "robot_entrypoint.sh"),
+                        {
+                            "ROBOT": "drc_atlas",
+                            "WB_ROBOT_DEFAULT_VIEWER": default,
+                            "WB_ROBOT_PLOT_CONFIG": "/etc/wb-humanoid-robot/plot_config.textproto",
+                        },
+                    )
+                    self.assertIn("--viewer=", lines)
+                    self.assertIn(
+                        "--plot_config=/etc/wb-humanoid-robot/plot_config.textproto",
+                        lines,
+                    )
 
     def run_script(
         self, script: str, environment: dict[str, str] | None = None

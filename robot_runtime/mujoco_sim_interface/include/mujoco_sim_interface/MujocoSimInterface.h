@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -49,9 +50,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco/mujoco.h"
 
 #include "mujoco_sim_interface/MujocoContactPatch.h"
-#include "mujoco_sim_interface/MujocoRenderer.h"
 #include "mujoco_sim_interface/MujocoUtils.h"
 #include "mujoco_sim_interface/Projectile.h"
+#include "mujoco_sim_interface/StepLatenessHistogram.h"
+#include "mujoco_sim_interface/viewer/MujocoViewer.h"
+#include "mujoco_sim_interface/viewer/ViewerSettings.h"
 #include "mujoco_sim_interface/visualization/VisualizationRegistry.h"
 #include "robot_core/FPSTracker.h"
 #include "robot_core/TripleBuffer.h"
@@ -114,7 +117,9 @@ struct MujocoSimConfig {
   std::shared_ptr<model::RobotState> initStatePtr_;
   double dt = 0.0005;
   double renderFrequencyHz = 60.0;
-  bool headless = false;
+  /// The viewer initSim() starts, by registry name in order of preference, and the web viewer's options
+  /// (viewer/ViewerSettings.h). Create() refuses settings validateViewerSettings() refuses.
+  ViewerSettings viewer;
   bool verbose = false;
   /// Name of the projectile compiled into the scene, from the robot task file's `sim_projectile`. Empty compiles the
   /// scene exactly as it is on disk, with no ball in it. See Projectile.h for the names.
@@ -148,19 +153,20 @@ struct MujocoSimConfig {
 
 /**
  * The MuJoCo simulation of a robot, behind the robot hardware interface the controller talks to: a physics thread
- * (startSim()) steps the scene in real time, applies the latest joint action and publishes the robot state, and an
- * optional viewer (MujocoRenderer) draws it on a thread of its own. Build one with Create(). Unless a method says
- * otherwise, the control thread calls the RobotHWInterfaceBase side and the setters below, and only the physics thread
- * touches the MuJoCo model and data.
+ * (startSim()) steps the scene in real time, applies the latest joint action and publishes the robot state, and the
+ * viewer MujocoSimConfig::viewer names (viewer/MujocoViewer.h) draws it on threads of its own. Build one with Create().
+ * Unless a method says otherwise, the control thread calls the RobotHWInterfaceBase side and the setters below, and
+ * only the physics thread touches the MuJoCo model and data.
  */
 class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
  public:
   /**
    * Loads the scene `config` names - compiled with the projectile `config.projectile` names, if any - and builds a
    * simulator of `urdfPath`'s robot on it, in its initial state and with the physics thread not started (startSim()).
-   * Fails with InvalidArgumentError when the scene does not load, parse or compile, or `config` names an unknown
-   * projectile or gantry hold, with InternalError when MuJoCo cannot create the simulation data, and with what
-   * RobotDescription::Create() returns when `urdfPath` does not describe a robot.
+   * Fails with InvalidArgumentError when the scene does not load, parse or compile, `config` names an unknown
+   * projectile or gantry hold, or its viewer settings are invalid (validateViewerSettings()), with InternalError when
+   * MuJoCo cannot create the simulation data, and with what RobotDescription::Create() returns when `urdfPath` does
+   * not describe a robot.
    */
   static absl::StatusOr<std::unique_ptr<MujocoSimInterface>> Create(const MujocoSimConfig& config, const std::string& urdfPath);
 
@@ -169,10 +175,33 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   MujocoSimInterface(MujocoSimInterface&&) = delete;
   MujocoSimInterface& operator=(MujocoSimInterface&&) = delete;
 
-  /** Stops the physics and render threads, then frees the model and the data. */
+  /** Stops the physics and viewer threads, then frees the model and the data. */
   ~MujocoSimInterface() override;
 
+  /**
+   * Takes the first physics step and starts the viewer: each name of MujocoSimConfig::viewer in turn until one starts,
+   * destroying a viewer that failed before trying the next (so a port it bound is free again). viewerStatus() tells
+   * the outcome; the simulation runs whether or not a viewer started. Call it once, before startSim() (which calls it
+   * when it was not), on the thread that owns the simulator.
+   */
   void initSim();
+
+  /**
+   * OK when initSim() started a viewer of the configured list, or before initSim(); FailedPrecondition listing why each
+   * failed when none did (`web` alone without EGL, say: list `none` after it to run without a viewer).
+   */
+  absl::Status viewerStatus() const { return viewerStatus_; }
+
+  /** The registry name of the viewer initSim() started; empty before initSim() and when none started. */
+  absl::string_view activeViewerName() const;
+
+  /** The port the started viewer serves (web), the bound one when configured as 0; none for other viewers. */
+  std::optional<int> webViewerPort() const;
+
+  /** How late the physics loop finished its steps (StepLatenessHistogram.h); thread-safe. */
+  const StepLatenessHistogram& stepLateness() const { return stepLateness_; }
+  /** Forgets the lateness recorded so far, to measure over a window from now; thread-safe (see StepLatenessHistogram). */
+  void resetStepLateness() { stepLateness_.reset(); }
 
   void startSim();
 
@@ -287,8 +316,17 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   /// allocation-free, for the control thread.
   uint32_t getGroundTruthContactMask() const { return groundTruthContactMask_.load(); }
   size_t getNumDetectedContactPoints() const { return contactBodyIds_.size(); }
-  /// Snapshot of the timeline for the render thread, oldest sample first.
+  /**
+   * Snapshot of the timeline for the render thread, oldest sample first. `out` is reserved to the timeline's capacity
+   * before the lock is taken, so the copy under the lock that the physics thread shares never allocates once `out` has
+   * been used.
+   */
   void copyContactTimeline(std::vector<ContactTimelineSample>& out) const;
+  /**
+   * Timeline samples the physics thread dropped because the viewer held the timeline while two samples came due (it
+   * never waits for the viewer; a single sample waits for the next one instead). Thread-safe.
+   */
+  int64_t droppedContactTimelineSamples() const { return droppedTimelineSamples_.load(std::memory_order_relaxed); }
 
   /// Target contact pose of every contact point from the control thread (MujocoContactPatch.h); an empty vector or
   /// invalid entries clear the viewer's patches.
@@ -362,6 +400,8 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
 
   void setupContactDetection();
   void updateGroundTruthContacts();
+  /// Starts the first viewer of the configured list that starts (initSim()); sets viewer_ and viewerStatus_.
+  void startViewer();
 
   /**
    * Holds the floating base at the gantry height for one step, by whichever implementation gantryHold_ names.
@@ -423,12 +463,16 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   MjDataPtr mujocoData_;
 
   bool simInit_ = false;
-  const bool headless_;
   const bool verbose_;
   std::atomic<bool> terminate_{false};
 
   std::thread simulate_thread_;
-  std::unique_ptr<MujocoRenderer> renderer_;
+  /// The viewer initSim() started; null before it and when none started. Reset before any member it reads.
+  std::unique_ptr<MujocoViewer> viewer_;
+  /// initSim()'s outcome of starting viewer_ (viewerStatus()).
+  absl::Status viewerStatus_;
+  /// Written by the physics thread at every step, read by any thread.
+  StepLatenessHistogram stepLateness_;
 
   FPSTracker simFps_{/*alpha=*/0.02};
   std::chrono::steady_clock::time_point lastRealTime_;
@@ -493,6 +537,12 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   std::atomic<uint32_t> groundTruthContactMask_{0};
   mutable std::mutex contactTimelineMutex_;
   ContactTimeline contactTimeline_;
+  /// The most samples the timeline holds at once, which copyContactTimeline() reserves.
+  size_t contactTimelineCapacity_ = 0;
+  /// Physics thread only: a sample that found the viewer holding contactTimelineMutex_, appended with the next one.
+  std::optional<ContactTimelineSample> pendingTimelineSample_;
+  /// See droppedContactTimelineSamples().
+  std::atomic<int64_t> droppedTimelineSamples_{0};
   mutable std::mutex targetPatchMutex_;
   std::vector<TargetContactPatch> targetContactPatches_;  // written by the control thread, drawn by the renderer
   /// Staged by throwDodgeball(), taken by the simulation thread on its next step: the newest throw replaces one that

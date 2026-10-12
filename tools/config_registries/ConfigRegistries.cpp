@@ -126,7 +126,6 @@ mpc_config::ConfigRegistries collectConfigRegistries() {
       {.name = "mpc_cost", .names = mpcCostNames()},
       {.name = "projectile", .names = robot::mujoco_sim_interface::availableProjectiles()},
       {.name = "rollout_integrator", .names = rolloutIntegratorNames()},
-      {.name = "root_finder", .names = rootFinderNames()},
       {.name = "sensitivity_integrator", .names = sensitivityIntegratorNames()},
       {.name = "soft_constraint", .names = mpcSoftConstraintNames()},
       {.name = "stance_constraint", .names = stanceConstraintNames()},

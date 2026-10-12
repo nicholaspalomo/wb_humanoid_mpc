@@ -80,7 +80,6 @@ DEFAULT_SIGTERM_GRACE_PERIOD_S = 3.0
 
 _NAME_PATTERN = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
 _ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_YAML_SUFFIXES = (".yaml", ".yml")
 
 
 class LaunchFileError(ValueError):
@@ -394,18 +393,14 @@ def _parse_error_text(error: text_format.ParseError, source: str) -> str:
     text = str(error)
     line = error.GetLine()
     if line is None:
-        message = f"{source}: {text}"
-    else:
-        column = error.GetColumn()
-        location = f"{line}" if column is None else f"{line}:{column}"
-        # The parser puts "<line>:<column> : " in front of its message.
-        prefix = f"{location} : "
-        if text.startswith(prefix):
-            text = text[len(prefix) :]
-        message = f"{source}:{location}: {text}"
-    if source.endswith(_YAML_SUFFIXES):
-        message += " (launch files are textprotos of launch_proto.LaunchFile, not YAML: see tools/launch/README.md)"
-    return message
+        return f"{source}: {text}"
+    column = error.GetColumn()
+    location = f"{line}" if column is None else f"{line}:{column}"
+    # The parser puts "<line>:<column> : " in front of its message.
+    prefix = f"{location} : "
+    if text.startswith(prefix):
+        text = text[len(prefix) :]
+    return f"{source}:{location}: {text}"
 
 
 def read_launch_text(text: str, source: str) -> launch_file_pb2.LaunchFile:

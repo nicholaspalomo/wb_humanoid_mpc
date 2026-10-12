@@ -42,7 +42,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
-#include "ocs2_robotic_tools/common/RotationTransforms.h"
 
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcResetTarget.h"
 #include "humanoid_common_mpc/config/ConfigFiles.h"
@@ -100,7 +99,7 @@ AtlasReferenceStack::AtlasReferenceStack(ScheduleSource scheduleSource, absl::st
       loadCustomPinocchioInterface(config_.task, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false).value());
   info_ = centroidalModelInfoOf(config_, *pinocchioInterface_, *modelSettings_).value();
   model_ = std::make_unique<CentroidalMpcRobotModel<scalar_t>>(*modelSettings_, *pinocchioInterface_, info_);
-  initialState_ = initialStateOf(config_.task, *modelSettings_).value();
+  initialState_ = initialStateOnModel(config_.task, *model_).value();
 
   std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner(
       new SwingTrajectoryPlanner(swingTrajectorySettingsFromConfig(config_.task.swing_trajectory_config).value(), kNumContacts));
@@ -151,15 +150,16 @@ AtlasReferenceStack::AtlasReferenceStack(ScheduleSource scheduleSource, absl::st
   }
 
   targetCalculator_ =
-      CentroidalMpcTargetTrajectoriesCalculator::Create(config_.reference, *model_, *pinocchioInterface_, info_, mpcSettings_.timeHorizon_)
+      CentroidalMpcTargetTrajectoriesCalculator::Create(config_.reference, *model_, *pinocchioInterface_, mpcSettings_.timeHorizon_)
           .value();
   targetCalculator_->setTerrainHeightSource(
       [referenceManager = referenceManager_]() { return referenceManager->getAppliedTerrainHeight(); });
   CentroidalMpcTargetTrajectoriesCalculator* absl_nonnull calculator = targetCalculator_.get();
   motionManager_ = ProceduralMpcMotionManager::Create(
                        *gaits, *referenceSettings, referenceManager_, *model_,
-                       [calculator](const vector4_t& velocityTarget, scalar_t initTime, scalar_t /*finalTime*/, const vector_t& initState) {
-                         return calculator->commandedVelocityToTargetTrajectories(velocityTarget, initTime, initState);
+                       [calculator](const vector4_t& velocityTarget, scalar_t initTime, scalar_t /*finalTime*/, const vector_t& initState,
+                                    const BasePlanarMotion& measuredMotion) {
+                         return calculator->commandedVelocityToTargetTrajectories(velocityTarget, initTime, initState, measuredMotion);
                        })
                        .value();
   motionManager_->setResetHook([calculator]() { calculator->reset(); });
@@ -186,9 +186,10 @@ TargetTrajectories AtlasReferenceStack::resetTarget(scalar_t time, const vector_
 vector_t AtlasReferenceStack::standingAt(const vector_t& state, scalar_t x, scalar_t y, scalar_t yaw) const {
   vector_t moved = state;
   centroidal_model::getNormalizedMomentum(moved, info_).setZero();
-  moved(6) = x;
-  moved(7) = y;
-  moved(9) = yaw;
+  model_->setBasePosition(moved, vector3_t(x, y, model_->getBasePosition(state)(2)));
+  vector3_t eulerZyx = model_->getBaseOrientationEulerZyx(state);
+  eulerZyx(0) = yaw;
+  model_->setBaseOrientationEulerZyx(moved, eulerZyx);
   return moved;
 }
 

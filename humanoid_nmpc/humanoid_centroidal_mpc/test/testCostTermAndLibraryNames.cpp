@@ -35,10 +35,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 
+#include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 #include "humanoid_centroidal_mpc/cost/ICPCost.h"
 #include "humanoid_common_mpc/common/CostTermNames.h"
+#include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 
 /**
  * The names CentroidalMpcInterface registers its CppAD terms under and the names it builds their CppAD libraries with,
@@ -81,6 +83,18 @@ TEST(CostTermAndLibraryNames, TheOtherTermsKeepTheNamesTheInterfaceRegistersThem
   EXPECT_EQ(externalTorqueCostName("foot_l_contact"), "foot_l_contact_ExternalTorqueQuadraticCost");
   EXPECT_EQ(zeroVelocityTermName("foot_l_contact"), "foot_l_contact_zeroVelocity");
   EXPECT_EQ(basisNonNegativityTermName("foot_l_contact"), "foot_l_contact_basisNonNegativity");
+}
+
+// The single-rigid-body model tapes other dynamics and another momentum mapping under the same library names and sizes,
+// so its libraries live in a folder of their own; the full centroidal dynamics keeps the folder every robot ships with,
+// whose library names the benchmark baselines count.
+TEST(CostTermAndLibraryNames, TheCppAdModelFolderKeyNamesEveryCentroidalModelButTheFullDynamics) {
+  EXPECT_EQ(cppAdModelFolderKey(CentroidalModelType::FullCentroidalDynamics, kWrenchInputsLibraryKey), "wrench_inputs");
+  EXPECT_EQ(cppAdModelFolderKey(CentroidalModelType::FullCentroidalDynamics, /*inputParameterizationKey=*/"basis_abc"), "basis_abc");
+  EXPECT_EQ(cppAdModelFolderKey(CentroidalModelType::SingleRigidBodyDynamics, kWrenchInputsLibraryKey),
+            "single_rigid_body_dynamics/wrench_inputs");
+  EXPECT_EQ(cppAdModelFolderKey(CentroidalModelType::SingleRigidBodyDynamics, /*inputParameterizationKey=*/"basis_abc"),
+            "single_rigid_body_dynamics/basis_abc");
 }
 
 }  // namespace

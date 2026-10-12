@@ -196,7 +196,7 @@ class HlipPlanningIntegrationTest : public ::testing::Test {
   void planAt(scalar_t time, scalar_t commandedVelocityX) {
     const vector_t state = interface_->getInitialState();
     vector_t target = vector_t::Zero(state.size());
-    target.segment(6, 6) = state.segment(6, 6);
+    interface_->getMpcRobotModel().setBasePoseEulerZyx(target, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
     target(0) = commandedVelocityX;
     planWithTarget(time, target);
   }
@@ -272,7 +272,7 @@ TEST_F(HlipPlanningIntegrationTest, TheCommandedYawRateReachesThePlannerWithoutT
   const scalar_t commandedYawRate = 0.5;  // [rad/s], well above the blend's half point on its own
   const scalar_t yawInertia = 40.0;       // any positive value; the target carries m * I_zz * omega / m
   vector_t target = vector_t::Zero(state.size());
-  target.segment(6, 6) = state.segment(6, 6);
+  interface_->getMpcRobotModel().setBasePoseEulerZyx(target, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
   target(5) = yawInertia * commandedYawRate / interface_->getCentroidalModelInfo().robotMass;
 
   // Each iteration plans on a time base of its own, so that a plan left active by the first cannot answer for the second.
@@ -383,7 +383,7 @@ TEST_F(HlipPlanningIntegrationTest, TheLastSwungFootOutlivesTheSchedulesHistoryW
     }
   };
   vector_t target = vector_t::Zero(state.size());
-  target.segment(6, 6) = state.segment(6, 6);
+  interface_->getMpcRobotModel().setBasePoseEulerZyx(target, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
   scalar_t time = 0.0;
   const std::function<void()> runCycle = [&]() {
     referenceManager_->preSolverRun(time, time + horizon, state, ModeNumber::kStance);
@@ -501,7 +501,7 @@ TEST_F(HlipPlanningIntegrationTest, KeepsTheOperatorCommandWhenTheTargetIsNotRep
   const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
   const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
   vector_t target = vector_t::Zero(state.size());
-  target.segment(6, 6) = state.segment(6, 6);
+  interface_->getMpcRobotModel().setBasePoseEulerZyx(target, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
   target(0) = commandedVelocityX;
   referenceManager_->setTargetTrajectories(TargetTrajectories({0.0}, {target}, {vector_t::Zero(inputDim)}));
 
@@ -607,7 +607,7 @@ TEST_F(HlipPlanningIntegrationTest, PastThePlansEndTheReferenceIsTheOperatorsAnd
   const vector_t state = interface_->getInitialState();
   const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
   vector_t operatorState = vector_t::Zero(state.size());
-  operatorState.segment(6, 6) = state.segment(6, 6);
+  interface_->getMpcRobotModel().setBasePoseEulerZyx(operatorState, interface_->getMpcRobotModel().getBasePoseEulerZyx(state));
   operatorState(0) = 0.5;
 
   // No new plan: a cycle whose solver horizon runs half a horizon past the plan's end, the plan itself still usable.

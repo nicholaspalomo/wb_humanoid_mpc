@@ -43,7 +43,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
-#include "ocs2_core/cost/QuadraticStateInputCost.h"
 #include "ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h"
 
 #include "humanoid_common_mpc/common/CostTermNames.h"
@@ -51,6 +50,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/config/costs/ContactsFromConfig.h"
 #include "humanoid_common_mpc/config/weights/StateInputWeightsFromConfig.h"
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
+#include "humanoid_common_mpc/cost/InputQuadraticCost.h"
+#include "humanoid_common_mpc/cost/TuningQuadraticStateInputCost.h"
 #include "humanoid_common_mpc/parameter_update/OcpTermUpdates.h"
 
 namespace ocs2::humanoid {
@@ -127,19 +128,17 @@ void BasisInputsCostApplier::apply(HotUpdateTarget& target) {
   const std::optional<PieceWisePolynomialBarrierPenalty::Config> barrier = convertedOrReported(
       basisNonNegativityBarrierFromConfig(target.task().contacts), target.source(), "contacts.basis_non_negativity_barrier");
 
-  const matrix_t zeroQ = matrix_t::Zero(target.stateDim(), target.stateDim());
+  // A refusal of R_basis by a cost's setter (its size against the running term's, symmetry, finiteness): the first one,
+  // reported once, and the running transform kept.
+  absl::Status refused = absl::OkStatus();
   for (OptimalControlProblem& ocp : target.problems()) {
     if (inputCost.has_value()) {
-      // Q of stateInputQuadraticCost is QuadraticCostWeightsApplier's, which kept the running R in it.
-      updateTermIfPresent<QuadraticStateInputCost>(*ocp.costPtr, kStateInputQuadraticCostTerm, [&](QuadraticStateInputCost& cost) {
-        matrix_t runningQ;
-        matrix_t runningR;
-        matrix_t runningP;
-        cost.getGains(runningQ, runningR, runningP);
-        cost.setGains(runningQ, inputCost->R, runningP);
-      });
-      updateTermIfPresent<QuadraticStateInputCost>(*ocp.costPtr, kInputQuadraticCostTerm,
-                                                   [&](QuadraticStateInputCost& cost) { cost.setGains(zeroQ, inputCost->R); });
+      // Q of stateInputQuadraticCost is QuadraticCostWeightsApplier's; only R is written here.
+      updateTermIfPresent<TuningQuadraticStateInputCost>(
+          *ocp.costPtr, kStateInputQuadraticCostTerm,
+          [&](TuningQuadraticStateInputCost& cost) { refused.Update(cost.setInputWeights(inputCost->R)); });
+      updateTermIfPresent<InputQuadraticCost>(*ocp.costPtr, kInputQuadraticCostTerm,
+                                              [&](InputQuadraticCost& cost) { refused.Update(cost.setInputWeights(inputCost->R)); });
     }
     if (barrier.has_value()) {
       for (const std::string& footName : target.contactNames()) {
@@ -148,6 +147,10 @@ void BasisInputsCostApplier::apply(HotUpdateTarget& target) {
             [&](BasisScalingNonNegativityConstraint& term) { term.setBarrierPenalty(*barrier); });
       }
     }
+  }
+  if (!refused.ok()) {
+    target.reportNotApplied("input_weights", refused);
+    return;
   }
   if (inputCost.has_value()) basisCostTransform_ = std::move(inputCost->transform);
 }

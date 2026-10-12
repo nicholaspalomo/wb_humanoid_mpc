@@ -39,6 +39,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "mujoco/mujoco.h"
 
+#include "mujoco_sim_interface/MjRuntimeModelFields.h"
+
 namespace robot::mujoco_sim_interface {
 
 /** Deletes an mjModel, so that a std::unique_ptr owns it (MjModelPtr). */
@@ -93,8 +95,10 @@ struct Metrics {
 
 /**
  * A snapshot of the physics state for the render thread: its own mjData of `model`, which it owns, plus the clock and the
- * metrics of the step it was taken at. Copies are deep (a new mjData, with the contents copied); a moved-from MjState has
- * no model and no data. Not thread-safe: the simulator hands snapshots between threads through a triple buffer.
+ * metrics of the step it was taken at, and the model arrays the simulator writes while it runs (MjRuntimeModelFields),
+ * for a viewer that draws with a private copy of the model. Copies are deep (a new mjData, with the contents copied); a
+ * moved-from MjState has no model, no data and no model fields. Not thread-safe: the simulator hands snapshots between
+ * threads through a triple buffer.
  *
  * `data` is never null in an MjState constructed from a model or copied from one that has data. A null from mj_makeData
  * is not expected (see makeMjData(), which MujocoSimInterface::Create() uses for the simulator's own data), so it aborts
@@ -117,6 +121,7 @@ struct MjState {
   int64_t timestamp = 0;
   mjData* absl_nullable data = nullptr;  // owned; null only when moved from
   Metrics metrics;
+  MjRuntimeModelFields modelFields;  // sized for `model` at construction; empty only when moved from
 };
 
 /** One sample of the contact timeline: the contact state the controller planned and the one the physics produced. */

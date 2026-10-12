@@ -2,16 +2,15 @@
 
 The processes of the distributed runtime
 ([`humanoid_nmpc/docs/distributed_runtime/README.md`](../docs/distributed_runtime/README.md)) that run the whole-body
-MPC. They replace the ROS-era nodes of that MPC, which were deleted with ROS (see the distributed runtime's
-README, "From ROS 2").
+MPC.
 
 ## The MPC node and the dummy simulator (laptop side)
 
 <!-- LINT.IfChange(laptop_binaries) -->
-| Binary | Bus node | Replaces | What |
-|---|---|---|---|
-| `:humanoid_wb_mpc_node` | `mpc` | `humanoid_wb_mpc_sqp_node` | the whole-body MPC, solving the robot's observations |
-| `:humanoid_wb_mpc_dummy_sim` | `robot` | `humanoid_wb_mpc_dummy_sim_node` | the robot played by the MPC model, against the MPC node |
+| Binary | Bus node | What |
+|---|---|---|
+| `:humanoid_wb_mpc_node` | `mpc` | the whole-body MPC, solving the robot's observations |
+| `:humanoid_wb_mpc_dummy_sim` | `robot` | the robot played by the MPC model, against the MPC node |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc_app/BUILD.bazel:laptop_binaries) -->
 
 ```bash
@@ -25,8 +24,7 @@ bazel run //humanoid_nmpc/humanoid_wb_mpc_app:humanoid_wb_mpc_dummy_sim -- --rob
     --task_file=... --reference_file=... --urdf_file=...    # the same files
 ```
 
-**`humanoid_wb_mpc_node`** (`WBMpcNode.h`) builds what the whole-body SQP node of the ROS era built, and serves it with
-`node::MpcNodeRuntime` ([`humanoid_common_mpc_app/node`](../humanoid_common_mpc_app/node/README.md)):
+**`humanoid_wb_mpc_node`** (`WBMpcNode.h`) builds the whole-body SQP MPC and serves it with `node::MpcNodeRuntime` ([`humanoid_common_mpc_app/node`](../humanoid_common_mpc_app/node/README.md)):
 
 - `WBMpcInterface::Create()` and an `SqpMpc`;
 - the procedural motion manager over `WBMpcTargetTrajectoriesCalculator`, fed from `operator/walking_velocity_command`;
@@ -35,7 +33,7 @@ bazel run //humanoid_nmpc/humanoid_wb_mpc_app:humanoid_wb_mpc_dummy_sim -- --rob
   link (`humanoid_wb_mpc/mrt/WBMpcResetTarget.h`);
 - with every policy, the scaled velocity command (`MpcPolicy.annotations`).
 
-As in the ROS node, the whole-body MPC has no contact planner. It has the MPC parameter updater the centroidal node has
+The whole-body MPC has no contact planner. It has the MPC parameter updater the centroidal node has
 (`makeWholeBodyMpcParameterUpdater()`, `humanoid_wb_mpc/mrt/WBMpcParameterUpdater.h`), a synchronized module that runs
 before each solve: an update on `operator/mpc_parameters` is checked and counted (`MpcNodeRuntime`) and its
 `RELOAD_HOT` fields are written into the running problem before the next solve (`wholeBodyHotFieldAppliers()`); the
@@ -45,11 +43,10 @@ reference file when they are saved. The solver thread runs on the MPC cores of `
 `--realtime_priority` when it is positive. The node runs the visualization publisher
 ([`humanoid_common_mpc_app/visualization`](../humanoid_common_mpc_app/visualization/README.md)): `viz/scene` and
 `viz/telemetry` for the Rerun bridge, from every policy it publishes and every `robot/state` sample, on a thread of its
-own at a raised nice value.
+own under `SCHED_IDLE`, so that a solver thread that wakes on its core takes the core at once.
 
-**`humanoid_wb_mpc_dummy_sim`** rolls the MPC model out at 80 Hz (the ROS dummy's rate) under the node's policies,
-synchronized with the task file's `mpc.mpc_desired_frequency` (`node::DummySimLoop`), and publishes `robot/mpc_observation` as the
-bus node `robot`.
+**`humanoid_wb_mpc_dummy_sim`** rolls the MPC model out at 80 Hz under the node's policies, synchronized with the task
+file's `mpc.mpc_desired_frequency` (`node::DummySimLoop`), and publishes `robot/mpc_observation` as the bus node `robot`.
 
 <!-- LINT.IfChange(node_flags) -->
 The node's own flags: `--ipc_node` (default `mpc`), `--realtime_priority` (SCHED_FIFO priority of the solver thread,
@@ -71,16 +68,15 @@ it stands, the policies flow, and no reset after the start-up one.
 ## The robot process (robot side)
 
 <!-- LINT.IfChange(robot_binaries) -->
-| Binary | Bus node | Replaces | What |
-|---|---|---|---|
-| `:humanoid_wb_mpc_robot` | `robot` | the ROS-era MuJoCo sim node (`WBMpcRobotSim`) | the realtime loop: the whole-body MRT joint controller on a robot backend (`--backend=mujoco`) |
+| Binary | Bus node | What |
+|---|---|---|
+| `:humanoid_wb_mpc_robot` | `robot` | the realtime loop: the whole-body MRT joint controller on a robot backend (`--backend=mujoco`) |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc_app/BUILD.bazel:robot_binaries) -->
 
 The binary that runs on the robot's realtime computer and, with the MuJoCo backend, in simulation: see
 [`humanoid_common_mpc_app/robot`](../humanoid_common_mpc_app/robot/README.md) for its flags, its realtime thread and the
 task-file fields it reads. It reaches its MPC, the MPC node, over the bus only, and builds no optimal control problem:
-`WBMpcInterface::CreateControllerModels()`. The in-process MPC it once had (`--mpc_link=in_process`) was removed; the
-retired flag is refused at start-up. The whole-body controller computes its feedforward with the inverse dynamics only:
+`WBMpcInterface::CreateControllerModels()`. The whole-body controller computes its feedforward with the inverse dynamics only:
 `wb_mpc_feedforward: "gravity_compensation"` is refused.
 
 ## The configuration files
@@ -99,7 +95,10 @@ of the wrong type stops the process with the file, line and column, and a retire
 
 **Tuning.** The weights and values are addressed by name, not by position: `state_weights { base_position { z: ... } }`,
 the base orientation in Euler angles ZYX (`base_orientation { yaw: ... pitch: ... roll: ... }`), a joint as
-`joint_positions { joint: "left_knee_joint" value: ... }`. The MPC node's parameter updater applies an edit of the task
+`joint_positions { joint: "left_knee_joint" value: ... }`. The MPC's state holds the orientation as a unit quaternion
+and the base angular velocity in the body frame, so `base_angular_velocity { yaw: ... pitch: ... roll: ... }` weighs
+and sets the body angular velocity about z, y and x; one layer maps the Euler-written rows onto the state
+(humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 2.10). The MPC node's parameter updater applies an edit of the task
 file's `RELOAD_HOT` fields, and of the reference file's command limits, before the next solve; every other field takes
 effect at its next start (humanoid_nmpc/humanoid_mpc_config/README.md, "Live updates"). The robot process applies what
 it reads while it runs: the task file's `contact_estimator` and `contact_wrench_gate` when the file changes, and the PD

@@ -448,6 +448,20 @@ class TelemetryTest(BridgeTestCase):
             [[1.0], [1.0, 2.0], [3.0, 4.0]],
         )
 
+    def test_a_not_a_number_value_is_plotted_as_a_gap(self) -> None:
+        # The display's Euler rates are NaN near a pitch of +-90 degrees: a value, not a malformed group.
+        self.bridge.handle_telemetry(
+            self.group_message(
+                0.0, "base_pose/pitch_rate", ["measured", "reference"], [math.nan, 0.1]
+            )
+        )
+        self.assertEqual(self.bridge.statistics.malformed_count(), 0)
+        ((measured, reference),) = self.contents().values(
+            "telemetry/base_pose/pitch_rate", "Scalars:scalars"
+        )
+        self.assertTrue(math.isnan(measured))
+        self.assertAlmostEqual(reference, 0.1)
+
     def test_a_group_outside_the_contract_is_plotted_anyway(self) -> None:
         self.bridge.handle_telemetry(self.group_message(0.0, "custom/x", ["v"], [1.0]))
         self.assertIn("telemetry/custom/x", self.contents().entities)

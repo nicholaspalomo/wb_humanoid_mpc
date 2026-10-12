@@ -204,8 +204,11 @@ class GeneralIncludeStyleTest(unittest.TestCase):
         )
 
     def test_flat_third_party_headers_need_no_directory(self):
-        # cppzmq, libzmq, HPIPM and BLASFEO install their headers without a directory of their own.
-        source = '#include "zmq.hpp"\n#include "hpipm_d_ocp_qp_ipm.h"\n#include "blasfeo_d_aux.h"\n'
+        # cppzmq, libzmq, cpp-httplib, TurboJPEG, HPIPM and BLASFEO install their headers without a directory of their own.
+        source = (
+            '#include "zmq.hpp"\n#include "httplib.h"\n#include "turbojpeg.h"\n'
+            '#include "hpipm_d_ocp_qp_ipm.h"\n#include "blasfeo_d_aux.h"\n'
+        )
         self.assertEqual(self.findings(source), [])
         self.assertEqual(len(self.findings('#include "hpipm.h"\n')), 1)
 

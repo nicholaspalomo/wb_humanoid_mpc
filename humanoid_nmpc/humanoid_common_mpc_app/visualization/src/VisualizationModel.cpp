@@ -36,19 +36,40 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "pinocchio/multibody/model.hpp"
 
+#include "humanoid_common_mpc/common/Types.h"
+
 namespace ocs2::humanoid::visualization {
 
 absl::Status checkVisualizationModel(const VisualizationModel& model) {
   if (model.pinocchioInterface == nullptr || model.mpcRobotModel == nullptr) {
     return absl::InvalidArgumentError("the visualization needs the MPC's Pinocchio model and its robot model.");
   }
+  if (model.stateManifold == nullptr) {
+    return absl::InvalidArgumentError(
+        "the visualization needs the manifold of the MPC's state (its interface's getStateManifold()), along which it "
+        "interpolates the plan's base quaternion.");
+  }
   const PinocchioInterface::Model& pinocchioModel = model.pinocchioInterface->getModel();
-  const int dofs = static_cast<int>(model.mpcRobotModel->getGenCoordinatesDim());
-  if (pinocchioModel.nq != dofs || pinocchioModel.nv != dofs) {
+  const MpcRobotModelBase<scalar_t>& robotModel = *model.mpcRobotModel;
+  const size_t configurationDim = robotModel.getConfigurationDim();
+  const size_t velocityDim = robotModel.getVelocityDim();
+  const size_t jointDim = robotModel.getJointDim();
+  // The display buffers replace the base quaternion of q by its Euler angles (TelemetryBuilder).
+  if (configurationDim != kBaseConfigurationDim + jointDim || velocityDim != kBaseVelocityDim + jointDim) {
+    return absl::InvalidArgumentError(absl::StrCat("the robot model has a configuration of ", configurationDim, " and a velocity of ",
+                                                   velocityDim, " entries for ", jointDim, " joints; the visualization expects the ",
+                                                   "Composite(Translation, Spherical) root: ", kBaseConfigurationDim, " + ", jointDim,
+                                                   " and ", kBaseVelocityDim, " + ", jointDim, "."));
+  }
+  if (static_cast<size_t>(pinocchioModel.nq) != configurationDim || static_cast<size_t>(pinocchioModel.nv) != velocityDim) {
     return absl::InvalidArgumentError(absl::StrCat("the Pinocchio model has nq = ", pinocchioModel.nq, " and nv = ", pinocchioModel.nv,
-                                                   "; the visualization expects the MPC's model, whose configuration and velocity "
-                                                   "are the 6 base coordinates and the ",
-                                                   model.mpcRobotModel->getJointDim(), " MPC joints (", dofs, ")."));
+                                                   "; the visualization expects the MPC's model, whose configuration has ",
+                                                   configurationDim, " and whose velocity has ", velocityDim, " entries (the base and the ",
+                                                   robotModel.getJointDim(), " MPC joints)."));
+  }
+  if (model.stateManifold->getAmbientDim() != robotModel.getStateDim()) {
+    return absl::InvalidArgumentError(absl::StrCat("the state manifold has states of ", model.stateManifold->getAmbientDim(),
+                                                   " entries; the MPC's robot model has states of ", robotModel.getStateDim(), "."));
   }
   return absl::OkStatus();
 }

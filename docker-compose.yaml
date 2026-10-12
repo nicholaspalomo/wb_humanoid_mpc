@@ -1,6 +1,5 @@
 name: devcontainer
 
-version: '3.8'
 services:
   app:
     build:
@@ -9,11 +8,7 @@ services:
       target: base
       args:
         WB_HUMANOID_MPC_DIR: "/wb_humanoid_mpc_ws"
-        PYTHON_VERSION: "3.12"
         USER_ID: "${USER_ID:-1000}"
-        GROUP_ID: "${GROUP_ID:-1000}"
-        GIT_USER_NAME: "${GIT_USER_NAME}"
-        GIT_USER_EMAIL: "${GIT_USER_EMAIL}"
 
     # platform selectable via DOCKER_PLATFORM on host; default uses amd64 (Rosetta on Apple Silicon)
     platform: ${DOCKER_PLATFORM:-linux/amd64}
@@ -50,11 +45,17 @@ services:
     stdin_open: true
     tty: true
     working_dir: /wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc
+    # Each start also refreshes compile_commands.json for the editor's clangd in the background (tools/ide/README.md).
+    # A new container's Bazel output base is empty, so it first builds the C++ targets' compilation prerequisites: the
+    # generated headers and the tools that generate them (protobuf's C++ generator, the nproto generator, MuJoCo's
+    # CMake build), but no first-party source. A build started meanwhile waits for it. Its log is in the container:
+    # `docker exec devcontainer-app-1 cat /tmp/compile_commands.log`.
     command: >
       bash -c "
       grep -q 'wb_humanoid_mpc.sh' ~/.bashrc 2>/dev/null || echo '[ -f /etc/profile.d/wb_humanoid_mpc.sh ] && source /etc/profile.d/wb_humanoid_mpc.sh' >> ~/.bashrc;
       if [ -d /tmp/host_ssh ]; then rm -rf ~/.ssh && ln -s /tmp/host_ssh ~/.ssh; fi;
       if [ -f /tmp/host.gitconfig ]; then cp /tmp/host.gitconfig ~/.gitconfig; fi;
+      (python3 -m tools.ide.compile_commands --build_headers --quiet > /tmp/compile_commands.log 2>&1 &);
       sleep infinity"
 
     volumes:
@@ -62,7 +63,7 @@ services:
       # launch targets docker exec into (tools/deploy/in_dev_container.sh).
       # LINT.IfChange(dev_container_mount)
       - ../..:/wb_humanoid_mpc_ws:delegated
-      # LINT.ThenChange(//tools/deploy/in_dev_container.sh:dev_container_mount)
+      # LINT.ThenChange(//tools/deploy/in_dev_container.sh:dev_container_mount, //tools/ide/clangd_in_dev_container.sh:dev_container_mount, //tools/ide/compile_commands.py:dev_container_mount)
       - ${HOME}/.gitconfig:/tmp/host.gitconfig:cached,ro
       - ${HOME}/.ssh:/tmp/host_ssh:cached,z
       # Shell init for tab completion (make, bazel, git) + auto-env setup
@@ -75,8 +76,6 @@ services:
       LIBGL_ALWAYS_SOFTWARE: "1"
       MESA_LOADER_DRIVER_OVERRIDE: "llvmpipe"
       LIBGL_ALWAYS_INDIRECT: "0"
-      GIT_USER_NAME: ${GIT_USER_NAME}
-      GIT_USER_EMAIL: ${GIT_USER_EMAIL}
       # NVIDIA GPU environment for JAX / MJX acceleration
       NVIDIA_VISIBLE_DEVICES: "all"
       NVIDIA_DRIVER_CAPABILITIES: "all"

@@ -130,12 +130,18 @@ mpc_config::TaskFile taskFileOnGround(scalar_t terrainHeight) {
   return task;
 }
 
-/** The initial state of `task` as the whole-body MPC reads it; a test failure and the zero state when it does not convert. */
-vector_t initialStateOf(const mpc_config::TaskFile& task, const ModelSettings& modelSettings) {
-  const StateInputLayout layout = stateInputLayout(modelSettings, StateInputLayout::Mpc::kWholeBody);
-  absl::StatusOr<vector_t> state = stateValuesFromConfig(task.initial_state, layout, "initial_state");
+/**
+ * The initial state of `task` as the whole-body MPC reads it, mapped onto the state of `model` (stateFromTuning()); a
+ * test failure and the model's neutral state when it does not convert.
+ */
+vector_t initialStateOf(const mpc_config::TaskFile& task, const WBAccelMpcRobotModel<scalar_t>& model) {
+  const absl::StatusOr<vector_t> tuningState =
+      stateValuesFromConfig(task.initial_state, stateInputLayout(model.modelSettings, StateInputLayout::Mpc::kWholeBody), "initial_state");
+  EXPECT_TRUE(tuningState.ok()) << tuningState.status();
+  if (!tuningState.ok()) return model.getNeutralState();
+  absl::StatusOr<vector_t> state = model.stateFromTuning(*tuningState);
   EXPECT_TRUE(state.ok()) << state.status();
-  return state.ok() ? *std::move(state) : vector_t(vector_t::Zero(static_cast<Eigen::Index>(stateDimension(layout))));
+  return state.ok() ? *std::move(state) : model.getNeutralState();
 }
 
 /** The swing trajectory planner of `task`; a test failure and the default planner when its block does not convert. */
@@ -164,7 +170,7 @@ ContactPlan standingPlan(scalar_t startTime, scalar_t dt, size_t numNodes) {
 std::vector<scalar_t> targetBaseHeights(const ReferenceManagerInterface& referenceManager, const MpcRobotModelBase<scalar_t>& model) {
   std::vector<scalar_t> heights;
   for (const vector_t& state : referenceManager.getTargetTrajectories().stateTrajectory) {
-    heights.push_back(model.getBasePose(state)(2));
+    heights.push_back(model.getBasePosition(state)(2));
   }
   return heights;
 }
@@ -197,14 +203,14 @@ class WholeBodyReferences {
       // What the MPC node wires: the calculator builds on the ground the reference manager applied in this solve.
       calculator_->setTerrainHeightSource([referenceManager = referenceManager_]() { return referenceManager->getAppliedTerrainHeight(); });
     }
-    motionManager_ =
-        ProceduralMpcMotionManager::Create(gaitFile, referenceFile, referenceManager_, *model_,
-                                           [calculator = calculator_.get()](const vector4_t& velocityTarget, scalar_t initTime,
-                                                                            scalar_t /*finalTime*/, const vector_t& initState) {
-                                             return calculator->commandedVelocityToTargetTrajectories(velocityTarget, initTime, initState);
-                                           })
-            .value();
-    initialState_ = initialStateOf(task, *modelSettings_);
+    motionManager_ = ProceduralMpcMotionManager::Create(
+                         gaitFile, referenceFile, referenceManager_, *model_,
+                         [calculator = calculator_.get()](const vector4_t& velocityTarget, scalar_t initTime, scalar_t /*finalTime*/,
+                                                          const vector_t& initState, const BasePlanarMotion& measuredMotion) {
+                           return calculator->commandedVelocityToTargetTrajectories(velocityTarget, initTime, initState, measuredMotion);
+                         })
+                         .value();
+    initialState_ = initialStateOf(task, *model_);
     // The robot stands on this ground, a little crouched, so that the measured base is not the commanded one.
     model_->adaptBasePoseHeight(initialState_, terrainHeight - kCrouch);
     // No pelvis height in the command: every target stands default_base_height above the ground. (The motion manager's
@@ -308,7 +314,7 @@ TEST(BaseHeightFollowsTerrainTest, aTerrainHeightRaisesTheWholeBaseReferenceByIt
   flat.cycle();
   raised.cycle();
   expectRaisedBy(raised.targetBaseHeights(), flat.targetBaseHeights(), kGround, "the reset target");
-  EXPECT_EQ(raised.targetBaseHeights().front(), raised.model().getBasePose(raised.initialState())(2));
+  EXPECT_EQ(raised.targetBaseHeights().front(), raised.model().getBasePosition(raised.initialState())(2));
 
   // Every target the motion manager publishes stands the commanded height above the ground.
   for (int i = 0; i < kSettlingCycles; ++i) {
@@ -318,7 +324,7 @@ TEST(BaseHeightFollowsTerrainTest, aTerrainHeightRaisesTheWholeBaseReferenceByIt
   }
   // Positive control: the published base reference is the commanded height, not the measured one, so the difference
   // above is not the measured state's.
-  EXPECT_NEAR(flat.targetBaseHeights().back() - flat.model().getBasePose(flat.initialState())(2), kCrouch, 1.0e-12);
+  EXPECT_NEAR(flat.targetBaseHeights().back() - flat.model().getBasePosition(flat.initialState())(2), kCrouch, 1.0e-12);
 
   // A hot reload of the ground moves the target in use once, and every target published after it stands on the new
   // ground; nothing is moved a second time in the cycles that follow.
@@ -424,8 +430,8 @@ TEST(BaseHeightFollowsTerrainTest, theContactPlannersCopyOfThePublishedTargetFol
   ASSERT_TRUE(created.ok()) << created.status();
   ContactPlanningReferenceManager& referenceManager = **created;
 
-  vector_t state = initialStateOf(task, modelSettings);
-  const scalar_t publishedHeight = model.getBasePose(state)(2);
+  vector_t state = initialStateOf(task, model);
+  const scalar_t publishedHeight = model.getBasePosition(state)(2);
   const vector_t zeroInput = vector_t::Zero(model.getInputDim());
   // The operator publishes once: a standing target that reaches past every horizon below.
   constexpr scalar_t kPublishedUntil = 3.0;

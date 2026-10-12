@@ -70,7 +70,8 @@ comment / string masker; use it rather than regular expressions over raw source.
 
 The modules: `argument_comments`, `include_style`, `boost_usage`, `american_spelling`, `proto_file_layout`,
 `proto_next_id`, `textproto_headers`, `yaml_usage`, `pointer_nullability`, `no_auto`, `cpp_google_style`, `cpp_totw`,
-`todo_format`, `inclusive_language`, `license_header`, `python_imports`, `python_docstrings` and `python_language`. `python3 -m tools.hooks.lint_code
+`todo_format`, `inclusive_language`, `license_header`, `python_imports`, `python_docstrings`, `python_language`, and
+the base orientation's `spherical_zyx`, `euler_boundary`, `state_interpolation` and `quaternion_scalar_constructor`. `python3 -m tools.hooks.lint_code
 --only <name>` runs one check; the names and descriptions are in each module's `CHECKS`.
 
 ## NOLINT markers

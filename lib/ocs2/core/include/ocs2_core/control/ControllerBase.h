@@ -57,28 +57,6 @@ class ControllerBase {
   virtual vector_t computeInput(scalar_t t, const vector_t& x) = 0;
 
   /**
-   * @brief Merges this controller with another controller that comes active later in time
-   * This method is typically used to merge controllers from multiple time partitions.
-   * Indices specifying a range of elements. Copies of the elements in the range [index, index_length) are inserted at the end.
-   *
-   * @note Only controllers of the same type can be merged.
-   *
-   * @param[in] otherController: The control law to be appended.
-   * @param[in] index: The starting index
-   * @param[in] length: The length of the copy.
-   */
-  virtual void concatenate(const ControllerBase* absl_nonnull otherController, int index, int length) = 0;
-
-  /**
-   * @brief Merges this controller with another controller that comes active later in time
-   * This method is typically used to merge controllers from multiple time partitions.
-   * @note Only controllers of the same type can be merged.
-   *
-   * @param[in] otherController: The control law to be appended.
-   */
-  void concatenate(const ControllerBase* absl_nonnull otherController) { concatenate(otherController, 0, otherController->size()); }
-
-  /**
    * @brief Returns the size of the controller.
    *
    * @return The size of the controller.
@@ -117,13 +95,7 @@ class ControllerBase {
   virtual void display() const {}
 
   /**
-   * @brief Gets the event times for which the controller is designed.
-   * @return The event times of the controller.
-   */
-  virtual scalar_array_t controllerEventTimes() const { return {}; }
-
-  /**
-   * Saves the controller at given time to an array of arrays structure for ROS transmission
+   * Saves the controller at given time to an array of arrays structure for transmission
    *
    * @param[in] timeArray array of query times
    * @param[out] flatArray2 The array of arrays that is to be filled, i.e., the compressed controller. One array per query time

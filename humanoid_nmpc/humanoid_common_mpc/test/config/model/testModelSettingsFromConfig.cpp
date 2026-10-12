@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/StateLayout.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/config/model/ModelSettingsFromConfig.h"
 #include "humanoid_mpc_config/model_settings_config.nproto.h"
@@ -177,7 +178,7 @@ TEST(ModelSettingsFromConfig, LoadsTheActiveJointsOfTheUrdf) {
   EXPECT_THAT(settings->mpcModelJointNames, ::testing::UnorderedElementsAre("shoulder", "hip"));
   EXPECT_EQ(settings->jointIndexMap.size(), 2U);
   EXPECT_FALSE(settings->hasArmSwingJoints) << "a file without arm_joint_names disables the arm swing";
-  EXPECT_EQ(settings->modelFolderCppAd, "cppad_code_gen/cppad_test_two_joints");
+  EXPECT_EQ(settings->modelFolderCppAd, absl::StrCat("cppad_code_gen/cppad_test_two_joints/", kStateLayoutTag));
   EXPECT_EQ(settings->phaseTransitionStanceTime, 0.25);
 }
 

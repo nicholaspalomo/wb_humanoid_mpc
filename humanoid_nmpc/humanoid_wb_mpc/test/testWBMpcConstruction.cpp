@@ -45,11 +45,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gtest/gtest.h"
 #include "ocs2_core/initialization/Initializer.h"
 #include "ocs2_core/model_data/ModelData.h"
-#include "ocs2_core/model_data/Multiplier.h"
 #include "ocs2_core/reference/TargetTrajectories.h"
 #include "ocs2_oc/approximate_model/LinearQuadraticApproximator.h"
 #include "ocs2_oc/oc_problem/OptimalControlProblem.h"
-#include "ocs2_oc/oc_problem/OptimalControlProblemHelperFunction.h"
 
 #include "humanoid_common_mpc/config/ConfigFiles.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
@@ -152,9 +150,7 @@ TEST(WBMpcConstructionTest, theShippedG1WholeBodyMpcIsConstructedAndItsProblemEv
 
   // One evaluation of everything the solver asks for at an intermediate node - the dynamics, every cost and soft
   // constraint, the equality constraints - and of the inequality constraints and the final cost beside it.
-  MultiplierCollection multipliers;
-  initializeIntermediateMultiplierCollection(problem, initTime, multipliers);
-  const ModelData intermediate = approximateIntermediateLQ(problem, initTime, initState, input, multipliers);
+  const ModelData intermediate = approximateIntermediateLQ(problem, initTime, initState, input);
   EXPECT_EQ(intermediate.dynamics.f.size(), initState.size());
   EXPECT_TRUE(intermediate.dynamics.f.allFinite()) << intermediate.dynamics.f.transpose();
   EXPECT_TRUE(intermediate.dynamics.dfdx.allFinite());
@@ -168,9 +164,7 @@ TEST(WBMpcConstructionTest, theShippedG1WholeBodyMpcIsConstructedAndItsProblemEv
       problem.inequalityConstraintPtr->getLinearApproximation(initTime, initState, input, *problem.preComputationPtr);
   EXPECT_TRUE(inequalities.f.allFinite());
 
-  MultiplierCollection finalMultipliers;
-  initializeFinalMultiplierCollection(problem, finalTime, finalMultipliers);
-  const ModelData terminal = approximateFinalLQ(problem, finalTime, initState, finalMultipliers);
+  const ModelData terminal = approximateFinalLQ(problem, finalTime, initState);
   EXPECT_TRUE(std::isfinite(terminal.cost.f));
   EXPECT_TRUE(terminal.cost.dfdx.allFinite());
 }

@@ -8,9 +8,9 @@ robot's `config/mpc/task.textproto`:
 | `dcm_terminal_cost` in `costs` | The horizon ends with a Divergent Component of Motion (capture point) viability cost, in place of the quadratic terminal cost `terminal_cost` on `final_state_weights`. The two are alternative ends of the horizon, and start-up refuses a list that names both. |
 | `contact_schedule_source: "contact_planner"` | The contact sequence, the switching times and the footholds are planned online on a reduced model by the contact planner `planner.type` in `contact_planning.textproto` selects - the closed-form H-LIP stepper (`hlip`, both shipped robots) or the mixed-integer program of section 2 (`lip_miqp`) - and replace the clock-driven gait schedule. `gait_schedule`, the default and what every robot ships, is that gait schedule with the nominal footholds. |
 
-Both replaced a top-level boolean, now the retired fields `use_dcm_terminal_cost` and `use_contact_planning` of the
-task file's schema. A task file that still carries either is refused when it is read, whatever its value, with a message
-that names the replacement, so that a stale file cannot silently run the other formulation. The whole-body MPC
+The task file's schema retires the top-level booleans `use_dcm_terminal_cost` and `use_contact_planning`: a task file
+that carries either is refused when it is read, whatever its value, with a message that names the replacement, so that a
+stale file cannot silently run the other formulation. The whole-body MPC
 implements neither and refuses both names.
 
 Both were added because a fixed, pre-scheduled contact sequence is the first bottleneck of a switched-system MPC: under
@@ -22,10 +22,16 @@ whole-body formulation by the term lists of `task.textproto`. Two further docume
 [arXiv:2502.15630](https://arxiv.org/abs/2502.15630) in this repository:
 
 * [hlip_contact_planner](hlip_contact_planner/README.md) — the closed-form H-LIP contact planner, which both shipped
-  robots select (`planner.type: "hlip"`; a file that names no planner gets `lip_miqp`, the library default) and which
-  replaces the mixed-integer planner described in section 2 below.
+  robots select (`planner.type: "hlip"`; a file that names no planner gets `lip_miqp`, the library default) in place of
+  the mixed-integer planner described in section 2 below.
 * [contact_implicit_mpc](contact_implicit_mpc/README.md) — the relaxed complementarity formulation of contact in the
   whole-body NMPC, which lets the solver depart from the planner's nominal contact sequence. Off by default.
+
+Another covers the code of the mixed-integer planner of section 2:
+
+* [contact_planner_terms](contact_planner_terms/README.md) — how the planner is assembled from named terms (the
+  problem, model blocks, costs, constraints, logic rules, search stages and execution rules), the code behind the file
+  layout of section 2.10.
 
 Another covers how the contact inputs themselves are parameterized, selected by name with
 `contact_input_parameterization` in `task.textproto`:
@@ -35,7 +41,7 @@ Another covers how the contact inputs themselves are parameterized, selected by 
   default): the conservative generator set that ships and the exact wrench-cone set, the full-diagonal and null-space
   regularizations of the input cost, the lambda >= 0 barrier that replaces the explicit cone, and how to select each.
 
-A fourth covers a feature that is not a formulation toggle but a reference-shaping layer over the ones that already
+Another covers a feature that is not a formulation toggle but a reference-shaping layer over the ones that already
 exist:
 
 * [locomotion_heuristics](locomotion_heuristics/README.md) — the ten regularization heuristics of Bledt's
@@ -50,12 +56,27 @@ One covers a simulation tool rather than the controller:
   aims it, the ball MuJoCo compiles into the scene, and how restitution is expressed in a simulator that has
   no restitution parameter. A directed, repeatable push test, selected with `sim_projectile` in `task.textproto`.
 
-And one covers what the controller does when the plant jumps:
+One covers what the controller does when the plant jumps:
 
 * [mpc_reset](mpc_reset/README.md) — the full reset of the MPC (solver, reference manager, gait schedule, contact
   planner, command ramps, the MRT's policy buffer), when the MRT joint controllers reset and hold the robot, how
   repeated solver failures back off, the gantry catch and settle sequence of the MuJoCo sims (`sim_max_base_tilt_angle`,
   `sim_gantry_catch_lift`), and the swing-foot yaw residual that was not differentiable at the reset pose.
+
+One covers how both MPCs represent the attitude of the floating base:
+
+* [quaternion_base_orientation](quaternion_base_orientation/README.md) — the base orientation as a unit quaternion in
+  the state of the centroidal and the whole-body MPC, solved on its state manifold by the vendored OCS2 SQP, with every
+  tuning hyperparameter still written in Euler angles (`base_orientation { yaw pitch roll }`) and mapped into the
+  quaternion formulation by one layer (`humanoid_common_mpc/orientation`). It derives the formulation, gives the state
+  layouts and the tuning map, lists the conversion points, the CppAD layout tag, the manifold policy on the bus and the
+  Euler display in Rerun, and what to watch in MuJoCo.
+
+And the last covers how the controller runs as processes:
+
+* [distributed_runtime](distributed_runtime/README.md) — the robot process, the MPC node and the operator tools as
+  processes on a ZeroMQ bus with Protocol Buffers messages: the realtime thread, the MPC link and its resets, the
+  visualization with Rerun, the launch files and the deployment of the robot side.
 
 ---
 
@@ -837,15 +858,12 @@ checked once, by `ContactPlanningConfig::validateStatus()`, whose messages name 
 `ContactPlanningReferenceManager::Create()` return that Status for an invalid configuration instead of building from it,
 as `ContactPlannerModule::setConfig()` does on a reload, keeping the running configuration.
 
-The flat layout of the previous planner (every key directly under `contact_planning`, `useAcomDynamics`,
-`enablePhaseResetting`, ... as booleans) is no longer read: its keys are not fields of the schema, and the parser
-refuses the first of them with a hint that says how to migrate the file (the `retired_layout_hint` of
-`ContactPlanningFile`: the flags became list entries, every weight a term block). The shipped DRC
-Atlas file (`robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.textproto`) is the structured layout
-with the values and the formulation of the previous planner. `testContactPlanningRegression.cpp` pins the assembled
-problems, the propagation of complete assignments and receding-horizon plans to fixtures under
-`test/data/contact_planning/`, and checks the propagation of the partial assignments the search reaches against the
-complete enumeration (section 2.3); the fixtures were recorded at the
-point where the term-assembled planner had been shown equivalent to the previous one; re-record them with
-`REGENERATE_CONTACT_PLANNING_FIXTURES` after an intended change of the formulation and review the diff.
-The refactor is described in [contact_planner_ocp_refactor/README.md](contact_planner_ocp_refactor/README.md).
+A file in a flat layout (planner keys such as `numNodes` or `useAcomDynamics` directly in the file) is refused at its
+first such key, with the hint of `ContactPlanningFile`'s `retired_layout_hint`: the flags are list entries, every weight
+a term block. The shipped DRC Atlas file
+(`robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.textproto`) shows the structured layout.
+`testContactPlanningRegression.cpp` pins the assembled problems, the propagation of complete assignments and
+receding-horizon plans to fixtures under `test/data/contact_planning/`, and checks the propagation of the partial
+assignments the search reaches against the complete enumeration (section 2.3); re-record the fixtures with
+`REGENERATE_CONTACT_PLANNING_FIXTURES` after an intended change of the formulation and review the diff. The code that
+assembles the planner from its terms is described in [contact_planner_terms/README.md](contact_planner_terms/README.md).

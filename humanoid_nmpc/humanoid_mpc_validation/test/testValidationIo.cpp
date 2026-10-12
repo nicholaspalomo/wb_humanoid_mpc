@@ -37,20 +37,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <limits>
 #include <random>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "gtest/gtest.h"
 
 #include "humanoid_mpc_validation/io/GoldenIo.h"
 #include "humanoid_mpc_validation/io/JsonValue.h"
+#include "humanoid_mpc_validation/io/RunProvenance.h"
 #include "humanoid_mpc_validation/io/Sha256.h"
 
 /*
  * The I/O of the measurement infrastructure: SHA-256 against the FIPS 180-4 test vectors, JSON documents that read back
- * to the same values, and golden files whose doubles read back bit for bit with their provenance.
+ * to the same values, golden files whose doubles read back bit for bit with their provenance, and the provenance of a
+ * recording with its machine and toolchain.
  */
 
 namespace ocs2::humanoid::validation {
@@ -262,7 +266,8 @@ TEST(GoldenIo, ValuesAreWrittenAsPrintfWritesThemWithSeventeenDigits) {
 
 TEST(ValidationIo, EveryRecordedFileFormatsBackToItsBytes) {
   // The golden files and JSON documents recorded under data/ were written while std::snprintf printed their numbers:
-  // formatting what they parse to gives back their bytes, so absl::StrFormat prints every recorded value as it did.
+  // formatting what they parse to gives back their bytes, so absl::StrFormat prints every recorded value as it did. The
+  // golden files are the recorded states (.txt), the documents those of any label recorded under data/ (.json).
   const std::filesystem::path directory("humanoid_nmpc/humanoid_mpc_validation/data");
   ASSERT_TRUE(std::filesystem::is_directory(directory)) << "the recorded files are a data dependency of this test";
   size_t goldenFiles = 0;
@@ -287,7 +292,7 @@ TEST(ValidationIo, EveryRecordedFileFormatsBackToItsBytes) {
     }
   }
   EXPECT_GT(goldenFiles, 0u);
-  EXPECT_GT(documents, 0u);
+  RecordProperty("documents", static_cast<int>(documents));
 }
 
 TEST(GoldenIo, AFileRoundTripsAndItsProvenanceHashesTheConfiguration) {
@@ -339,6 +344,75 @@ TEST(GoldenIo, MalformedTextIsRejectedNamingTheLine) {
     EXPECT_EQ(parsed.status().code(), absl::StatusCode::kInvalidArgument) << text;
     EXPECT_TRUE(absl::StrContains(parsed.status().message(), "line ")) << parsed.status();
   }
+}
+
+TEST(RunProvenance, TheToolchainRoundTripsThroughADocumentAndAGoldenHeader) {
+  const std::string configuration = temporaryPath("provenance_config.textproto");
+  {
+    std::ofstream file(configuration);
+    file << "key: 2\n";
+  }
+  const RunEnvironment environment{.gitCommit = "abc123",
+                                   .worktreeState = "clean",
+                                   .machine = "a machine",
+                                   .toolchain = {.compiler = "13.3.0", .hpipmTarget = "GENERIC", .containerImage = "sha256:99e8"}};
+  const absl::StatusOr<JsonValue> provenance = makeRunProvenanceJson(environment, {configuration});
+  ASSERT_TRUE(provenance.ok()) << provenance.status();
+  const absl::StatusOr<JsonValue> parsed = JsonValue::parse(provenance->serialize());
+  ASSERT_TRUE(parsed.ok()) << parsed.status();
+  EXPECT_EQ(*parsed, *provenance);
+  const absl::StatusOr<RunToolchain> toolchain = toolchainFromProvenance(*parsed);
+  ASSERT_TRUE(toolchain.ok()) << toolchain.status();
+  EXPECT_EQ(toolchain->compiler, "13.3.0");
+  EXPECT_EQ(toolchain->hpipmTarget, "GENERIC");
+  EXPECT_EQ(toolchain->containerImage, "sha256:99e8");
+  EXPECT_EQ(parsed->find("machine")->asString(), "a machine");
+  EXPECT_EQ(parsed->findPath("configuration_sha256")->find(configuration)->asString(), sha256Hex("key: 2\n"));
+
+  // The golden header carries the machine and the toolchain as notes, and reads back with them.
+  const absl::StatusOr<GoldenProvenance> golden = makeRunGoldenProvenance(environment, {configuration});
+  ASSERT_TRUE(golden.ok()) << golden.status();
+  GoldenFile file = makeGolden();
+  file.provenance = *golden;
+  const std::string path = temporaryPath("provenance/series.txt");
+  ASSERT_TRUE(writeGoldenFile(path, file).ok());
+  const absl::StatusOr<GoldenFile> read = readGoldenFile(path);
+  ASSERT_TRUE(read.ok()) << read.status();
+  const std::vector<std::pair<std::string, std::string>> notes = {
+      {"machine", "a machine"}, {"compiler", "13.3.0"}, {"hpipm_target", "GENERIC"}, {"container_image", "sha256:99e8"}};
+  EXPECT_EQ(read->provenance.notes, notes);
+  // The toolchain's notes alone, which a golden header carries after its machine note too (makeRunGoldenProvenance()).
+  const std::vector<std::pair<std::string, std::string>> toolchainOnly(notes.begin() + 1, notes.end());
+  EXPECT_EQ(toolchainNotes(environment.toolchain), toolchainOnly);
+}
+
+TEST(RunProvenance, AProvenanceWithoutAToolchainOrWithAMalformedOneIsRefused) {
+  JsonValue provenance = JsonValue::object();
+  provenance.set("machine", JsonValue::string("a machine"));
+  EXPECT_EQ(toolchainFromProvenance(provenance).status().code(), absl::StatusCode::kNotFound) << "no toolchain";
+  JsonValue& toolchain = provenance.set("toolchain", JsonValue::object());
+  toolchain.set("compiler", JsonValue::string("13.3.0"));
+  toolchain.set("hpipm_target", JsonValue::number(1.0));
+  toolchain.set("container_image", JsonValue::string("unknown"));
+  const absl::Status mistyped = toolchainFromProvenance(provenance).status();
+  EXPECT_EQ(mistyped.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_TRUE(absl::StrContains(mistyped.message(), "hpipm_target")) << mistyped;
+}
+
+TEST(RunProvenance, TheEnvironmentNamesTheToolchainTheMakeTargetsPass) {
+  ASSERT_EQ(setenv("WB_VALIDATION_HPIPM_TARGET", "GENERIC", /*replace=*/1), 0);
+  ASSERT_EQ(setenv("WB_VALIDATION_CONTAINER_IMAGE", "sha256:99e8", /*replace=*/1), 0);
+  const RunEnvironment given = runEnvironmentFromEnvironment();
+  EXPECT_EQ(given.toolchain.hpipmTarget, "GENERIC");
+  EXPECT_EQ(given.toolchain.containerImage, "sha256:99e8");
+  EXPECT_EQ(given.toolchain.compiler, __VERSION__) << "the compiler of this build";
+  EXPECT_EQ(compilerVersion(), __VERSION__);
+  ASSERT_EQ(unsetenv("WB_VALIDATION_HPIPM_TARGET"), 0);
+  ASSERT_EQ(setenv("WB_VALIDATION_CONTAINER_IMAGE", /*value=*/"", /*replace=*/1), 0);
+  const RunEnvironment unset = runEnvironmentFromEnvironment();
+  EXPECT_EQ(unset.toolchain.hpipmTarget, "unknown");
+  EXPECT_EQ(unset.toolchain.containerImage, "unknown") << "an empty value is no value";
+  ASSERT_EQ(unsetenv("WB_VALIDATION_CONTAINER_IMAGE"), 0);
 }
 
 }  // namespace

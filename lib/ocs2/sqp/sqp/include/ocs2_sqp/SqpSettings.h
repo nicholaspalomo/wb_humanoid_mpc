@@ -54,8 +54,7 @@ struct Settings {
   scalar_t gamma_c = 1e-6;       // (3): ELSE REQUIRE c{i+1} < (c{i} - gamma_c * g{i}) OR g{i+1} < (1-gamma_c) * g{i}
 
   // controller type
-  bool useFeedbackPolicy = true;     // true to use feedback, false to use feedforward
-  bool createValueFunction = false;  // true to store the value function, false to ignore it
+  bool useFeedbackPolicy = true;  // true to use feedback, false to use feedforward
 
   // QP subproblem solver settings
   hpipm_interface::Settings hpipmSettings = hpipm_interface::Settings();
@@ -64,12 +63,7 @@ struct Settings {
   scalar_t dt = 0.01;  // user-defined time discretization
   SensitivityIntegratorType integratorType = SensitivityIntegratorType::RK2;
 
-  // Inequality penalty relaxed barrier parameters
-  scalar_t inequalityConstraintMu = 0.0;
-  scalar_t inequalityConstraintDelta = 1e-6;
-
   bool projectStateInputEqualityConstraints = true;  // Use a projection method to resolve the state-input constraint Cx+Du+e
-  bool extractProjectionMultiplier = false;          // Extract the Lagrange multiplier of the projected state-input constraint Cx+Du+e
 
   // Printing
   bool printSolverStatus = false;      // Print HPIPM status after solving the QP subproblem

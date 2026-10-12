@@ -123,9 +123,6 @@ class ControlledSystemBase : public OdeBase {
    */
   vector_t computeJumpMap(scalar_t time, const vector_t& state) override final;
 
-  /** Get the pre-computation module */
-  const PreComputation& getPreComputation() const { return *preCompPtr_; }
-
  protected:
   /**
    * Copy constructor

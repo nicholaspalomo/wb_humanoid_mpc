@@ -41,8 +41,8 @@ namespace ocs2::humanoid {
 /**
  * Calls a function when a task file has been written since the last poll (its modification time changed), for the
  * communication thread to poll at the rate the file should be checked: the robot process re-reads the controller-side
- * settings of its task file (contact_estimator, contact_wrench_gate) at about 1 Hz, as the in-process MPC's parameter
- * updater does. The baseline is the file's time when its owner read it (or at construction), so an unchanged file never
+ * settings of its task file (contact_estimator, contact_wrench_gate) at about 1 Hz, as the MPC node's parameter updater
+ * does. The baseline is the file's time when its owner read it (or at construction), so an unchanged file never
  * calls and a file written after it was read always does. Not thread-safe: one polling thread.
  */
 class TaskFileWatcher {
